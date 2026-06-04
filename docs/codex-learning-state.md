@@ -171,6 +171,46 @@
 
 后续希望做到：用户对 Codex 说“开发并发版”，Codex 能通过 GitHub + SSH 或受控部署脚本完成发布，不再每一步都让用户转述给 Hermes。
 
+## 当前进度快照
+
+截至 2026-06-04 下班前，已完成：
+
+1. 本地项目上下文文档：
+   - `AGENTS.md`
+   - `docs/codex-learning-state.md`
+2. 本地 Go 服务骨架：
+   - module: `github.com/shalei-pm/erzhuang-project`
+   - `GET /health`
+   - `GET /api/tasks`
+   - `/health` 单元测试
+   - `/api/tasks` 单元测试
+3. 本地验证：
+   - `gofmt` 已通过
+   - `go test ./...` 已通过
+   - `go build -o bin/erzhuang-project ./cmd/server` 已通过
+   - 本地 `curl /health` 已通过
+   - 本地 `curl /api/tasks` 已通过
+4. Git 和 GitHub：
+   - 本地 Git 仓库已初始化，分支 `main`
+   - GitHub 仓库已创建：`git@github.com:shalei-pm/erzhuang-project.git`
+   - 本地 `main` 已推送到 `origin/main`
+   - 本机 GitHub SSH 已配置成功
+5. 安全边界：
+   - `.tools/`、`.cache/`、`bin/`、`.ssh/` 已加入 `.gitignore`
+   - 本机个人 SSH key 只用于开发机向 GitHub push
+   - 后续服务器拉取代码计划使用单独的 GitHub Deploy Key，不复用个人 SSH key
+
+明天继续的核心目标：
+
+1. 给 Lighthouse 服务器配置仓库级 read-only Deploy Key。
+2. 让服务器从 GitHub clone/pull `erzhuang-project`。
+3. 在服务器执行 `go test` 和 `go build`。
+4. 准备或更新 `erzhuang-project.service`。
+5. 用 `systemctl restart` 发布。
+6. 用 `curl /health` 验证。
+7. 记录第一次服务器发布。
+8. 再讨论如何设计受控部署脚本和回滚策略。
+
 ## 建议的本地 Go 项目初始化路线
 
 第一阶段：本地最小服务
@@ -248,9 +288,11 @@ record release
 - GitHub 仓库名：`erzhuang-project`
 - Go module 名：`github.com/shalei-pm/erzhuang-project`
 - 本地服务端口：默认 `127.0.0.1:18080`
-- 服务器部署目录：
-- 服务器服务名：
-- GitHub 访问方式：SSH key 或 HTTPS token
+- 服务器部署目录：建议 `/opt/apps/erzhuang-project`
+- 服务器服务名：建议 `erzhuang-project.service`
+- GitHub 访问方式：
+  - 本机 push：个人 GitHub SSH key，已成功
+  - 服务器 pull：待配置 GitHub Deploy Key，建议 read-only
 - 是否需要域名：
 - 是否需要 nginx 反向代理：
 
@@ -271,6 +313,53 @@ record release
     - `245e873 Initial Go service skeleton`
     - `cf99612 Document initial local verification`
     - `179f8a9 Ignore local SSH metadata`
+- 2026-06-04：记录 GitHub 推送学习状态。
+  - commit: `76b0400 Document GitHub push`
+
+## 明日待办
+
+1. 开始前先运行：
+
+```sh
+git status -sb
+git pull --ff-only
+```
+
+2. 服务器权限方案：
+   - 不使用腾讯云主账号。
+   - 不把个人 GitHub SSH 私钥复制到服务器。
+   - 在服务器生成专用于此仓库的 SSH key。
+   - 将服务器公钥添加到 GitHub 仓库 Deploy keys。
+   - Deploy Key 先只给 read-only 权限。
+
+3. 服务器拉取代码：
+   - 确认或创建部署目录：`/opt/apps/erzhuang-project`
+   - clone 或 pull：`git@github.com:shalei-pm/erzhuang-project.git`
+
+4. 服务器验证：
+   - `go version`
+   - `go test ./...`
+   - `go build -o erzhuang-project ./cmd/server`
+   - 本机服务器内 `curl http://127.0.0.1:18080/health`
+
+5. systemd 发布：
+   - 创建或更新 `erzhuang-project.service`
+   - `systemctl daemon-reload`
+   - `systemctl restart erzhuang-project.service`
+   - `systemctl status erzhuang-project.service`
+   - `journalctl -u erzhuang-project.service`
+
+6. 发布记录：
+   - 记录 commit hash
+   - 记录部署时间
+   - 记录构建命令
+   - 记录 systemd 状态
+   - 记录 `/health` 返回值
+
+7. 后续增强：
+   - 写 `docs/deploy-runbook.md`
+   - 写受控 `scripts/deploy.sh`
+   - 设计 rollback：回到指定 commit 或 tag 后重新构建并重启
 
 服务器旧 demo 记录：
 
