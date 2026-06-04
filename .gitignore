@@ -6,6 +6,7 @@ dist/
 # Project-local tools
 .tools/
 .cache/
+.ssh/
 
 # Local environment files
 .env
