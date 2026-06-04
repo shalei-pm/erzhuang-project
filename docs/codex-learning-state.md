@@ -263,6 +263,8 @@ record release
 - 2026-06-04：本地 Go 服务 v1 骨架验证通过。
   - `/health` 返回：`{"app":"erzhuang-project","status":"ok","version":"v1"}`
   - `/api/tasks` 返回 3 条练习任务。
+- 2026-06-04：完成第一次本地 Git 提交。
+  - commit: `245e873 Initial Go service skeleton`
 
 服务器旧 demo 记录：
 
