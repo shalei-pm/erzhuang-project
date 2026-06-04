@@ -1,0 +1,15 @@
+# Build outputs
+bin/
+dist/
+*.out
+
+# Project-local tools
+.tools/
+.cache/
+
+# Local environment files
+.env
+.env.*
+
+# macOS
+.DS_Store

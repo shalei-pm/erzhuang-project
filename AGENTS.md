@@ -1,0 +1,107 @@
+# AGENTS.md
+
+本项目是个人练习项目，用来学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证和回滚流程。
+
+## 用户背景
+
+- 用户是新氧青春的产品负责人，正在学习使用 Codex。
+- 因安全原因，当前阶段不接入公司开发环境。
+- 先在个人项目和个人腾讯云 Lighthouse 服务器上练熟开发、测试、部署、回滚流程，再考虑向研发申请公司环境权限。
+- 公司后端技术方向是 Go，因此本练习项目优先使用 Go 后端。
+
+## 协作偏好
+
+- 默认用中文沟通。
+- 逐步教学，不只给命令，也解释每一步在真实研发流程中对应什么。
+- 重要操作先解释风险，再给命令。
+- 可以动手实操，但每次操作后尽量给出验证方式。
+- 当前阶段不用过度保守，因为腾讯云轻量服务器可以专门供练习使用。
+- 不接触公司环境、公司密钥、公司代码。
+- 不直接建议使用云厂商主账号或高权限长期密钥。
+- 不把重要部署动作隐藏在“魔法脚本”里，除非用户已经理解脚本里的关键步骤。
+
+## 项目目标
+
+形成一条可重复的真实研发练习链路：
+
+1. 本地 Codex 开发 Go 项目。
+2. 使用 Git 管理代码版本。
+3. 推送到 GitHub。
+4. 服务器从 GitHub 拉取代码。
+5. 在服务器执行 `go test` 和 `go build`。
+6. 通过 `systemctl restart` 发布服务。
+7. 通过 `curl /health` 验证服务。
+8. 保留发布记录。
+9. 支持回滚。
+
+长期目标是：用户可以对 Codex 说“开发并发版”，Codex 能通过 GitHub + SSH 或受控部署脚本完成发布，而不需要用户手动转述每一步给 Hermes。
+
+## 当前服务器背景
+
+个人腾讯云 Lighthouse：
+
+- OS: Ubuntu 24.04.4 LTS
+- 机器名：`VM-0-12-ubuntu`
+- 资源：约 2GB 内存，50GB 磁盘
+- Git: `git 2.43.0`
+- Go: `go1.22.2 linux/amd64`
+- Docker: 未安装
+- UFW: inactive，安全主要依赖腾讯云控制台安全组/防火墙
+
+已有服务：
+
+- `nginx`: 443，active
+- `hermes-gateway.service`: Hermes Gateway，监听 `0.0.0.0:8644`
+- `feishu-poll-bot.service`: Feishu Poll Bot
+- `xray`: 本地代理 `127.0.0.1:10086`
+
+已有 Go demo 服务：
+
+- 路径：`/opt/apps/codex-demo`
+- systemd 服务：`codex-demo.service`
+- 监听：`127.0.0.1:18080`
+- 状态：active running
+- 开机自启：enabled
+- cgroup：`/system.slice/codex-demo.service`
+- `/health` 当前返回：`{"app":"codex-demo","status":"ok","version":"v1"}`
+
+重要学习点：
+
+- 第一次临时启动时，`codex-demo` 挂在 `hermes-gateway.service` 的 cgroup 下。
+- 改成 systemd 独立服务后，变成 `/system.slice/codex-demo.service`。
+- 结论：Hermes 适合做临时执行通道，正式服务应该交给 systemd 管理。
+
+## 开发原则
+
+- 本地优先：先在 `/Users/sylar/erzhuang-project` 里开发和测试。
+- 小步提交：每个可验证的小功能都适合形成一次 Git 提交。
+- 测试先行或同步补测试：尤其是 `/health` 这类发布验证接口。
+- 发布前必须跑：
+  - `go test ./...`
+  - `go build`
+- 发布后必须验证：
+  - `systemctl status`
+  - `curl http://127.0.0.1:<port>/health`
+- 每次发布和回滚，都在文档或发布记录中记录版本、时间、操作和验证结果。
+
+## 文件约定
+
+- `docs/codex-learning-state.md`: 记录学习进度、服务器状态、下一步计划、关键命令和发布记录。
+- 后续可新增：
+  - `README.md`: 项目说明和本地运行方式。
+  - `cmd/server/main.go`: Go 服务入口。
+  - `internal/...`: Go 内部业务代码。
+  - `scripts/deploy.sh`: 受控部署脚本，等用户理解手动流程后再引入。
+  - `docs/deploy-runbook.md`: 部署操作手册。
+
+## Codex 工作方式
+
+Codex 在本项目中应当：
+
+1. 先检查目录结构和现有文档。
+2. 说明将要做什么以及风险点。
+3. 修改代码或文档。
+4. 运行验证命令。
+5. 把重要学习状态同步到 `docs/codex-learning-state.md`。
+6. 最后用中文总结结果和下一步建议。
+
