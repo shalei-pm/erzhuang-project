@@ -40,8 +40,8 @@
   - `go build -o bin/erzhuang-project ./cmd/server`
   - 本地启动服务并验证 `/health`
   - 本地启动服务并验证 `/api/tasks`
+  - 已推送 `main` 分支到 GitHub：`git@github.com:shalei-pm/erzhuang-project.git`
 - 当前尚未创建：
-  - GitHub 远程仓库
   - 部署脚本
 - 当前本地限制：
   - 系统 PATH 暂时找不到全局 `go` 命令。
@@ -192,9 +192,9 @@
 
 第二阶段：GitHub
 
-1. 创建 GitHub 仓库。
-2. 添加远程仓库 `origin`。
-3. 推送 `main` 分支。
+1. 创建 GitHub 仓库。已完成。
+2. 添加远程仓库 `origin`。已完成。
+3. 推送 `main` 分支。已完成。
 4. 学习常用 Git 流程：
    - `git status`
    - `git add`
@@ -245,7 +245,7 @@ record release
 
 ## 待补充信息
 
-- GitHub 仓库名：建议 `erzhuang-project`
+- GitHub 仓库名：`erzhuang-project`
 - Go module 名：`github.com/shalei-pm/erzhuang-project`
 - 本地服务端口：默认 `127.0.0.1:18080`
 - 服务器部署目录：
@@ -265,6 +265,12 @@ record release
   - `/api/tasks` 返回 3 条练习任务。
 - 2026-06-04：完成第一次本地 Git 提交。
   - commit: `245e873 Initial Go service skeleton`
+- 2026-06-04：推送本地 `main` 分支到 GitHub。
+  - remote: `git@github.com:shalei-pm/erzhuang-project.git`
+  - pushed commits:
+    - `245e873 Initial Go service skeleton`
+    - `cf99612 Document initial local verification`
+    - `179f8a9 Ignore local SSH metadata`
 
 服务器旧 demo 记录：
 
