@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 )
@@ -11,9 +12,10 @@ const (
 )
 
 type HealthResponse struct {
-	App     string `json:"app"`
-	Status  string `json:"status"`
-	Version string `json:"version"`
+	App      string `json:"app"`
+	Status   string `json:"status"`
+	Version  string `json:"version"`
+	Database string `json:"database"`
 }
 
 type Task struct {
@@ -22,27 +24,54 @@ type Task struct {
 	Done  bool   `json:"done"`
 }
 
+type Store interface {
+	Name() string
+	Ping(ctx context.Context) error
+	ListTasks(ctx context.Context) ([]Task, error)
+}
+
+type Handler struct {
+	store Store
+}
+
 func NewHandler() http.Handler {
+	return NewHandlerWithStore(NewMemoryStore())
+}
+
+func NewHandlerWithStore(store Store) http.Handler {
+	handler := &Handler{store: store}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("GET /api/tasks", tasksHandler)
+	mux.HandleFunc("GET /health", handler.healthHandler)
+	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
 	return mux
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
+	status := "ok"
+	database := h.store.Name()
+	if err := h.store.Ping(r.Context()); err != nil {
+		status = "degraded"
+		database = "error"
+	}
+
 	writeJSON(w, http.StatusOK, HealthResponse{
-		App:     AppName,
-		Status:  "ok",
-		Version: Version,
+		App:      AppName,
+		Status:   status,
+		Version:  Version,
+		Database: database,
 	})
 }
 
-func tasksHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []Task{
-		{ID: 1, Title: "学习 Codex 本地开发", Done: true},
-		{ID: 2, Title: "用 Git 管理版本", Done: false},
-		{ID: 3, Title: "部署到腾讯云 Lighthouse", Done: false},
-	})
+func (h *Handler) tasksHandler(w http.ResponseWriter, r *http.Request) {
+	tasks, err := h.store.ListTasks(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "list tasks failed",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, tasks)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
