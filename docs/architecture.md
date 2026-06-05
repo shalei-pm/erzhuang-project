@@ -81,6 +81,28 @@ If a specialist thread hits a boundary question, it should report early instead 
 - any thread needing nginx, systemd, cloud, database secrets, OpenAI keys, or deploy script changes
 - uncertainty about whether to refactor shared architecture before implementing a feature
 
+## Branch Approval Delegation
+
+The main architecture thread owns routine technical approval for specialist branches.
+
+By default, the main thread may approve, request changes, merge, or reject specialist branch output without asking the user for every technical detail, as long as the work stays inside the agreed product scope and thread boundary.
+
+Approval checks should include:
+
+- product scope matches the assigned task
+- implementation stays in the specialist thread's allowed files
+- API contracts match the architecture documents
+- tests or builds relevant to the change pass
+- no secrets, cloud credentials, local-only files, build outputs, dependencies, or server config are committed
+- rollback or recovery path is understood when the change affects deployed behavior
+
+The main thread must ask the user before decisions that affect:
+
+- product scope or user-facing workflow tradeoffs
+- production-like deployment, rollback, nginx, systemd, Tencent Cloud, or database operations
+- credentials, paid cloud resources, external AI/API usage, or irreversible data actions
+- accepting a known major defect or skipping an important verification step
+
 ## Desired Operating Model
 
 The user manages the main Codex architecture thread.
