@@ -1,6 +1,6 @@
 # Codex Learning State
 
-最后更新：2026-06-04
+最后更新：2026-06-05
 
 ## 当前主题
 
@@ -41,6 +41,8 @@
   - 本地启动服务并验证 `/health`
   - 本地启动服务并验证 `/api/tasks`
   - 已推送 `main` 分支到 GitHub：`git@github.com:shalei-pm/erzhuang-project.git`
+  - Lighthouse 服务器已通过 GitHub Deploy Key 只读拉取代码
+  - Lighthouse 服务器已完成 `go test`、`go build`、systemd 启动、开机自启和 `/health` 验证
 - 当前尚未创建：
   - 部署脚本
 - 当前本地限制：
@@ -211,6 +213,53 @@
 7. 记录第一次服务器发布。
 8. 再讨论如何设计受控部署脚本和回滚策略。
 
+## 2026-06-05 服务器首次发布进度
+
+已完成：
+
+1. GitHub Deploy Key：
+   - 在 Lighthouse 服务器生成专用于本仓库的 SSH key。
+   - 将公钥添加到 GitHub 仓库 `shalei-pm/erzhuang-project` 的 Deploy keys。
+   - 权限策略：read-only，不允许写仓库。
+   - 验证结果：服务器可通过 Deploy Key 访问仓库。
+
+2. 服务器拉取代码：
+   - 部署目录：`/opt/apps/erzhuang-project`
+   - clone 仓库：`git@github.com:shalei-pm/erzhuang-project.git`
+   - 服务器当前 commit：`0f1699e Document next deployment steps`
+
+3. 服务器测试和构建：
+   - Go 版本：`go1.22.2 linux/amd64`
+   - `go test ./...` 通过
+   - `go build -o erzhuang-project ./cmd/server` 通过
+   - 构建产物：`/opt/apps/erzhuang-project/erzhuang-project`
+
+4. systemd 服务：
+   - 服务名：`erzhuang-project.service`
+   - service 文件：`/etc/systemd/system/erzhuang-project.service`
+   - 运行用户：`lighthouse`
+   - 工作目录：`/opt/apps/erzhuang-project`
+   - 启动命令：`/opt/apps/erzhuang-project/erzhuang-project`
+   - 环境变量：`ADDR=127.0.0.1:18081`
+   - 状态：active running
+   - 开机自启：enabled
+   - cgroup：`/system.slice/erzhuang-project.service`
+
+5. 健康检查：
+   - 验证命令：`curl -s http://127.0.0.1:18081/health`
+   - 返回：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v1"}
+```
+
+重要边界：
+
+- 新服务监听 `127.0.0.1:18081`，避免和旧 `codex-demo.service` 的 `127.0.0.1:18080` 冲突。
+- 本次没有修改 nginx。
+- 本次没有暴露公网端口。
+- 本次没有重启 Hermes、Feishu Poll Bot、xray 或旧 `codex-demo.service`。
+
 ## 建议的本地 Go 项目初始化路线
 
 第一阶段：本地最小服务
@@ -247,15 +296,16 @@
 
 第三阶段：服务器拉取和发布
 
-1. 在服务器准备部署目录，例如 `/opt/apps/erzhuang-project`。
-2. 从 GitHub clone 或 pull 代码。
-3. 在服务器运行：
+1. 在服务器准备部署目录，例如 `/opt/apps/erzhuang-project`。已完成。
+2. 从 GitHub clone 或 pull 代码。已完成。
+3. 在服务器运行。已完成：
    - `go test ./...`
-   - `go build -o erzhuang-project .`
-4. 配置或更新 systemd service。
-5. `systemctl restart`。
-6. `curl /health` 验证。
-7. 记录发布。
+   - `go build -o erzhuang-project ./cmd/server`
+4. 配置或更新 systemd service。已完成。
+5. `systemctl start`。已完成。
+6. `curl /health` 验证。已完成。
+7. `systemctl enable` 开机自启。已完成。
+8. 记录发布。已完成。
 
 第四阶段：受控部署脚本
 
@@ -288,17 +338,44 @@ record release
 - GitHub 仓库名：`erzhuang-project`
 - Go module 名：`github.com/shalei-pm/erzhuang-project`
 - 本地服务端口：默认 `127.0.0.1:18080`
-- 服务器部署目录：建议 `/opt/apps/erzhuang-project`
-- 服务器服务名：建议 `erzhuang-project.service`
+- 服务器部署目录：`/opt/apps/erzhuang-project`
+- 服务器服务名：`erzhuang-project.service`
+- 服务器监听地址：`127.0.0.1:18081`
 - GitHub 访问方式：
   - 本机 push：个人 GitHub SSH key，已成功
-  - 服务器 pull：待配置 GitHub Deploy Key，建议 read-only
+  - 服务器 pull：GitHub Deploy Key，read-only，已成功
 - 是否需要域名：
 - 是否需要 nginx 反向代理：
 
 ## 发布记录
 
-当前本地项目还没有发布记录。
+### 2026-06-05 首次 Lighthouse 发布
+
+- 发布目标：个人腾讯云 Lighthouse
+- 服务名：`erzhuang-project.service`
+- 部署目录：`/opt/apps/erzhuang-project`
+- 发布 commit：`0f1699e`
+- commit message：`Document next deployment steps`
+- Go 版本：`go1.22.2 linux/amd64`
+- 构建命令：`go build -o erzhuang-project ./cmd/server`
+- 测试命令：`go test ./...`
+- 监听地址：`127.0.0.1:18081`
+- systemd 状态：active running
+- 开机自启：enabled
+- cgroup：`/system.slice/erzhuang-project.service`
+- 健康检查：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v1"}
+```
+
+- 影响范围：
+  - 未修改 nginx
+  - 未开放公网端口
+  - 未影响 `codex-demo.service`
+  - 未影响 `hermes-gateway.service`
+  - 未影响 `feishu-poll-bot.service`
+  - 未影响 xray
 
 ## 本地验证记录
 
@@ -325,41 +402,12 @@ git status -sb
 git pull --ff-only
 ```
 
-2. 服务器权限方案：
-   - 不使用腾讯云主账号。
-   - 不把个人 GitHub SSH 私钥复制到服务器。
-   - 在服务器生成专用于此仓库的 SSH key。
-   - 将服务器公钥添加到 GitHub 仓库 Deploy keys。
-   - Deploy Key 先只给 read-only 权限。
-
-3. 服务器拉取代码：
-   - 确认或创建部署目录：`/opt/apps/erzhuang-project`
-   - clone 或 pull：`git@github.com:shalei-pm/erzhuang-project.git`
-
-4. 服务器验证：
-   - `go version`
-   - `go test ./...`
-   - `go build -o erzhuang-project ./cmd/server`
-   - 本机服务器内 `curl http://127.0.0.1:18080/health`
-
-5. systemd 发布：
-   - 创建或更新 `erzhuang-project.service`
-   - `systemctl daemon-reload`
-   - `systemctl restart erzhuang-project.service`
-   - `systemctl status erzhuang-project.service`
-   - `journalctl -u erzhuang-project.service`
-
-6. 发布记录：
-   - 记录 commit hash
-   - 记录部署时间
-   - 记录构建命令
-   - 记录 systemd 状态
-   - 记录 `/health` 返回值
-
-7. 后续增强：
+2. 后续增强：
    - 写 `docs/deploy-runbook.md`
    - 写受控 `scripts/deploy.sh`
    - 设计 rollback：回到指定 commit 或 tag 后重新构建并重启
+   - 练习一次从本地改代码到服务器发布 v2
+   - 练习一次从 v2 回滚到 v1
 
 服务器旧 demo 记录：
 
