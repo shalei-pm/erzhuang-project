@@ -172,3 +172,48 @@ codex/design-plan-frontend-phase2
 - 当前 mock adapter 使用前端内存数据，刷新页面会恢复默认示例数据；这是 Phase 2 骨架阶段预期行为。
 - `frontend/src/api.ts` 已保留接口路径和数据类型，后端 Phase 1 合并后，建议将 mock adapter 替换为真实 `fetch` 实现。
 - 后续做完整框编辑时，应补“画框模式”和“四角 resize handle”，并继续使用 0 到 1 的比例坐标，避免不同图片尺寸下坐标漂移。
+
+## Phase 2：接入后端 CRUD 混合 Adapter
+
+更新时间：2026-06-05
+
+分支：
+
+```text
+codex/design-plan-frontend-api-adapter
+```
+
+本阶段范围：
+
+- `frontend/src/api.ts` 已从纯 mock adapter 调整为混合 adapter。
+- 门店列表、详情、创建、更新、删除、重复检查优先请求真实后端 CRUD API。
+- PDF 上传、PDF 转图片、AI 识别接口后端尚未实现，仍保留 mock。
+- 默认真实 API base 为 `/erzhuang/api/design-plan`，用于匹配公网部署路径。
+- 支持环境变量覆盖：
+  - `VITE_DESIGN_PLAN_API_BASE`
+  - `VITE_DESIGN_PLAN_API_MODE=auto|mock|http`
+- 默认 `auto` 模式：后端不可用、接口未就绪或 5xx 时 fallback 到 mock，避免本地页面白屏。
+- `http` 模式：不 fallback，适合真实联调时暴露后端错误。
+- `mock` 模式：完全使用前端 mock，适合无后端环境演示。
+- `frontend/vite.config.ts` 已配置本地 proxy：`/erzhuang/api/*` 转发到 `http://127.0.0.1:18080/api/*`。
+
+字段映射：
+
+- 后端 `page_size`、`thumbnail_url`、`treatment_count`、`consultation_count`、`beauty_count`、`area_count`、`updated_at` 映射到前端 camelCase 类型。
+- 后端详情 `preview_url`、`thumbnail_url`、`areas[].needs_review`、`areas[].display_order`、`areas[].box` 映射到前端编辑器数据。
+- 保存时前端会生成后端 payload：`original_pdf_path`、`preview_image_path`、`thumbnail_path`、`page_count`、`areas[].display_order`、`areas[].needs_review`。
+
+验证记录：
+
+- 已验证：生产构建
+  - 命令：`PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-darwin-arm64/bin:$PATH npm run build`
+  - 结果：通过
+- 已验证：空白检查
+  - 命令：`git diff --check`
+  - 结果：通过
+
+风险和后续接入点：
+
+- 后端 Phase 1 的预览图/缩略图 URL 仍是预留接口，Phase 3 前端会把缺失或预留图片回退为测试图 PNG 显示。
+- `auto` 模式只兜底网络不可用、404 和 5xx；400 这类后端校验错误不会被 mock 吞掉。
+- 真实 PDF 上传和 AI 识别仍需后端 Phase 3/4 完成后再切换。

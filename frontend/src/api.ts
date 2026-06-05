@@ -72,10 +72,93 @@ export type SaveStorePayload = {
   areas: StoreArea[];
 };
 
-const API_BASE = "/api/design-plan";
+type ApiMode = "auto" | "http" | "mock";
+
+type BackendStoreListResponse = {
+  items: BackendStoreSummary[];
+  page: number;
+  page_size: number;
+  total: number;
+};
+
+type BackendStoreSummary = {
+  id: number;
+  name: string;
+  thumbnail_url?: string;
+  treatment_count: number;
+  consultation_count: number;
+  beauty_count: number;
+  area_count: number;
+  status: StoreStatus;
+  updated_at: string;
+};
+
+type BackendStoreDetail = {
+  id: number;
+  name: string;
+  original_pdf_path?: string;
+  preview_image_path?: string;
+  thumbnail_path?: string;
+  preview_url?: string;
+  thumbnail_url?: string;
+  page_count?: number;
+  status: StoreStatus;
+  areas?: BackendStoreArea[];
+  updated_at: string;
+};
+
+type BackendStoreArea = {
+  id?: number;
+  name: string;
+  type: AreaType;
+  number?: string | number | null;
+  confidence?: Confidence;
+  needs_review?: boolean;
+  box?: AreaBox;
+  display_order?: number;
+};
+
+type BackendStorePayload = {
+  name: string;
+  original_pdf_path: string;
+  preview_image_path: string;
+  thumbnail_path: string;
+  page_count: number;
+  status?: StoreStatus;
+  areas: BackendStoreArea[];
+};
+
+type BackendDuplicateMatch = {
+  id: number;
+  name: string;
+  reason?: string;
+};
+
+type DuplicateCheckResult = {
+  exactMatch: StoreSummary | null;
+  similarMatches: StoreSummary[];
+};
+
+class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+const DEFAULT_API_BASE = "/erzhuang/api/design-plan";
+const API_BASE = trimTrailingSlash(import.meta.env.VITE_DESIGN_PLAN_API_BASE || DEFAULT_API_BASE);
+const API_MODE = normalizeApiMode(import.meta.env.VITE_DESIGN_PLAN_API_MODE);
 const MOCK_PLAN_IMAGE = sampleStoreFloorPlanUrl;
+const MOCK_ORIGINAL_PDF_PATH = "mock/uploads/sample-store-floor-plan.pdf";
+const MOCK_PREVIEW_IMAGE_PATH = "mock/generated/sample-store-floor-plan.png";
+const MOCK_THUMBNAIL_PATH = "mock/generated/sample-store-floor-plan.png";
 const PAGE_SIZE = 20;
 
+let warnedFallback = false;
 let nextStoreId = 38;
 
 let mockStores: StoreDetail[] = [
@@ -112,15 +195,7 @@ let mockStores: StoreDetail[] = [
   }),
 ];
 
-export const designPlanApi = {
-  endpoints: {
-    base: API_BASE,
-    stores: `${API_BASE}/stores`,
-    uploads: `${API_BASE}/uploads`,
-    recognize: (uploadId: string) => `${API_BASE}/uploads/${uploadId}/recognize`,
-    checkDuplicate: `${API_BASE}/stores/check-duplicate`,
-  },
-
+const mockAdapter = {
   async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
     await delay(160);
     const normalizedQuery = normalizeName(query);
@@ -193,7 +268,7 @@ export const designPlanApi = {
     };
   },
 
-  async checkDuplicate(name: string, excludeStoreId?: number) {
+  async checkDuplicate(name: string, excludeStoreId?: number): Promise<DuplicateCheckResult> {
     await delay(120);
     const normalized = normalizeName(name);
     const exactMatch = mockStores.find(
@@ -233,6 +308,252 @@ export const designPlanApi = {
     mockStores = mockStores.filter((store) => store.id !== id);
   },
 };
+
+const httpAdapter = {
+  async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
+    const search = new URLSearchParams({
+      q: query,
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    const response = await requestJSON<BackendStoreListResponse>(`${API_BASE}/stores?${search.toString()}`);
+    return {
+      items: response.items.map(mapBackendSummary),
+      page: response.page,
+      pageSize: response.page_size,
+      total: response.total,
+    };
+  },
+
+  async getStore(id: number): Promise<StoreDetail> {
+    const response = await requestJSON<BackendStoreDetail>(`${API_BASE}/stores/${id}`);
+    return mapBackendDetail(response);
+  },
+
+  async checkDuplicate(name: string, excludeStoreId?: number): Promise<DuplicateCheckResult> {
+    const response = await requestJSON<{
+      exact_match: BackendDuplicateMatch | null;
+      similar_matches: BackendDuplicateMatch[] | null;
+    }>(`${API_BASE}/stores/check-duplicate`, {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        exclude_store_id: excludeStoreId,
+      }),
+    });
+
+    return {
+      exactMatch: response.exact_match ? duplicateMatchToSummary(response.exact_match) : null,
+      similarMatches: (response.similar_matches ?? []).map(duplicateMatchToSummary),
+    };
+  },
+
+  async saveStore(payload: SaveStorePayload): Promise<StoreDetail> {
+    const body = JSON.stringify(toBackendPayload(payload));
+    const response = await requestJSON<BackendStoreDetail>(payload.id ? `${API_BASE}/stores/${payload.id}` : `${API_BASE}/stores`, {
+      method: payload.id ? "PUT" : "POST",
+      body,
+    });
+    return mapBackendDetail(response);
+  },
+
+  async deleteStore(id: number): Promise<void> {
+    await requestJSON<void>(`${API_BASE}/stores/${id}`, { method: "DELETE" });
+  },
+};
+
+export const designPlanApi = {
+  endpoints: {
+    base: API_BASE,
+    stores: `${API_BASE}/stores`,
+    uploads: `${API_BASE}/uploads`,
+    recognize: (uploadId: string) => `${API_BASE}/uploads/${uploadId}/recognize`,
+    checkDuplicate: `${API_BASE}/stores/check-duplicate`,
+  },
+
+  async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
+    return withFallback(() => httpAdapter.listStores(query, page, pageSize), () => mockAdapter.listStores(query, page, pageSize));
+  },
+
+  async getStore(id: number): Promise<StoreDetail> {
+    return withFallback(() => httpAdapter.getStore(id), () => mockAdapter.getStore(id));
+  },
+
+  async uploadPdf(fileName = "mock-design-plan.pdf"): Promise<UploadResult> {
+    return mockAdapter.uploadPdf(fileName);
+  },
+
+  async recognizeUpload(uploadId: string): Promise<RecognitionResult> {
+    return mockAdapter.recognizeUpload(uploadId);
+  },
+
+  async checkDuplicate(name: string, excludeStoreId?: number): Promise<DuplicateCheckResult> {
+    return withFallback(
+      () => httpAdapter.checkDuplicate(name, excludeStoreId),
+      () => mockAdapter.checkDuplicate(name, excludeStoreId),
+    );
+  },
+
+  async saveStore(payload: SaveStorePayload): Promise<StoreDetail> {
+    return withFallback(() => httpAdapter.saveStore(payload), () => mockAdapter.saveStore(payload));
+  },
+
+  async deleteStore(id: number): Promise<void> {
+    return withFallback(() => httpAdapter.deleteStore(id), () => mockAdapter.deleteStore(id));
+  },
+};
+
+async function withFallback<T>(httpCall: () => Promise<T>, mockCall: () => Promise<T>): Promise<T> {
+  if (API_MODE === "mock") {
+    return mockCall();
+  }
+
+  try {
+    return await httpCall();
+  } catch (error) {
+    if (API_MODE === "http") {
+      throw error;
+    }
+    if (!shouldFallback(error)) {
+      throw error;
+    }
+    warnFallback(error);
+    return mockCall();
+  }
+}
+
+async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...options.headers,
+    },
+    ...options,
+  });
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  const data = contentType.includes("application/json") ? await response.json() : await response.text();
+
+  if (!response.ok) {
+    const message = typeof data === "object" && data && "message" in data ? String(data.message) : `HTTP ${response.status}`;
+    throw new ApiError(response.status, message);
+  }
+
+  return data as T;
+}
+
+function mapBackendSummary(item: BackendStoreSummary): StoreSummary {
+  return {
+    id: item.id,
+    name: item.name,
+    thumbnailUrl: toDisplayImageUrl(item.thumbnail_url),
+    treatmentCount: item.treatment_count,
+    consultationCount: item.consultation_count,
+    beautyCount: item.beauty_count,
+    areaCount: item.area_count,
+    status: item.status,
+    updatedAt: item.updated_at,
+  };
+}
+
+function mapBackendDetail(store: BackendStoreDetail): StoreDetail {
+  const areas = (store.areas ?? [])
+    .slice()
+    .sort((left, right) => (left.display_order ?? 0) - (right.display_order ?? 0))
+    .map(mapBackendArea);
+  const counts = countAreas(areas);
+
+  return {
+    id: store.id,
+    name: store.name,
+    fileName: store.original_pdf_path || MOCK_ORIGINAL_PDF_PATH,
+    thumbnailUrl: toDisplayImageUrl(store.thumbnail_url || store.thumbnail_path),
+    previewUrl: toDisplayImageUrl(store.preview_url || store.preview_image_path),
+    treatmentCount: counts.treatment,
+    consultationCount: counts.consultation,
+    beautyCount: counts.beauty,
+    areaCount: areas.length,
+    status: store.status,
+    updatedAt: store.updated_at,
+    areas,
+  };
+}
+
+function mapBackendArea(areaItem: BackendStoreArea): StoreArea {
+  const confidence = areaItem.confidence || "high";
+  return {
+    id: areaItem.id ? String(areaItem.id) : `area-${areaItem.display_order ?? Date.now()}`,
+    name: areaItem.name,
+    type: areaItem.type,
+    number: areaItem.number == null ? "" : String(areaItem.number),
+    confidence,
+    needsReview: Boolean(areaItem.needs_review) || confidence === "low",
+    box: areaItem.box ?? null,
+  };
+}
+
+function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
+  return {
+    id: match.id,
+    name: match.name,
+    thumbnailUrl: MOCK_PLAN_IMAGE,
+    treatmentCount: 0,
+    consultationCount: 0,
+    beautyCount: 0,
+    areaCount: 0,
+    status: "needs_review",
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function toBackendPayload(payload: SaveStorePayload): BackendStorePayload {
+  return {
+    name: payload.name,
+    original_pdf_path: payload.fileName || MOCK_ORIGINAL_PDF_PATH,
+    preview_image_path: toStoredPath(payload.previewUrl, MOCK_PREVIEW_IMAGE_PATH),
+    thumbnail_path: toStoredPath(payload.thumbnailUrl, MOCK_THUMBNAIL_PATH),
+    page_count: 1,
+    areas: payload.areas.map((areaItem, index) => ({
+      id: numericId(areaItem.id),
+      name: areaItem.name,
+      type: areaItem.type as AreaType,
+      number: areaItem.number || undefined,
+      confidence: areaItem.confidence || "high",
+      needs_review: areaItem.needsReview || areaItem.confidence === "low",
+      box: areaItem.box ?? undefined,
+      display_order: index + 1,
+    })),
+  };
+}
+
+function toDisplayImageUrl(value?: string) {
+  if (!value || value.startsWith("mock/")) {
+    return MOCK_PLAN_IMAGE;
+  }
+  if (value.startsWith("/api/")) {
+    return `/erzhuang${value}`;
+  }
+  return value;
+}
+
+function toStoredPath(value: string, fallback: string) {
+  if (!value || value === MOCK_PLAN_IMAGE || value.startsWith("data:") || value.startsWith("blob:")) {
+    return fallback;
+  }
+  return value;
+}
+
+function numericId(value: string) {
+  if (!/^\d+$/.test(value)) {
+    return undefined;
+  }
+  return Number(value);
+}
 
 function createMockStore(id: number, name: string, status: StoreStatus, areas: StoreArea[]): StoreDetail {
   const now = new Date(Date.now() - id * 18 * 60 * 60 * 1000).toISOString();
@@ -312,8 +633,19 @@ function toSummary(store: StoreDetail): StoreSummary {
   return { ...summary };
 }
 
+function normalizeApiMode(value: string | undefined): ApiMode {
+  if (value === "http" || value === "mock") {
+    return value;
+  }
+  return "auto";
+}
+
 function normalizeName(value: string) {
   return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, "");
 }
 
 function clone<T>(value: T): T {
@@ -322,4 +654,19 @@ function clone<T>(value: T): T {
 
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function warnFallback(error: unknown) {
+  if (warnedFallback) {
+    return;
+  }
+  warnedFallback = true;
+  console.info("[designPlanApi] backend unavailable, falling back to mock adapter", error);
+}
+
+function shouldFallback(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.status === 404 || error.status >= 500;
+  }
+  return true;
 }

@@ -81,7 +81,7 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
 
 ### `frontend/src/api.ts`
 
-负责前端数据类型、接口路径约定和 mock adapter。
+负责前端数据类型、接口路径约定、后端字段映射和混合 adapter。
 
 - 类型：
   - `AreaType`
@@ -101,7 +101,17 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - `designPlanApi.saveStore`
   - `designPlanApi.deleteStore`
 
-后续切真实后端时，优先改这里，不要先改页面。
+当前 adapter 规则：
+
+- 默认 API base：`/erzhuang/api/design-plan`。
+- 可通过 `VITE_DESIGN_PLAN_API_BASE` 覆盖。
+- 可通过 `VITE_DESIGN_PLAN_API_MODE=auto|mock|http` 控制模式。
+- `auto`：真实 CRUD 优先，后端不可用、接口未就绪或 5xx 时 fallback 到 mock。
+- `mock`：全量使用前端 mock。
+- `http`：强制真实后端，不 fallback。
+- 上传和识别仍是 mock，等待 Phase 3/4 后端接口。
+
+后续 API 行为调整优先改这里，不要先改页面。
 
 ### `frontend/src/styles.css`
 
