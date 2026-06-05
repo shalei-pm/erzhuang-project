@@ -6,6 +6,8 @@
 
 本项目当前数据库方案采用 Supabase PostgreSQL。
 
+当前状态：已完成服务器接入和公网验证。
+
 原因：
 
 - 适合个人练习项目，创建快，运维负担低。
@@ -55,17 +57,16 @@ Supabase 支持 Direct connection 和 Pooler connection。
 
 第一阶段：只做连接验证。
 
-1. 新增数据库配置读取逻辑。
-2. 新增 `GET /health` 中的数据库状态字段，或新增 `GET /health/db`。
-3. 本地通过环境变量验证连接。
-4. 服务器通过 systemd 环境变量验证连接。
+1. 已新增数据库配置读取逻辑：`DATABASE_URL`。
+2. 已新增 `GET /health` 中的数据库状态字段：`database`。
+3. 已通过服务器 systemd 环境变量验证连接。
 
 第二阶段：把 `/api/tasks` 从内存假数据改成数据库读取。
 
-1. 建表：`tasks`
-2. 写入少量练习数据。
-3. 后端查询数据库返回任务列表。
-4. 增加单元测试或集成测试。
+1. 已建表：`tasks`。
+2. 已写入少量练习数据。
+3. 已将后端查询数据库返回任务列表。
+4. 已保留内存 store，方便本地无数据库时开发和测试。
 
 第三阶段：引入迁移机制。
 
@@ -90,6 +91,42 @@ Supabase 支持 Direct connection 和 Pooler connection。
 - 不要把这些信息发给前端专项会话。
 - 不要提交到仓库。
 - 如果需要我配置服务器，我会在操作前确认目标服务器和具体动作。
+
+## 当前服务器配置
+
+服务器通过 systemd 环境文件读取数据库连接串：
+
+```text
+/etc/erzhuang-project.env
+```
+
+文件权限：
+
+```text
+root root 600
+```
+
+systemd service 中配置：
+
+```text
+EnvironmentFile=/etc/erzhuang-project.env
+```
+
+该文件不进入 GitHub。
+
+## 验证结果
+
+公网健康检查：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}
+```
+
+公网任务接口已返回 4 条数据库任务，其中包括：
+
+```json
+{"id":4,"title":"接入 Supabase PostgreSQL","done":false}
+```
 
 ## 当前不采用的方案
 

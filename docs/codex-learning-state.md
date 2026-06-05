@@ -635,6 +635,48 @@ record release
 
 ## 发布记录
 
+### 2026-06-05 Supabase PostgreSQL 接入发布
+
+- 发布目标：个人腾讯云 Lighthouse 韩国实例
+- 实例：`ap-seoul / lhins-rjfpwj1u`
+- 部署目录：`/opt/apps/erzhuang-project`
+- 发布 commit：`186cf5d`
+- commit message：`Make deploy health retry robust`
+- 数据库：Supabase PostgreSQL Shared Pooler
+- 数据库配置方式：
+  - systemd `EnvironmentFile=/etc/erzhuang-project.env`
+  - 文件权限：`root root 600`
+  - 未将连接串写入 GitHub
+- 代码变化：
+  - 新增 `Store` 接口
+  - 新增 memory store
+  - 新增 PostgreSQL store
+  - `/api/tasks` 支持从 PostgreSQL 读取
+  - `/health` 增加 `database` 字段
+  - 自动创建 `tasks` 表并写入练习种子数据
+  - 部署脚本健康检查增加重试，适配数据库冷启动时间
+- 服务器验证：
+  - `go test ./...` 通过
+  - `go build -o erzhuang-project ./cmd/server` 通过
+  - `npm install` 通过，0 个已知漏洞
+  - `npm run build` 通过
+  - `erzhuang-project.service` active running
+- 公网健康检查：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}
+```
+
+- 公网任务接口：
+  - `https://43.155.237.46/erzhuang/api/tasks`
+  - 返回 4 条数据库任务
+  - 包含 `接入 Supabase PostgreSQL`
+- 过程备注：
+  - 首次数据库发布时，服务冷启动需要约 2 秒连接数据库和初始化 schema。
+  - 原部署脚本重启后立刻 `curl`，导致误判失败。
+  - 已修复为最多 15 次健康检查重试。
+  - 真实服务已成功启动并连接 PostgreSQL。
+
 ### 2026-06-05 前端公网入口发布
 
 - 发布目标：个人腾讯云 Lighthouse 韩国实例
