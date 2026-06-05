@@ -49,7 +49,17 @@ sudo systemctl restart "${SERVICE_NAME}"
 sudo systemctl status "${SERVICE_NAME}" --no-pager
 
 echo "==> Checking health"
-curl -fsS "${HEALTH_URL}"
+for attempt in {1..15}; do
+  if curl -fsS "${HEALTH_URL}"; then
+    break
+  fi
+  if [[ "${attempt}" == "15" ]]; then
+    echo "health check failed after ${attempt} attempts" >&2
+    exit 1
+  fi
+  echo "health check attempt ${attempt} failed; retrying..."
+  sleep 1
+done
 echo
 
 echo "==> Deploy complete"
