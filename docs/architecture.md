@@ -78,3 +78,18 @@ The design plan marker project should use the same hub-and-spoke model:
 - Frontend specialist thread owns React UI, store list, editor modal, floor-plan annotation interactions, and frontend verification.
 
 Specialist threads must not use cloud credentials, database secrets, OpenAI API keys, Tencent Cloud API/TAT, nginx, systemd, or deployment scripts unless explicitly assigned by the main thread.
+
+Planned specialist threads:
+
+- Backend Phase 1:
+  - scope: Go data model, PostgreSQL schema, CRUD APIs, validation, duplicate checking, operation logs
+  - branch: `codex/design-plan-backend-phase1`
+  - thread: `019e978c-9e0d-7f53-b48a-75679af9369b`
+  - worktree: `/Users/sylar/.codex/worktrees/e6f9/erzhuang-project`
+  - status: active
+- Frontend Phase 2:
+  - scope: React page, store list, editor modal, area cards, floor-plan annotation UI, mock/API adapter
+  - branch: `codex/design-plan-frontend-phase2`
+  - thread: `019e978c-f41f-78d0-a5db-6b940b928c3f`
+  - worktree: `/Users/sylar/.codex/worktrees/34e2/erzhuang-project`
+  - status: active
