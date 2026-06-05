@@ -336,6 +336,33 @@ GIT_SSH_COMMAND='ssh -i ~/.ssh/erzhuang_project_deploy_key -o IdentitiesOnly=yes
 - detached HEAD 适合临时验证和紧急回滚，但长期流程应通过 tag、release 记录或受控脚本管理。
 - 本次回滚没有修改 nginx、没有开放公网端口、没有影响 Hermes、Feishu Poll Bot、xray 或旧 `codex-demo.service`。
 
+## 2026-06-05 服务器恢复 main 分支
+
+回滚完成后，服务器曾处于 detached HEAD。已执行：
+
+1. 使用 Deploy Key 执行 `git fetch origin`。
+2. `git switch main`。
+3. 使用 Deploy Key 执行 `git pull --ff-only`。
+
+结果：
+
+- 服务器 Git 工作区已恢复到 `main`。
+- 服务器 `main` 已同步到 `origin/main`。
+- 当前服务器工作区 HEAD：`87318ca Record v2 rollback exercise`。
+- 运行中的服务仍返回：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v1"}
+```
+
+重要学习点：
+
+- Git 工作区代码和正在运行的二进制是两回事。
+- 服务器工作区已经是最新 `main`，其中代码包含 v2。
+- 但没有重新执行 `go build` 和 `systemctl restart`，所以运行中的服务仍是之前回滚构建出的 v1。
+- 服务器 `git status` 出现 `?? erzhuang-project`，这是在项目根目录构建出的二进制文件。
+- 已在本地 `.gitignore` 增加 `/erzhuang-project`，后续服务器 pull 后该构建产物不应再显示为未跟踪文件。
+
 ## 建议的本地 Go 项目初始化路线
 
 第一阶段：本地最小服务
@@ -535,7 +562,7 @@ git pull --ff-only
    - 写 `docs/deploy-runbook.md`
    - 写受控 `scripts/deploy.sh`
    - 设计 rollback：回到指定 commit 或 tag 后重新构建并重启
-   - 让服务器从 detached HEAD 恢复到 `main`
+   - 在服务器 pull 最新 `.gitignore`，确认 `?? erzhuang-project` 消失
    - 给 v1/v2 创建 tag，练习基于 tag 的发布和回滚
 
 服务器旧 demo 记录：

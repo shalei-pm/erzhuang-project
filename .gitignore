@@ -2,6 +2,7 @@
 bin/
 dist/
 *.out
+/erzhuang-project
 
 # Project-local tools
 .tools/
