@@ -43,6 +43,12 @@ npm run build
 
 - `GET /health`
 - `GET /api/tasks`
+- `GET /api/design-plan/stores?q=&page=1&page_size=20`
+- `GET /api/design-plan/stores/{id}`
+- `POST /api/design-plan/stores`
+- `PUT /api/design-plan/stores/{id}`
+- `DELETE /api/design-plan/stores/{id}`
+- `POST /api/design-plan/stores/check-duplicate`
 
 ## 前端
 

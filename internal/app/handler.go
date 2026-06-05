@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+
+	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 )
 
 const (
@@ -35,14 +37,19 @@ type Handler struct {
 }
 
 func NewHandler() http.Handler {
-	return NewHandlerWithStore(NewMemoryStore())
+	return NewHandlerWithStores(NewMemoryStore(), designplan.NewMemoryStore())
 }
 
 func NewHandlerWithStore(store Store) http.Handler {
+	return NewHandlerWithStores(store, designplan.NewMemoryStore())
+}
+
+func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository) http.Handler {
 	handler := &Handler{store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
+	designplan.RegisterRoutes(mux, designplan.NewService(designPlanRepo))
 	return mux
 }
 
