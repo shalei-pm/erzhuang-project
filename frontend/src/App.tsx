@@ -1,30 +1,751 @@
-const checks = [
-  "Vite + React + TypeScript 已接入",
-  "生产构建输出到 frontend/dist",
-  "后续可由 nginx /erzhuang/ 或 Go 静态文件服务承载",
-];
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type AreaBox,
+  type AreaType,
+  designPlanApi,
+  type StoreArea,
+  type StoreStatus,
+  type StoreSummary,
+} from "./api";
+
+const PAGE_SIZE = 20;
+
+const areaTypeLabels: Record<AreaType, string> = {
+  treatment: "治疗室",
+  consultation: "面诊室",
+  beauty: "生美",
+};
+
+const statusLabels: Record<StoreStatus, string> = {
+  completed: "已完成",
+  needs_review: "需确认",
+  incomplete: "待完善",
+};
+
+type EditorMode = "create" | "edit";
+type UploadStage = "initial" | "converting" | "recognizing" | "ready" | "failed";
+type DragState = {
+  areaId: string;
+  startX: number;
+  startY: number;
+  origin: AreaBox;
+};
+type ValidationResult = {
+  fieldErrors: string[];
+  areaErrors: Record<string, string[]>;
+};
+type EditorState = {
+  id?: number;
+  mode: EditorMode;
+  storeName: string;
+  fileName: string;
+  uploadId?: string;
+  previewUrl: string;
+  thumbnailUrl: string;
+  uploadStage: UploadStage;
+  areas: StoreArea[];
+  selectedAreaId: string | null;
+  dirty: boolean;
+};
+
+const emptyValidation: ValidationResult = { fieldErrors: [], areaErrors: {} };
 
 function App() {
+  const [stores, setStores] = useState<StoreSummary[]>([]);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [validation, setValidation] = useState<ValidationResult>(emptyValidation);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState("");
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const planRef = useRef<HTMLDivElement | null>(null);
+
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const firstIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastIndex = Math.min(total, page * PAGE_SIZE);
+
+  useEffect(() => {
+    void loadStores();
+  }, [page, query]);
+
+  useEffect(() => {
+    if (!editor) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeEditor();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editor]);
+
+  useEffect(() => {
+    if (!dragState) return;
+
+    const onPointerMove = (event: PointerEvent) => {
+      const rect = planRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const dx = (event.clientX - dragState.startX) / rect.width;
+      const dy = (event.clientY - dragState.startY) / rect.height;
+      updateArea(dragState.areaId, {
+        box: clampBox({
+          ...dragState.origin,
+          x: dragState.origin.x + dx,
+          y: dragState.origin.y + dy,
+        }),
+      });
+    };
+
+    const onPointerUp = () => setDragState(null);
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+  }, [dragState]);
+
+  async function loadStores() {
+    setLoading(true);
+    const response = await designPlanApi.listStores(query, page, PAGE_SIZE);
+    setStores(response.items);
+    setTotal(response.total);
+    setLoading(false);
+  }
+
+  function handleSearch(value: string) {
+    setQuery(value);
+    setPage(1);
+  }
+
+  function openCreateEditor() {
+    setValidation(emptyValidation);
+    setEditor({
+      mode: "create",
+      storeName: "",
+      fileName: "",
+      previewUrl: "",
+      thumbnailUrl: "",
+      uploadStage: "initial",
+      areas: [],
+      selectedAreaId: null,
+      dirty: false,
+    });
+  }
+
+  async function openEditEditor(storeId: number) {
+    const detail = await designPlanApi.getStore(storeId);
+    setValidation(emptyValidation);
+    setEditor({
+      id: detail.id,
+      mode: "edit",
+      storeName: detail.name,
+      fileName: detail.fileName,
+      previewUrl: detail.previewUrl,
+      thumbnailUrl: detail.thumbnailUrl,
+      uploadStage: "ready",
+      areas: detail.areas,
+      selectedAreaId: detail.areas[0]?.id ?? null,
+      dirty: false,
+    });
+  }
+
+  function closeEditor() {
+    if (!editor) return;
+    if (editor.dirty && !window.confirm("有未保存修改，确认离开？")) {
+      return;
+    }
+    setEditor(null);
+    setValidation(emptyValidation);
+  }
+
+  async function mockUploadAndRecognize(shouldFail = false) {
+    if (!editor) return;
+    setValidation(emptyValidation);
+    setEditor((current) =>
+      current
+        ? {
+            ...current,
+            uploadStage: "converting",
+            fileName: "mock-floor-plan.pdf",
+            dirty: true,
+          }
+        : current,
+    );
+
+    const upload = await designPlanApi.uploadPdf("mock-floor-plan.pdf");
+    setEditor((current) =>
+      current
+        ? {
+            ...current,
+            uploadStage: "recognizing",
+            uploadId: upload.uploadId,
+            fileName: upload.fileName,
+            previewUrl: upload.previewUrl,
+            thumbnailUrl: upload.thumbnailUrl,
+            dirty: true,
+          }
+        : current,
+    );
+
+    if (shouldFail) {
+      window.setTimeout(() => {
+        setEditor((current) =>
+          current
+            ? {
+                ...current,
+                uploadStage: "failed",
+                areas: [],
+                selectedAreaId: null,
+              }
+            : current,
+        );
+      }, 420);
+      return;
+    }
+
+    const recognition = await designPlanApi.recognizeUpload(upload.uploadId);
+    setEditor((current) =>
+      current
+        ? {
+            ...current,
+            uploadStage: "ready",
+            storeName: current.storeName || recognition.storeName,
+            areas: recognition.areas,
+            selectedAreaId: recognition.areas[0]?.id ?? null,
+            dirty: true,
+          }
+        : current,
+    );
+  }
+
+  function updateEditor(patch: Partial<EditorState>) {
+    setEditor((current) => (current ? { ...current, ...patch, dirty: true } : current));
+  }
+
+  function updateArea(areaId: string, patch: Partial<StoreArea>) {
+    setEditor((current) =>
+      current
+        ? {
+            ...current,
+            areas: current.areas.map((item) => (item.id === areaId ? { ...item, ...patch } : item)),
+            dirty: true,
+          }
+        : current,
+    );
+  }
+
+  function addArea() {
+    if (!editor) return;
+    const newArea: StoreArea = {
+      id: `manual-${Date.now()}`,
+      name: "",
+      type: "",
+      number: "",
+      confidence: "high",
+      needsReview: false,
+      box: {
+        x: 0.42,
+        y: 0.4,
+        width: 0.16,
+        height: 0.12,
+      },
+    };
+    setEditor({
+      ...editor,
+      areas: [...editor.areas, newArea],
+      selectedAreaId: newArea.id,
+      dirty: true,
+    });
+  }
+
+  function deleteArea(areaId: string) {
+    if (!editor) return;
+    const nextAreas = editor.areas.filter((item) => item.id !== areaId);
+    setEditor({
+      ...editor,
+      areas: nextAreas,
+      selectedAreaId: editor.selectedAreaId === areaId ? (nextAreas[0]?.id ?? null) : editor.selectedAreaId,
+      dirty: true,
+    });
+  }
+
+  function moveArea(areaId: string, direction: -1 | 1) {
+    if (!editor) return;
+    const index = editor.areas.findIndex((item) => item.id === areaId);
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= editor.areas.length) return;
+    const nextAreas = [...editor.areas];
+    const [item] = nextAreas.splice(index, 1);
+    nextAreas.splice(targetIndex, 0, item);
+    updateEditor({ areas: nextAreas });
+  }
+
+  async function saveEditor() {
+    if (!editor) return;
+    const result = validateEditor(editor);
+    setValidation(result);
+    const invalidCount = Object.keys(result.areaErrors).length;
+
+    if (result.fieldErrors.length > 0 || invalidCount > 0) {
+      setToast(invalidCount > 0 ? `还有 ${invalidCount} 个区域未完善。` : result.fieldErrors[0]);
+      return;
+    }
+
+    setSaving(true);
+    const duplicate = await designPlanApi.checkDuplicate(editor.storeName, editor.id);
+    if (duplicate.exactMatch && !window.confirm("系统检测到已存在同名门店。继续保存将覆盖该门店当前设计图和区域信息，覆盖后不可恢复。是否继续？")) {
+      setSaving(false);
+      return;
+    }
+
+    await designPlanApi.saveStore({
+      id: editor.id,
+      name: editor.storeName,
+      fileName: editor.fileName,
+      previewUrl: editor.previewUrl,
+      thumbnailUrl: editor.thumbnailUrl || editor.previewUrl,
+      uploadId: editor.uploadId,
+      areas: editor.areas,
+    });
+    setSaving(false);
+    setEditor(null);
+    setToast("保存成功，门店列表已刷新。");
+    await loadStores();
+  }
+
+  async function deleteStore(store: StoreSummary) {
+    if (!window.confirm("删除后无法恢复，是否确认删除该门店？")) return;
+    await designPlanApi.deleteStore(store.id);
+    setToast(`已删除：${store.name}`);
+    await loadStores();
+  }
+
+  const selectedArea = useMemo(
+    () => editor?.areas.find((item) => item.id === editor.selectedAreaId) ?? null,
+    [editor],
+  );
+
   return (
     <main className="app-shell">
-      <section className="intro">
-        <p className="eyebrow">erzhuang-project</p>
-        <h1>前端工程基础已就位</h1>
-        <p className="summary">
-          当前页面用于验证本地开发服务器和生产构建流程，暂不接入真实业务和服务器配置。
-        </p>
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Design Plan Marker</p>
+          <h1>设计图标记与诊室区域管理</h1>
+        </div>
+        <button className="primary-button" onClick={openCreateEditor}>
+          <span aria-hidden="true">+</span>
+          添加门店
+        </button>
+      </header>
+
+      <section className="toolbar" aria-label="门店筛选">
+        <label className="search-field">
+          <span aria-hidden="true">⌕</span>
+          <input
+            value={query}
+            onChange={(event) => handleSearch(event.target.value)}
+            placeholder="搜索门店名称"
+            aria-label="搜索门店名称"
+          />
+        </label>
+        <div className="toolbar-meta">
+          共 {total} 家门店
+          {total > 0 ? `，当前 ${firstIndex}-${lastIndex}` : ""}
+        </div>
       </section>
 
-      <section className="status-panel" aria-label="前端工程状态">
-        {checks.map((item) => (
-          <div className="status-row" key={item}>
-            <span className="status-dot" aria-hidden="true" />
-            <span>{item}</span>
-          </div>
-        ))}
+      {toast ? (
+        <div className="toast" role="status">
+          {toast}
+          <button onClick={() => setToast("")} aria-label="关闭提示">
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      <section className="table-frame" aria-label="门店列表">
+        <table>
+          <thead>
+            <tr>
+              <th>序号</th>
+              <th>门店名称</th>
+              <th>缩略图</th>
+              <th>治疗室</th>
+              <th>面诊室</th>
+              <th>生美</th>
+              <th>区域总数</th>
+              <th>配置状态</th>
+              <th>更新时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={10} className="empty-cell">
+                  正在加载门店列表
+                </td>
+              </tr>
+            ) : stores.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="empty-cell">
+                  <div className="empty-state">
+                    <div className="empty-illustration" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                    <strong>暂无门店设计图</strong>
+                    <p>添加门店后，可在这里查看图纸、区域数量和配置状态。</p>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              stores.map((store, index) => (
+                <tr key={store.id}>
+                  <td>{(page - 1) * PAGE_SIZE + index + 1}</td>
+                  <td className="store-name">{store.name}</td>
+                  <td>
+                    <div className="thumb-preview">
+                      <img src={store.thumbnailUrl} alt={`${store.name} 缩略图`} />
+                      <div className="thumb-popover" role="presentation">
+                        <img src={store.thumbnailUrl} alt="" />
+                      </div>
+                    </div>
+                  </td>
+                  <td>{store.treatmentCount}</td>
+                  <td>{store.consultationCount}</td>
+                  <td>{store.beautyCount}</td>
+                  <td>{store.areaCount}</td>
+                  <td>
+                    <span className={`status-pill status-${store.status}`}>{statusLabels[store.status]}</span>
+                  </td>
+                  <td>{formatDateTime(store.updatedAt)}</td>
+                  <td>
+                    <div className="row-actions">
+                      <button onClick={() => void openEditEditor(store.id)}>编辑</button>
+                      <button className="danger-link" onClick={() => void deleteStore(store)}>
+                        删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </section>
+
+      <nav className="pagination" aria-label="分页">
+        <button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+          上一页
+        </button>
+        <span>
+          第 {page} / {pageCount} 页
+        </span>
+        <button disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
+          下一页
+        </button>
+      </nav>
+
+      {editor ? (
+        <section className="editor-overlay" aria-label={editor.mode === "create" ? "添加门店" : "编辑门店"}>
+          <div className="editor-topbar">
+            <label className="store-input">
+              <span>门店名称</span>
+              <input
+                value={editor.storeName}
+                onChange={(event) => updateEditor({ storeName: event.target.value })}
+                placeholder="请输入门店名称"
+              />
+            </label>
+            <div className="file-zone">
+              <span className="file-name">{editor.fileName || "尚未上传 PDF"}</span>
+              <button onClick={() => void mockUploadAndRecognize(false)}>
+                {editor.previewUrl ? "重新上传 PDF" : "上传 PDF"}
+              </button>
+              <button className="plain-button" onClick={() => void mockUploadAndRecognize(true)}>
+                模拟识别失败
+              </button>
+            </div>
+            <div className="topbar-actions">
+              <button onClick={closeEditor}>取消</button>
+              <button className="primary-button" disabled={editor.uploadStage === "recognizing" || saving} onClick={() => void saveEditor()}>
+                {saving ? "保存中" : "保存"}
+              </button>
+            </div>
+          </div>
+
+          {(validation.fieldErrors.length > 0 || toast) && (
+            <div className="editor-alert" role="alert">
+              {validation.fieldErrors[0] || toast}
+            </div>
+          )}
+
+          <div className="editor-body">
+            <div className="plan-pane">
+              <div className="plan-toolbar">
+                <div>
+                  <strong>图纸预览</strong>
+                  <span>{stageText(editor.uploadStage)}</span>
+                </div>
+                <div className="view-actions" aria-label="图纸查看工具">
+                  <button>−</button>
+                  <button>适应</button>
+                  <button>+</button>
+                </div>
+              </div>
+
+              <div className={`plan-canvas stage-${editor.uploadStage}`}>
+                {editor.previewUrl ? (
+                  <div className="plan-image-wrap" ref={planRef}>
+                    <img src={editor.previewUrl} alt="设计图预览" draggable={false} />
+                    {editor.areas.map((areaItem) =>
+                      areaItem.box ? (
+                        <button
+                          key={areaItem.id}
+                          className={`area-box area-${areaItem.type || "unknown"} ${
+                            areaItem.id === editor.selectedAreaId ? "is-selected" : ""
+                          }`}
+                          style={boxStyle(areaItem.box)}
+                          onClick={() => updateEditor({ selectedAreaId: areaItem.id })}
+                          onPointerDown={(event) => {
+                            if (!areaItem.box) return;
+                            event.preventDefault();
+                            updateEditor({ selectedAreaId: areaItem.id });
+                            setDragState({
+                              areaId: areaItem.id,
+                              startX: event.clientX,
+                              startY: event.clientY,
+                              origin: areaItem.box,
+                            });
+                          }}
+                        >
+                          <span>{areaLabel(areaItem)}</span>
+                        </button>
+                      ) : null,
+                    )}
+                    {editor.uploadStage === "recognizing" ? <div className="scan-line" aria-hidden="true" /> : null}
+                  </div>
+                ) : (
+                  <div className="upload-placeholder">
+                    <strong>等待上传设计图 PDF</strong>
+                    <p>Phase 2 使用 mock 图纸，真实 PDF 转图片会在后续阶段接入。</p>
+                    <button className="primary-button" onClick={() => void mockUploadAndRecognize(false)}>
+                      上传 PDF
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <aside className="area-pane">
+              <div className="area-pane-header">
+                <div>
+                  <strong>区域卡片</strong>
+                  <span>{editor.areas.length} 个区域</span>
+                </div>
+                <button onClick={addArea}>新增区域</button>
+              </div>
+
+              {editor.uploadStage === "recognizing" ? (
+                <div className="recognizing-panel">
+                  <span />
+                  <span />
+                  <span />
+                  <p>正在识别门店与区域</p>
+                </div>
+              ) : editor.uploadStage === "failed" && editor.areas.length === 0 ? (
+                <div className="manual-panel">
+                  <strong>识别失败，可手动维护</strong>
+                  <p>请填写门店名称，新增区域并调整左侧高亮框后保存。</p>
+                </div>
+              ) : null}
+
+              <div className="area-list">
+                {editor.areas.map((areaItem, index) => {
+                  const errors = validation.areaErrors[areaItem.id] ?? [];
+                  return (
+                    <article
+                      className={`area-card ${areaItem.id === selectedArea?.id ? "is-active" : ""} ${
+                        errors.length > 0 ? "has-error" : ""
+                      }`}
+                      key={areaItem.id}
+                      onClick={() => updateEditor({ selectedAreaId: areaItem.id })}
+                    >
+                      <div className="area-card-head">
+                        <span className={`type-dot area-${areaItem.type || "unknown"}`} aria-hidden="true" />
+                        <strong>区域 {index + 1}</strong>
+                        {areaItem.needsReview ? <span className="review-tag">需确认</span> : null}
+                      </div>
+                      <div className="area-form-grid">
+                        <label>
+                          区域名称
+                          <input
+                            value={areaItem.name}
+                            onChange={(event) => updateArea(areaItem.id, { name: event.target.value })}
+                            placeholder="例：治疗室 1"
+                          />
+                        </label>
+                        <label>
+                          区域类型
+                          <select
+                            value={areaItem.type}
+                            onChange={(event) => updateArea(areaItem.id, { type: event.target.value as AreaType | "" })}
+                          >
+                            <option value="">请选择</option>
+                            <option value="treatment">治疗室</option>
+                            <option value="consultation">面诊室</option>
+                            <option value="beauty">生美</option>
+                          </select>
+                        </label>
+                        <label>
+                          编号
+                          <input
+                            value={areaItem.number}
+                            onChange={(event) => updateArea(areaItem.id, { number: event.target.value })}
+                            inputMode="numeric"
+                            placeholder={areaItem.type === "beauty" ? "可选" : "必填"}
+                          />
+                        </label>
+                        <label>
+                          状态
+                          <select
+                            value={areaItem.needsReview ? "needs_review" : "complete"}
+                            onChange={(event) =>
+                              updateArea(areaItem.id, {
+                                needsReview: event.target.value === "needs_review",
+                                confidence: event.target.value === "needs_review" ? "low" : "high",
+                              })
+                            }
+                          >
+                            <option value="complete">完整</option>
+                            <option value="needs_review">需确认</option>
+                          </select>
+                        </label>
+                      </div>
+                      {errors.length > 0 ? <p className="area-error">{errors.join("；")}</p> : null}
+                      <div className="area-card-actions">
+                        <button disabled={index === 0} onClick={() => moveArea(areaItem.id, -1)}>
+                          上移
+                        </button>
+                        <button disabled={index === editor.areas.length - 1} onClick={() => moveArea(areaItem.id, 1)}>
+                          下移
+                        </button>
+                        <button className="danger-link" onClick={() => deleteArea(areaItem.id)}>
+                          删除
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </aside>
+          </div>
+        </section>
+      ) : null}
     </main>
   );
+}
+
+function validateEditor(editor: EditorState): ValidationResult {
+  const fieldErrors: string[] = [];
+  const areaErrors: Record<string, string[]> = {};
+  const seenNumbers = new Map<string, string>();
+
+  if (!editor.storeName.trim()) {
+    fieldErrors.push("门店名称不能为空");
+  }
+  if (!editor.previewUrl || editor.uploadStage === "initial" || editor.uploadStage === "converting") {
+    fieldErrors.push("必须已上传并成功转换 PDF");
+  }
+  if (editor.areas.length < 1) {
+    fieldErrors.push("至少需要 1 个区域");
+  }
+
+  editor.areas.forEach((areaItem) => {
+    const errors: string[] = [];
+    if (!areaItem.name.trim()) errors.push("区域名称不能为空");
+    if (!areaItem.type) errors.push("区域类型不能为空");
+    if (!areaItem.box) errors.push("高亮框不能为空");
+    if ((areaItem.type === "treatment" || areaItem.type === "consultation") && !areaItem.number.trim()) {
+      errors.push(areaItem.type === "treatment" ? "治疗室编号不能为空" : "面诊室编号不能为空");
+    }
+    if (areaItem.number.trim() && !/^\d+$/.test(areaItem.number.trim())) {
+      errors.push("编号只能填写数字");
+    }
+    if (areaItem.type && areaItem.number.trim() && /^\d+$/.test(areaItem.number.trim())) {
+      const key = `${areaItem.type}:${Number(areaItem.number)}`;
+      if (seenNumbers.has(key)) {
+        errors.push("同类型下编号不能重复");
+        const firstAreaId = seenNumbers.get(key);
+        if (firstAreaId) {
+          areaErrors[firstAreaId] = [...(areaErrors[firstAreaId] ?? []), "同类型下编号不能重复"];
+        }
+      } else {
+        seenNumbers.set(key, areaItem.id);
+      }
+    }
+    if (errors.length > 0) {
+      areaErrors[areaItem.id] = [...(areaErrors[areaItem.id] ?? []), ...errors];
+    }
+  });
+
+  return { fieldErrors, areaErrors };
+}
+
+function boxStyle(box: AreaBox) {
+  return {
+    left: `${box.x * 100}%`,
+    top: `${box.y * 100}%`,
+    width: `${box.width * 100}%`,
+    height: `${box.height * 100}%`,
+  };
+}
+
+function clampBox(box: AreaBox): AreaBox {
+  const width = Math.min(0.8, Math.max(0.04, box.width));
+  const height = Math.min(0.8, Math.max(0.04, box.height));
+  return {
+    width,
+    height,
+    x: Math.min(1 - width, Math.max(0, box.x)),
+    y: Math.min(1 - height, Math.max(0, box.y)),
+  };
+}
+
+function areaLabel(area: StoreArea) {
+  if (!area.type) return "未分类";
+  if (area.type === "beauty") return area.number ? `${areaTypeLabels[area.type]} ${area.number}` : areaTypeLabels[area.type];
+  return `${areaTypeLabels[area.type]} ${area.number || ""}`.trim();
+}
+
+function stageText(stage: UploadStage) {
+  const stageMap: Record<UploadStage, string> = {
+    initial: "初始",
+    converting: "转换中",
+    recognizing: "识别中",
+    ready: "编辑确认",
+    failed: "识别失败，可手动维护",
+  };
+  return stageMap[stage];
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 export default App;
