@@ -67,7 +67,8 @@ The main thread remains accountable for:
 - Frontend setup thread:
   - branch: `frontend-setup`
   - scope: create `frontend/` with Vite + React + TypeScript
-  - status: active
+  - status: completed and standby
+  - note: this thread is retired from business feature work; current frontend product work is assigned to Frontend Phase 2.
 
 ## Design Plan Marker Project
 
@@ -93,3 +94,4 @@ Planned specialist threads:
   - thread: `019e978c-f41f-78d0-a5db-6b940b928c3f`
   - worktree: `/Users/sylar/.codex/worktrees/34e2/erzhuang-project`
   - status: active
+  - mock fixture: `testdata/design-plans/generated/sample-store-floor-plan.png`

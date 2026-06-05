@@ -12,16 +12,22 @@
 - 状态：已形成 PRD 草稿和技术方案草稿。
 - 文档：`docs/design-plan-marker-prd.md`。
 - 技术方案：`docs/design-plan-marker-tech-plan.md`。
-- 暂未开始代码实现。
+- 已进入代码实现拆分阶段。
 - 已安排两个专项会话：
   - 后端 Phase 1：数据模型、schema、CRUD API、校验、重复检查、操作日志。
   - 前端 Phase 2：后台风格 UI、门店列表、编辑弹窗、区域卡片、图纸标注交互骨架。
+- 旧前端技术栈会话仅负责 Vite + React + TypeScript 工程初始化，已完成并待命，不再承接当前业务功能。
 - 后端专项会话：
   - thread: `019e978c-9e0d-7f53-b48a-75679af9369b`
   - worktree: `/Users/sylar/.codex/worktrees/e6f9/erzhuang-project`
 - 前端专项会话：
   - thread: `019e978c-f41f-78d0-a5db-6b940b928c3f`
   - worktree: `/Users/sylar/.codex/worktrees/34e2/erzhuang-project`
+- 测试样例：
+  - `testdata/design-plans/sample-store-floor-plan.pdf`
+  - `testdata/design-plans/generated/sample-store-floor-plan.png`
+  - 用途：前端 mock 图纸预览、后续 PDF 转图片和 AI 识别联调。
+  - 状态：用户确认该数据不敏感，已提交到 GitHub。
 
 ## 协作模式
 
