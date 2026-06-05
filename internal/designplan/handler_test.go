@@ -156,6 +156,16 @@ func TestHandlerReturnsEmptyArrays(t *testing.T) {
 	}
 }
 
+func TestDuplicateCheckResultEncodesEmptySimilarMatchesAsArray(t *testing.T) {
+	data, err := json.Marshal(DuplicateCheckResult{SimilarMatches: []DuplicateMatch{}})
+	if err != nil {
+		t.Fatalf("marshal duplicate result: %v", err)
+	}
+	if !bytes.Contains(data, []byte(`"similar_matches":[]`)) {
+		t.Fatalf("expected similar_matches to encode as [], got %s", data)
+	}
+}
+
 func TestHandlerRejectsExactDuplicateStoreName(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, NewService(NewMemoryStore()))

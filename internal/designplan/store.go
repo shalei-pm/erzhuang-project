@@ -447,7 +447,7 @@ func (s *PostgresStore) CheckDuplicate(ctx context.Context, name string, exclude
 	}
 	defer rows.Close()
 
-	var result DuplicateCheckResult
+	result := DuplicateCheckResult{SimilarMatches: []DuplicateMatch{}}
 	for rows.Next() {
 		var match DuplicateMatch
 		if err := rows.Scan(&match.ID, &match.Name, &match.NormalizedName); err != nil {
@@ -484,7 +484,7 @@ func (s *PostgresStore) listAreas(ctx context.Context, storeID int64) ([]Area, e
 	}
 	defer rows.Close()
 
-	var areas []Area
+	areas := []Area{}
 	for rows.Next() {
 		var area Area
 		var number sql.NullInt64
