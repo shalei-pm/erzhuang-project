@@ -7,7 +7,7 @@ import (
 
 const (
 	AppName = "erzhuang-project"
-	Version = "v1"
+	Version = "v2"
 )
 
 type HealthResponse struct {

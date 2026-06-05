@@ -8,6 +8,8 @@ import (
 )
 
 func TestHealth(t *testing.T) {
+	const wantVersion = "v2"
+
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	recorder := httptest.NewRecorder()
 
@@ -28,8 +30,8 @@ func TestHealth(t *testing.T) {
 	if response.Status != "ok" {
 		t.Fatalf("expected status ok, got %q", response.Status)
 	}
-	if response.Version != Version {
-		t.Fatalf("expected version %q, got %q", Version, response.Version)
+	if response.Version != wantVersion {
+		t.Fatalf("expected version %q, got %q", wantVersion, response.Version)
 	}
 }
 
