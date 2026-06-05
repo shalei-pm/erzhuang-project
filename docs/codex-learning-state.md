@@ -841,6 +841,101 @@ record release
 - 2026-06-04：记录 GitHub 推送学习状态。
   - commit: `76b0400 Document GitHub push`
 
+## 2026-06-05 设计图管理线上发布
+
+发布目标：
+
+- 腾讯云 Lighthouse 韩国实例：`ap-seoul / lhins-rjfpwj1u`
+- 公网入口：`https://43.155.237.46/erzhuang/`
+- systemd 服务：`erzhuang-project.service`
+- 部署目录：`/opt/apps/erzhuang-project`
+
+本次发布内容：
+
+- 后端 Phase 1：设计图门店和区域 CRUD API。
+- 前端 Phase 2：设计图标记后台页面骨架。
+- 前端 API adapter：真实后端 CRUD 优先，上传/识别继续 mock。
+- 契约修复：
+  - `e571d6c Return empty arrays for design plan responses`
+  - `6fa5562 Return empty arrays for duplicate checks`
+
+最终线上运行 commit：
+
+```text
+6fa5562 Return empty arrays for duplicate checks
+```
+
+发布方式：
+
+```sh
+python3 tools/tat_run.py --region ap-seoul --instance-id lhins-rjfpwj1u --timeout 600 --username lighthouse "cd /opt/apps/erzhuang-project && ./scripts/deploy.sh"
+```
+
+服务器发布脚本完成：
+
+- `git fetch origin`
+- `git switch -C main origin/main`
+- `go test ./...`
+- `go build -o erzhuang-project ./cmd/server`
+- `npm install`
+- `npm run build`
+- `sudo systemctl restart erzhuang-project.service`
+- `curl -fsS http://127.0.0.1:18081/health`
+
+服务器验证结果：
+
+- Linux `go test ./...` 通过。
+- Go build 通过。
+- 前端 Vite build 通过。
+- systemd 状态：active running。
+- 健康检查返回：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}
+```
+
+公网最终验收：
+
+```sh
+curl -k https://43.155.237.46/erzhuang/health
+curl -k https://43.155.237.46/erzhuang/
+curl -k 'https://43.155.237.46/erzhuang/api/design-plan/stores?page=1&page_size=2'
+curl -k -X POST https://43.155.237.46/erzhuang/api/design-plan/stores/check-duplicate \
+  -H 'Content-Type: application/json' \
+  --data '{"name":"测试门店"}'
+```
+
+验收结果：
+
+- `/erzhuang/health`：HTTP 200，数据库 `postgres`。
+- `/erzhuang/`：HTTP 200，返回前端 HTML。
+- `/erzhuang/api/design-plan/stores?page=1&page_size=2`：HTTP 200。
+
+```json
+{"items":[],"page":1,"page_size":2,"total":0}
+```
+
+- `/erzhuang/api/design-plan/stores/check-duplicate`：HTTP 200。
+
+```json
+{"exact_match":null,"similar_matches":[]}
+```
+
+过程问题和学习点：
+
+- 第一次用 TAT 默认 `root` 用户执行发布脚本时失败：
+  - Git 报错：`fatal: detected dubious ownership in repository at '/opt/apps/erzhuang-project'`
+  - 原因：仓库属于 `lighthouse` 用户，root 操作该仓库会触发 Git safe.directory 检查。
+  - 处理：改用 TAT 的 `--username lighthouse` 执行发布脚本。
+- 发布后先发现 `/erzhuang/api/design-plan/stores` 从 404 变成 200，但空列表返回 `items:null`。
+  - 这会导致前端真实 adapter 对 `items.map` 出错。
+  - 已修复为空数组 `items: []`。
+- 随后发现重复检查接口空结果返回 `similar_matches:null`。
+  - 已修复为空数组 `similar_matches: []`。
+- 本地 Mac 的项目内 Go 工具仍有 `dyld missing LC_UUID` 问题，导致本机无法运行 `go test` 和编译出的 Go 二进制。
+  - 本机可用 `go build` 做编译验证。
+  - 完整 `go test ./...` 以 Lighthouse Linux 发布脚本结果为准。
+
 ## 明日待办
 
 1. 开始前先运行：
