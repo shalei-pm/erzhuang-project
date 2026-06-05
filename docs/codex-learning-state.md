@@ -46,6 +46,7 @@
   - 已完成从 v1 到 v2 的服务器发布练习
   - 已完成从 v2 回滚到 v1 的服务器回滚练习
   - 已验证 `scripts/deploy.sh` 可以一键发布当前 `main`
+  - 已验证 `scripts/rollback.sh <commit-or-tag>` 可以一键回滚
 - 当前待验证：
   - 部署脚本已创建，待服务器 pull 后验证
 - 当前本地限制：
@@ -396,6 +397,39 @@ GIT_SSH_COMMAND='ssh -i ~/.ssh/erzhuang_project_deploy_key -o IdentitiesOnly=yes
 - 脚本内部封装了 Deploy Key，不需要每次手写 `GIT_SSH_COMMAND`。
 - 脚本会先测试再构建再重启，失败会停止。
 
+## 2026-06-05 一键回滚脚本验证
+
+已完成：
+
+1. 服务器 pull 最新 `main` 到 `70d94db Record deploy script verification`。
+2. 执行 `./scripts/rollback.sh fbdb249`。
+3. 脚本自动完成：
+   - 使用 Deploy Key fetch 远程 refs 和 tags
+   - checkout 到目标 commit `fbdb249`
+   - 输出当前 commit
+   - `go test ./...`
+   - `go build -o erzhuang-project ./cmd/server`
+   - `sudo systemctl restart erzhuang-project.service`
+   - `curl -fsS http://127.0.0.1:18081/health`
+
+结果：
+
+- 回滚后运行 commit：`fbdb249 Record first Lighthouse deployment`
+- 服务器 Git 状态：detached HEAD
+- systemd 状态：active running
+- cgroup：`/system.slice/erzhuang-project.service`
+- 健康检查：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v1"}
+```
+
+重要学习点：
+
+- 现在可以用 `./scripts/rollback.sh <commit-or-tag>` 完成标准回滚。
+- 回滚到 commit 会让服务器进入 detached HEAD，这是脚本文档中已说明的预期行为。
+- 后续使用 `./scripts/deploy.sh` 可以恢复到最新 `main` 并重新发布。
+
 ## 建议的本地 Go 项目初始化路线
 
 第一阶段：本地最小服务
@@ -593,7 +627,6 @@ git pull --ff-only
 
 2. 后续增强：
    - 在服务器 pull 最新脚本
-   - 验证 `scripts/rollback.sh`
    - 在服务器 pull 最新 `.gitignore`，确认 `?? erzhuang-project` 消失
    - 给 v1/v2 创建 tag，练习基于 tag 的发布和回滚
 
