@@ -43,6 +43,7 @@
   - 已推送 `main` 分支到 GitHub：`git@github.com:shalei-pm/erzhuang-project.git`
   - Lighthouse 服务器已通过 GitHub Deploy Key 只读拉取代码
   - Lighthouse 服务器已完成 `go test`、`go build`、systemd 启动、开机自启和 `/health` 验证
+  - 已完成从 v1 到 v2 的服务器发布练习
 - 当前尚未创建：
   - 部署脚本
 - 当前本地限制：
@@ -260,6 +261,44 @@
 - 本次没有暴露公网端口。
 - 本次没有重启 Hermes、Feishu Poll Bot、xray 或旧 `codex-demo.service`。
 
+## 2026-06-05 v2 发布进度
+
+已完成：
+
+1. 本地代码变更：
+   - 将 `/health` 返回的 `version` 从 `v1` 改为 `v2`。
+   - 将 `/health` 单元测试改为明确期待 `v2`。
+   - commit：`bc8d5a3 Release health version v2`
+
+2. 本地验证：
+   - `gofmt` 已执行。
+   - `go build -o bin/erzhuang-project ./cmd/server` 通过。
+   - 本地 `go test ./...` 由于 macOS 26.5 + 项目内 Go 1.22.2 运行测试二进制时出现 `dyld: missing LC_UUID load command`，未通过。
+   - 决策：不把本地测试环境问题当作业务通过，改为以服务器 Linux 环境的 `go test ./...` 作为本次发布门禁。
+
+3. GitHub：
+   - v2 commit 已推送到 `origin/main`。
+
+4. 服务器发布：
+   - 服务器执行 `git pull --ff-only`，从 `0f1699e` 快进到 `bc8d5a3`。
+   - 服务器执行 `go test ./...` 通过。
+   - 服务器执行 `go build -o erzhuang-project ./cmd/server` 通过。
+   - 执行 `sudo systemctl restart erzhuang-project.service`。
+   - systemd 状态：active running。
+   - cgroup：`/system.slice/erzhuang-project.service`
+   - `/health` 返回：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v2"}
+```
+
+重要学习点：
+
+- GitHub 上有新 commit 不等于服务器已经上线，服务器必须显式 pull/build/restart。
+- 本地门禁失败时不能装作通过，要记录原因并选择可信的替代门禁。
+- 本次服务器 Linux 环境的测试通过后才执行了 systemd restart。
+- `git pull --ff-only` 能保证服务器只做快进更新，不产生自动 merge commit。
+
 ## 建议的本地 Go 项目初始化路线
 
 第一阶段：本地最小服务
@@ -377,6 +416,33 @@ record release
   - 未影响 `feishu-poll-bot.service`
   - 未影响 xray
 
+### 2026-06-05 v2 发布
+
+- 发布目标：个人腾讯云 Lighthouse
+- 服务名：`erzhuang-project.service`
+- 部署目录：`/opt/apps/erzhuang-project`
+- 发布 commit：`bc8d5a3`
+- commit message：`Release health version v2`
+- 测试命令：`go test ./...`
+- 构建命令：`go build -o erzhuang-project ./cmd/server`
+- 发布命令：`sudo systemctl restart erzhuang-project.service`
+- 监听地址：`127.0.0.1:18081`
+- systemd 状态：active running
+- cgroup：`/system.slice/erzhuang-project.service`
+- 健康检查：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v2"}
+```
+
+- 影响范围：
+  - 未修改 nginx
+  - 未开放公网端口
+  - 未影响 `codex-demo.service`
+  - 未影响 `hermes-gateway.service`
+  - 未影响 `feishu-poll-bot.service`
+  - 未影响 xray
+
 ## 本地验证记录
 
 - 2026-06-04：本地 Go 服务 v1 骨架验证通过。
@@ -406,7 +472,6 @@ git pull --ff-only
    - 写 `docs/deploy-runbook.md`
    - 写受控 `scripts/deploy.sh`
    - 设计 rollback：回到指定 commit 或 tag 后重新构建并重启
-   - 练习一次从本地改代码到服务器发布 v2
    - 练习一次从 v2 回滚到 v1
 
 服务器旧 demo 记录：
