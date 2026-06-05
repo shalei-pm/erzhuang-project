@@ -4,6 +4,8 @@
 
 ## 本地运行
 
+后端：
+
 ```sh
 go test ./...
 go run ./cmd/server
@@ -22,10 +24,33 @@ curl http://127.0.0.1:18080/health
 curl http://127.0.0.1:18080/api/tasks
 ```
 
+前端：
+
+```sh
+cd frontend
+npm install
+npm run dev
+```
+
+生产构建：
+
+```sh
+cd frontend
+npm run build
+```
+
 ## 接口
 
 - `GET /health`
 - `GET /api/tasks`
+
+## 前端
+
+前端工程位于 `frontend/`，技术栈为 Vite + React + TypeScript。
+
+前端环境、验证记录和后续接入 nginx 或 Go 后端的说明见：
+
+- `docs/frontend-learning-state.md`
 
 ## 数据库
 
