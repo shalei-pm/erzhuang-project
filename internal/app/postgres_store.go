@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"database/sql"
+
+	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 )
 
 type PostgresStore struct {
@@ -68,5 +70,5 @@ func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
-	return nil
+	return designplan.EnsurePostgresSchema(ctx, db)
 }

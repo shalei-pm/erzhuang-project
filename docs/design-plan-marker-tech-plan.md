@@ -58,6 +58,12 @@ flowchart LR
   - 重复门店检查。
 - 单元测试。
 
+当前实现状态：
+
+- 后端专项分支 `codex/design-plan-backend-phase1` 已完成 Phase 1 代码实现。
+- 详细范围、验证记录和风险见 `docs/design-plan-backend-phase1-state.md`。
+- 本阶段未实现 PDF、AI、OpenAI、部署配置和前端 UI。
+
 ### Phase 2：前端主交互
 
 目标：
