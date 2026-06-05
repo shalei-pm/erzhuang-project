@@ -45,6 +45,7 @@
   - Lighthouse 服务器已完成 `go test`、`go build`、systemd 启动、开机自启和 `/health` 验证
   - 已完成从 v1 到 v2 的服务器发布练习
   - 已完成从 v2 回滚到 v1 的服务器回滚练习
+  - 已验证 `scripts/deploy.sh` 可以一键发布当前 `main`
 - 当前待验证：
   - 部署脚本已创建，待服务器 pull 后验证
 - 当前本地限制：
@@ -363,6 +364,38 @@ GIT_SSH_COMMAND='ssh -i ~/.ssh/erzhuang_project_deploy_key -o IdentitiesOnly=yes
 - 服务器 `git status` 出现 `?? erzhuang-project`，这是在项目根目录构建出的二进制文件。
 - 已在本地 `.gitignore` 增加 `/erzhuang-project`，后续服务器 pull 后该构建产物不应再显示为未跟踪文件。
 
+## 2026-06-05 一键发布脚本验证
+
+已完成：
+
+1. 服务器 pull 最新 `main` 到 `2a40ec9 Add deployment runbook and scripts`。
+2. 执行 `./scripts/deploy.sh`。
+3. 脚本自动完成：
+   - 使用 Deploy Key fetch `origin/main`
+   - 将本地 `main` 指向 `origin/main`
+   - 输出当前 commit
+   - `go test ./...`
+   - `go build -o erzhuang-project ./cmd/server`
+   - `sudo systemctl restart erzhuang-project.service`
+   - `curl -fsS http://127.0.0.1:18081/health`
+
+结果：
+
+- 发布 commit：`2a40ec9 Add deployment runbook and scripts`
+- systemd 状态：active running
+- cgroup：`/system.slice/erzhuang-project.service`
+- 健康检查：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v2"}
+```
+
+重要学习点：
+
+- 现在已经可以用 `./scripts/deploy.sh` 完成标准发布。
+- 脚本内部封装了 Deploy Key，不需要每次手写 `GIT_SSH_COMMAND`。
+- 脚本会先测试再构建再重启，失败会停止。
+
 ## 建议的本地 Go 项目初始化路线
 
 第一阶段：本地最小服务
@@ -560,7 +593,6 @@ git pull --ff-only
 
 2. 后续增强：
    - 在服务器 pull 最新脚本
-   - 验证 `scripts/deploy.sh`
    - 验证 `scripts/rollback.sh`
    - 在服务器 pull 最新 `.gitignore`，确认 `?? erzhuang-project` 消失
    - 给 v1/v2 创建 tag，练习基于 tag 的发布和回滚
