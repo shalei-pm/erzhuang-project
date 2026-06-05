@@ -635,6 +635,47 @@ record release
 
 ## 发布记录
 
+### 2026-06-05 前端公网入口发布
+
+- 发布目标：个人腾讯云 Lighthouse 韩国实例
+- 实例：`ap-seoul / lhins-rjfpwj1u`
+- 部署目录：`/opt/apps/erzhuang-project`
+- 发布 commit：`df7da52`
+- commit message：`Prepare frontend deployment path`
+- Node 版本：`v22.22.2`
+- npm 版本：`10.9.7`
+- Go 版本：`go1.22.2 linux/amd64`
+- 后端测试：`go test ./...` 通过
+- 后端构建：`go build -o erzhuang-project ./cmd/server` 通过
+- 前端安装：`npm install` 通过，0 个已知漏洞
+- 前端构建：`npm run build` 通过
+- 前端构建产物：
+  - `frontend/dist/index.html`
+  - `frontend/dist/assets/index-DAq-dh7A.css`
+  - `frontend/dist/assets/index-DCmH9dBt.js`
+- systemd：`erzhuang-project.service` 已重启，active running
+- 健康检查：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v2"}
+```
+
+- nginx 路由：
+  - `/erzhuang/` 返回前端静态页面
+  - `/erzhuang/health` 反向代理到 Go 后端 `/health`
+  - `/erzhuang/api/` 反向代理到 Go 后端 `/api/`
+- 公网验证：
+  - `https://43.155.237.46/erzhuang/` 返回前端 HTML，HTTP 200
+  - `https://43.155.237.46/erzhuang/assets/index-DCmH9dBt.js` 返回 JS，HTTP 200
+  - `https://43.155.237.46/erzhuang/health` 返回健康 JSON，HTTP 200
+  - `https://43.155.237.46/erzhuang/api/tasks` 返回任务 JSON，HTTP 200
+- 备份：
+  - nginx 修改前已备份到 `/etc/nginx/backups/`
+- 影响范围：
+  - 保留原 `/vless` 配置
+  - 未改日本 Lighthouse 实例
+  - 未接触公司环境、公司代码、公司密钥
+
 ### 2026-06-05 首次 Lighthouse 发布
 
 - 发布目标：个人腾讯云 Lighthouse
