@@ -1,0 +1,366 @@
+# 技术架构索引
+
+最后更新：2026-06-05
+
+本文是 `erzhuang-project` 的代码地图，用于后续迭代时快速定位改动范围，避免为了一个小需求整体重写。
+
+## 1. 总体分层
+
+```text
+浏览器
+  ↓
+frontend/                 React + TypeScript 前端页面
+  ↓ /api/design-plan
+internal/app              Go HTTP 总入口和基础接口
+  ↓
+internal/designplan       设计图标记业务后端
+  ↓
+Supabase PostgreSQL       设计图门店、区域、操作日志数据
+```
+
+主要入口：
+
+- 前端入口：`frontend/src/App.tsx`
+- 前端 API adapter：`frontend/src/api.ts`
+- 前端样式 token：`frontend/src/styles.css`
+- Go 服务入口：`cmd/server/main.go`
+- Go HTTP 路由汇总：`internal/app/handler.go`
+- 设计图后端路由：`internal/designplan/handler.go`
+- 设计图后端业务服务：`internal/designplan/service.go`
+- 设计图后端存储：`internal/designplan/store.go`
+- 设计图数据库 schema：`db/design_plan_schema.sql`
+
+## 2. 业务能力到代码位置
+
+| 业务能力 | 前端入口 | 后端入口 | 数据位置 | 备注 |
+| --- | --- | --- | --- | --- |
+| 门店列表 | `frontend/src/App.tsx` 的 `loadStores`、列表渲染区 | `internal/designplan/handler.go` 的 `listStores` | `design_plan_stores`、`design_plan_store_areas` | 支持搜索、分页、数量统计 |
+| 添加门店 | `openCreateEditor`、`mockUploadAndRecognize`、`handleSave` | `createStore` | `design_plan_stores`、`design_plan_store_areas` | 当前前端仍是 mock adapter |
+| 编辑门店 | `openEditEditor`、`updateEditor`、`updateArea`、`handleSave` | `updateStore` | 同上 | 后端 `PUT` 采用整批替换区域 |
+| 删除门店 | `handleDelete` | `deleteStore` | store 删除级联 area | 删除日志保留在全局日志表 |
+| 重复门店检查 | `designPlanApi.checkDuplicate` | `checkDuplicate`、`Service.ensureNoExactDuplicate` | `normalized_name` | 保存时后端会拦截完全同名 |
+| 区域校验 | `validateEditor` | `ValidateStoreInput` | 后端约束 + 唯一索引 | 前后端均校验，后端为最终门禁 |
+| 区域框显示/拖动 | `boxStyle`、`clampBox`、`dragState` | 暂无 | `box_x/y/width/height` | P0 只有基础拖动，四角拉伸待补 |
+| PDF 上传/转换 | 仅 UI mock | 待 Phase 3 新增 | 待新增 uploads 文件路径 | 当前无真实上传接口 |
+| AI 识别 | 仅 UI mock | 待 Phase 4 新增 | `recognition_result` | 当前无 OpenAI 调用 |
+| 操作日志 | 页面暂不展示 | `insertOperationLog` | `design_plan_operation_logs` | actor 当前固定为 `admin` |
+
+## 3. 前端代码索引
+
+### `frontend/src/App.tsx`
+
+负责页面状态、交互和 UI 渲染。
+
+- 页面级状态：
+  - `stores`：门店列表。
+  - `query`、`page`、`total`：搜索与分页。
+  - `editor`：添加/编辑弹窗状态。
+  - `validation`：保存校验结果。
+  - `dragState`：图纸区域框拖动状态。
+- 关键函数：
+  - `loadStores`：加载门店列表。
+  - `openCreateEditor`：打开添加门店弹窗。
+  - `openEditEditor`：打开编辑门店弹窗。
+  - `mockUploadAndRecognize`：模拟上传、转换、AI 识别流程。
+  - `updateArea`：更新右侧区域卡片和左侧框。
+  - `addArea`：新增手工区域。
+  - `handleSave`：保存前端数据。
+  - `handleDelete`：删除门店。
+  - `validateEditor`：前端保存校验。
+  - `clampBox`：限制框不超出图片边界。
+
+适合后续拆分的方向：
+
+- `components/StoreList.tsx`：门店列表。
+- `components/StoreEditorModal.tsx`：添加/编辑弹窗。
+- `components/FloorPlanCanvas.tsx`：左侧图纸和标注框。
+- `components/AreaCardList.tsx`：右侧区域卡片。
+- `hooks/useDesignPlanStores.ts`：列表和保存数据流。
+
+当前为了快速形成 P0 骨架，页面仍集中在 `App.tsx`；后续复杂迭代前建议先按上述方向拆分。
+
+### `frontend/src/api.ts`
+
+负责前端数据类型、接口路径约定和 mock adapter。
+
+- 类型：
+  - `AreaType`
+  - `Confidence`
+  - `StoreStatus`
+  - `AreaBox`
+  - `StoreArea`
+  - `StoreSummary`
+  - `StoreDetail`
+  - `SaveStorePayload`
+- API adapter：
+  - `designPlanApi.listStores`
+  - `designPlanApi.getStore`
+  - `designPlanApi.uploadPdf`
+  - `designPlanApi.recognizeUpload`
+  - `designPlanApi.checkDuplicate`
+  - `designPlanApi.saveStore`
+  - `designPlanApi.deleteStore`
+
+后续切真实后端时，优先改这里，不要先改页面。
+
+### `frontend/src/styles.css`
+
+负责后台 UI 视觉系统和响应式布局。
+
+- 全局 token 位于 `:root`：
+  - 品牌色：`--brand`
+  - 文本色：`--text-*`
+  - 边框/背景：`--border-*`、`--surface-*`
+  - 区域类型色：`--area-treatment`、`--area-consultation`、`--area-beauty`
+  - 选中态：`--area-selected`
+- 重点样式区：
+  - 列表表格和缩略图。
+  - lightbox 弹窗。
+  - 左侧图纸区域。
+  - 区域框 `.area-box`。
+  - 右侧区域卡片 `.area-card`。
+
+后续只改配色时，优先改 `:root` token。
+
+## 4. 后端代码索引
+
+### `cmd/server/main.go`
+
+服务启动入口。
+
+- 读取 `ADDR`，默认 `127.0.0.1:18080`。
+- 读取 `DATABASE_URL`。
+- 有数据库时：
+  - 打开 Postgres。
+  - 调用 `app.EnsurePostgresSchema` 初始化 tasks 和 design plan schema。
+  - 注入 `app.NewPostgresStore` 和 `designplan.NewPostgresStore`。
+- 无数据库时：
+  - 使用 memory store，便于本地练习。
+
+### `internal/app/handler.go`
+
+HTTP 总入口。
+
+- `GET /health`
+- `GET /api/tasks`
+- 调用 `designplan.RegisterRoutes` 挂载 `/api/design-plan/*`。
+
+### `internal/designplan/models.go`
+
+业务模型和 JSON 合同。
+
+- 区域类型：`treatment`、`consultation`、`beauty`。
+- 状态：`completed`、`needs_review`、`incomplete`。
+- `RoomNumber` 支持 JSON 字符串或整数输入，最终统一为字符串输出。
+- `Box` 使用 0 到 1 的比例坐标。
+
+### `internal/designplan/handler.go`
+
+设计图 API 路由。
+
+- `GET /api/design-plan/stores`
+- `GET /api/design-plan/stores/{id}`
+- `POST /api/design-plan/stores`
+- `PUT /api/design-plan/stores/{id}`
+- `DELETE /api/design-plan/stores/{id}`
+- `POST /api/design-plan/stores/check-duplicate`
+
+### `internal/designplan/service.go`
+
+业务服务层。
+
+- 调用 `ValidateStoreInput` 做后端最终校验。
+- 调用 `ensureNoExactDuplicate` 拦截完全同名门店。
+- 负责把 handler 和 repository 解耦。
+
+新增业务规则时，优先放在这里或 `validation.go`，不要散落到 handler/store。
+
+### `internal/designplan/validation.go`
+
+保存校验。
+
+- 门店名必填。
+- 至少 1 个区域。
+- 区域名称、类型、框必填。
+- 治疗室/面诊室编号必填。
+- 编号只能是数字。
+- 同门店同类型编号唯一。
+- 框必须在图片边界内。
+
+### `internal/designplan/duplicate.go`
+
+门店名标准化和模糊匹配。
+
+- `NormalizeStoreName`
+- `IsSimilarStoreName`
+
+后续如果业务要调整“疑似同名”规则，优先改这里。
+
+### `internal/designplan/store.go`
+
+数据访问层。
+
+- `Repository`：统一接口。
+- `MemoryStore`：无数据库本地练习。
+- `PostgresStore`：Supabase PostgreSQL。
+- `insertAreas`：保存区域。
+- `insertOperationLog`：保存操作日志。
+- `previewURL`、`thumbnailURL`：当前是预留路径，真实图片接口待 Phase 3 实现。
+
+### `internal/designplan/schema.go`
+
+服务启动时自动建表。
+
+### `db/design_plan_schema.sql`
+
+手工查看和未来迁移整理用 SQL。
+
+## 5. 数据库索引
+
+当前表：
+
+- `design_plan_stores`
+  - 门店主表。
+  - `normalized_name` 唯一。
+  - `recognition_result` 存最新识别 JSON。
+- `design_plan_store_areas`
+  - 区域表。
+  - `store_id` 外键，门店删除时级联删除。
+  - `box_x`、`box_y`、`box_width`、`box_height` 为比例坐标。
+  - 唯一索引：同门店、同类型、同编号唯一，空编号不参与唯一。
+- `design_plan_operation_logs`
+  - 全局操作日志。
+  - 删除门店后仍保留全局删除记录。
+
+## 6. API 合同索引
+
+基础路径：
+
+```text
+/api/design-plan
+```
+
+当前已实现：
+
+```text
+GET    /api/design-plan/stores?q=&page=1&page_size=20
+GET    /api/design-plan/stores/{id}
+POST   /api/design-plan/stores
+PUT    /api/design-plan/stores/{id}
+DELETE /api/design-plan/stores/{id}
+POST   /api/design-plan/stores/check-duplicate
+```
+
+后续计划：
+
+```text
+POST   /api/design-plan/uploads
+POST   /api/design-plan/uploads/{upload_id}/recognize
+GET    /api/design-plan/stores/{id}/preview
+GET    /api/design-plan/stores/{id}/thumbnail
+```
+
+## 7. 迭代拆分建议
+
+### 接真实 CRUD API
+
+主改：
+
+- `frontend/src/api.ts`
+
+辅助改：
+
+- `frontend/src/App.tsx` 的错误提示和 loading 状态。
+- `internal/designplan/handler.go` 如果响应字段需要对齐。
+
+### 真实 PDF 上传和转换
+
+主改：
+
+- `internal/designplan/handler.go`
+- `internal/designplan/service.go`
+- 新增 `internal/designplan/upload.go`
+- 新增 `internal/designplan/pdf.go`
+- `scripts/deploy.sh` 或服务器环境安装 `poppler-utils`
+
+辅助改：
+
+- `frontend/src/api.ts`
+- `frontend/src/App.tsx` 的上传状态。
+- `docs/deploy-runbook.md`
+
+### AI 识别
+
+主改：
+
+- 新增 `internal/designplan/recognition.go`
+- `internal/designplan/handler.go`
+- `internal/designplan/models.go`
+
+辅助改：
+
+- systemd 环境变量：`OPENAI_API_KEY`、`OPENAI_MODEL`
+- `frontend/src/api.ts`
+- `frontend/src/App.tsx`
+
+### 图纸框四角拉伸
+
+主改：
+
+- `frontend/src/App.tsx` 的 `DragState`、`clampBox`、区域框渲染。
+
+建议先拆组件：
+
+- `frontend/src/components/FloorPlanCanvas.tsx`
+
+### 前端组件化重构
+
+主改：
+
+- 新增 `frontend/src/components/*`
+- 新增 `frontend/src/hooks/*`
+- 保持 `frontend/src/api.ts` 合同稳定。
+
+建议在接真实 API 前做，避免 `App.tsx` 继续膨胀。
+
+### 配色和后台风格调整
+
+主改：
+
+- `frontend/src/styles.css` 的 `:root` token。
+
+不要改业务逻辑文件。
+
+## 8. 验证命令
+
+后端：
+
+```sh
+GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go build ./...
+GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test -c ./internal/designplan
+GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test -c ./internal/app
+```
+
+说明：当前本机 `go test ./...` 执行阶段有已知 macOS dyld 限制，服务器 Linux 发布前仍必须执行完整 `go test ./...`。
+
+前端：
+
+```sh
+cd frontend
+PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-darwin-arm64/bin:$PATH npm run build
+```
+
+本地预览：
+
+```sh
+cd frontend
+PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-darwin-arm64/bin:$PATH npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+## 9. 协作规则
+
+- 主会话负责架构索引、任务拆解、验收、合并、发布、回滚。
+- 前端专项会话只改 `frontend/` 和前端文档。
+- 后端专项会话只改 Go 后端、数据库 schema 和后端文档。
+- 部署、nginx、systemd、腾讯云操作只由主会话处理。
+- 新需求开始前，先在本文件定位“业务能力到代码位置”，再决定是否拆前端/后端专项会话。

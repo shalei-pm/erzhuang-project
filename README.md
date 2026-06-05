@@ -58,6 +58,12 @@ npm run build
 
 - `docs/frontend-learning-state.md`
 
+## 技术架构索引
+
+后续迭代前，优先查看代码地图，按业务能力定位前端、后端、数据库和验证命令：
+
+- `docs/technical-architecture-index.md`
+
 ## 数据库
 
 当前计划使用 Supabase PostgreSQL 作为练习数据库。

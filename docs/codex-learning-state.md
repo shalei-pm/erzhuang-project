@@ -28,6 +28,9 @@
   - `testdata/design-plans/generated/sample-store-floor-plan.png`
   - 用途：前端 mock 图纸预览、后续 PDF 转图片和 AI 识别联调。
   - 状态：用户确认该数据不敏感，已提交到 GitHub。
+- 技术架构索引：
+  - `docs/technical-architecture-index.md`
+  - 用途：后续迭代前先定位业务能力对应的前端、后端、数据库和验证入口，避免整体重写。
 
 ## 协作模式
 
