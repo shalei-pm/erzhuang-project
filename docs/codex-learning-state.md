@@ -44,6 +44,7 @@
   - Lighthouse 服务器已通过 GitHub Deploy Key 只读拉取代码
   - Lighthouse 服务器已完成 `go test`、`go build`、systemd 启动、开机自启和 `/health` 验证
   - 已完成从 v1 到 v2 的服务器发布练习
+  - 已完成从 v2 回滚到 v1 的服务器回滚练习
 - 当前尚未创建：
   - 部署脚本
 - 当前本地限制：
@@ -299,6 +300,42 @@
 - 本次服务器 Linux 环境的测试通过后才执行了 systemd restart。
 - `git pull --ff-only` 能保证服务器只做快进更新，不产生自动 merge commit。
 
+## 2026-06-05 v2 回滚到 v1 进度
+
+已完成：
+
+1. 回滚目标：
+   - 从服务器运行的 v2 commit `bc8d5a3` 回滚到 v1 commit `fbdb249`。
+   - `fbdb249` 对应代码中 `/health` 的 `version` 为 `v1`。
+
+2. 执行过程：
+   - 服务器尝试执行 `git fetch origin`，但因为没有带 `GIT_SSH_COMMAND='ssh -i ~/.ssh/erzhuang_project_deploy_key -o IdentitiesOnly=yes'`，返回 `git@github.com: Permission denied (publickey)`。
+   - 由于服务器本地已经有目标 commit `fbdb249`，继续执行 `git checkout fbdb249` 成功。
+   - 服务器进入 detached HEAD 状态，这是本次临时回滚练习可接受的状态。
+   - 执行 `go test ./...` 通过。
+   - 执行 `go build -o erzhuang-project ./cmd/server` 通过。
+   - 执行 `sudo systemctl restart erzhuang-project.service` 成功。
+   - systemd 状态：active running。
+
+3. 验证结果：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v1"}
+```
+
+重要学习点：
+
+- 回滚不一定需要改 GitHub 历史，可以先让服务器 checkout 到已知稳定 commit。
+- 如果目标 commit 已经存在于服务器本地，`git checkout <commit>` 不依赖网络。
+- 访问 GitHub 的服务器命令必须显式使用 Deploy Key，例如：
+
+```sh
+GIT_SSH_COMMAND='ssh -i ~/.ssh/erzhuang_project_deploy_key -o IdentitiesOnly=yes' git fetch origin
+```
+
+- detached HEAD 适合临时验证和紧急回滚，但长期流程应通过 tag、release 记录或受控脚本管理。
+- 本次回滚没有修改 nginx、没有开放公网端口、没有影响 Hermes、Feishu Poll Bot、xray 或旧 `codex-demo.service`。
+
 ## 建议的本地 Go 项目初始化路线
 
 第一阶段：本地最小服务
@@ -443,6 +480,32 @@ record release
   - 未影响 `feishu-poll-bot.service`
   - 未影响 xray
 
+### 2026-06-05 v2 回滚到 v1
+
+- 回滚目标：个人腾讯云 Lighthouse
+- 服务名：`erzhuang-project.service`
+- 部署目录：`/opt/apps/erzhuang-project`
+- 回滚前运行 commit：`bc8d5a3`
+- 回滚后运行 commit：`fbdb249`
+- 回滚方式：服务器 `git checkout fbdb249`
+- 服务器 Git 状态：detached HEAD
+- 测试命令：`go test ./...`
+- 构建命令：`go build -o erzhuang-project ./cmd/server`
+- 发布命令：`sudo systemctl restart erzhuang-project.service`
+- 监听地址：`127.0.0.1:18081`
+- systemd 状态：active running
+- cgroup：`/system.slice/erzhuang-project.service`
+- 健康检查：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v1"}
+```
+
+- 过程备注：
+  - `git fetch origin` 因未带 Deploy Key 参数失败：`Permission denied (publickey)`。
+  - 目标 commit 已在本地存在，因此 checkout 和回滚仍成功。
+  - 后续脚本必须统一封装 `GIT_SSH_COMMAND`。
+
 ## 本地验证记录
 
 - 2026-06-04：本地 Go 服务 v1 骨架验证通过。
@@ -472,7 +535,8 @@ git pull --ff-only
    - 写 `docs/deploy-runbook.md`
    - 写受控 `scripts/deploy.sh`
    - 设计 rollback：回到指定 commit 或 tag 后重新构建并重启
-   - 练习一次从 v2 回滚到 v1
+   - 让服务器从 detached HEAD 恢复到 `main`
+   - 给 v1/v2 创建 tag，练习基于 tag 的发布和回滚
 
 服务器旧 demo 记录：
 
