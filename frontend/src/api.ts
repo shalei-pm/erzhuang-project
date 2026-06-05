@@ -1,0 +1,325 @@
+import sampleStoreFloorPlanUrl from "../../testdata/design-plans/generated/sample-store-floor-plan.png";
+
+export type AreaType = "treatment" | "consultation" | "beauty";
+
+export type Confidence = "high" | "medium" | "low";
+export type StoreStatus = "completed" | "needs_review" | "incomplete";
+
+export type AreaBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type StoreArea = {
+  id: string;
+  name: string;
+  type: AreaType | "";
+  number: string;
+  confidence: Confidence;
+  needsReview: boolean;
+  box: AreaBox | null;
+};
+
+export type StoreSummary = {
+  id: number;
+  name: string;
+  thumbnailUrl: string;
+  treatmentCount: number;
+  consultationCount: number;
+  beautyCount: number;
+  areaCount: number;
+  status: StoreStatus;
+  updatedAt: string;
+};
+
+export type StoreDetail = StoreSummary & {
+  fileName: string;
+  previewUrl: string;
+  areas: StoreArea[];
+};
+
+export type StoreListResponse = {
+  items: StoreSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type UploadResult = {
+  uploadId: string;
+  fileName: string;
+  pageCount: number;
+  previewUrl: string;
+  thumbnailUrl: string;
+};
+
+export type RecognitionResult = {
+  storeName: string;
+  storeNameConfidence: Confidence;
+  areas: StoreArea[];
+  rawNotes: string;
+};
+
+export type SaveStorePayload = {
+  id?: number;
+  name: string;
+  fileName: string;
+  previewUrl: string;
+  thumbnailUrl: string;
+  uploadId?: string;
+  areas: StoreArea[];
+};
+
+const API_BASE = "/api/design-plan";
+const MOCK_PLAN_IMAGE = sampleStoreFloorPlanUrl;
+const PAGE_SIZE = 20;
+
+let nextStoreId = 38;
+
+let mockStores: StoreDetail[] = [
+  createMockStore(1, "杭州西湖旗舰店", "completed", [
+    area("a-1", "治疗室 1", "treatment", "1", "high", { x: 0.315, y: 0.195, width: 0.095, height: 0.065 }),
+    area("a-2", "治疗室 2", "treatment", "2", "high", { x: 0.315, y: 0.295, width: 0.095, height: 0.07 }),
+    area("a-3", "面诊室 1", "consultation", "1", "high", { x: 0.185, y: 0.5, width: 0.09, height: 0.12 }),
+    area("a-4", "生美区", "beauty", "", "medium", { x: 0.23, y: 0.685, width: 0.12, height: 0.12 }),
+  ]),
+  createMockStore(2, "上海静安中心店", "needs_review", [
+    area("b-1", "治疗室 1", "treatment", "1", "high", { x: 0.315, y: 0.39, width: 0.095, height: 0.075 }),
+    area("b-2", "面诊室 1", "consultation", "1", "low", { x: 0.185, y: 0.68, width: 0.09, height: 0.105 }),
+    area("b-3", "面诊室 2", "consultation", "2", "high", { x: 0.345, y: 0.675, width: 0.065, height: 0.1 }),
+  ]),
+  createMockStore(3, "南京新街口店", "completed", [
+    area("c-1", "治疗室 1", "treatment", "1", "high", { x: 0.315, y: 0.295, width: 0.095, height: 0.07 }),
+    area("c-2", "生美 1", "beauty", "1", "high", { x: 0.345, y: 0.675, width: 0.065, height: 0.1 }),
+  ]),
+  ...Array.from({ length: 31 }, (_, index) => {
+    const id = index + 4;
+    const status: StoreStatus = index % 7 === 0 ? "needs_review" : "completed";
+    return createMockStore(id, `演示门店 ${String(id).padStart(2, "0")}`, status, [
+      area(`m-${id}-1`, "治疗室 1", "treatment", "1", "high", { x: 0.315, y: 0.195, width: 0.095, height: 0.065 }),
+      area(`m-${id}-2`, "面诊室 1", "consultation", "1", status === "needs_review" ? "low" : "high", {
+        x: 0.185,
+        y: 0.5,
+        width: 0.09,
+        height: 0.12,
+      }),
+      ...(index % 3 === 0
+        ? [area(`m-${id}-3`, "生美", "beauty", "", "high", { x: 0.23, y: 0.685, width: 0.12, height: 0.12 })]
+        : []),
+    ]);
+  }),
+];
+
+export const designPlanApi = {
+  endpoints: {
+    base: API_BASE,
+    stores: `${API_BASE}/stores`,
+    uploads: `${API_BASE}/uploads`,
+    recognize: (uploadId: string) => `${API_BASE}/uploads/${uploadId}/recognize`,
+    checkDuplicate: `${API_BASE}/stores/check-duplicate`,
+  },
+
+  async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
+    await delay(160);
+    const normalizedQuery = normalizeName(query);
+    const filtered = mockStores
+      .filter((store) => normalizeName(store.name).includes(normalizedQuery))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    const start = (page - 1) * pageSize;
+
+    return {
+      items: filtered.slice(start, start + pageSize).map(toSummary),
+      page,
+      pageSize,
+      total: filtered.length,
+    };
+  },
+
+  async getStore(id: number): Promise<StoreDetail> {
+    await delay(120);
+    const store = mockStores.find((item) => item.id === id);
+    if (!store) {
+      throw new Error("门店不存在");
+    }
+    return clone(store);
+  },
+
+  async uploadPdf(fileName = "mock-design-plan.pdf"): Promise<UploadResult> {
+    await delay(420);
+    const uploadId = `tmp_${Date.now()}`;
+    return {
+      uploadId,
+      fileName,
+      pageCount: 1,
+      previewUrl: MOCK_PLAN_IMAGE,
+      thumbnailUrl: MOCK_PLAN_IMAGE,
+    };
+  },
+
+  async recognizeUpload(uploadId: string): Promise<RecognitionResult> {
+    await delay(620);
+    return {
+      storeName: "成都太古里体验店",
+      storeNameConfidence: "medium",
+      rawNotes: `mock recognition result for ${uploadId}`,
+      areas: [
+        area(`new-${Date.now()}-1`, "治疗室 1", "treatment", "1", "high", {
+          x: 0.315,
+          y: 0.195,
+          width: 0.095,
+          height: 0.065,
+        }),
+        area(`new-${Date.now()}-2`, "治疗室 2", "treatment", "2", "high", {
+          x: 0.315,
+          y: 0.295,
+          width: 0.095,
+          height: 0.07,
+        }),
+        area(`new-${Date.now()}-3`, "面诊室 1", "consultation", "1", "low", {
+          x: 0.185,
+          y: 0.5,
+          width: 0.09,
+          height: 0.12,
+        }),
+        area(`new-${Date.now()}-4`, "生美区", "beauty", "", "medium", {
+          x: 0.23,
+          y: 0.685,
+          width: 0.12,
+          height: 0.12,
+        }),
+      ],
+    };
+  },
+
+  async checkDuplicate(name: string, excludeStoreId?: number) {
+    await delay(120);
+    const normalized = normalizeName(name);
+    const exactMatch = mockStores.find(
+      (store) => store.id !== excludeStoreId && normalizeName(store.name) === normalized,
+    );
+    const similarMatches = mockStores
+      .filter((store) => store.id !== excludeStoreId)
+      .filter((store) => {
+        const storeName = normalizeName(store.name);
+        return !exactMatch && normalized.length > 1 && (storeName.includes(normalized) || normalized.includes(storeName));
+      })
+      .slice(0, 3)
+      .map(toSummary);
+
+    return {
+      exactMatch: exactMatch ? toSummary(exactMatch) : null,
+      similarMatches,
+    };
+  },
+
+  async saveStore(payload: SaveStorePayload): Promise<StoreDetail> {
+    await delay(260);
+    const now = new Date().toISOString();
+    const detail = buildDetailFromPayload(payload, now);
+
+    if (payload.id) {
+      mockStores = mockStores.map((store) => (store.id === payload.id ? detail : store));
+      return clone(detail);
+    }
+
+    mockStores = [detail, ...mockStores];
+    return clone(detail);
+  },
+
+  async deleteStore(id: number): Promise<void> {
+    await delay(180);
+    mockStores = mockStores.filter((store) => store.id !== id);
+  },
+};
+
+function createMockStore(id: number, name: string, status: StoreStatus, areas: StoreArea[]): StoreDetail {
+  const now = new Date(Date.now() - id * 18 * 60 * 60 * 1000).toISOString();
+  const counts = countAreas(areas);
+  return {
+    id,
+    name,
+    thumbnailUrl: MOCK_PLAN_IMAGE,
+    previewUrl: MOCK_PLAN_IMAGE,
+    fileName: `${name}-design.pdf`,
+    status,
+    updatedAt: now,
+    areaCount: areas.length,
+    treatmentCount: counts.treatment,
+    consultationCount: counts.consultation,
+    beautyCount: counts.beauty,
+    areas,
+  };
+}
+
+function buildDetailFromPayload(payload: SaveStorePayload, updatedAt: string): StoreDetail {
+  const areas = payload.areas.map((item) => ({ ...item, needsReview: item.confidence === "low" || item.needsReview }));
+  const counts = countAreas(areas);
+  const status: StoreStatus = areas.some((item) => item.needsReview || item.confidence === "low")
+    ? "needs_review"
+    : "completed";
+
+  return {
+    id: payload.id ?? nextStoreId++,
+    name: payload.name.trim(),
+    fileName: payload.fileName,
+    thumbnailUrl: payload.thumbnailUrl,
+    previewUrl: payload.previewUrl,
+    treatmentCount: counts.treatment,
+    consultationCount: counts.consultation,
+    beautyCount: counts.beauty,
+    areaCount: areas.length,
+    status,
+    updatedAt,
+    areas,
+  };
+}
+
+function area(
+  id: string,
+  name: string,
+  type: AreaType,
+  number: string,
+  confidence: Confidence,
+  box: AreaBox,
+): StoreArea {
+  return {
+    id,
+    name,
+    type,
+    number,
+    confidence,
+    needsReview: confidence === "low",
+    box,
+  };
+}
+
+function countAreas(areas: StoreArea[]) {
+  return areas.reduce(
+    (counts, item) => {
+      if (item.type === "treatment") counts.treatment += 1;
+      if (item.type === "consultation") counts.consultation += 1;
+      if (item.type === "beauty") counts.beauty += 1;
+      return counts;
+    },
+    { treatment: 0, consultation: 0, beauty: 0 },
+  );
+}
+
+function toSummary(store: StoreDetail): StoreSummary {
+  const { areas: _areas, fileName: _fileName, previewUrl: _previewUrl, ...summary } = store;
+  return { ...summary };
+}
+
+function normalizeName(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}

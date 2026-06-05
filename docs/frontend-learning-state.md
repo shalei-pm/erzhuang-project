@@ -119,3 +119,56 @@ npm run preview
    - 优点是部署单个服务更简单，适合小项目练习；缺点是前后端边界没有 nginx 托管那么清晰。
 
 正式接入前，建议主会话先决定部署方式，再更新部署脚本和 runbook。
+
+## Phase 2：设计图标记前端骨架
+
+更新时间：2026-06-05
+
+分支：
+
+```text
+codex/design-plan-frontend-phase2
+```
+
+本阶段范围：
+
+- 已实现门店列表页骨架：添加门店、门店名称搜索、每页 20 条分页、缩略图 hover 浮层预览、空间数量统计、配置状态、更新时间、编辑和删除。
+- 已实现添加/编辑共用 lightbox 大弹窗：顶部固定工具栏、左侧 60% 图纸预览区、右侧 40% 区域卡片列表。
+- 已实现上传/识别 UI mock：初始、转换中、识别中、识别失败可手动维护、识别完成进入编辑确认。
+- 已实现 mock API adapter：文件 `frontend/src/api.ts`，接口路径按 `/api/design-plan` 技术方案组织，后续可替换为真实 HTTP 请求。
+- 已接入非敏感测试设计图 PNG：`testdata/design-plans/generated/sample-store-floor-plan.png`，作为 Phase 2 mock 图纸预览、缩略图和区域标注素材。
+- 已实现右侧区域卡片维护：区域名称、区域类型、编号、状态、上移、下移、删除；点击卡片会联动左侧高亮框。
+- 已实现左侧 mock 图纸与区域框展示：所有区域框可见，选中区域黄色高亮，点击图纸区域框会联动右侧卡片。
+- 已实现矩形框基础拖动：拖动已存在区域框可以更新比例坐标并限制在图片边界内。
+- 已实现前端保存校验：门店名必填、必须有已转换图纸、至少 1 个区域、区域名称/类型/框必填、治疗室和面诊室编号必填、编号必须为数字、同类型编号唯一。
+- 已将页面色彩、区域类型色、选中色和状态色集中放在 `frontend/src/styles.css` 的 CSS 变量中。
+
+本阶段暂未实现：
+
+- 真实 PDF 上传、PDF 转图片、AI 识别调用。
+- 通过拖拽新画一个矩形框的完整交互。
+- 矩形框四角拉伸。
+- 图纸放大、缩小、适应屏幕的真实缩放逻辑；当前先提供工具栏骨架。
+- 与后端 CRUD 的真实 HTTP 联调。
+
+本次验证记录：
+
+- 已验证：安装依赖
+  - 命令：`PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-darwin-arm64/bin:$PATH npm install`
+  - 结果：通过，新增本地 `frontend/node_modules/`
+- 已验证：生产构建
+  - 命令：`PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-darwin-arm64/bin:$PATH npm run build`
+  - 结果：通过
+  - 输出：`frontend/dist/index.html`、`frontend/dist/assets/*.css`、`frontend/dist/assets/*.js`
+- 已验证：本地开发服务器 HTML 访问
+  - 命令：`PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-darwin-arm64/bin:$PATH npm run dev -- --port 5173`
+  - 地址：`http://127.0.0.1:5173/erzhuang/`
+  - 访问验证：`curl -I http://127.0.0.1:5173/erzhuang/`
+  - 结果：返回 `HTTP/1.1 200 OK`
+  - 验证后已停止临时 Vite 进程
+
+风险和后续接入点：
+
+- 当前 mock adapter 使用前端内存数据，刷新页面会恢复默认示例数据；这是 Phase 2 骨架阶段预期行为。
+- `frontend/src/api.ts` 已保留接口路径和数据类型，后端 Phase 1 合并后，建议将 mock adapter 替换为真实 `fetch` 实现。
+- 后续做完整框编辑时，应补“画框模式”和“四角 resize handle”，并继续使用 0 到 1 的比例坐标，避免不同图片尺寸下坐标漂移。
