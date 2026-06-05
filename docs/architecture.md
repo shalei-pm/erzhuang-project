@@ -69,3 +69,12 @@ The main thread remains accountable for:
   - scope: create `frontend/` with Vite + React + TypeScript
   - status: active
 
+## Design Plan Marker Project
+
+The design plan marker project should use the same hub-and-spoke model:
+
+- Main architecture thread owns product scope, technical design, review, merge, deployment, verification, and rollback.
+- Backend specialist thread owns Go API, PostgreSQL schema, file/PDF processing, AI recognition service integration, and tests.
+- Frontend specialist thread owns React UI, store list, editor modal, floor-plan annotation interactions, and frontend verification.
+
+Specialist threads must not use cloud credentials, database secrets, OpenAI API keys, Tencent Cloud API/TAT, nginx, systemd, or deployment scripts unless explicitly assigned by the main thread.
