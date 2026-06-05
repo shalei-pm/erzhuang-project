@@ -47,6 +47,8 @@
   - 已完成从 v2 回滚到 v1 的服务器回滚练习
   - 已验证 `scripts/deploy.sh` 可以一键发布当前 `main`
   - 已验证 `scripts/rollback.sh <commit-or-tag>` 可以一键回滚
+  - 已通过 nginx 暴露公网 HTTPS 路径 `/erzhuang/`
+  - 已通过腾讯云 TAT/API 验证可管理韩国 Lighthouse 实例
 - 当前待验证：
   - 部署脚本已创建，待服务器 pull 后验证
 - 当前本地限制：
@@ -430,6 +432,76 @@ GIT_SSH_COMMAND='ssh -i ~/.ssh/erzhuang_project_deploy_key -o IdentitiesOnly=yes
 - 回滚到 commit 会让服务器进入 detached HEAD，这是脚本文档中已说明的预期行为。
 - 后续使用 `./scripts/deploy.sh` 可以恢复到最新 `main` 并重新发布。
 
+## 2026-06-05 公网 HTTPS 入口
+
+已完成：
+
+1. 腾讯云 API/TAT：
+   - 使用腾讯云 API 只读查询韩国区 `ap-seoul` Lighthouse 实例。
+   - 确认目标实例：
+     - InstanceId: `lhins-rjfpwj1u`
+     - Public IP: `43.155.237.46`
+     - OS: Ubuntu Server 24.04 LTS 64bit
+     - State: RUNNING
+   - 明确边界：只操作韩国区实例，不操作日本区实例。
+   - 使用 TAT 在目标实例执行只读检查和 nginx 配置操作。
+
+2. nginx：
+   - 配置文件：`/etc/nginx/sites-enabled/vpn-proxy`
+   - 保留原有 `/` 和 `/vless`。
+   - 新增：
+
+```nginx
+location = /erzhuang {
+    return 301 /erzhuang/;
+}
+
+location /erzhuang/ {
+    proxy_pass http://127.0.0.1:18081/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+3. nginx 备份处理：
+   - 曾将备份文件放到 `/etc/nginx/sites-enabled/`，导致 nginx 加载到重复 `server_name 43.155.237.46`，出现 warning。
+   - 已将备份移动到 `/etc/nginx/backups/`。
+   - `nginx -t` 通过。
+   - 已执行 `systemctl reload nginx`。
+
+4. Lighthouse 防火墙：
+   - 原规则只放行 TCP 22 和 ICMP。
+   - 已只在韩国实例 `lhins-rjfpwj1u` 添加 TCP 443 放行：
+     - Protocol: TCP
+     - Port: 443
+     - CidrBlock: `0.0.0.0/0`
+     - Description: `HTTPS for erzhuang nginx`
+
+5. 验证结果：
+
+```sh
+curl -k https://43.155.237.46/erzhuang/health
+curl -k https://43.155.237.46/erzhuang/api/tasks
+```
+
+返回：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v1"}
+```
+
+`/api/tasks` 也成功返回任务列表。
+
+重要备注：
+
+- 当前 HTTPS 证书来自 `/etc/xray/server.crt`，浏览器可能提示证书不受信任。
+- 当前服务公网入口是 IP + 路径，不是正式域名。
+- Go 服务仍只监听 `127.0.0.1:18081`，公网只通过 nginx 进入。
+- 临时腾讯云 API 密钥已在聊天中暴露，完成后应在 CAM 中禁用或删除。
+
 ## 建议的本地 Go 项目初始化路线
 
 第一阶段：本地最小服务
@@ -629,6 +701,8 @@ git pull --ff-only
    - 在服务器 pull 最新脚本
    - 在服务器 pull 最新 `.gitignore`，确认 `?? erzhuang-project` 消失
    - 给 v1/v2 创建 tag，练习基于 tag 的发布和回滚
+   - 删除或禁用本次使用的临时腾讯云 API 密钥
+   - 后续如需正式公网访问，配置域名和可信 HTTPS 证书
 
 服务器旧 demo 记录：
 

@@ -8,6 +8,7 @@ dist/
 .tools/
 .cache/
 .ssh/
+.venv-tccli/
 
 # Local environment files
 .env
