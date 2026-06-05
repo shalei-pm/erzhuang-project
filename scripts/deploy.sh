@@ -50,7 +50,11 @@ sudo systemctl status "${SERVICE_NAME}" --no-pager
 
 echo "==> Checking health"
 for attempt in {1..15}; do
-  if curl -fsS "${HEALTH_URL}"; then
+  set +e
+  curl -fsS "${HEALTH_URL}"
+  health_status=$?
+  set -e
+  if [[ "${health_status}" == "0" ]]; then
     break
   fi
   if [[ "${attempt}" == "15" ]]; then
