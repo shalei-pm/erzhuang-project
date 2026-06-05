@@ -7,6 +7,7 @@ HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:18081/health}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/erzhuang_project_deploy_key}"
 BUILD_OUTPUT="${BUILD_OUTPUT:-erzhuang-project}"
 BUILD_TARGET="${BUILD_TARGET:-./cmd/server}"
+FRONTEND_DIR="${FRONTEND_DIR:-frontend}"
 
 GIT_SSH_COMMAND_VALUE="ssh -i ${SSH_KEY} -o IdentitiesOnly=yes"
 
@@ -29,6 +30,19 @@ go test ./...
 
 echo "==> Building"
 go build -o "${BUILD_OUTPUT}" "${BUILD_TARGET}"
+
+if [[ -f "${FRONTEND_DIR}/package.json" ]]; then
+  if command -v npm >/dev/null 2>&1; then
+    echo "==> Building frontend"
+    (
+      cd "${FRONTEND_DIR}"
+      npm install
+      npm run build
+    )
+  else
+    echo "==> Skipping frontend build: npm not found"
+  fi
+fi
 
 echo "==> Restarting ${SERVICE_NAME}"
 sudo systemctl restart "${SERVICE_NAME}"

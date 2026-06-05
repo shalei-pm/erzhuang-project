@@ -23,10 +23,32 @@ cd /opt/apps/erzhuang-project
 2. 将本地 `main` 指向 `origin/main`。
 3. `go test ./...`。
 4. `go build -o erzhuang-project ./cmd/server`。
-5. `sudo systemctl restart erzhuang-project.service`。
-6. `curl -fsS http://127.0.0.1:18081/health`。
+5. 如果存在 `frontend/package.json` 且服务器有 `npm`，执行 `npm install` 和 `npm run build`。
+6. `sudo systemctl restart erzhuang-project.service`。
+7. `curl -fsS http://127.0.0.1:18081/health`。
 
 如果任一步失败，脚本会停止。
+
+## 前端发布方向
+
+当前前端工程使用 Vite + React + TypeScript，构建产物目录为：
+
+```text
+frontend/dist
+```
+
+Vite 已配置 `base: "/erzhuang/"`，适合部署在公网路径：
+
+```text
+https://43.155.237.46/erzhuang/
+```
+
+推荐 nginx 接入方式：
+
+- `/erzhuang/` 返回 `frontend/dist` 静态页面。
+- `/erzhuang/api/` 反向代理到 Go 后端 `127.0.0.1:18081`。
+
+当前部署脚本已支持在服务器存在 `npm` 时自动构建前端；如果服务器尚未安装 Node/npm，则会跳过前端构建，不影响 Go 后端发布。
 
 ## 回滚到指定 commit 或 tag
 
