@@ -53,7 +53,7 @@ func (s *MemoryStore) ListStores(ctx context.Context, filters StoreFilters) (Sto
 
 	filters = normalizeFilters(filters)
 	query := NormalizeStoreName(filters.Query)
-	var items []StoreListItem
+	items := []StoreListItem{}
 	for _, store := range s.stores {
 		if query != "" && !strings.Contains(store.NormalizedName, query) {
 			continue
@@ -163,7 +163,7 @@ func (s *MemoryStore) CheckDuplicate(ctx context.Context, name string, excludeSt
 	defer s.mu.Unlock()
 
 	normalized := NormalizeStoreName(name)
-	var result DuplicateCheckResult
+	result := DuplicateCheckResult{SimilarMatches: []DuplicateMatch{}}
 	for _, store := range s.stores {
 		if store.ID == excludeStoreID {
 			continue
@@ -244,7 +244,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 	}
 	defer rows.Close()
 
-	var items []StoreListItem
+	items := []StoreListItem{}
 	for rows.Next() {
 		var item StoreListItem
 		if err := rows.Scan(

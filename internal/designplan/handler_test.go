@@ -121,6 +121,41 @@ func TestHandlerRejectsInvalidStore(t *testing.T) {
 	}
 }
 
+func TestHandlerReturnsEmptyArrays(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewService(NewMemoryStore()))
+
+	listRecorder := performRequest(mux, http.MethodGet, "/api/design-plan/stores?page=1&page_size=20", nil)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("expected list status %d, got %d", http.StatusOK, listRecorder.Code)
+	}
+
+	var listResponse struct {
+		Items []StoreListItem `json:"items"`
+	}
+	if err := json.NewDecoder(listRecorder.Body).Decode(&listResponse); err != nil {
+		t.Fatalf("decode empty list response: %v", err)
+	}
+	if listResponse.Items == nil {
+		t.Fatal("expected empty list items to be [], got null")
+	}
+
+	duplicateRecorder := performRequest(mux, http.MethodPost, "/api/design-plan/stores/check-duplicate", []byte(`{"name":"不存在门店"}`))
+	if duplicateRecorder.Code != http.StatusOK {
+		t.Fatalf("expected duplicate status %d, got %d", http.StatusOK, duplicateRecorder.Code)
+	}
+
+	var duplicateResponse struct {
+		SimilarMatches []DuplicateMatch `json:"similar_matches"`
+	}
+	if err := json.NewDecoder(duplicateRecorder.Body).Decode(&duplicateResponse); err != nil {
+		t.Fatalf("decode empty duplicate response: %v", err)
+	}
+	if duplicateResponse.SimilarMatches == nil {
+		t.Fatal("expected empty similar_matches to be [], got null")
+	}
+}
+
 func TestHandlerRejectsExactDuplicateStoreName(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, NewService(NewMemoryStore()))
