@@ -27,3 +27,8 @@ curl http://127.0.0.1:18080/api/tasks
 - `GET /health`
 - `GET /api/tasks`
 
+## 部署
+
+部署和回滚流程见：
+
+- `docs/deploy-runbook.md`

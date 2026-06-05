@@ -45,8 +45,8 @@
   - Lighthouse 服务器已完成 `go test`、`go build`、systemd 启动、开机自启和 `/health` 验证
   - 已完成从 v1 到 v2 的服务器发布练习
   - 已完成从 v2 回滚到 v1 的服务器回滚练习
-- 当前尚未创建：
-  - 部署脚本
+- 当前待验证：
+  - 部署脚本已创建，待服务器 pull 后验证
 - 当前本地限制：
   - 系统 PATH 暂时找不到全局 `go` 命令。
   - 已通过项目内 `.tools/go` 临时解决本项目的 Go 测试和构建问题。
@@ -559,9 +559,9 @@ git pull --ff-only
 ```
 
 2. 后续增强：
-   - 写 `docs/deploy-runbook.md`
-   - 写受控 `scripts/deploy.sh`
-   - 设计 rollback：回到指定 commit 或 tag 后重新构建并重启
+   - 在服务器 pull 最新脚本
+   - 验证 `scripts/deploy.sh`
+   - 验证 `scripts/rollback.sh`
    - 在服务器 pull 最新 `.gitignore`，确认 `?? erzhuang-project` 消失
    - 给 v1/v2 创建 tag，练习基于 tag 的发布和回滚
 
