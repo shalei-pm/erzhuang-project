@@ -26,6 +26,9 @@ func (s *Service) CreateStore(ctx context.Context, input StoreInput) (*Store, er
 		return nil, err
 	}
 	input.Name = strings.TrimSpace(input.Name)
+	if err := s.ensureNoExactDuplicate(ctx, input.Name, 0); err != nil {
+		return nil, err
+	}
 	return s.repo.CreateStore(ctx, input)
 }
 
@@ -34,6 +37,9 @@ func (s *Service) UpdateStore(ctx context.Context, id int64, input StoreInput) (
 		return nil, err
 	}
 	input.Name = strings.TrimSpace(input.Name)
+	if err := s.ensureNoExactDuplicate(ctx, input.Name, id); err != nil {
+		return nil, err
+	}
 	return s.repo.UpdateStore(ctx, id, input)
 }
 
@@ -48,4 +54,17 @@ func (s *Service) CheckDuplicate(ctx context.Context, request DuplicateCheckRequ
 		}}
 	}
 	return s.repo.CheckDuplicate(ctx, strings.TrimSpace(request.Name), request.ExcludeStoreID)
+}
+
+func (s *Service) ensureNoExactDuplicate(ctx context.Context, name string, excludeStoreID int64) error {
+	result, err := s.repo.CheckDuplicate(ctx, name, excludeStoreID)
+	if err != nil {
+		return err
+	}
+	if result.ExactMatch != nil {
+		return &ValidationError{Fields: map[string]string{
+			"name": "已存在同名门店",
+		}}
+	}
+	return nil
 }

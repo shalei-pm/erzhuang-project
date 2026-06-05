@@ -121,6 +121,33 @@ func TestHandlerRejectsInvalidStore(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsExactDuplicateStoreName(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewService(NewMemoryStore()))
+
+	firstRecorder := performRequest(mux, http.MethodPost, "/api/design-plan/stores", mustJSON(validStoreInput()))
+	if firstRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected first create status %d, got %d: %s", http.StatusCreated, firstRecorder.Code, firstRecorder.Body.String())
+	}
+
+	duplicateInput := validStoreInput()
+	duplicateInput.Name = "新氧青春杭州西湖店"
+	duplicateRecorder := performRequest(mux, http.MethodPost, "/api/design-plan/stores", mustJSON(duplicateInput))
+	if duplicateRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected duplicate status %d, got %d: %s", http.StatusBadRequest, duplicateRecorder.Code, duplicateRecorder.Body.String())
+	}
+
+	var response struct {
+		Fields map[string]string `json:"fields"`
+	}
+	if err := json.NewDecoder(duplicateRecorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode duplicate response: %v", err)
+	}
+	if response.Fields["name"] != "已存在同名门店" {
+		t.Fatalf("expected duplicate name error, got %+v", response.Fields)
+	}
+}
+
 func TestHandlerCheckDuplicateExcludesCurrentStore(t *testing.T) {
 	repo := NewMemoryStore()
 	service := NewService(repo)
@@ -168,4 +195,12 @@ func performRequest(handler http.Handler, method string, target string, body []b
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	return recorder
+}
+
+func mustJSON(value any) []byte {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
