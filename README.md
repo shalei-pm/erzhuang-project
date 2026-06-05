@@ -27,6 +27,14 @@ curl http://127.0.0.1:18080/api/tasks
 - `GET /health`
 - `GET /api/tasks`
 
+## 数据库
+
+当前计划使用 Supabase PostgreSQL 作为练习数据库。
+
+数据库连接串通过环境变量配置，不提交到 GitHub。详细方案见：
+
+- `docs/database-plan.md`
+
 ## 部署
 
 部署和回滚流程见：

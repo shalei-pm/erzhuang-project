@@ -76,8 +76,11 @@
   - 已验证 `scripts/rollback.sh <commit-or-tag>` 可以一键回滚
   - 已通过 nginx 暴露公网 HTTPS 路径 `/erzhuang/`
   - 已通过腾讯云 TAT/API 验证可管理韩国 Lighthouse 实例
+  - 已确定当前数据库练习方案采用 Supabase PostgreSQL
 - 当前待验证：
-  - 部署脚本已创建，待服务器 pull 后验证
+  - Supabase 项目创建
+  - 后端通过环境变量连接 Supabase PostgreSQL
+  - 服务器通过 systemd 环境变量连接 Supabase PostgreSQL
 - 当前本地限制：
   - 系统 PATH 暂时找不到全局 `go` 命令。
   - 已通过项目内 `.tools/go` 临时解决本项目的 Go 测试和构建问题。
@@ -108,6 +111,8 @@
 
 - 公司后端开发环境是 Go。
 - 本项目优先练习 Go 后端。
+- 数据库练习优先采用 Supabase PostgreSQL，暂不在 2GB Lighthouse 上安装 MySQL。
+- 数据库密钥和连接串只通过环境变量配置，不提交到 GitHub。
 - 目标链路：
   1. Codex 本地开发
   2. Git 管理代码
@@ -205,6 +210,18 @@
 9. 支持回滚。
 
 后续希望做到：用户对 Codex 说“开发并发版”，Codex 能通过 GitHub + SSH 或受控部署脚本完成发布，不再每一步都让用户转述给 Hermes。
+
+## 数据库方案
+
+当前决策：
+
+- 使用 Supabase 创建个人练习用 PostgreSQL。
+- Go 后端通过 `DATABASE_URL` 读取连接串。
+- Lighthouse 上通过 systemd 环境变量注入连接串。
+- 不把数据库密码、Supabase Key、连接串写入仓库。
+- 暂不安装本机 MySQL，避免把当前学习重点转成数据库运维。
+
+详细计划见 `docs/database-plan.md`。
 
 ## 当前进度快照
 
