@@ -1,6 +1,7 @@
 # Build outputs
 bin/
 dist/
+frontend/dist/
 *.out
 /erzhuang-project
 
@@ -13,6 +14,9 @@ dist/
 # Local environment files
 .env
 .env.*
+
+# Frontend dependencies
+frontend/node_modules/
 
 # macOS
 .DS_Store
