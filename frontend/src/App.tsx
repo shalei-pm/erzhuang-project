@@ -260,7 +260,7 @@ function App() {
       current
         ? {
             ...current,
-            areas: current.areas.map((item) => (item.id === areaId ? { ...item, ...patch } : item)),
+            areas: current.areas.map((item) => (item.id === areaId ? withGeneratedAreaFields({ ...item, ...patch }) : item)),
             dirty: true,
           }
         : current,
@@ -324,6 +324,8 @@ function App() {
       return;
     }
 
+    const normalizedAreas = editor.areas.map(normalizeAreaForSave);
+
     setSaving(true);
     const duplicate = await designPlanApi.checkDuplicate(editor.storeName, editor.id);
     if (duplicate.exactMatch && !window.confirm("系统检测到已存在同名门店。继续保存将覆盖该门店当前设计图和区域信息，覆盖后不可恢复。是否继续？")) {
@@ -338,7 +340,7 @@ function App() {
       previewUrl: editor.previewUrl,
       thumbnailUrl: editor.thumbnailUrl || editor.previewUrl,
       uploadId: editor.uploadId,
-      areas: editor.areas,
+      areas: normalizedAreas,
     });
     setSaving(false);
     setEditor(null);
@@ -568,7 +570,10 @@ function App() {
                             });
                           }}
                         >
-                          <span className="area-box-label">{areaLabel(areaItem)}</span>
+                          <span className="area-box-label">
+                            <strong>{areaBoxPrimaryLabel(areaItem)}</strong>
+                            <em>{areaBoxSecondaryLabel(areaItem)}</em>
+                          </span>
                           {(["nw", "ne", "sw", "se"] as ResizeHandle[]).map((handle) => (
                             <span
                               aria-hidden="true"
@@ -643,19 +648,11 @@ function App() {
                     >
                       <div className="area-card-head">
                         <span className={`type-dot area-${areaItem.type || "unknown"}`} aria-hidden="true" />
-                        <strong>{areaItem.name || `区域 ${index + 1}`}</strong>
+                        <strong>{areaDisplayName(areaItem) || `区域 ${index + 1}`}</strong>
                         <span className="area-card-subtitle">{areaSummary(areaItem)}</span>
                         {areaItem.needsReview ? <span className="review-tag">需确认</span> : null}
                       </div>
                       <div className="area-form-grid">
-                        <label>
-                          区域名称
-                          <input
-                            value={areaItem.name}
-                            onChange={(event) => updateArea(areaItem.id, { name: event.target.value })}
-                            placeholder="例：治疗室 1"
-                          />
-                        </label>
                         <label>
                           区域类型
                           <select
@@ -676,21 +673,6 @@ function App() {
                             inputMode="numeric"
                             placeholder={areaItem.type === "beauty" ? "可选" : "必填"}
                           />
-                        </label>
-                        <label>
-                          状态
-                          <select
-                            value={areaItem.needsReview ? "needs_review" : "complete"}
-                            onChange={(event) =>
-                              updateArea(areaItem.id, {
-                                needsReview: event.target.value === "needs_review",
-                                confidence: event.target.value === "needs_review" ? "low" : "high",
-                              })
-                            }
-                          >
-                            <option value="complete">完整</option>
-                            <option value="needs_review">需确认</option>
-                          </select>
                         </label>
                       </div>
                       {errors.length > 0 ? <p className="area-error">{errors.join("；")}</p> : null}
@@ -732,7 +714,8 @@ function validateEditor(editor: EditorState): ValidationResult {
     fieldErrors.push("至少需要 1 个区域");
   }
 
-  editor.areas.forEach((areaItem) => {
+  editor.areas.forEach((rawAreaItem) => {
+    const areaItem = withGeneratedAreaFields(rawAreaItem);
     const errors: string[] = [];
     if (!areaItem.name.trim()) errors.push("区域名称不能为空");
     if (!areaItem.type) errors.push("区域类型不能为空");
@@ -816,10 +799,21 @@ function resizeBox(origin: AreaBox, handle: ResizeHandle, dx: number, dy: number
   }
 }
 
-function areaLabel(area: StoreArea) {
-  if (!area.type) return "未分类";
-  if (area.type === "beauty") return area.number ? `${areaTypeLabels[area.type]} ${area.number}` : areaTypeLabels[area.type];
-  return `${areaTypeLabels[area.type]} ${area.number || ""}`.trim();
+function areaDisplayName(area: StoreArea) {
+  if (!area.type) return "";
+  if (area.number.trim()) return `${areaTypeLabels[area.type]} ${area.number.trim()}`;
+  return area.type === "beauty" ? areaTypeLabels[area.type] : "";
+}
+
+function areaBoxPrimaryLabel(area: StoreArea) {
+  if (area.number.trim()) return area.number.trim();
+  if (area.type) return areaTypeLabels[area.type];
+  return "未分类";
+}
+
+function areaBoxSecondaryLabel(area: StoreArea) {
+  if (!area.type || !area.number.trim()) return "";
+  return areaTypeLabels[area.type];
 }
 
 function areaSummary(area: StoreArea) {
@@ -827,6 +821,27 @@ function areaSummary(area: StoreArea) {
   const label = areaTypeLabels[area.type];
   if (!area.number) return area.type === "beauty" ? label : `${label} · 未编号`;
   return `${label} · 编号 ${area.number}`;
+}
+
+function withGeneratedAreaFields(area: StoreArea): StoreArea {
+  return {
+    ...area,
+    name: areaDisplayName(area),
+  };
+}
+
+function normalizeAreaForSave(area: StoreArea): StoreArea {
+  const generated = withGeneratedAreaFields(area);
+  const isComplete =
+    Boolean(generated.type) &&
+    Boolean(generated.box) &&
+    Boolean(generated.name.trim()) &&
+    (generated.type === "beauty" || Boolean(generated.number.trim()));
+  return {
+    ...generated,
+    confidence: isComplete ? "high" : generated.confidence,
+    needsReview: isComplete ? false : generated.needsReview,
+  };
 }
 
 function stageText(stage: UploadStage) {

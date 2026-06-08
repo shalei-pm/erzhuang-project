@@ -39,7 +39,7 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
 | 编辑门店 | `openEditEditor`、`updateEditor`、`updateArea`、`handleSave` | `updateStore` | 同上 | 后端 `PUT` 采用整批替换区域 |
 | 删除门店 | `handleDelete` | `deleteStore` | store 删除级联 area | 删除日志保留在全局日志表 |
 | 重复门店检查 | `designPlanApi.checkDuplicate` | `checkDuplicate`、`Service.ensureNoExactDuplicate` | `normalized_name` | 保存时后端会拦截完全同名 |
-| 区域校验 | `validateEditor` | `ValidateStoreInput` | 后端约束 + 唯一索引 | 前后端均校验，后端为最终门禁 |
+| 区域校验 | `validateEditor`、`areaDisplayName`、`normalizeAreaForSave` | `ValidateStoreInput` | 后端约束 + 唯一索引 | 前端自动生成区域名称并在保存时自动确认完整区域，后端为最终门禁 |
 | 区域框显示/拖动/拉伸/缩放 | `boxStyle`、`clampBox`、`resizeBox`、`dragState`、`planZoom` | 暂无 | `box_x/y/width/height` | 支持移动、四角拉伸和查看缩放 |
 | PDF 上传/转换 | `requestPdfUpload`、`handlePdfSelected`、`mockUploadAndRecognize` | 待 Phase 3 新增 | 待新增 uploads 文件路径 | 当前只是选择本地 PDF 文件名，真实上传/转换/识别是 release 前待办 |
 | AI 识别 | 仅 UI mock | 待 Phase 4 新增 | `recognition_result` | 当前无 OpenAI 调用 |
@@ -70,6 +70,9 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - `handleSave`：保存前端数据。
   - `handleDelete`：删除门店。
   - `validateEditor`：前端保存校验。
+  - `areaDisplayName`：按区域类型和编号自动生成区域名称。
+  - `normalizeAreaForSave`：保存前自动补全区域名称，并将完整区域置为已确认。
+  - `areaBoxPrimaryLabel`、`areaBoxSecondaryLabel`：控制左侧矩形框内标签显示。
   - `clampBox`：限制框不超出图片边界。
   - `resizeBox`：根据四角 handle 计算新的区域框。
   - `APP_VERSION`：读取 `VITE_APP_VERSION`，在首页底部展示当前前端版本。

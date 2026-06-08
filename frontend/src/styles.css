@@ -596,6 +596,9 @@ td:nth-child(10) {
 
 .area-box {
   position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 40px;
   min-height: 28px;
   padding: 0;
@@ -615,21 +618,36 @@ td:nth-child(10) {
 }
 
 .area-box-label {
-  position: absolute;
+  position: relative;
   z-index: 1;
-  top: -27px;
-  left: -2px;
-  max-width: 160px;
-  min-height: 22px;
-  padding: 3px 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  max-width: calc(100% - 10px);
+  min-height: 24px;
+  padding: 3px 8px;
   overflow: hidden;
   border-radius: 4px;
   background: currentColor;
   color: #ffffff;
-  font-size: 12px;
-  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.area-box-label strong {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.area-box-label em {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .resize-handle {
