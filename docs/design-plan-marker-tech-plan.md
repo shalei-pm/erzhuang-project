@@ -1,6 +1,6 @@
 # 设计图标记与诊室区域管理技术方案
 
-最后更新：2026-06-05
+最后更新：2026-06-08
 
 ## 1. 方案结论
 
@@ -79,8 +79,16 @@ flowchart LR
 - 添加/编辑大弹窗。
 - 右侧区域卡片。
 - 左侧图片预览和矩形框编辑。
+- 首页底部版本号。
+- 图纸查看缩放。
+- 类型色一致的选中高亮。
 - 保存校验。
 - 删除确认。
+
+当前实现状态：
+
+- 已完成页面骨架、真实 CRUD adapter、版本号展示、PDF 文件选择器入口、图纸查看缩放、类型色一致高亮。
+- 上传/转换/AI 识别仍为 mock，等待 Phase 3/4。
 
 ### Phase 3：PDF 上传和图片转换
 
@@ -96,6 +104,8 @@ flowchart LR
 - PDF 转 PNG。
 - 多页上下拼接。
 - 文件保存到 `/opt/apps/erzhuang-project/uploads`。
+- 前端 `handlePdfSelected` 需要从只传文件名升级为传 `File` 对象。
+- 前端 `designPlanApi.uploadPdf` 需要从 mock adapter 升级为真实 multipart 上传。
 
 ### Phase 4：AI 识别
 

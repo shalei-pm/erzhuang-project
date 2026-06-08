@@ -24,6 +24,7 @@ git switch -C main origin/main
 echo "==> Current commit"
 git rev-parse --short HEAD
 git log --oneline -1
+APP_VERSION="$(git rev-parse --short HEAD)"
 
 echo "==> Running tests"
 go test ./...
@@ -37,7 +38,7 @@ if [[ -f "${FRONTEND_DIR}/package.json" ]]; then
     (
       cd "${FRONTEND_DIR}"
       npm install
-      npm run build
+      VITE_APP_VERSION="${APP_VERSION}" npm run build
     )
   else
     echo "==> Skipping frontend build: npm not found"

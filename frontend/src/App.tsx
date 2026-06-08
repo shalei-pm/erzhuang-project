@@ -9,6 +9,7 @@ import {
 } from "./api";
 
 const PAGE_SIZE = 20;
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "local-dev";
 
 const areaTypeLabels: Record<AreaType, string> = {
   treatment: "治疗室",
@@ -61,7 +62,9 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [planZoom, setPlanZoom] = useState(1);
   const planRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const firstIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
@@ -127,6 +130,7 @@ function App() {
 
   function openCreateEditor() {
     setValidation(emptyValidation);
+    setPlanZoom(1);
     setEditor({
       mode: "create",
       storeName: "",
@@ -143,6 +147,7 @@ function App() {
   async function openEditEditor(storeId: number) {
     const detail = await designPlanApi.getStore(storeId);
     setValidation(emptyValidation);
+    setPlanZoom(1);
     setEditor({
       id: detail.id,
       mode: "edit",
@@ -166,7 +171,20 @@ function App() {
     setValidation(emptyValidation);
   }
 
-  async function mockUploadAndRecognize(shouldFail = false) {
+  function requestPdfUpload() {
+    fileInputRef.current?.click();
+  }
+
+  function handlePdfSelected(fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file) return;
+    void mockUploadAndRecognize(false, file.name);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  async function mockUploadAndRecognize(shouldFail = false, fileName = "门店设计图.pdf") {
     if (!editor) return;
     setValidation(emptyValidation);
     setEditor((current) =>
@@ -174,13 +192,13 @@ function App() {
         ? {
             ...current,
             uploadStage: "converting",
-            fileName: "门店设计图.pdf",
+            fileName,
             dirty: true,
           }
         : current,
     );
 
-    const upload = await designPlanApi.uploadPdf("门店设计图.pdf");
+    const upload = await designPlanApi.uploadPdf(fileName);
     setEditor((current) =>
       current
         ? {
@@ -456,6 +474,10 @@ function App() {
         </button>
       </nav>
 
+      <footer className="app-version" aria-label="当前版本">
+        版本 {APP_VERSION}
+      </footer>
+
       {editor ? (
         <section className="editor-overlay" aria-label={editor.mode === "create" ? "添加门店" : "编辑门店"}>
           <div className="editor-topbar">
@@ -469,7 +491,14 @@ function App() {
             </label>
             <div className="file-zone">
               <span className="file-name">{editor.fileName || "尚未上传 PDF"}</span>
-              <button onClick={() => void mockUploadAndRecognize(false)}>
+              <input
+                ref={fileInputRef}
+                className="visually-hidden"
+                type="file"
+                accept="application/pdf"
+                onChange={(event) => handlePdfSelected(event.target.files)}
+              />
+              <button onClick={requestPdfUpload}>
                 {editor.previewUrl ? "重新上传 PDF" : "上传 PDF"}
               </button>
               <button className="plain-button" onClick={() => void mockUploadAndRecognize(true)}>
@@ -498,15 +527,15 @@ function App() {
                   <span>{stageText(editor.uploadStage)}</span>
                 </div>
                 <div className="view-actions" aria-label="图纸查看工具">
-                  <button>−</button>
-                  <button>适应</button>
-                  <button>+</button>
+                  <button onClick={() => setPlanZoom((value) => Math.max(0.7, Number((value - 0.15).toFixed(2))))}>−</button>
+                  <button onClick={() => setPlanZoom(1)}>适应</button>
+                  <button onClick={() => setPlanZoom((value) => Math.min(1.8, Number((value + 0.15).toFixed(2))))}>+</button>
                 </div>
               </div>
 
               <div className={`plan-canvas stage-${editor.uploadStage}`}>
                 {editor.previewUrl ? (
-                  <div className="plan-image-wrap" ref={planRef}>
+                  <div className="plan-image-wrap" ref={planRef} style={{ width: `min(${92 * planZoom}%, ${980 * planZoom}px)` }}>
                     <img src={editor.previewUrl} alt="设计图预览" draggable={false} />
                     {editor.areas.map((areaItem) =>
                       areaItem.box ? (
@@ -539,7 +568,7 @@ function App() {
                   <div className="upload-placeholder">
                     <strong>等待上传设计图 PDF</strong>
                     <p>上传门店装修设计图后，系统会生成预览并辅助识别诊室区域。</p>
-                    <button className="primary-button" onClick={() => void mockUploadAndRecognize(false)}>
+                    <button className="primary-button" onClick={requestPdfUpload}>
                       上传 PDF
                     </button>
                   </div>

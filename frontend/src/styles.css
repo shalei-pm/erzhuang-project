@@ -20,14 +20,12 @@
   --shadow-panel: 0 6px 18px rgba(15, 23, 42, 0.04);
   --area-treatment: #dc2626;
   --area-treatment-bg: rgba(220, 38, 38, 0.13);
-  --area-consultation: #2563eb;
-  --area-consultation-bg: rgba(37, 99, 235, 0.13);
+  --area-consultation: #d97706;
+  --area-consultation-bg: rgba(217, 119, 6, 0.15);
   --area-beauty: #16a34a;
   --area-beauty-bg: rgba(22, 163, 74, 0.13);
   --area-unknown: #64748b;
   --area-unknown-bg: rgba(100, 116, 139, 0.14);
-  --area-selected: #facc15;
-  --area-selected-bg: rgba(250, 204, 21, 0.22);
   color: var(--text-main);
   background: var(--page-bg);
   font-family: var(--font-sans);
@@ -71,6 +69,17 @@ button:hover:not(:disabled) {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 input,
@@ -424,6 +433,14 @@ td:nth-child(10) {
   padding: 0 12px;
 }
 
+.app-version {
+  max-width: 1440px;
+  margin: 18px auto 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: right;
+}
+
 .editor-overlay {
   position: fixed;
   inset: 0;
@@ -534,6 +551,7 @@ td:nth-child(10) {
 
 .plan-image-wrap {
   position: relative;
+  flex: 0 0 auto;
   width: min(92%, 980px);
   aspect-ratio: 1191 / 842;
   overflow: hidden;
@@ -615,12 +633,32 @@ td:nth-child(10) {
 }
 
 .area-box.is-selected {
-  border-color: var(--area-selected);
-  box-shadow: 0 0 0 3px var(--area-selected-bg);
+  border-width: 3px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.95);
 }
 
-.area-box.is-selected::after {
-  background: var(--area-selected-bg);
+.area-treatment.is-selected {
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.95),
+    0 0 0 6px rgba(220, 38, 38, 0.24);
+}
+
+.area-consultation.is-selected {
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.95),
+    0 0 0 6px rgba(217, 119, 6, 0.24);
+}
+
+.area-beauty.is-selected {
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.95),
+    0 0 0 6px rgba(22, 163, 74, 0.24);
+}
+
+.area-unknown.is-selected {
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.95),
+    0 0 0 6px rgba(100, 116, 139, 0.24);
 }
 
 .area-treatment {

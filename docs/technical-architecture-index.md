@@ -1,6 +1,6 @@
 # 技术架构索引
 
-最后更新：2026-06-05
+最后更新：2026-06-08
 
 本文是 `erzhuang-project` 的代码地图，用于后续迭代时快速定位改动范围，避免为了一个小需求整体重写。
 
@@ -35,13 +35,13 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
 | 业务能力 | 前端入口 | 后端入口 | 数据位置 | 备注 |
 | --- | --- | --- | --- | --- |
 | 门店列表 | `frontend/src/App.tsx` 的 `loadStores`、列表渲染区 | `internal/designplan/handler.go` 的 `listStores` | `design_plan_stores`、`design_plan_store_areas` | 支持搜索、分页、数量统计 |
-| 添加门店 | `openCreateEditor`、`mockUploadAndRecognize`、`handleSave` | `createStore` | `design_plan_stores`、`design_plan_store_areas` | 当前前端仍是 mock adapter |
+| 添加门店 | `openCreateEditor`、`requestPdfUpload`、`handlePdfSelected`、`mockUploadAndRecognize`、`handleSave` | `createStore` | `design_plan_stores`、`design_plan_store_areas` | 当前会弹本地 PDF 选择器，但上传/转换/识别仍走 mock adapter |
 | 编辑门店 | `openEditEditor`、`updateEditor`、`updateArea`、`handleSave` | `updateStore` | 同上 | 后端 `PUT` 采用整批替换区域 |
 | 删除门店 | `handleDelete` | `deleteStore` | store 删除级联 area | 删除日志保留在全局日志表 |
 | 重复门店检查 | `designPlanApi.checkDuplicate` | `checkDuplicate`、`Service.ensureNoExactDuplicate` | `normalized_name` | 保存时后端会拦截完全同名 |
 | 区域校验 | `validateEditor` | `ValidateStoreInput` | 后端约束 + 唯一索引 | 前后端均校验，后端为最终门禁 |
-| 区域框显示/拖动 | `boxStyle`、`clampBox`、`dragState` | 暂无 | `box_x/y/width/height` | P0 只有基础拖动，四角拉伸待补 |
-| PDF 上传/转换 | 仅 UI mock | 待 Phase 3 新增 | 待新增 uploads 文件路径 | 当前无真实上传接口 |
+| 区域框显示/拖动/缩放 | `boxStyle`、`clampBox`、`dragState`、`planZoom` | 暂无 | `box_x/y/width/height` | P0 只有基础拖动和查看缩放，四角拉伸待补 |
+| PDF 上传/转换 | `requestPdfUpload`、`handlePdfSelected`、`mockUploadAndRecognize` | 待 Phase 3 新增 | 待新增 uploads 文件路径 | 当前只是选择本地 PDF 文件名，真实上传/转换/识别是 release 前待办 |
 | AI 识别 | 仅 UI mock | 待 Phase 4 新增 | `recognition_result` | 当前无 OpenAI 调用 |
 | 操作日志 | 页面暂不展示 | `insertOperationLog` | `design_plan_operation_logs` | actor 当前固定为 `admin` |
 
@@ -57,10 +57,13 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - `editor`：添加/编辑弹窗状态。
   - `validation`：保存校验结果。
   - `dragState`：图纸区域框拖动状态。
+  - `planZoom`：左侧图纸查看缩放比例。
 - 关键函数：
   - `loadStores`：加载门店列表。
   - `openCreateEditor`：打开添加门店弹窗。
   - `openEditEditor`：打开编辑门店弹窗。
+  - `requestPdfUpload`：触发浏览器本地 PDF 文件选择器。
+  - `handlePdfSelected`：读取用户选择的 PDF 文件名，并进入当前 mock 上传/识别流程。
   - `mockUploadAndRecognize`：模拟上传、转换、AI 识别流程。
   - `updateArea`：更新右侧区域卡片和左侧框。
   - `addArea`：新增手工区域。
@@ -68,6 +71,7 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - `handleDelete`：删除门店。
   - `validateEditor`：前端保存校验。
   - `clampBox`：限制框不超出图片边界。
+  - `APP_VERSION`：读取 `VITE_APP_VERSION`，在首页底部展示当前前端版本。
 
 适合后续拆分的方向：
 
@@ -110,6 +114,7 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
 - `mock`：全量使用前端 mock。
 - `http`：强制真实后端，不 fallback。
 - 上传和识别仍是 mock，等待 Phase 3/4 后端接口。
+- release 前必须把 `designPlanApi.uploadPdf` 改为真实文件上传接口，并让 `handlePdfSelected` 传递 `File` 对象，而不是只传文件名。
 
 后续 API 行为调整优先改这里，不要先改页面。
 
@@ -122,13 +127,14 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - 文本色：`--text-*`
   - 边框/背景：`--border-*`、`--surface-*`
   - 区域类型色：`--area-treatment`、`--area-consultation`、`--area-beauty`
-  - 选中态：`--area-selected`
+  - 选中态：沿用区域类型色，通过 `.area-*.is-selected` 增强边框和阴影，不再使用统一黄色。
 - 重点样式区：
   - 列表表格和缩略图。
   - lightbox 弹窗。
-  - 左侧图纸区域。
+  - 左侧图纸区域和查看缩放。
   - 区域框 `.area-box`。
   - 右侧区域卡片 `.area-card`。
+  - 首页版本号 `.app-version`。
 
 后续只改配色时，优先改 `:root` token。
 
