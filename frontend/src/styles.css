@@ -624,6 +624,8 @@ td:nth-child(10) {
   position: absolute;
   inset: 0;
   background: var(--area-unknown-bg);
+  opacity: 0;
+  transition: opacity 0.16s ease;
 }
 
 .area-box-label {
@@ -706,7 +708,7 @@ td:nth-child(10) {
 }
 
 .area-box.is-selected::after {
-  opacity: 0.82;
+  opacity: 0.72;
 }
 
 .area-box.is-selected .area-box-label,
