@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type AreaBox,
   type AreaType,
+  ApiError,
   designPlanApi,
   type StoreArea,
   type StoreStatus,
@@ -10,6 +11,7 @@ import {
 
 const PAGE_SIZE = 20;
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "local-dev";
+const MAX_PDF_BYTES = 5 * 1024 * 1024;
 
 const areaTypeLabels: Record<AreaType, string> = {
   treatment: "治疗室",
@@ -227,10 +229,33 @@ function App() {
   function handlePdfSelected(fileList: FileList | null) {
     const file = fileList?.[0];
     if (!file) return;
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      const message = "仅支持上传 PDF 文件。";
+      setToast(message);
+      updateUploadMessage(message);
+      return;
+    }
+    if (file.size > MAX_PDF_BYTES) {
+      const message = "文件过大，请上传 5MB 以内的 PDF。";
+      setToast(message);
+      updateUploadMessage(message);
+      return;
+    }
     void uploadAndRecognize(file);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  }
+
+  function updateUploadMessage(message: string) {
+    setEditor((current) =>
+      current
+        ? {
+            ...current,
+            uploadMessage: message,
+          }
+        : current,
+    );
   }
 
   async function uploadAndRecognize(file: File) {
@@ -1109,6 +1134,14 @@ function formatDateTime(value: string) {
 }
 
 function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    if (error.status === 413) {
+      return "文件过大，请上传 5MB 以内的 PDF。";
+    }
+    if (error.status === 504) {
+      return "AI 识别超时，请换一张更小或更清晰的 PDF，或稍后重试。";
+    }
+  }
   if (error instanceof Error && error.message.trim()) {
     return error.message;
   }
