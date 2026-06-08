@@ -24,7 +24,9 @@ git switch -C main origin/main
 echo "==> Current commit"
 git rev-parse --short HEAD
 git log --oneline -1
-APP_VERSION="$(git rev-parse --short HEAD)"
+GIT_VERSION="$(git rev-parse --short HEAD)"
+PRODUCT_VERSION="$(cat VERSION 2>/dev/null || echo 0.0.0)"
+APP_VERSION="${PRODUCT_VERSION} (${GIT_VERSION})"
 
 echo "==> Running tests"
 go test ./...
