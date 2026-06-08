@@ -497,6 +497,29 @@ td:nth-child(10) {
   margin: 10px 18px 0;
 }
 
+.editor-status {
+  margin: 10px 18px 0;
+  padding: 10px 12px;
+  border: 1px solid #cfe4ff;
+  border-radius: var(--radius-card);
+  background: #f5f9ff;
+  color: #245084;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.editor-status-ready {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.editor-status-failed {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
 .duplicate-modal-backdrop {
   position: fixed;
   inset: 0;

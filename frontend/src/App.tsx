@@ -58,6 +58,7 @@ type EditorState = {
   thumbnailUrl: string;
   recognitionResult?: unknown;
   uploadStage: UploadStage;
+  uploadMessage: string;
   areas: StoreArea[];
   selectedAreaId: string | null;
   dirty: boolean;
@@ -171,6 +172,7 @@ function App() {
       previewUrl: "",
       thumbnailUrl: "",
       uploadStage: "initial",
+      uploadMessage: "",
       areas: [],
       selectedAreaId: null,
       dirty: false,
@@ -195,6 +197,7 @@ function App() {
       thumbnailUrl: detail.thumbnailUrl,
       recognitionResult: detail.recognitionResult,
       uploadStage: "ready",
+      uploadMessage: "",
       areas: detail.areas,
       selectedAreaId: detail.areas[0]?.id ?? null,
       dirty: false,
@@ -239,6 +242,7 @@ function App() {
         ? {
             ...current,
             uploadStage: "converting",
+            uploadMessage: "正在解析 PDF 并生成图纸预览。",
             fileName: file.name,
             dirty: true,
           }
@@ -249,12 +253,14 @@ function App() {
     try {
       upload = await designPlanApi.uploadPdf(file);
     } catch (error) {
-      setToast(errorMessage(error, "设计图解析失败，请重新上传 PDF。"));
+      const message = errorMessage(error, "设计图解析失败，请重新上传 PDF。");
+      setToast(message);
       setEditor((current) =>
         current
           ? {
               ...current,
               uploadStage: "failed",
+              uploadMessage: message,
               areas: [],
               selectedAreaId: null,
               dirty: true,
@@ -269,6 +275,7 @@ function App() {
         ? {
             ...current,
             uploadStage: "recognizing",
+            uploadMessage: "图纸预览已生成，正在进行 AI 识别。",
             uploadId: upload.uploadId,
             fileName: upload.fileName,
             originalPath: upload.originalPath,
@@ -286,12 +293,14 @@ function App() {
     try {
       recognition = await designPlanApi.recognizeUpload(upload.uploadId);
     } catch (error) {
-      setToast(errorMessage(error, "AI 识别失败，可手动维护。"));
+      const message = errorMessage(error, "AI 识别失败，可手动维护。");
+      setToast(message);
       setEditor((current) =>
         current
           ? {
               ...current,
               uploadStage: "failed",
+              uploadMessage: `${message} 上传编号：${upload.uploadId}`,
               areas: [],
               selectedAreaId: null,
               dirty: true,
@@ -308,6 +317,10 @@ function App() {
         ? {
             ...current,
             uploadStage: "ready",
+            uploadMessage:
+              recognition.areas.length > 0
+                ? `AI 识别完成：识别到 ${recognition.areas.length} 个目标区域。`
+                : "AI 未识别到目标区域，可手动新增区域并画框。",
             storeName: nextStoreName || current.storeName,
             fileName: planFileNameForStore(nextStoreName || current.storeName, current.fileName),
             areas: recognition.areas,
@@ -659,6 +672,12 @@ function App() {
               {validation.fieldErrors[0] || `还有 ${validationAreaErrorCount} 个区域未完善。`}
             </div>
           )}
+
+          {editor.uploadMessage ? (
+            <div className={`editor-status editor-status-${editor.uploadStage}`} role={editor.uploadStage === "failed" ? "alert" : "status"}>
+              {editor.uploadMessage}
+            </div>
+          ) : null}
 
           <div className="editor-body">
             <div className="plan-pane">

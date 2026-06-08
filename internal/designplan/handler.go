@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Handler struct {
@@ -33,20 +35,25 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 }
 
 func (h *Handler) uploadPDF(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
 	r.Body = http.MaxBytesReader(w, r.Body, maxPDFBytes+1<<20)
 	if err := r.ParseMultipartForm(maxPDFBytes + 1<<20); err != nil {
+		log.Printf("designplan: upload failed stage=parse_form duration_ms=%d error=%q", time.Since(startedAt).Milliseconds(), err)
 		writeError(w, http.StatusBadRequest, "invalid multipart form", nil)
 		return
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
+		log.Printf("designplan: upload failed stage=form_file duration_ms=%d error=%q", time.Since(startedAt).Milliseconds(), err)
 		writeError(w, http.StatusBadRequest, "PDF 文件不能为空", map[string]string{"file": "PDF 文件不能为空"})
 		return
 	}
+	log.Printf("designplan: upload started file=%q size=%d", header.Filename, header.Size)
 
 	head := make([]byte, 512)
 	n, readErr := file.Read(head)
 	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		log.Printf("designplan: upload failed stage=read_head file=%q size=%d duration_ms=%d error=%q", header.Filename, header.Size, time.Since(startedAt).Milliseconds(), readErr)
 		writeError(w, http.StatusBadRequest, "read PDF failed", nil)
 		return
 	}
@@ -59,19 +66,25 @@ func (h *Handler) uploadPDF(w http.ResponseWriter, r *http.Request) {
 		URLPrefix: "",
 	})
 	if err != nil {
+		log.Printf("designplan: upload failed stage=save file=%q size=%d duration_ms=%d error=%q", header.Filename, header.Size, time.Since(startedAt).Milliseconds(), err)
 		handleServiceError(w, err)
 		return
 	}
+	log.Printf("designplan: upload completed upload_id=%s file=%q size=%d pages=%d duration_ms=%d", result.UploadID, result.FileName, header.Size, result.PageCount, time.Since(startedAt).Milliseconds())
 	writeJSON(w, http.StatusCreated, result)
 }
 
 func (h *Handler) recognizeUpload(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
 	uploadID := r.PathValue("upload_id")
+	log.Printf("designplan: recognize started upload_id=%s", uploadID)
 	result, err := h.service.RecognizeUpload(r.Context(), uploadID)
 	if err != nil {
+		log.Printf("designplan: recognize failed upload_id=%s duration_ms=%d error=%q", uploadID, time.Since(startedAt).Milliseconds(), err)
 		handleServiceError(w, err)
 		return
 	}
+	log.Printf("designplan: recognize completed upload_id=%s store_name=%q areas=%d duration_ms=%d", uploadID, result.StoreName, len(result.Areas), time.Since(startedAt).Milliseconds())
 	writeJSON(w, http.StatusOK, result)
 }
 

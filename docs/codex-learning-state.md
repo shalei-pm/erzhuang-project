@@ -1037,6 +1037,41 @@ python3 tools/tat_run.py --region ap-seoul --instance-id lhins-rjfpwj1u --timeou
 - 公网入口当前使用 IP + 自签证书，浏览器可能提示证书风险；这是当前练习环境的预期现象。
 - 本次只改前端文案和样式，没有改数据库、后端接口、nginx 或 systemd 配置。
 
+## 2026-06-08 识别失败可观测性增强
+
+用户反馈：
+
+- 上传一个门店设计图 PDF 后，页面没有识别结果。
+- 页面也没有明确成功或失败反馈。
+- 需要补充日志能力，方便后续提 bug 时定位问题。
+
+判断：
+
+- 旧代码里后端识别失败会统一返回 `design plan request failed`，没有在 `systemd` 日志中记录具体错误。
+- 前端失败提示主要依赖页面 toast，弹窗里没有持久的上传/识别状态提示，用户容易感觉“没有任何提示”。
+
+本次改动：
+
+- 后端 `internal/designplan/handler.go` 增加上传与识别阶段日志：
+  - 上传开始、上传完成、上传失败。
+  - 识别开始、识别完成、识别失败。
+  - 日志包含 `upload_id`、文件名、文件大小、页数、识别区域数量、耗时和错误信息。
+- 前端 `frontend/src/App.tsx` 增加弹窗内持久状态提示：
+  - PDF 解析中。
+  - AI 识别中。
+  - AI 识别完成。
+  - AI 识别失败，可手动维护，并展示上传编号。
+- 前端 `frontend/src/styles.css` 增加状态提示样式。
+- 版本号从 `1.1.0` 升级到 `1.1.1`，按规则属于小版本：bug 定位/技术可观测性增强。
+
+后续排查命令：
+
+```sh
+sudo journalctl -u erzhuang-project.service --since "30 minutes ago" | grep "designplan:"
+```
+
+如果用户再次反馈上传或识别失败，优先按上传时间查 `designplan:` 日志，确认失败阶段是 PDF 转图、上传资产读取、AI 接口调用、AI 返回解析，还是前端状态展示。
+
 ## 明日待办
 
 1. 开始前先运行：
