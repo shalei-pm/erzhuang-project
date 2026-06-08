@@ -62,6 +62,18 @@ func TestHandlerCreateListGetUpdateDeleteStore(t *testing.T) {
 		t.Fatalf("unexpected area counts: %+v", list.Items[0])
 	}
 
+	brandRecorder := performRequest(mux, http.MethodGet, "/api/design-plan/stores?q=新氧青春&page=1&page_size=20", nil)
+	if brandRecorder.Code != http.StatusOK {
+		t.Fatalf("expected brand search status %d, got %d", http.StatusOK, brandRecorder.Code)
+	}
+	var brandList StoreListResult
+	if err := json.NewDecoder(brandRecorder.Body).Decode(&brandList); err != nil {
+		t.Fatalf("decode brand list: %v", err)
+	}
+	if brandList.Total != 0 || len(brandList.Items) != 0 {
+		t.Fatalf("expected no brand search result for store without brand in raw name, got total=%d len=%d", brandList.Total, len(brandList.Items))
+	}
+
 	getRecorder := performRequest(mux, http.MethodGet, "/api/design-plan/stores/1", nil)
 	if getRecorder.Code != http.StatusOK {
 		t.Fatalf("expected get status %d, got %d", http.StatusOK, getRecorder.Code)
@@ -98,6 +110,34 @@ func TestHandlerCreateListGetUpdateDeleteStore(t *testing.T) {
 	deleteRecorder := performRequest(mux, http.MethodDelete, "/api/design-plan/stores/1", nil)
 	if deleteRecorder.Code != http.StatusNoContent {
 		t.Fatalf("expected delete status %d, got %d", http.StatusNoContent, deleteRecorder.Code)
+	}
+}
+
+func TestHandlerSearchMatchesRawBrandKeyword(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewService(NewMemoryStore()))
+
+	input := validStoreInput()
+	input.Name = "新氧青春杭州西湖店"
+	createRecorder := performRequest(mux, http.MethodPost, "/api/design-plan/stores", mustJSON(input))
+	if createRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected create status %d, got %d: %s", http.StatusCreated, createRecorder.Code, createRecorder.Body.String())
+	}
+
+	listRecorder := performRequest(mux, http.MethodGet, "/api/design-plan/stores?q=新氧青春&page=1&page_size=20", nil)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("expected list status %d, got %d", http.StatusOK, listRecorder.Code)
+	}
+
+	var list StoreListResult
+	if err := json.NewDecoder(listRecorder.Body).Decode(&list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if list.Total != 1 || len(list.Items) != 1 {
+		t.Fatalf("expected one list item for brand keyword, got total=%d len=%d", list.Total, len(list.Items))
+	}
+	if list.Items[0].Name != "新氧青春杭州西湖店" {
+		t.Fatalf("unexpected search item: %+v", list.Items[0])
 	}
 }
 

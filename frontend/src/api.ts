@@ -243,9 +243,8 @@ let mockStores: StoreDetail[] = [
 const mockAdapter = {
   async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
     await delay(160);
-    const normalizedQuery = normalizeName(query);
     const filtered = mockStores
-      .filter((store) => normalizeName(store.name).includes(normalizedQuery))
+      .filter((store) => matchesStoreSearch(store.name, query))
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
     const start = (page - 1) * pageSize;
 
@@ -802,6 +801,26 @@ function normalizeApiMode(value: string | undefined): ApiMode {
 
 function normalizeName(value: string) {
   return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function normalizeStoreName(value: string) {
+  return normalizeName(value)
+    .replace(/[\s\-_·・()（）]/g, "")
+    .replaceAll("新氧青春", "")
+    .replaceAll("门店", "")
+    .replaceAll("店", "")
+    .replaceAll("分院", "")
+    .replaceAll("院", "");
+}
+
+function matchesStoreSearch(name: string, query: string) {
+  const rawQuery = normalizeName(query).replace(/\s+/g, "");
+  if (!rawQuery) return true;
+  if (normalizeName(name).replace(/\s+/g, "").includes(rawQuery)) {
+    return true;
+  }
+  const normalizedQuery = normalizeStoreName(query);
+  return Boolean(normalizedQuery) && normalizeStoreName(name).includes(normalizedQuery);
 }
 
 function trimTrailingSlash(value: string) {

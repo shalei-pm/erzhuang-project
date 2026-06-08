@@ -46,6 +46,20 @@ func IsSimilarStoreName(left, right string) bool {
 	return levenshteinDistance(left, right) <= 2
 }
 
+func MatchesStoreSearch(name string, normalizedName string, query string) bool {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return true
+	}
+	rawName := strings.ToLower(strings.ReplaceAll(name, " ", ""))
+	rawQuery := strings.ToLower(strings.ReplaceAll(query, " ", ""))
+	if rawQuery != "" && strings.Contains(rawName, rawQuery) {
+		return true
+	}
+	normalizedQuery := NormalizeStoreName(query)
+	return normalizedQuery != "" && strings.Contains(normalizedName, normalizedQuery)
+}
+
 func levenshteinDistance(left, right string) int {
 	l := []rune(left)
 	r := []rune(right)

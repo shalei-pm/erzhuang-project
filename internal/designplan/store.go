@@ -52,10 +52,9 @@ func (s *MemoryStore) ListStores(ctx context.Context, filters StoreFilters) (Sto
 	defer s.mu.Unlock()
 
 	filters = normalizeFilters(filters)
-	query := NormalizeStoreName(filters.Query)
 	items := []StoreListItem{}
 	for _, store := range s.stores {
-		if query != "" && !strings.Contains(store.NormalizedName, query) {
+		if !MatchesStoreSearch(store.Name, store.NormalizedName, filters.Query) {
 			continue
 		}
 		items = append(items, storeListItem(*store))
@@ -218,15 +217,18 @@ func NewPostgresStore(db *sql.DB) *PostgresStore {
 
 func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {
 	filters = normalizeFilters(filters)
-	like := "%" + NormalizeStoreName(filters.Query) + "%"
+	rawLike := "%" + strings.ToLower(strings.ReplaceAll(strings.TrimSpace(filters.Query), " ", "")) + "%"
+	normalizedLike := "%" + NormalizeStoreName(filters.Query) + "%"
 	offset := (filters.Page - 1) * filters.PageSize
 
 	var total int
 	if err := s.db.QueryRowContext(ctx, `
 		select count(*)
 		from design_plan_stores
-		where $1 = '%%' or normalized_name like $1
-	`, like).Scan(&total); err != nil {
+		where $1 = '%%'
+			or replace(lower(name), ' ', '') like $1
+			or ($2 <> '%%' and normalized_name like $2)
+	`, rawLike, normalizedLike).Scan(&total); err != nil {
 		return StoreListResult{}, err
 	}
 
@@ -242,11 +244,13 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 			count(a.id) as area_count
 		from design_plan_stores s
 		left join design_plan_store_areas a on a.store_id = s.id
-		where $1 = '%%' or s.normalized_name like $1
+		where $1 = '%%'
+			or replace(lower(s.name), ' ', '') like $1
+			or ($2 <> '%%' and s.normalized_name like $2)
 		group by s.id
 		order by s.updated_at desc
-		limit $2 offset $3
-	`, like, filters.PageSize, offset)
+		limit $3 offset $4
+	`, rawLike, normalizedLike, filters.PageSize, offset)
 	if err != nil {
 		return StoreListResult{}, err
 	}
