@@ -535,6 +535,9 @@ function toDisplayImageUrl(value?: string) {
   if (!value || value.startsWith("mock/")) {
     return MOCK_PLAN_IMAGE;
   }
+  if (/^\/api\/design-plan\/stores\/\d+\/(preview|thumbnail)$/.test(value)) {
+    return MOCK_PLAN_IMAGE;
+  }
   if (value.startsWith("/api/")) {
     return `/erzhuang${value}`;
   }

@@ -672,28 +672,41 @@ td:nth-child(10) {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.95);
 }
 
+.area-box.is-selected::after {
+  opacity: 0.82;
+}
+
+.area-box.is-selected .area-box-label,
+.area-box.is-selected .resize-handle {
+  filter: saturate(1.35) brightness(0.72);
+}
+
 .area-treatment.is-selected {
+  color: #991b1b;
   box-shadow:
     0 0 0 3px rgba(255, 255, 255, 0.95),
-    0 0 0 6px rgba(220, 38, 38, 0.24);
+    0 0 0 6px rgba(153, 27, 27, 0.32);
 }
 
 .area-consultation.is-selected {
+  color: #92400e;
   box-shadow:
     0 0 0 3px rgba(255, 255, 255, 0.95),
-    0 0 0 6px rgba(217, 119, 6, 0.24);
+    0 0 0 6px rgba(146, 64, 14, 0.32);
 }
 
 .area-beauty.is-selected {
+  color: #166534;
   box-shadow:
     0 0 0 3px rgba(255, 255, 255, 0.95),
-    0 0 0 6px rgba(22, 163, 74, 0.24);
+    0 0 0 6px rgba(22, 101, 52, 0.32);
 }
 
 .area-unknown.is-selected {
+  color: #334155;
   box-shadow:
     0 0 0 3px rgba(255, 255, 255, 0.95),
-    0 0 0 6px rgba(100, 116, 139, 0.24);
+    0 0 0 6px rgba(51, 65, 85, 0.32);
 }
 
 .area-treatment {
