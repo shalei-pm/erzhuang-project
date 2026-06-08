@@ -72,6 +72,7 @@ function App() {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [planZoom, setPlanZoom] = useState(1);
   const planRef = useRef<HTMLDivElement | null>(null);
+  const areaCardRefs = useRef<Record<string, HTMLElement | null>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -81,6 +82,14 @@ function App() {
   useEffect(() => {
     void loadStores();
   }, [page, query]);
+
+  useEffect(() => {
+    if (!editor?.selectedAreaId) return;
+    areaCardRefs.current[editor.selectedAreaId]?.scrollIntoView({
+      block: "nearest",
+      behavior: "smooth",
+    });
+  }, [editor?.selectedAreaId]);
 
   useEffect(() => {
     if (!editor) return;
@@ -281,6 +290,7 @@ function App() {
             ...current,
             uploadStage: "ready",
             storeName: recognition.storeName.trim() || current.storeName,
+            fileName: planFileNameForStore(recognition.storeName.trim() || current.storeName, current.fileName),
             areas: recognition.areas,
             selectedAreaId: recognition.areas[0]?.id ?? null,
             recognitionResult: recognition.rawResult ?? recognition,
@@ -403,6 +413,7 @@ function App() {
     () => editor?.areas.find((item) => item.id === editor.selectedAreaId) ?? null,
     [editor],
   );
+  const validationAreaErrorCount = Object.keys(validation.areaErrors).length;
 
   return (
     <main className="app-shell">
@@ -563,9 +574,9 @@ function App() {
             </div>
           </div>
 
-          {(validation.fieldErrors.length > 0 || toast) && (
+          {(validation.fieldErrors.length > 0 || validationAreaErrorCount > 0) && (
             <div className="editor-alert" role="alert">
-              {validation.fieldErrors[0] || toast}
+              {validation.fieldErrors[0] || `还有 ${validationAreaErrorCount} 个区域未完善。`}
             </div>
           )}
 
@@ -681,7 +692,16 @@ function App() {
                   const errors = validation.areaErrors[areaItem.id] ?? [];
                   return (
                     <article
-                      className={`area-card ${areaItem.id === selectedArea?.id ? "is-active" : ""} ${
+                      ref={(node) => {
+                        if (node) {
+                          areaCardRefs.current[areaItem.id] = node;
+                        } else {
+                          delete areaCardRefs.current[areaItem.id];
+                        }
+                      }}
+                      className={`area-card area-card-${areaItem.type || "unknown"} ${
+                        areaItem.id === selectedArea?.id ? "is-active" : ""
+                      } ${
                         errors.length > 0 ? "has-error" : ""
                       }`}
                       key={areaItem.id}
@@ -883,6 +903,18 @@ function normalizeAreaForSave(area: StoreArea): StoreArea {
     confidence: isComplete ? "high" : generated.confidence,
     needsReview: isComplete ? false : generated.needsReview,
   };
+}
+
+function planFileNameForStore(storeName: string, currentFileName: string) {
+  const baseName = storeName
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/^-+|-+$/g, "");
+  if (baseName) {
+    return `${baseName}-design-plan.pdf`;
+  }
+  return currentFileName;
 }
 
 function stageText(stage: UploadStage) {

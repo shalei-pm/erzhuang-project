@@ -11,6 +11,7 @@ func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 			id bigserial primary key,
 			name text not null,
 			normalized_name text not null unique,
+			pdf_file_name text not null default '',
 			original_pdf_path text not null default '',
 			preview_image_path text not null default '',
 			thumbnail_path text not null default '',
@@ -55,6 +56,8 @@ func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 			where area_number is not null`,
 		`create index if not exists design_plan_stores_updated_at_idx
 			on design_plan_stores (updated_at desc)`,
+		`alter table design_plan_stores
+			add column if not exists pdf_file_name text not null default ''`,
 		`create index if not exists design_plan_store_areas_store_id_idx
 			on design_plan_store_areas (store_id, display_order)`,
 		`create table if not exists design_plan_operation_logs (

@@ -273,7 +273,7 @@ func (s *PostgresStore) GetStore(ctx context.Context, id int64) (*Store, error) 
 	var store Store
 	var recognitionResult []byte
 	err := s.db.QueryRowContext(ctx, `
-		select id, name, normalized_name, original_pdf_path, preview_image_path,
+		select id, name, normalized_name, pdf_file_name, original_pdf_path, preview_image_path,
 			thumbnail_path, page_count, status, recognition_result, created_at, updated_at
 		from design_plan_stores
 		where id = $1
@@ -281,6 +281,7 @@ func (s *PostgresStore) GetStore(ctx context.Context, id int64) (*Store, error) 
 		&store.ID,
 		&store.Name,
 		&store.NormalizedName,
+		&store.PDFFileName,
 		&store.OriginalPDFPath,
 		&store.PreviewImagePath,
 		&store.ThumbnailPath,
@@ -320,12 +321,12 @@ func (s *PostgresStore) CreateStore(ctx context.Context, input StoreInput) (*Sto
 	recognitionResult := nullableJSON(store.RecognitionResult)
 	err = tx.QueryRowContext(ctx, `
 		insert into design_plan_stores (
-			name, normalized_name, original_pdf_path, preview_image_path,
+			name, normalized_name, pdf_file_name, original_pdf_path, preview_image_path,
 			thumbnail_path, page_count, status, recognition_result
 		)
-		values ($1, $2, $3, $4, $5, $6, $7, $8)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		returning id, created_at, updated_at
-	`, store.Name, store.NormalizedName, store.OriginalPDFPath, store.PreviewImagePath,
+	`, store.Name, store.NormalizedName, store.PDFFileName, store.OriginalPDFPath, store.PreviewImagePath,
 		store.ThumbnailPath, store.PageCount, store.Status, recognitionResult,
 	).Scan(&store.ID, &store.CreatedAt, &store.UpdatedAt)
 	if err != nil {
@@ -367,15 +368,16 @@ func (s *PostgresStore) UpdateStore(ctx context.Context, id int64, input StoreIn
 		update design_plan_stores
 		set name = $2,
 			normalized_name = $3,
-			original_pdf_path = $4,
-			preview_image_path = $5,
-			thumbnail_path = $6,
-			page_count = $7,
-			status = $8,
-			recognition_result = $9,
+			pdf_file_name = $4,
+			original_pdf_path = $5,
+			preview_image_path = $6,
+			thumbnail_path = $7,
+			page_count = $8,
+			status = $9,
+			recognition_result = $10,
 			updated_at = now()
 		where id = $1
-	`, id, store.Name, store.NormalizedName, store.OriginalPDFPath, store.PreviewImagePath,
+	`, id, store.Name, store.NormalizedName, store.PDFFileName, store.OriginalPDFPath, store.PreviewImagePath,
 		store.ThumbnailPath, store.PageCount, store.Status, nullableJSON(store.RecognitionResult))
 	if err != nil {
 		return nil, err
@@ -564,6 +566,7 @@ func storeFromInput(id int64, input StoreInput, createdAt time.Time, updatedAt t
 		ID:                id,
 		Name:              strings.TrimSpace(input.Name),
 		NormalizedName:    NormalizeStoreName(input.Name),
+		PDFFileName:       strings.TrimSpace(input.PDFFileName),
 		OriginalPDFPath:   strings.TrimSpace(input.OriginalPDFPath),
 		PreviewImagePath:  strings.TrimSpace(input.PreviewImagePath),
 		ThumbnailPath:     strings.TrimSpace(input.ThumbnailPath),

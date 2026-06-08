@@ -841,6 +841,8 @@ td:nth-child(10) {
 }
 
 .area-card {
+  --card-active-color: var(--area-unknown);
+  --card-active-bg: var(--area-unknown-bg);
   display: grid;
   gap: 8px;
   padding: 10px;
@@ -858,8 +860,38 @@ td:nth-child(10) {
 }
 
 .area-card.is-active {
-  border-color: var(--brand);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: var(--card-active-color);
+  background:
+    linear-gradient(0deg, var(--card-active-bg), var(--card-active-bg)),
+    var(--surface);
+  box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.12);
+}
+
+.area-card-treatment {
+  --card-active-color: var(--area-treatment);
+  --card-active-bg: var(--area-treatment-bg);
+}
+
+.area-card-treatment.is-active {
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+.area-card-consultation {
+  --card-active-color: var(--area-consultation);
+  --card-active-bg: var(--area-consultation-bg);
+}
+
+.area-card-consultation.is-active {
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.area-card-beauty {
+  --card-active-color: var(--area-beauty);
+  --card-active-bg: var(--area-beauty-bg);
+}
+
+.area-card-beauty.is-active {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 .area-card.has-error {

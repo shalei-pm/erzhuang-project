@@ -91,6 +91,7 @@ type AreaInput struct {
 
 type StoreInput struct {
 	Name              string          `json:"name"`
+	PDFFileName       string          `json:"pdf_file_name,omitempty"`
 	OriginalPDFPath   string          `json:"original_pdf_path,omitempty"`
 	PreviewImagePath  string          `json:"preview_image_path,omitempty"`
 	ThumbnailPath     string          `json:"thumbnail_path,omitempty"`
@@ -118,6 +119,7 @@ type Store struct {
 	ID                int64           `json:"id"`
 	Name              string          `json:"name"`
 	NormalizedName    string          `json:"normalized_name,omitempty"`
+	PDFFileName       string          `json:"pdf_file_name,omitempty"`
 	OriginalPDFPath   string          `json:"original_pdf_path,omitempty"`
 	PreviewImagePath  string          `json:"preview_image_path,omitempty"`
 	ThumbnailPath     string          `json:"thumbnail_path,omitempty"`

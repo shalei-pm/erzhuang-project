@@ -110,6 +110,7 @@ type BackendStoreSummary = {
 type BackendStoreDetail = {
   id: number;
   name: string;
+  pdf_file_name?: string;
   original_pdf_path?: string;
   preview_image_path?: string;
   thumbnail_path?: string;
@@ -154,6 +155,7 @@ type BackendStoreArea = {
 
 type BackendStorePayload = {
   name: string;
+  pdf_file_name: string;
   original_pdf_path: string;
   preview_image_path: string;
   thumbnail_path: string;
@@ -540,7 +542,7 @@ function mapBackendDetail(store: BackendStoreDetail): StoreDetail {
   return {
     id: store.id,
     name: store.name,
-    fileName: displayFileName(store.original_pdf_path || MOCK_ORIGINAL_PDF_PATH),
+    fileName: displayPlanFileName(store.pdf_file_name, store.original_pdf_path, store.name),
     originalPath: store.original_pdf_path || MOCK_ORIGINAL_PDF_PATH,
     previewPath: store.preview_image_path || MOCK_PREVIEW_IMAGE_PATH,
     thumbnailPath: store.thumbnail_path || MOCK_THUMBNAIL_PATH,
@@ -611,6 +613,7 @@ function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
 function toBackendPayload(payload: SaveStorePayload): BackendStorePayload {
   return {
     name: payload.name,
+    pdf_file_name: normalizePlanFileName(payload.fileName, payload.name),
     original_pdf_path: payload.originalPath || payload.fileName || MOCK_ORIGINAL_PDF_PATH,
     preview_image_path: payload.previewPath || toStoredPath(payload.previewUrl, MOCK_PREVIEW_IMAGE_PATH),
     thumbnail_path: payload.thumbnailPath || toStoredPath(payload.thumbnailUrl, MOCK_THUMBNAIL_PATH),
@@ -659,6 +662,27 @@ function toStoredPath(value: string, fallback: string) {
 function displayFileName(value: string) {
   const parts = value.split(/[\\/]/);
   return parts[parts.length - 1] || value;
+}
+
+function displayPlanFileName(fileName: string | undefined, originalPath: string | undefined, storeName: string) {
+  const candidate = (fileName || displayFileName(originalPath || "")).trim();
+  if (candidate && candidate !== "original.pdf") {
+    return candidate;
+  }
+  return normalizePlanFileName("", storeName);
+}
+
+function normalizePlanFileName(fileName: string | undefined, storeName: string) {
+  const candidate = (fileName || "").trim();
+  if (candidate && candidate !== "original.pdf") {
+    return candidate;
+  }
+  const safeName = storeName
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/^-+|-+$/g, "");
+  return `${safeName || "store"}-design-plan.pdf`;
 }
 
 function numericId(value: string) {
