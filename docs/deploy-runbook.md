@@ -49,6 +49,8 @@ systemd 环境文件 `/etc/erzhuang-project.env` 需要包含：
 UPLOAD_DIR=/opt/apps/erzhuang-project/uploads
 OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-4o
+OPENAI_BASE_URL=https://api.openai.com
+OPENAI_API_STYLE=responses
 ```
 
 注意：

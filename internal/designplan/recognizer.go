@@ -23,6 +23,8 @@ type Recognizer interface {
 
 type OpenAIRecognizer struct {
 	apiKey     string
+	baseURL    string
+	apiStyle   string
 	model      string
 	httpClient *http.Client
 }
@@ -30,7 +32,12 @@ type OpenAIRecognizer struct {
 func NewOpenAIRecognizerFromEnv() Recognizer {
 	return &OpenAIRecognizer{
 		apiKey: strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
-		model:  getenv("OPENAI_MODEL", defaultOpenAIModel),
+		baseURL: strings.TrimRight(
+			getenv("OPENAI_BASE_URL", "https://api.openai.com"),
+			"/",
+		),
+		apiStyle: normalizeOpenAIAPIStyle(os.Getenv("OPENAI_API_STYLE")),
+		model:    getenv("OPENAI_MODEL", defaultOpenAIModel),
 		httpClient: &http.Client{
 			Timeout: 75 * time.Second,
 		},
@@ -49,7 +56,15 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, upload *UploadResult) 
 	if err != nil {
 		return nil, err
 	}
-	output, raw, err := r.callResponsesAPI(ctx, imageBytes)
+
+	var output recognizerOutput
+	var raw json.RawMessage
+	switch r.apiStyle {
+	case "chat_completions":
+		output, raw, err = r.callChatCompletionsAPI(ctx, imageBytes)
+	default:
+		output, raw, err = r.callResponsesAPI(ctx, imageBytes)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +97,7 @@ func (r *OpenAIRecognizer) callResponsesAPI(ctx context.Context, imageBytes []by
 	if err != nil {
 		return recognizerOutput{}, nil, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/responses", bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, r.endpoint("/v1/responses"), bytes.NewReader(body))
 	if err != nil {
 		return recognizerOutput{}, nil, err
 	}
@@ -114,6 +129,66 @@ func (r *OpenAIRecognizer) callResponsesAPI(ctx context.Context, imageBytes []by
 	var output recognizerOutput
 	if err := json.Unmarshal([]byte(text), &output); err != nil {
 		return recognizerOutput{}, nil, fmt.Errorf("parse recognition json: %w", err)
+	}
+	return output, json.RawMessage(responseBody), nil
+}
+
+func (r *OpenAIRecognizer) callChatCompletionsAPI(ctx context.Context, imageBytes []byte) (recognizerOutput, json.RawMessage, error) {
+	payload := chatCompletionsRequest{
+		Model: r.model,
+		Messages: []chatMessage{{
+			Role: "user",
+			Content: []chatContent{
+				{Type: "text", Text: recognitionPrompt()},
+				{Type: "image_url", ImageURL: &chatImageURL{URL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)}},
+			},
+		}},
+		ResponseFormat: chatResponseFormat{
+			Type: "json_schema",
+			JSONSchema: chatJSONSchema{
+				Name:   "design_plan_recognition",
+				Strict: true,
+				Schema: recognitionJSONSchema(),
+			},
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return recognizerOutput{}, nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, r.endpoint("/v1/chat/completions"), bytes.NewReader(body))
+	if err != nil {
+		return recognizerOutput{}, nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+r.apiKey)
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := r.httpClient.Do(request)
+	if err != nil {
+		return recognizerOutput{}, nil, err
+	}
+	defer response.Body.Close()
+
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	if err != nil {
+		return recognizerOutput{}, nil, err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return recognizerOutput{}, nil, fmt.Errorf("openai chat recognition failed: status %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+
+	var parsed chatCompletionsResponse
+	if err := json.Unmarshal(responseBody, &parsed); err != nil {
+		return recognizerOutput{}, nil, err
+	}
+	text := parsed.firstChoiceText()
+	if strings.TrimSpace(text) == "" {
+		return recognizerOutput{}, nil, errors.New("openai chat recognition returned empty output")
+	}
+	var output recognizerOutput
+	if err := json.Unmarshal([]byte(text), &output); err != nil {
+		return recognizerOutput{}, nil, fmt.Errorf("parse chat recognition json: %w", err)
 	}
 	return output, json.RawMessage(responseBody), nil
 }
@@ -153,6 +228,55 @@ type responsesResponse struct {
 			Text string `json:"text"`
 		} `json:"content"`
 	} `json:"output"`
+}
+
+type chatCompletionsRequest struct {
+	Model          string             `json:"model"`
+	Messages       []chatMessage      `json:"messages"`
+	ResponseFormat chatResponseFormat `json:"response_format"`
+}
+
+type chatMessage struct {
+	Role    string        `json:"role"`
+	Content []chatContent `json:"content"`
+}
+
+type chatContent struct {
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *chatImageURL `json:"image_url,omitempty"`
+}
+
+type chatImageURL struct {
+	URL string `json:"url"`
+}
+
+type chatResponseFormat struct {
+	Type       string         `json:"type"`
+	JSONSchema chatJSONSchema `json:"json_schema"`
+}
+
+type chatJSONSchema struct {
+	Name   string         `json:"name"`
+	Strict bool           `json:"strict"`
+	Schema map[string]any `json:"schema"`
+}
+
+type chatCompletionsResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+func (r chatCompletionsResponse) firstChoiceText() string {
+	for _, choice := range r.Choices {
+		if strings.TrimSpace(choice.Message.Content) != "" {
+			return choice.Message.Content
+		}
+	}
+	return ""
 }
 
 func (r responsesResponse) firstOutputText() string {
@@ -306,6 +430,19 @@ func filepathFromStoredUpload(value string) string {
 		rootDir = defaultUploadDir
 	}
 	return filepath.Join(rootDir, uploadID, name)
+}
+
+func (r *OpenAIRecognizer) endpoint(path string) string {
+	return strings.TrimRight(r.baseURL, "/") + path
+}
+
+func normalizeOpenAIAPIStyle(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "chat", "chat_completions", "chat-completions", "openai-completions", "completions":
+		return "chat_completions"
+	default:
+		return "responses"
+	}
 }
 
 func getenv(key string, fallback string) string {

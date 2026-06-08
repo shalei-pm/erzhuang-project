@@ -16,6 +16,8 @@ go run ./cmd/server
 - `pdftoppm`：用于 PDF 转 PNG，Ubuntu 可通过 `sudo apt install poppler-utils` 安装。
 - `OPENAI_API_KEY`：用于 AI 识别图纸，放在服务器环境变量或 systemd EnvironmentFile，不提交到 Git。
 - `OPENAI_MODEL`：可选，默认 `gpt-4o`。
+- `OPENAI_BASE_URL`：可选，默认 `https://api.openai.com`；自定义兼容网关可覆盖。
+- `OPENAI_API_STYLE`：可选，默认 `responses`；兼容网关可设置为 `openai-completions`。
 - `UPLOAD_DIR`：可选，默认 `uploads/design-plan`。
 
 服务默认监听：
