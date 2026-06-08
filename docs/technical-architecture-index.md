@@ -27,6 +27,8 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
 - Go HTTP 路由汇总：`internal/app/handler.go`
 - 设计图后端路由：`internal/designplan/handler.go`
 - 设计图后端业务服务：`internal/designplan/service.go`
+- 设计图上传转换：`internal/designplan/uploads.go`
+- 设计图 AI 识别：`internal/designplan/recognizer.go`
 - 设计图后端存储：`internal/designplan/store.go`
 - 设计图数据库 schema：`db/design_plan_schema.sql`
 
@@ -35,14 +37,14 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
 | 业务能力 | 前端入口 | 后端入口 | 数据位置 | 备注 |
 | --- | --- | --- | --- | --- |
 | 门店列表 | `frontend/src/App.tsx` 的 `loadStores`、列表渲染区 | `internal/designplan/handler.go` 的 `listStores` | `design_plan_stores`、`design_plan_store_areas` | 支持搜索、分页、数量统计 |
-| 添加门店 | `openCreateEditor`、`requestPdfUpload`、`handlePdfSelected`、`mockUploadAndRecognize`、`handleSave` | `createStore` | `design_plan_stores`、`design_plan_store_areas` | 当前会弹本地 PDF 选择器，但上传/转换/识别仍走 mock adapter |
+| 添加门店 | `openCreateEditor`、`requestPdfUpload`、`handlePdfSelected`、`uploadAndRecognize`、`handleSave` | `uploadPDF`、`recognizeUpload`、`createStore` | `uploads/`、`design_plan_stores`、`design_plan_store_areas` | 前端上传本地 PDF，后端转 PNG 并调用 AI 识别 |
 | 编辑门店 | `openEditEditor`、`updateEditor`、`updateArea`、`handleSave` | `updateStore` | 同上 | 后端 `PUT` 采用整批替换区域 |
 | 删除门店 | `handleDelete` | `deleteStore` | store 删除级联 area | 删除日志保留在全局日志表 |
 | 重复门店检查 | `designPlanApi.checkDuplicate` | `checkDuplicate`、`Service.ensureNoExactDuplicate` | `normalized_name` | 保存时后端会拦截完全同名 |
 | 区域校验 | `validateEditor`、`areaDisplayName`、`normalizeAreaForSave` | `ValidateStoreInput` | 后端约束 + 唯一索引 | 前端自动生成区域名称并在保存时自动确认完整区域，后端为最终门禁 |
 | 区域框显示/拖动/拉伸/缩放 | `boxStyle`、`clampBox`、`resizeBox`、`dragState`、`planZoom` | 暂无 | `box_x/y/width/height` | 支持移动、四角拉伸和查看缩放 |
-| PDF 上传/转换 | `requestPdfUpload`、`handlePdfSelected`、`mockUploadAndRecognize` | 待 Phase 3 新增 | 待新增 uploads 文件路径 | 当前只是选择本地 PDF 文件名，真实上传/转换/识别是 release 前待办 |
-| AI 识别 | 仅 UI mock | 待 Phase 4 新增 | `recognition_result` | 当前无 OpenAI 调用 |
+| PDF 上传/转换 | `requestPdfUpload`、`handlePdfSelected`、`uploadAndRecognize` | `uploadPDF`、`UploadManager.Save` | `uploads/<upload_id>/original.pdf|preview.png|thumbnail.png` | 依赖服务器 `pdftoppm`，限制 5MB、最多 5 页 |
+| AI 识别 | `designPlanApi.recognizeUpload` | `recognizeUpload`、`OpenAIRecognizer` | `recognition_result` | 依赖 `OPENAI_API_KEY`，返回门店名和区域框结构化 JSON |
 | 操作日志 | 页面暂不展示 | `insertOperationLog` | `design_plan_operation_logs` | actor 当前固定为 `admin` |
 
 ## 3. 前端代码索引
@@ -117,8 +119,9 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
 - `auto`：真实 CRUD 优先，后端不可用、接口未就绪或 5xx 时 fallback 到 mock。
 - `mock`：全量使用前端 mock。
 - `http`：强制真实后端，不 fallback。
-- 上传和识别仍是 mock，等待 Phase 3/4 后端接口。
-- release 前必须把 `designPlanApi.uploadPdf` 改为真实文件上传接口，并让 `handlePdfSelected` 传递 `File` 对象，而不是只传文件名。
+- CRUD 在 `auto` 模式下仍可 fallback 到 mock，方便本地没有后端时预览页面。
+- PDF 上传和 AI 识别不做静默 fallback；真实链路失败时必须展示错误，让用户转手动维护，避免样例图纸误导验收。
+- `designPlanApi.uploadPdf` 传递真实 `File` 对象，通过 multipart/form-data 上传。
 
 后续 API 行为调整优先改这里，不要先改页面。
 
@@ -270,19 +273,16 @@ HTTP 总入口。
 ```text
 GET    /api/design-plan/stores?q=&page=1&page_size=20
 GET    /api/design-plan/stores/{id}
+GET    /api/design-plan/stores/{id}/preview
+GET    /api/design-plan/stores/{id}/thumbnail
 POST   /api/design-plan/stores
 PUT    /api/design-plan/stores/{id}
 DELETE /api/design-plan/stores/{id}
 POST   /api/design-plan/stores/check-duplicate
-```
-
-后续计划：
-
-```text
 POST   /api/design-plan/uploads
+GET    /api/design-plan/uploads/{upload_id}/preview
+GET    /api/design-plan/uploads/{upload_id}/thumbnail
 POST   /api/design-plan/uploads/{upload_id}/recognize
-GET    /api/design-plan/stores/{id}/preview
-GET    /api/design-plan/stores/{id}/thumbnail
 ```
 
 ## 7. 迭代拆分建议
@@ -304,8 +304,7 @@ GET    /api/design-plan/stores/{id}/thumbnail
 
 - `internal/designplan/handler.go`
 - `internal/designplan/service.go`
-- 新增 `internal/designplan/upload.go`
-- 新增 `internal/designplan/pdf.go`
+- `internal/designplan/uploads.go`
 - `scripts/deploy.sh` 或服务器环境安装 `poppler-utils`
 
 辅助改：
@@ -318,7 +317,7 @@ GET    /api/design-plan/stores/{id}/thumbnail
 
 主改：
 
-- 新增 `internal/designplan/recognition.go`
+- `internal/designplan/recognizer.go`
 - `internal/designplan/handler.go`
 - `internal/designplan/models.go`
 

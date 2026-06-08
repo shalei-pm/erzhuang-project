@@ -36,8 +36,13 @@ export type StoreSummary = {
 
 export type StoreDetail = StoreSummary & {
   fileName: string;
+  originalPath: string;
+  previewPath: string;
+  thumbnailPath: string;
+  pageCount: number;
   previewUrl: string;
   areas: StoreArea[];
+  recognitionResult?: unknown;
 };
 
 export type StoreListResponse = {
@@ -51,6 +56,9 @@ export type UploadResult = {
   uploadId: string;
   fileName: string;
   pageCount: number;
+  originalPath: string;
+  previewPath: string;
+  thumbnailPath: string;
   previewUrl: string;
   thumbnailUrl: string;
 };
@@ -60,15 +68,21 @@ export type RecognitionResult = {
   storeNameConfidence: Confidence;
   areas: StoreArea[];
   rawNotes: string;
+  rawResult?: unknown;
 };
 
 export type SaveStorePayload = {
   id?: number;
   name: string;
   fileName: string;
+  originalPath?: string;
+  previewPath?: string;
+  thumbnailPath?: string;
+  pageCount?: number;
   previewUrl: string;
   thumbnailUrl: string;
   uploadId?: string;
+  recognitionResult?: unknown;
   areas: StoreArea[];
 };
 
@@ -104,7 +118,27 @@ type BackendStoreDetail = {
   page_count?: number;
   status: StoreStatus;
   areas?: BackendStoreArea[];
+  recognition_result?: unknown;
   updated_at: string;
+};
+
+type BackendUploadResult = {
+  upload_id: string;
+  file_name: string;
+  page_count: number;
+  original_pdf_path: string;
+  preview_image_path: string;
+  thumbnail_path: string;
+  preview_url: string;
+  thumbnail_url: string;
+};
+
+type BackendRecognitionResult = {
+  store_name: string;
+  store_name_confidence?: Confidence;
+  areas?: BackendStoreArea[];
+  raw_notes?: string;
+  raw_result?: unknown;
 };
 
 type BackendStoreArea = {
@@ -125,6 +159,7 @@ type BackendStorePayload = {
   thumbnail_path: string;
   page_count: number;
   status?: StoreStatus;
+  recognition_result?: unknown;
   areas: BackendStoreArea[];
 };
 
@@ -230,6 +265,9 @@ const mockAdapter = {
       uploadId,
       fileName,
       pageCount: 1,
+      originalPath: MOCK_ORIGINAL_PDF_PATH,
+      previewPath: MOCK_PREVIEW_IMAGE_PATH,
+      thumbnailPath: MOCK_THUMBNAIL_PATH,
       previewUrl: MOCK_PLAN_IMAGE,
       thumbnailUrl: MOCK_PLAN_IMAGE,
     };
@@ -333,6 +371,23 @@ const httpAdapter = {
     return mapBackendDetail(response);
   },
 
+  async uploadPdf(file: File): Promise<UploadResult> {
+    const body = new FormData();
+    body.append("file", file);
+    const response = await requestJSON<BackendUploadResult>(`${API_BASE}/uploads`, {
+      method: "POST",
+      body,
+    });
+    return mapBackendUpload(response);
+  },
+
+  async recognizeUpload(uploadId: string): Promise<RecognitionResult> {
+    const response = await requestJSON<BackendRecognitionResult>(`${API_BASE}/uploads/${uploadId}/recognize`, {
+      method: "POST",
+    });
+    return mapBackendRecognition(response);
+  },
+
   async checkDuplicate(name: string, excludeStoreId?: number): Promise<DuplicateCheckResult> {
     const response = await requestJSON<{
       exact_match: BackendDuplicateMatch | null;
@@ -382,12 +437,18 @@ export const designPlanApi = {
     return withFallback(() => httpAdapter.getStore(id), () => mockAdapter.getStore(id));
   },
 
-  async uploadPdf(fileName = "mock-design-plan.pdf"): Promise<UploadResult> {
-    return mockAdapter.uploadPdf(fileName);
+  async uploadPdf(file: File | string = "mock-design-plan.pdf"): Promise<UploadResult> {
+    if (API_MODE === "mock" || typeof file === "string") {
+      return mockAdapter.uploadPdf(typeof file === "string" ? file : file.name);
+    }
+    return httpAdapter.uploadPdf(file);
   },
 
   async recognizeUpload(uploadId: string): Promise<RecognitionResult> {
-    return mockAdapter.recognizeUpload(uploadId);
+    if (API_MODE === "mock") {
+      return mockAdapter.recognizeUpload(uploadId);
+    }
+    return httpAdapter.recognizeUpload(uploadId);
   },
 
   async checkDuplicate(name: string, excludeStoreId?: number): Promise<DuplicateCheckResult> {
@@ -429,7 +490,7 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
     },
     ...options,
@@ -443,7 +504,12 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
   const data = contentType.includes("application/json") ? await response.json() : await response.text();
 
   if (!response.ok) {
-    const message = typeof data === "object" && data && "message" in data ? String(data.message) : `HTTP ${response.status}`;
+    const message =
+      typeof data === "object" && data && "message" in data
+        ? String(data.message)
+        : typeof data === "object" && data && "error" in data
+          ? String(data.error)
+          : `HTTP ${response.status}`;
     throw new ApiError(response.status, message);
   }
 
@@ -474,7 +540,11 @@ function mapBackendDetail(store: BackendStoreDetail): StoreDetail {
   return {
     id: store.id,
     name: store.name,
-    fileName: store.original_pdf_path || MOCK_ORIGINAL_PDF_PATH,
+    fileName: displayFileName(store.original_pdf_path || MOCK_ORIGINAL_PDF_PATH),
+    originalPath: store.original_pdf_path || MOCK_ORIGINAL_PDF_PATH,
+    previewPath: store.preview_image_path || MOCK_PREVIEW_IMAGE_PATH,
+    thumbnailPath: store.thumbnail_path || MOCK_THUMBNAIL_PATH,
+    pageCount: store.page_count || 1,
     thumbnailUrl: toDisplayImageUrl(store.thumbnail_url || store.thumbnail_path),
     previewUrl: toDisplayImageUrl(store.preview_url || store.preview_image_path),
     treatmentCount: counts.treatment,
@@ -483,7 +553,31 @@ function mapBackendDetail(store: BackendStoreDetail): StoreDetail {
     areaCount: areas.length,
     status: store.status,
     updatedAt: store.updated_at,
+    recognitionResult: store.recognition_result,
     areas,
+  };
+}
+
+function mapBackendUpload(upload: BackendUploadResult): UploadResult {
+  return {
+    uploadId: upload.upload_id,
+    fileName: upload.file_name,
+    pageCount: upload.page_count,
+    originalPath: upload.original_pdf_path,
+    previewPath: upload.preview_image_path,
+    thumbnailPath: upload.thumbnail_path,
+    previewUrl: toDisplayImageUrl(upload.preview_url),
+    thumbnailUrl: toDisplayImageUrl(upload.thumbnail_url),
+  };
+}
+
+function mapBackendRecognition(result: BackendRecognitionResult): RecognitionResult {
+  return {
+    storeName: result.store_name || "",
+    storeNameConfidence: result.store_name_confidence || "medium",
+    areas: (result.areas ?? []).map(mapBackendArea),
+    rawNotes: result.raw_notes || "",
+    rawResult: result.raw_result,
   };
 }
 
@@ -517,10 +611,11 @@ function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
 function toBackendPayload(payload: SaveStorePayload): BackendStorePayload {
   return {
     name: payload.name,
-    original_pdf_path: payload.fileName || MOCK_ORIGINAL_PDF_PATH,
-    preview_image_path: toStoredPath(payload.previewUrl, MOCK_PREVIEW_IMAGE_PATH),
-    thumbnail_path: toStoredPath(payload.thumbnailUrl, MOCK_THUMBNAIL_PATH),
-    page_count: 1,
+    original_pdf_path: payload.originalPath || payload.fileName || MOCK_ORIGINAL_PDF_PATH,
+    preview_image_path: payload.previewPath || toStoredPath(payload.previewUrl, MOCK_PREVIEW_IMAGE_PATH),
+    thumbnail_path: payload.thumbnailPath || toStoredPath(payload.thumbnailUrl, MOCK_THUMBNAIL_PATH),
+    page_count: payload.pageCount || 1,
+    recognition_result: payload.recognitionResult,
     areas: payload.areas.map((areaItem, index) => ({
       id: numericId(areaItem.id),
       name: areaItem.name,
@@ -538,8 +633,11 @@ function toDisplayImageUrl(value?: string) {
   if (!value || value.startsWith("mock/")) {
     return MOCK_PLAN_IMAGE;
   }
+  if (/^\/api\/design-plan\/uploads\/[^/]+\/(preview|thumbnail)$/.test(value)) {
+    return `/erzhuang${value}`;
+  }
   if (/^\/api\/design-plan\/stores\/\d+\/(preview|thumbnail)$/.test(value)) {
-    return MOCK_PLAN_IMAGE;
+    return `/erzhuang${value}`;
   }
   if (value.startsWith("/api/")) {
     return `/erzhuang${value}`;
@@ -551,7 +649,16 @@ function toStoredPath(value: string, fallback: string) {
   if (!value || value === MOCK_PLAN_IMAGE || value.startsWith("data:") || value.startsWith("blob:")) {
     return fallback;
   }
+  const uploadMatch = value.match(/^\/(?:erzhuang\/)?api\/design-plan\/uploads\/([^/]+)\/(preview|thumbnail)$/);
+  if (uploadMatch) {
+    return `uploads/${uploadMatch[1]}/${uploadMatch[2] === "preview" ? "preview.png" : "thumbnail.png"}`;
+  }
   return value;
+}
+
+function displayFileName(value: string) {
+  const parts = value.split(/[\\/]/);
+  return parts[parts.length - 1] || value;
 }
 
 function numericId(value: string) {
@@ -577,6 +684,10 @@ function createMockStore(id: number, name: string, status: StoreStatus, areas: S
     name,
     thumbnailUrl: MOCK_PLAN_IMAGE,
     previewUrl: MOCK_PLAN_IMAGE,
+    originalPath: MOCK_ORIGINAL_PDF_PATH,
+    previewPath: MOCK_PREVIEW_IMAGE_PATH,
+    thumbnailPath: MOCK_THUMBNAIL_PATH,
+    pageCount: 1,
     fileName: `${name}-design.pdf`,
     status,
     updatedAt: now,
@@ -599,6 +710,10 @@ function buildDetailFromPayload(payload: SaveStorePayload, updatedAt: string): S
     id: payload.id ?? nextStoreId++,
     name: payload.name.trim(),
     fileName: payload.fileName,
+    originalPath: payload.originalPath || MOCK_ORIGINAL_PDF_PATH,
+    previewPath: payload.previewPath || MOCK_PREVIEW_IMAGE_PATH,
+    thumbnailPath: payload.thumbnailPath || MOCK_THUMBNAIL_PATH,
+    pageCount: payload.pageCount || 1,
     thumbnailUrl: payload.thumbnailUrl,
     previewUrl: payload.previewUrl,
     treatmentCount: counts.treatment,

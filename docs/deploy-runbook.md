@@ -30,6 +30,32 @@ cd /opt/apps/erzhuang-project
 
 如果任一步失败，脚本会停止。
 
+## 服务器依赖
+
+设计图上传识别需要额外依赖：
+
+```sh
+sudo apt-get update
+sudo apt-get install -y poppler-utils
+```
+
+用途：
+
+- `pdftoppm`：把用户上传的 PDF 图纸转换成 PNG 预览图。
+
+systemd 环境文件 `/etc/erzhuang-project.env` 需要包含：
+
+```text
+UPLOAD_DIR=/opt/apps/erzhuang-project/uploads
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4o
+```
+
+注意：
+
+- `OPENAI_API_KEY` 只放服务器环境文件，不提交到 GitHub。
+- `uploads` 目录需要允许运行服务的 `lighthouse` 用户写入。
+
 ## 前端发布方向
 
 当前前端工程使用 Vite + React + TypeScript，构建产物目录为：

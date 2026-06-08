@@ -150,6 +150,25 @@ type StoreListResult struct {
 	Total    int             `json:"total"`
 }
 
+type UploadResult struct {
+	UploadID      string `json:"upload_id"`
+	FileName      string `json:"file_name"`
+	PageCount     int    `json:"page_count"`
+	OriginalPath  string `json:"original_pdf_path"`
+	PreviewPath   string `json:"preview_image_path"`
+	ThumbnailPath string `json:"thumbnail_path"`
+	PreviewURL    string `json:"preview_url"`
+	ThumbnailURL  string `json:"thumbnail_url"`
+}
+
+type RecognitionResult struct {
+	StoreName           string          `json:"store_name"`
+	StoreNameConfidence Confidence      `json:"store_name_confidence"`
+	Areas               []AreaInput     `json:"areas"`
+	RawNotes            string          `json:"raw_notes"`
+	RawResult           json.RawMessage `json:"raw_result,omitempty"`
+}
+
 type DuplicateCheckRequest struct {
 	Name           string `json:"name"`
 	ExcludeStoreID int64  `json:"exclude_store_id,omitempty"`

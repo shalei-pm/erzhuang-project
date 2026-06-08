@@ -3,6 +3,7 @@ package designplan
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,12 +19,75 @@ func NewHandler(service *Service) *Handler {
 
 func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	handler := NewHandler(service)
+	mux.HandleFunc("POST /api/design-plan/uploads", handler.uploadPDF)
+	mux.HandleFunc("GET /api/design-plan/uploads/{upload_id}/{asset}", handler.getUploadAsset)
+	mux.HandleFunc("POST /api/design-plan/uploads/{upload_id}/recognize", handler.recognizeUpload)
 	mux.HandleFunc("GET /api/design-plan/stores", handler.listStores)
 	mux.HandleFunc("POST /api/design-plan/stores", handler.createStore)
 	mux.HandleFunc("POST /api/design-plan/stores/check-duplicate", handler.checkDuplicate)
 	mux.HandleFunc("GET /api/design-plan/stores/{id}", handler.getStore)
+	mux.HandleFunc("GET /api/design-plan/stores/{id}/preview", handler.getStorePreview)
+	mux.HandleFunc("GET /api/design-plan/stores/{id}/thumbnail", handler.getStoreThumbnail)
 	mux.HandleFunc("PUT /api/design-plan/stores/{id}", handler.updateStore)
 	mux.HandleFunc("DELETE /api/design-plan/stores/{id}", handler.deleteStore)
+}
+
+func (h *Handler) uploadPDF(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxPDFBytes+1<<20)
+	if err := r.ParseMultipartForm(maxPDFBytes + 1<<20); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid multipart form", nil)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "PDF 文件不能为空", map[string]string{"file": "PDF 文件不能为空"})
+		return
+	}
+
+	head := make([]byte, 512)
+	n, readErr := file.Read(head)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		writeError(w, http.StatusBadRequest, "read PDF failed", nil)
+		return
+	}
+
+	result, err := h.service.SaveUpload(r.Context(), UploadInput{
+		File:      file,
+		FileName:  header.Filename,
+		Header:    head[:n],
+		Size:      header.Size,
+		URLPrefix: "",
+	})
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (h *Handler) recognizeUpload(w http.ResponseWriter, r *http.Request) {
+	uploadID := r.PathValue("upload_id")
+	result, err := h.service.RecognizeUpload(r.Context(), uploadID)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) getUploadAsset(w http.ResponseWriter, r *http.Request) {
+	uploadID := r.PathValue("upload_id")
+	asset, ok := parseUploadAssetKind(r.PathValue("asset"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "asset not found", nil)
+		return
+	}
+	path, err := h.service.UploadFilePath(uploadID, asset)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	http.ServeFile(w, r, path)
 }
 
 func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +120,41 @@ func (h *Handler) getStore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, store)
+}
+
+func (h *Handler) getStorePreview(w http.ResponseWriter, r *http.Request) {
+	h.serveStoreImage(w, r, UploadAssetPreview)
+}
+
+func (h *Handler) getStoreThumbnail(w http.ResponseWriter, r *http.Request) {
+	h.serveStoreImage(w, r, UploadAssetThumbnail)
+}
+
+func (h *Handler) serveStoreImage(w http.ResponseWriter, r *http.Request, kind UploadAssetKind) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	store, err := h.service.GetStore(r.Context(), id)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "store not found", nil)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "get store failed", nil)
+		return
+	}
+
+	value := store.PreviewImagePath
+	if kind == UploadAssetThumbnail {
+		value = store.ThumbnailPath
+	}
+	path, err := h.service.StoredFilePath(value)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	http.ServeFile(w, r, path)
 }
 
 func (h *Handler) createStore(w http.ResponseWriter, r *http.Request) {
@@ -132,6 +231,19 @@ func parsePositiveInt(value string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func parseUploadAssetKind(value string) (UploadAssetKind, bool) {
+	switch UploadAssetKind(value) {
+	case UploadAssetOriginal:
+		return UploadAssetOriginal, true
+	case UploadAssetPreview:
+		return UploadAssetPreview, true
+	case UploadAssetThumbnail:
+		return UploadAssetThumbnail, true
+	default:
+		return "", false
+	}
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {

@@ -6,11 +6,25 @@ import (
 )
 
 type Service struct {
-	repo Repository
+	repo       Repository
+	uploads    *UploadManager
+	recognizer Recognizer
 }
 
 func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{
+		repo:       repo,
+		uploads:    NewUploadManagerFromEnv(),
+		recognizer: NewOpenAIRecognizerFromEnv(),
+	}
+}
+
+func newServiceWithDependencies(repo Repository, uploads *UploadManager, recognizer Recognizer) *Service {
+	return &Service{
+		repo:       repo,
+		uploads:    uploads,
+		recognizer: recognizer,
+	}
 }
 
 func (s *Service) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {
@@ -54,6 +68,26 @@ func (s *Service) CheckDuplicate(ctx context.Context, request DuplicateCheckRequ
 		}}
 	}
 	return s.repo.CheckDuplicate(ctx, strings.TrimSpace(request.Name), request.ExcludeStoreID)
+}
+
+func (s *Service) SaveUpload(ctx context.Context, input UploadInput) (*UploadResult, error) {
+	return s.uploads.Save(ctx, input)
+}
+
+func (s *Service) RecognizeUpload(ctx context.Context, uploadID string) (*RecognitionResult, error) {
+	upload, err := s.uploads.Find(uploadID)
+	if err != nil {
+		return nil, err
+	}
+	return s.recognizer.Recognize(ctx, upload)
+}
+
+func (s *Service) UploadFilePath(uploadID string, kind UploadAssetKind) (string, error) {
+	return s.uploads.FilePath(uploadID, kind)
+}
+
+func (s *Service) StoredFilePath(value string) (string, error) {
+	return s.uploads.StoredFilePath(value)
 }
 
 func (s *Service) ensureNoExactDuplicate(ctx context.Context, name string, excludeStoreID int64) error {

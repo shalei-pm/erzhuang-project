@@ -11,6 +11,13 @@ go test ./...
 go run ./cmd/server
 ```
 
+设计图 PDF 上传识别依赖：
+
+- `pdftoppm`：用于 PDF 转 PNG，Ubuntu 可通过 `sudo apt install poppler-utils` 安装。
+- `OPENAI_API_KEY`：用于 AI 识别图纸，放在服务器环境变量或 systemd EnvironmentFile，不提交到 Git。
+- `OPENAI_MODEL`：可选，默认 `gpt-4o`。
+- `UPLOAD_DIR`：可选，默认 `uploads/design-plan`。
+
 服务默认监听：
 
 ```text
@@ -45,10 +52,16 @@ npm run build
 - `GET /api/tasks`
 - `GET /api/design-plan/stores?q=&page=1&page_size=20`
 - `GET /api/design-plan/stores/{id}`
+- `GET /api/design-plan/stores/{id}/preview`
+- `GET /api/design-plan/stores/{id}/thumbnail`
 - `POST /api/design-plan/stores`
 - `PUT /api/design-plan/stores/{id}`
 - `DELETE /api/design-plan/stores/{id}`
 - `POST /api/design-plan/stores/check-duplicate`
+- `POST /api/design-plan/uploads`
+- `GET /api/design-plan/uploads/{upload_id}/preview`
+- `GET /api/design-plan/uploads/{upload_id}/thumbnail`
+- `POST /api/design-plan/uploads/{upload_id}/recognize`
 
 ## 前端
 

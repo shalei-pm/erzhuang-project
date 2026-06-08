@@ -44,8 +44,13 @@ type EditorState = {
   storeName: string;
   fileName: string;
   uploadId?: string;
+  originalPath: string;
+  previewPath: string;
+  thumbnailPath: string;
+  pageCount: number;
   previewUrl: string;
   thumbnailUrl: string;
+  recognitionResult?: unknown;
   uploadStage: UploadStage;
   areas: StoreArea[];
   selectedAreaId: string | null;
@@ -142,6 +147,10 @@ function App() {
       mode: "create",
       storeName: "",
       fileName: "",
+      originalPath: "",
+      previewPath: "",
+      thumbnailPath: "",
+      pageCount: 0,
       previewUrl: "",
       thumbnailUrl: "",
       uploadStage: "initial",
@@ -160,8 +169,13 @@ function App() {
       mode: "edit",
       storeName: detail.name,
       fileName: detail.fileName,
+      originalPath: detail.originalPath,
+      previewPath: detail.previewPath,
+      thumbnailPath: detail.thumbnailPath,
+      pageCount: detail.pageCount,
       previewUrl: detail.previewUrl,
       thumbnailUrl: detail.thumbnailUrl,
+      recognitionResult: detail.recognitionResult,
       uploadStage: "ready",
       areas: detail.areas,
       selectedAreaId: detail.areas[0]?.id ?? null,
@@ -185,13 +199,13 @@ function App() {
   function handlePdfSelected(fileList: FileList | null) {
     const file = fileList?.[0];
     if (!file) return;
-    void mockUploadAndRecognize(false, file.name);
+    void uploadAndRecognize(file);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   }
 
-  async function mockUploadAndRecognize(shouldFail = false, fileName = "门店设计图.pdf") {
+  async function uploadAndRecognize(file: File) {
     if (!editor) return;
     setValidation(emptyValidation);
     setEditor((current) =>
@@ -199,13 +213,31 @@ function App() {
         ? {
             ...current,
             uploadStage: "converting",
-            fileName,
+            fileName: file.name,
             dirty: true,
           }
         : current,
     );
 
-    const upload = await designPlanApi.uploadPdf(fileName);
+    let upload;
+    try {
+      upload = await designPlanApi.uploadPdf(file);
+    } catch (error) {
+      setToast(errorMessage(error, "设计图解析失败，请重新上传 PDF。"));
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              uploadStage: "failed",
+              areas: [],
+              selectedAreaId: null,
+              dirty: true,
+            }
+          : current,
+      );
+      return;
+    }
+
     setEditor((current) =>
       current
         ? {
@@ -213,6 +245,10 @@ function App() {
             uploadStage: "recognizing",
             uploadId: upload.uploadId,
             fileName: upload.fileName,
+            originalPath: upload.originalPath,
+            previewPath: upload.previewPath,
+            thumbnailPath: upload.thumbnailPath,
+            pageCount: upload.pageCount,
             previewUrl: upload.previewUrl,
             thumbnailUrl: upload.thumbnailUrl,
             dirty: true,
@@ -220,23 +256,25 @@ function App() {
         : current,
     );
 
-    if (shouldFail) {
-      window.setTimeout(() => {
-        setEditor((current) =>
-          current
-            ? {
-                ...current,
-                uploadStage: "failed",
-                areas: [],
-                selectedAreaId: null,
-              }
-            : current,
-        );
-      }, 420);
+    let recognition;
+    try {
+      recognition = await designPlanApi.recognizeUpload(upload.uploadId);
+    } catch (error) {
+      setToast(errorMessage(error, "AI 识别失败，可手动维护。"));
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              uploadStage: "failed",
+              areas: [],
+              selectedAreaId: null,
+              dirty: true,
+            }
+          : current,
+      );
       return;
     }
 
-    const recognition = await designPlanApi.recognizeUpload(upload.uploadId);
     setEditor((current) =>
       current
         ? {
@@ -245,6 +283,7 @@ function App() {
             storeName: recognition.storeName.trim() || current.storeName,
             areas: recognition.areas,
             selectedAreaId: recognition.areas[0]?.id ?? null,
+            recognitionResult: recognition.rawResult ?? recognition,
             dirty: true,
           }
         : current,
@@ -337,9 +376,14 @@ function App() {
       id: editor.id,
       name: editor.storeName,
       fileName: editor.fileName,
+      originalPath: editor.originalPath,
+      previewPath: editor.previewPath,
+      thumbnailPath: editor.thumbnailPath,
+      pageCount: editor.pageCount,
       previewUrl: editor.previewUrl,
       thumbnailUrl: editor.thumbnailUrl || editor.previewUrl,
       uploadId: editor.uploadId,
+      recognitionResult: editor.recognitionResult,
       areas: normalizedAreas,
     });
     setSaving(false);
@@ -509,9 +553,6 @@ function App() {
               />
               <button onClick={requestPdfUpload}>
                 {editor.previewUrl ? "重新上传 PDF" : "上传 PDF"}
-              </button>
-              <button className="plain-button" onClick={() => void mockUploadAndRecognize(true)}>
-                手动维护
               </button>
             </div>
             <div className="topbar-actions">
@@ -862,6 +903,13 @@ function formatDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
 }
 
 export default App;
