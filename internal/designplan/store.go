@@ -168,10 +168,18 @@ func (s *MemoryStore) CheckDuplicate(ctx context.Context, name string, excludeSt
 		if store.ID == excludeStoreID {
 			continue
 		}
+		summary := storeListItem(*store)
 		match := DuplicateMatch{
-			ID:             store.ID,
-			Name:           store.Name,
-			NormalizedName: store.NormalizedName,
+			ID:                store.ID,
+			Name:              store.Name,
+			NormalizedName:    store.NormalizedName,
+			ThumbnailURL:      thumbnailURL(store.ID),
+			TreatmentCount:    summary.TreatmentCount,
+			ConsultationCount: summary.ConsultationCount,
+			BeautyCount:       summary.BeautyCount,
+			AreaCount:         summary.AreaCount,
+			Status:            store.Status,
+			UpdatedAt:         store.UpdatedAt,
 		}
 		if store.NormalizedName == normalized {
 			match.Reason = "exact"
@@ -433,15 +441,26 @@ func (s *PostgresStore) DeleteStore(ctx context.Context, id int64) error {
 func (s *PostgresStore) CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error) {
 	normalized := NormalizeStoreName(name)
 	rows, err := s.db.QueryContext(ctx, `
-		select id, name, normalized_name
-		from design_plan_stores
-		where id <> $1
+		select
+			s.id,
+			s.name,
+			s.normalized_name,
+			s.status,
+			s.updated_at,
+			count(a.id) as area_count,
+			count(a.id) filter (where a.area_type = 'treatment') as treatment_count,
+			count(a.id) filter (where a.area_type = 'consultation') as consultation_count,
+			count(a.id) filter (where a.area_type = 'beauty') as beauty_count
+		from design_plan_stores s
+		left join design_plan_store_areas a on a.store_id = s.id
+		where s.id <> $1
 			and (
-				normalized_name = $2
-				or normalized_name like $3
-				or $2 like '%' || normalized_name || '%'
+				s.normalized_name = $2
+				or s.normalized_name like $3
+				or $2 like '%' || s.normalized_name || '%'
 			)
-		order by updated_at desc
+		group by s.id, s.name, s.normalized_name, s.status, s.updated_at
+		order by s.updated_at desc
 		limit 20
 	`, excludeStoreID, normalized, "%"+normalized+"%")
 	if err != nil {
@@ -452,9 +471,20 @@ func (s *PostgresStore) CheckDuplicate(ctx context.Context, name string, exclude
 	result := DuplicateCheckResult{SimilarMatches: []DuplicateMatch{}}
 	for rows.Next() {
 		var match DuplicateMatch
-		if err := rows.Scan(&match.ID, &match.Name, &match.NormalizedName); err != nil {
+		if err := rows.Scan(
+			&match.ID,
+			&match.Name,
+			&match.NormalizedName,
+			&match.Status,
+			&match.UpdatedAt,
+			&match.AreaCount,
+			&match.TreatmentCount,
+			&match.ConsultationCount,
+			&match.BeautyCount,
+		); err != nil {
 			return DuplicateCheckResult{}, err
 		}
+		match.ThumbnailURL = thumbnailURL(match.ID)
 		if match.NormalizedName == normalized {
 			match.Reason = "exact"
 			if result.ExactMatch == nil {

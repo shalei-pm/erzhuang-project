@@ -2,6 +2,7 @@ package designplan
 
 import (
 	"context"
+	"log"
 	"strings"
 )
 
@@ -58,7 +59,17 @@ func (s *Service) UpdateStore(ctx context.Context, id int64, input StoreInput) (
 }
 
 func (s *Service) DeleteStore(ctx context.Context, id int64) error {
-	return s.repo.DeleteStore(ctx, id)
+	store, err := s.repo.GetStore(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.DeleteStore(ctx, id); err != nil {
+		return err
+	}
+	if err := s.uploads.DeleteStoredFiles(store.OriginalPDFPath, store.PreviewImagePath, store.ThumbnailPath); err != nil {
+		log.Printf("designplan: delete upload files for store %d failed: %v", id, err)
+	}
+	return nil
 }
 
 func (s *Service) CheckDuplicate(ctx context.Context, request DuplicateCheckRequest) (DuplicateCheckResult, error) {

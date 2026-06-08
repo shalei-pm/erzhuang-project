@@ -38,6 +38,12 @@ type ValidationResult = {
   fieldErrors: string[];
   areaErrors: Record<string, string[]>;
 };
+type DuplicatePrompt = {
+  reason: "recognition" | "save";
+  storeName: string;
+  exactMatch: StoreSummary | null;
+  similarMatches: StoreSummary[];
+};
 type EditorState = {
   id?: number;
   mode: EditorMode;
@@ -69,6 +75,7 @@ function App() {
   const [validation, setValidation] = useState<ValidationResult>(emptyValidation);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
+  const [duplicatePrompt, setDuplicatePrompt] = useState<DuplicatePrompt | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [planZoom, setPlanZoom] = useState(1);
   const planRef = useRef<HTMLDivElement | null>(null);
@@ -151,6 +158,7 @@ function App() {
 
   function openCreateEditor() {
     setValidation(emptyValidation);
+    setDuplicatePrompt(null);
     setPlanZoom(1);
     setEditor({
       mode: "create",
@@ -172,6 +180,7 @@ function App() {
   async function openEditEditor(storeId: number) {
     const detail = await designPlanApi.getStore(storeId);
     setValidation(emptyValidation);
+    setDuplicatePrompt(null);
     setPlanZoom(1);
     setEditor({
       id: detail.id,
@@ -198,10 +207,17 @@ function App() {
       return;
     }
     setEditor(null);
+    setDuplicatePrompt(null);
     setValidation(emptyValidation);
   }
 
   function requestPdfUpload() {
+    if (
+      editor?.previewUrl &&
+      !window.confirm("重新上传后会重新识别图纸，当前未保存的区域修改将被清空，是否继续？")
+    ) {
+      return;
+    }
     fileInputRef.current?.click();
   }
 
@@ -217,6 +233,7 @@ function App() {
   async function uploadAndRecognize(file: File) {
     if (!editor) return;
     setValidation(emptyValidation);
+    setDuplicatePrompt(null);
     setEditor((current) =>
       current
         ? {
@@ -284,13 +301,15 @@ function App() {
       return;
     }
 
+    const nextStoreName = recognition.storeName.trim() || editor.storeName;
+
     setEditor((current) =>
       current
         ? {
             ...current,
             uploadStage: "ready",
-            storeName: recognition.storeName.trim() || current.storeName,
-            fileName: planFileNameForStore(recognition.storeName.trim() || current.storeName, current.fileName),
+            storeName: nextStoreName || current.storeName,
+            fileName: planFileNameForStore(nextStoreName || current.storeName, current.fileName),
             areas: recognition.areas,
             selectedAreaId: recognition.areas[0]?.id ?? null,
             recognitionResult: recognition.rawResult ?? recognition,
@@ -298,6 +317,9 @@ function App() {
           }
         : current,
     );
+    if (nextStoreName.trim()) {
+      void checkDuplicateForEditorName(nextStoreName, editor.id, "recognition");
+    }
   }
 
   function updateEditor(patch: Partial<EditorState>) {
@@ -374,7 +396,7 @@ function App() {
     updateEditor({ areas: nextAreas });
   }
 
-  async function saveEditor() {
+  async function saveEditor(options: { skipSimilar?: boolean } = {}) {
     if (!editor) return;
     const result = validateEditor(editor);
     setValidation(result);
@@ -389,7 +411,13 @@ function App() {
 
     setSaving(true);
     const duplicate = await designPlanApi.checkDuplicate(editor.storeName, editor.id);
-    if (duplicate.exactMatch && !window.confirm("系统检测到已存在同名门店。继续保存将覆盖该门店当前设计图和区域信息，覆盖后不可恢复。是否继续？")) {
+    if (duplicate.exactMatch || (!options.skipSimilar && duplicate.similarMatches.length > 0)) {
+      setDuplicatePrompt({
+        reason: "save",
+        storeName: editor.storeName,
+        exactMatch: duplicate.exactMatch,
+        similarMatches: duplicate.similarMatches,
+      });
       setSaving(false);
       return;
     }
@@ -410,8 +438,48 @@ function App() {
     });
     setSaving(false);
     setEditor(null);
+    setDuplicatePrompt(null);
     setToast("保存成功，门店列表已刷新。");
     await loadStores();
+  }
+
+  async function checkDuplicateForEditorName(storeName: string, excludeStoreId: number | undefined, reason: DuplicatePrompt["reason"]) {
+    const duplicate = await designPlanApi.checkDuplicate(storeName, excludeStoreId);
+    if (duplicate.exactMatch || duplicate.similarMatches.length > 0) {
+      setDuplicatePrompt({
+        reason,
+        storeName,
+        exactMatch: duplicate.exactMatch,
+        similarMatches: duplicate.similarMatches,
+      });
+    }
+  }
+
+  function useExistingDuplicateStore(store: StoreSummary) {
+    if (!window.confirm("继续保存将覆盖该门店当前设计图和区域信息，覆盖后不可恢复。是否继续？")) {
+      return;
+    }
+    setEditor((current) =>
+      current
+        ? {
+            ...current,
+            id: store.id,
+            mode: "edit",
+            storeName: store.name,
+            dirty: true,
+          }
+        : current,
+    );
+    setDuplicatePrompt(null);
+    setToast(`已选择覆盖：${store.name}。确认无误后点击保存。`);
+  }
+
+  function continueAsNewStore() {
+    const shouldSave = duplicatePrompt?.reason === "save";
+    setDuplicatePrompt(null);
+    if (shouldSave) {
+      void saveEditor({ skipSimilar: true });
+    }
   }
 
   async function deleteStore(store: StoreSummary) {
@@ -766,9 +834,81 @@ function App() {
               </div>
             </aside>
           </div>
+
+          {duplicatePrompt ? (
+            <div className="duplicate-modal-backdrop" role="presentation">
+              <section className="duplicate-modal" role="dialog" aria-modal="true" aria-label="重复门店确认">
+                <div className="duplicate-modal-head">
+                  <div>
+                    <strong>疑似重复门店</strong>
+                    <p>
+                      系统检测到“{duplicatePrompt.storeName}”可能已经存在。请确认是否覆盖旧门店，或作为新门店继续维护。
+                    </p>
+                  </div>
+                  <button className="plain-button" onClick={() => setDuplicatePrompt(null)} aria-label="关闭重复门店提示">
+                    ×
+                  </button>
+                </div>
+                <div className="duplicate-list">
+                  {duplicatePrompt.exactMatch ? (
+                    <DuplicateStoreCard
+                      label="完全同名"
+                      store={duplicatePrompt.exactMatch}
+                      onUseExisting={() => {
+                        if (duplicatePrompt.exactMatch) {
+                          useExistingDuplicateStore(duplicatePrompt.exactMatch);
+                        }
+                      }}
+                    />
+                  ) : null}
+                  {duplicatePrompt.similarMatches.map((store) => (
+                    <DuplicateStoreCard
+                      key={store.id}
+                      label="疑似同名"
+                      store={store}
+                      onUseExisting={() => useExistingDuplicateStore(store)}
+                    />
+                  ))}
+                </div>
+                <div className="duplicate-actions">
+                  <button onClick={() => setDuplicatePrompt(null)}>返回修改</button>
+                  {!duplicatePrompt.exactMatch ? (
+                    <button className="primary-button" onClick={continueAsNewStore}>
+                      不是同一家，继续新建
+                    </button>
+                  ) : null}
+                </div>
+              </section>
+            </div>
+          ) : null}
         </section>
       ) : null}
     </main>
+  );
+}
+
+function DuplicateStoreCard({
+  label,
+  store,
+  onUseExisting,
+}: {
+  label: string;
+  store: StoreSummary;
+  onUseExisting: () => void;
+}) {
+  return (
+    <article className="duplicate-card">
+      <img src={store.thumbnailUrl} alt={`${store.name} 缩略图`} />
+      <div>
+        <span>{label}</span>
+        <strong>{store.name}</strong>
+        <p>
+          区域 {store.areaCount} 个 · 治疗室 {store.treatmentCount} · 面诊室 {store.consultationCount} · 生美 {store.beautyCount}
+        </p>
+        <p>更新时间 {formatDateTime(store.updatedAt)}</p>
+      </div>
+      <button onClick={onUseExisting}>这是同一门店</button>
+    </article>
   );
 }
 

@@ -169,6 +169,13 @@ type BackendDuplicateMatch = {
   id: number;
   name: string;
   reason?: string;
+  thumbnail_url?: string;
+  treatment_count?: number;
+  consultation_count?: number;
+  beauty_count?: number;
+  area_count?: number;
+  status?: StoreStatus;
+  updated_at?: string;
 };
 
 type DuplicateCheckResult = {
@@ -600,13 +607,13 @@ function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
   return {
     id: match.id,
     name: match.name,
-    thumbnailUrl: MOCK_PLAN_IMAGE,
-    treatmentCount: 0,
-    consultationCount: 0,
-    beautyCount: 0,
-    areaCount: 0,
-    status: "needs_review",
-    updatedAt: new Date().toISOString(),
+    thumbnailUrl: toDisplayImageUrl(match.thumbnail_url),
+    treatmentCount: match.treatment_count ?? 0,
+    consultationCount: match.consultation_count ?? 0,
+    beautyCount: match.beauty_count ?? 0,
+    areaCount: match.area_count ?? 0,
+    status: match.status ?? "needs_review",
+    updatedAt: match.updated_at ?? new Date().toISOString(),
   };
 }
 

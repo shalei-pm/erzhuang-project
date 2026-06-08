@@ -497,6 +497,96 @@ td:nth-child(10) {
   margin: 10px 18px 0;
 }
 
+.duplicate-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.duplicate-modal {
+  display: grid;
+  gap: 14px;
+  width: min(760px, 100%);
+  max-height: min(720px, calc(100vh - 48px));
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.duplicate-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.duplicate-modal-head strong {
+  color: var(--text-strong);
+  font-size: 18px;
+}
+
+.duplicate-modal-head p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.duplicate-list {
+  display: grid;
+  gap: 10px;
+}
+
+.duplicate-card {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-subtle);
+}
+
+.duplicate-card img {
+  width: 96px;
+  height: 64px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface);
+  object-fit: contain;
+}
+
+.duplicate-card span {
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.duplicate-card strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-strong);
+}
+
+.duplicate-card p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.duplicate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .editor-body {
   display: grid;
   grid-template-columns: 60% 40%;

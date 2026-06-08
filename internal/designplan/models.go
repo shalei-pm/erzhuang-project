@@ -177,10 +177,17 @@ type DuplicateCheckRequest struct {
 }
 
 type DuplicateMatch struct {
-	ID             int64  `json:"id"`
-	Name           string `json:"name"`
-	NormalizedName string `json:"normalized_name,omitempty"`
-	Reason         string `json:"reason"`
+	ID                int64       `json:"id"`
+	Name              string      `json:"name"`
+	NormalizedName    string      `json:"normalized_name,omitempty"`
+	Reason            string      `json:"reason"`
+	ThumbnailURL      string      `json:"thumbnail_url,omitempty"`
+	TreatmentCount    int         `json:"treatment_count"`
+	ConsultationCount int         `json:"consultation_count"`
+	BeautyCount       int         `json:"beauty_count"`
+	AreaCount         int         `json:"area_count"`
+	Status            StoreStatus `json:"status,omitempty"`
+	UpdatedAt         time.Time   `json:"updated_at"`
 }
 
 type DuplicateCheckResult struct {

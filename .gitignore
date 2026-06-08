@@ -9,6 +9,7 @@ frontend/dist/
 # Project-local tools
 .tools/
 .cache/
+.tmp/
 .ssh/
 .venv-tccli/
 

@@ -188,6 +188,36 @@ func (m *UploadManager) StoredFilePath(value string) (string, error) {
 	return path, nil
 }
 
+func (m *UploadManager) DeleteStoredFiles(values ...string) error {
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		uploadID, _, ok := parseStoredPath(value)
+		if !ok || !validUploadID(uploadID) {
+			continue
+		}
+		if _, exists := seen[uploadID]; exists {
+			continue
+		}
+		seen[uploadID] = struct{}{}
+		dir := filepath.Join(m.rootDir, uploadID)
+		cleanRoot, err := filepath.Abs(m.rootDir)
+		if err != nil {
+			return err
+		}
+		cleanDir, err := filepath.Abs(dir)
+		if err != nil {
+			return err
+		}
+		if cleanDir == cleanRoot || !strings.HasPrefix(cleanDir, cleanRoot+string(os.PathSeparator)) {
+			return fmt.Errorf("refuse to delete path outside upload root: %s", cleanDir)
+		}
+		if err := os.RemoveAll(cleanDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeUploadedFile(path string, header []byte, file multipart.File, limit int64) error {
 	target, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
