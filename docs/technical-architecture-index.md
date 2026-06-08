@@ -64,7 +64,7 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - `openEditEditor`：打开编辑门店弹窗。
   - `requestPdfUpload`：触发浏览器本地 PDF 文件选择器。
   - `handlePdfSelected`：读取用户选择的 PDF 文件名，并进入当前 mock 上传/识别流程。
-  - `mockUploadAndRecognize`：模拟上传、转换、AI 识别流程。
+  - `mockUploadAndRecognize`：模拟上传、转换、AI 识别流程；识别完成后用识别到的门店名称回填顶部门店名称输入框。
   - `updateArea`：更新右侧区域卡片和左侧框。
   - `addArea`：新增手工区域。
   - `handleSave`：保存前端数据。
@@ -130,8 +130,13 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - 品牌色：`--brand`
   - 文本色：`--text-*`
   - 边框/背景：`--border-*`、`--surface-*`
+  - 按钮字号：`--button-font-large`、`--button-font-normal`、`--button-font-special`
   - 区域类型色：`--area-treatment`、`--area-consultation`、`--area-beauty`
   - 选中态：沿用区域类型色，通过 `.area-*.is-selected` 增强边框和阴影，不再使用统一黄色。
+- 按钮字号规范：
+  - 主操作按钮：`--button-font-large`，用于添加门店、保存、上传等最高优先级操作。
+  - 普通操作按钮：`--button-font-normal`，用于编辑、删除、上移、下移、新增区域等常规操作。
+  - 特殊紧凑按钮：`--button-font-special`，用于图纸查看工具、关闭 toast 等空间很小的辅助操作。
 - 重点样式区：
   - 列表表格和缩略图。
   - lightbox 弹窗。

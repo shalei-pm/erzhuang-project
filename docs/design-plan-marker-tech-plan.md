@@ -612,10 +612,9 @@ frontend/src/features/designPlan/
   --color-danger: #c2410c;
   --color-warning: #b7791f;
   --color-success: #15803d;
-  --area-treatment: #d94841;
-  --area-consultation: #2f6fdb;
-  --area-beauty: #2f9e66;
-  --area-selected: #facc15;
+  --area-treatment: #dc2626;
+  --area-consultation: #16a34a;
+  --area-beauty: #2563eb;
 }
 ```
 

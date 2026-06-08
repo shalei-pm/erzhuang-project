@@ -160,6 +160,7 @@ const PAGE_SIZE = 20;
 
 let warnedFallback = false;
 let nextStoreId = 38;
+const mockUploads = new Map<string, string>();
 
 let mockStores: StoreDetail[] = [
   createMockStore(1, "杭州西湖旗舰店", "completed", [
@@ -224,6 +225,7 @@ const mockAdapter = {
   async uploadPdf(fileName = "mock-design-plan.pdf"): Promise<UploadResult> {
     await delay(420);
     const uploadId = `tmp_${Date.now()}`;
+    mockUploads.set(uploadId, fileName);
     return {
       uploadId,
       fileName,
@@ -235,8 +237,9 @@ const mockAdapter = {
 
   async recognizeUpload(uploadId: string): Promise<RecognitionResult> {
     await delay(620);
+    const fileName = mockUploads.get(uploadId) ?? "";
     return {
-      storeName: "成都太古里体验店",
+      storeName: inferMockStoreName(fileName),
       storeNameConfidence: "medium",
       rawNotes: `mock recognition result for ${uploadId}`,
       areas: [
@@ -556,6 +559,14 @@ function numericId(value: string) {
     return undefined;
   }
   return Number(value);
+}
+
+function inferMockStoreName(fileName: string) {
+  const baseName = fileName
+    .replace(/\.[^.]+$/, "")
+    .replace(/[-_ ]?(设计图|装修图|平面图|floor[\s_-]?plan|design[\s_-]?plan)$/i, "")
+    .trim();
+  return baseName || "成都太古里体验店";
 }
 
 function createMockStore(id: number, name: string, status: StoreStatus, areas: StoreArea[]): StoreDetail {

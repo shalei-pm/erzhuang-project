@@ -242,7 +242,7 @@ function App() {
         ? {
             ...current,
             uploadStage: "ready",
-            storeName: current.storeName || recognition.storeName,
+            storeName: recognition.storeName.trim() || current.storeName,
             areas: recognition.areas,
             selectedAreaId: recognition.areas[0]?.id ?? null,
             dirty: true,
