@@ -936,6 +936,86 @@ curl -k -X POST https://43.155.237.46/erzhuang/api/design-plan/stores/check-dupl
   - 本机可用 `go build` 做编译验证。
   - 完整 `go test ./...` 以 Lighthouse Linux 发布脚本结果为准。
 
+## 2026-06-08 前端 UI 小迭代发布
+
+发布目标：
+
+- 腾讯云 Lighthouse 韩国实例：`ap-seoul / lhins-rjfpwj1u`
+- 公网入口：`https://43.155.237.46/erzhuang/`
+- systemd 服务：`erzhuang-project.service`
+- 部署目录：`/opt/apps/erzhuang-project`
+
+本次发布内容：
+
+- 前端页面文案产品化：
+  - `Design Plan Marker` 调整为 `空间资源管理`。
+  - 上传占位说明移除 mock/Phase 文案，改为面向业务用户的说明。
+  - `模拟识别失败` 调整为 `手动维护`。
+- 前端弹窗状态文案调整：
+  - `待上传`
+  - `解析图纸中`
+  - `识别区域中`
+  - `可编辑`
+- 区域卡片视觉和信息层级收紧：
+  - 卡片标题优先展示区域名称。
+  - 增加 `类型 · 编号` 摘要。
+  - 缩小间距、表格行高和阴影，整体更接近后台系统风格。
+
+发布 commit：
+
+```text
+9673866 Polish design plan frontend UI
+```
+
+发布方式：
+
+```sh
+python3 tools/tat_run.py --region ap-seoul --instance-id lhins-rjfpwj1u --timeout 600 --username lighthouse "cd /opt/apps/erzhuang-project && ./scripts/deploy.sh"
+```
+
+服务器发布脚本完成：
+
+- `git fetch origin`
+- `git switch -C main origin/main`
+- `go test ./...`
+- `go build -o erzhuang-project ./cmd/server`
+- `npm install`
+- `npm run build`
+- `sudo systemctl restart erzhuang-project.service`
+- `curl -fsS http://127.0.0.1:18081/health`
+
+服务器验证结果：
+
+- Linux `go test ./...` 通过。
+- Go build 通过。
+- 前端 Vite build 通过。
+- systemd 状态：active running。
+- 健康检查返回：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}
+```
+
+公网最终验收：
+
+- `/erzhuang/health`：HTTP 200。
+- `/erzhuang/`：HTTP 200，返回前端 HTML。
+- `/erzhuang/api/design-plan/stores?page=1&page_size=2`：HTTP 200。
+
+```json
+{"items":[],"page":1,"page_size":2,"total":0}
+```
+
+给用户的可访问地址：
+
+- 本地预览：`http://127.0.0.1:5173/erzhuang/`
+- 公网预览：`https://43.155.237.46/erzhuang/`
+
+注意：
+
+- 公网入口当前使用 IP + 自签证书，浏览器可能提示证书风险；这是当前练习环境的预期现象。
+- 本次只改前端文案和样式，没有改数据库、后端接口、nginx 或 systemd 配置。
+
 ## 明日待办
 
 1. 开始前先运行：
