@@ -174,13 +174,13 @@ function App() {
         ? {
             ...current,
             uploadStage: "converting",
-            fileName: "mock-floor-plan.pdf",
+            fileName: "门店设计图.pdf",
             dirty: true,
           }
         : current,
     );
 
-    const upload = await designPlanApi.uploadPdf("mock-floor-plan.pdf");
+    const upload = await designPlanApi.uploadPdf("门店设计图.pdf");
     setEditor((current) =>
       current
         ? {
@@ -337,7 +337,7 @@ function App() {
     <main className="app-shell">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Design Plan Marker</p>
+          <p className="eyebrow">空间资源管理</p>
           <h1>设计图标记与诊室区域管理</h1>
         </div>
         <button className="primary-button" onClick={openCreateEditor}>
@@ -473,7 +473,7 @@ function App() {
                 {editor.previewUrl ? "重新上传 PDF" : "上传 PDF"}
               </button>
               <button className="plain-button" onClick={() => void mockUploadAndRecognize(true)}>
-                模拟识别失败
+                手动维护
               </button>
             </div>
             <div className="topbar-actions">
@@ -538,7 +538,7 @@ function App() {
                 ) : (
                   <div className="upload-placeholder">
                     <strong>等待上传设计图 PDF</strong>
-                    <p>Phase 2 使用 mock 图纸，真实 PDF 转图片会在后续阶段接入。</p>
+                    <p>上传门店装修设计图后，系统会生成预览并辅助识别诊室区域。</p>
                     <button className="primary-button" onClick={() => void mockUploadAndRecognize(false)}>
                       上传 PDF
                     </button>
@@ -583,7 +583,8 @@ function App() {
                     >
                       <div className="area-card-head">
                         <span className={`type-dot area-${areaItem.type || "unknown"}`} aria-hidden="true" />
-                        <strong>区域 {index + 1}</strong>
+                        <strong>{areaItem.name || `区域 ${index + 1}`}</strong>
+                        <span className="area-card-subtitle">{areaSummary(areaItem)}</span>
                         {areaItem.needsReview ? <span className="review-tag">需确认</span> : null}
                       </div>
                       <div className="area-form-grid">
@@ -728,12 +729,19 @@ function areaLabel(area: StoreArea) {
   return `${areaTypeLabels[area.type]} ${area.number || ""}`.trim();
 }
 
+function areaSummary(area: StoreArea) {
+  if (!area.type) return "未选择类型";
+  const label = areaTypeLabels[area.type];
+  if (!area.number) return area.type === "beauty" ? label : `${label} · 未编号`;
+  return `${label} · 编号 ${area.number}`;
+}
+
 function stageText(stage: UploadStage) {
   const stageMap: Record<UploadStage, string> = {
-    initial: "初始",
-    converting: "转换中",
-    recognizing: "识别中",
-    ready: "编辑确认",
+    initial: "待上传",
+    converting: "解析图纸中",
+    recognizing: "识别区域中",
+    ready: "可编辑",
     failed: "识别失败，可手动维护",
   };
   return stageMap[stage];

@@ -17,7 +17,7 @@
   --radius-card: 8px;
   --radius-control: 6px;
   --shadow-popover: 0 20px 48px rgba(15, 23, 42, 0.18);
-  --shadow-panel: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --shadow-panel: 0 6px 18px rgba(15, 23, 42, 0.04);
   --area-treatment: #dc2626;
   --area-treatment-bg: rgba(220, 38, 38, 0.13);
   --area-consultation: #2563eb;
@@ -100,7 +100,7 @@ select:focus {
 
 .app-shell {
   min-height: 100vh;
-  padding: 28px;
+  padding: 28px 32px;
 }
 
 .page-header {
@@ -220,7 +220,7 @@ h1 {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: var(--shadow-panel);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 table {
@@ -232,8 +232,8 @@ table {
 
 th,
 td {
-  height: 58px;
-  padding: 10px 12px;
+  height: 52px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border-subtle);
   text-align: left;
   vertical-align: middle;
@@ -285,16 +285,17 @@ td:nth-child(10) {
 
 .thumb-preview {
   position: relative;
-  width: 64px;
-  height: 42px;
+  width: 72px;
+  height: 44px;
 }
 
 .thumb-preview > img {
-  width: 64px;
-  height: 42px;
+  width: 72px;
+  height: 44px;
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
-  object-fit: cover;
+  background: #f8fafc;
+  object-fit: contain;
 }
 
 .thumb-popover {
@@ -365,14 +366,15 @@ td:nth-child(10) {
   background: transparent;
   color: var(--brand);
   padding: 0;
+  font-size: 13px;
 }
 
 .danger-link {
-  color: var(--danger);
+  color: #b91c1c;
 }
 
 .empty-cell {
-  height: 240px;
+  height: 280px;
   text-align: center;
 }
 
@@ -460,6 +462,7 @@ td:nth-child(10) {
   overflow: hidden;
   min-width: 100px;
   color: var(--text-main);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -523,9 +526,9 @@ td:nth-child(10) {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
   background:
-    linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px),
-    linear-gradient(rgba(148, 163, 184, 0.12) 1px, transparent 1px),
-    #eef2f7;
+    linear-gradient(90deg, rgba(148, 163, 184, 0.1) 1px, transparent 1px),
+    linear-gradient(rgba(148, 163, 184, 0.1) 1px, transparent 1px),
+    #f1f5f9;
   background-size: 24px 24px;
 }
 
@@ -562,12 +565,15 @@ td:nth-child(10) {
 .upload-placeholder strong,
 .manual-panel strong {
   color: var(--text-strong);
+  font-size: 16px;
 }
 
 .upload-placeholder p,
 .manual-panel p,
 .recognizing-panel p {
   margin: 0;
+  max-width: 360px;
+  line-height: 1.7;
 }
 
 .area-box {
@@ -664,7 +670,7 @@ td:nth-child(10) {
 
 .area-pane {
   overflow: auto;
-  background: var(--surface-subtle);
+  background: #f7f9fc;
 }
 
 .area-pane-header button {
@@ -709,16 +715,24 @@ td:nth-child(10) {
 
 .area-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .area-card {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
   background: var(--surface);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.area-card:hover {
+  border-color: var(--border-strong);
 }
 
 .area-card.is-active {
@@ -734,11 +748,17 @@ td:nth-child(10) {
 .area-card-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
 }
 
 .area-card-head strong {
   color: var(--text-strong);
+  font-size: 14px;
+}
+
+.area-card-subtitle {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .type-dot {
@@ -757,14 +777,19 @@ td:nth-child(10) {
 .area-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 8px;
 }
 
 .area-form-grid label {
   display: grid;
-  gap: 5px;
+  gap: 4px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.area-form-grid input,
+.area-form-grid select {
+  min-height: 32px;
 }
 
 .area-error {
@@ -776,10 +801,12 @@ td:nth-child(10) {
 
 .area-card-actions {
   justify-content: flex-end;
+  padding-top: 2px;
 }
 
 .area-card-actions button {
-  padding: 0 10px;
+  min-height: 28px;
+  padding: 0 9px;
 }
 
 @media (max-width: 1100px) {
