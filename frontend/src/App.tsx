@@ -25,8 +25,11 @@ const statusLabels: Record<StoreStatus, string> = {
 
 type EditorMode = "create" | "edit";
 type UploadStage = "initial" | "converting" | "recognizing" | "ready" | "failed";
+type ResizeHandle = "nw" | "ne" | "sw" | "se";
 type DragState = {
   areaId: string;
+  mode: "move" | "resize";
+  handle?: ResizeHandle;
   startX: number;
   startY: number;
   origin: AreaBox;
@@ -96,12 +99,16 @@ function App() {
       if (!rect) return;
       const dx = (event.clientX - dragState.startX) / rect.width;
       const dy = (event.clientY - dragState.startY) / rect.height;
+      const nextBox =
+        dragState.mode === "resize" && dragState.handle
+          ? resizeBox(dragState.origin, dragState.handle, dx, dy)
+          : {
+              ...dragState.origin,
+              x: dragState.origin.x + dx,
+              y: dragState.origin.y + dy,
+            };
       updateArea(dragState.areaId, {
-        box: clampBox({
-          ...dragState.origin,
-          x: dragState.origin.x + dx,
-          y: dragState.origin.y + dy,
-        }),
+        box: clampBox(nextBox),
       });
     };
 
@@ -539,8 +546,10 @@ function App() {
                     <img src={editor.previewUrl} alt="设计图预览" draggable={false} />
                     {editor.areas.map((areaItem) =>
                       areaItem.box ? (
-                        <button
+                        <div
                           key={areaItem.id}
+                          role="button"
+                          tabIndex={0}
                           className={`area-box area-${areaItem.type || "unknown"} ${
                             areaItem.id === editor.selectedAreaId ? "is-selected" : ""
                           }`}
@@ -552,14 +561,36 @@ function App() {
                             updateEditor({ selectedAreaId: areaItem.id });
                             setDragState({
                               areaId: areaItem.id,
+                              mode: "move",
                               startX: event.clientX,
                               startY: event.clientY,
                               origin: areaItem.box,
                             });
                           }}
                         >
-                          <span>{areaLabel(areaItem)}</span>
-                        </button>
+                          <span className="area-box-label">{areaLabel(areaItem)}</span>
+                          {(["nw", "ne", "sw", "se"] as ResizeHandle[]).map((handle) => (
+                            <span
+                              aria-hidden="true"
+                              className={`resize-handle resize-${handle}`}
+                              key={handle}
+                              onPointerDown={(event) => {
+                                if (!areaItem.box) return;
+                                event.preventDefault();
+                                event.stopPropagation();
+                                updateEditor({ selectedAreaId: areaItem.id });
+                                setDragState({
+                                  areaId: areaItem.id,
+                                  mode: "resize",
+                                  handle,
+                                  startX: event.clientX,
+                                  startY: event.clientY,
+                                  origin: areaItem.box,
+                                });
+                              }}
+                            />
+                          ))}
+                        </div>
                       ) : null,
                     )}
                     {editor.uploadStage === "recognizing" ? <div className="scan-line" aria-hidden="true" /> : null}
@@ -750,6 +781,39 @@ function clampBox(box: AreaBox): AreaBox {
     x: Math.min(1 - width, Math.max(0, box.x)),
     y: Math.min(1 - height, Math.max(0, box.y)),
   };
+}
+
+function resizeBox(origin: AreaBox, handle: ResizeHandle, dx: number, dy: number): AreaBox {
+  switch (handle) {
+    case "nw":
+      return {
+        x: origin.x + dx,
+        y: origin.y + dy,
+        width: origin.width - dx,
+        height: origin.height - dy,
+      };
+    case "ne":
+      return {
+        x: origin.x,
+        y: origin.y + dy,
+        width: origin.width + dx,
+        height: origin.height - dy,
+      };
+    case "sw":
+      return {
+        x: origin.x + dx,
+        y: origin.y,
+        width: origin.width - dx,
+        height: origin.height + dy,
+      };
+    case "se":
+      return {
+        x: origin.x,
+        y: origin.y,
+        width: origin.width + dx,
+        height: origin.height + dy,
+      };
+  }
 }
 
 function areaLabel(area: StoreArea) {

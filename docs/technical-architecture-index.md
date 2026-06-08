@@ -40,7 +40,7 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
 | 删除门店 | `handleDelete` | `deleteStore` | store 删除级联 area | 删除日志保留在全局日志表 |
 | 重复门店检查 | `designPlanApi.checkDuplicate` | `checkDuplicate`、`Service.ensureNoExactDuplicate` | `normalized_name` | 保存时后端会拦截完全同名 |
 | 区域校验 | `validateEditor` | `ValidateStoreInput` | 后端约束 + 唯一索引 | 前后端均校验，后端为最终门禁 |
-| 区域框显示/拖动/缩放 | `boxStyle`、`clampBox`、`dragState`、`planZoom` | 暂无 | `box_x/y/width/height` | P0 只有基础拖动和查看缩放，四角拉伸待补 |
+| 区域框显示/拖动/拉伸/缩放 | `boxStyle`、`clampBox`、`resizeBox`、`dragState`、`planZoom` | 暂无 | `box_x/y/width/height` | 支持移动、四角拉伸和查看缩放 |
 | PDF 上传/转换 | `requestPdfUpload`、`handlePdfSelected`、`mockUploadAndRecognize` | 待 Phase 3 新增 | 待新增 uploads 文件路径 | 当前只是选择本地 PDF 文件名，真实上传/转换/识别是 release 前待办 |
 | AI 识别 | 仅 UI mock | 待 Phase 4 新增 | `recognition_result` | 当前无 OpenAI 调用 |
 | 操作日志 | 页面暂不展示 | `insertOperationLog` | `design_plan_operation_logs` | actor 当前固定为 `admin` |
@@ -56,7 +56,7 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - `query`、`page`、`total`：搜索与分页。
   - `editor`：添加/编辑弹窗状态。
   - `validation`：保存校验结果。
-  - `dragState`：图纸区域框拖动状态。
+  - `dragState`：图纸区域框移动/拉伸状态。
   - `planZoom`：左侧图纸查看缩放比例。
 - 关键函数：
   - `loadStores`：加载门店列表。
@@ -71,6 +71,7 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - `handleDelete`：删除门店。
   - `validateEditor`：前端保存校验。
   - `clampBox`：限制框不超出图片边界。
+  - `resizeBox`：根据四角 handle 计算新的区域框。
   - `APP_VERSION`：读取 `VITE_APP_VERSION`，在首页底部展示当前前端版本。
 
 适合后续拆分的方向：
@@ -323,7 +324,13 @@ GET    /api/design-plan/stores/{id}/thumbnail
 
 主改：
 
-- `frontend/src/App.tsx` 的 `DragState`、`clampBox`、区域框渲染。
+- `frontend/src/App.tsx` 的 `DragState`、`resizeBox`、`clampBox`、区域框渲染。
+- `frontend/src/styles.css` 的 `.resize-handle` 和四角游标样式。
+
+当前状态：
+
+- 已支持四角拉伸。
+- 后续如果需要更丝滑的拖拽手感，可继续优化最小尺寸临界点和固定对边算法。
 
 建议先拆组件：
 
