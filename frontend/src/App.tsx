@@ -304,6 +304,18 @@ function App() {
     setEditor((current) => (current ? { ...current, ...patch, dirty: true } : current));
   }
 
+  function selectArea(areaId: string) {
+    const activeElement = document.activeElement;
+    const nextCard = areaCardRefs.current[areaId];
+    setEditor((current) => {
+      if (!current || current.selectedAreaId === areaId) return current;
+      if (activeElement instanceof HTMLElement && !nextCard?.contains(activeElement)) {
+        activeElement.blur();
+      }
+      return { ...current, selectedAreaId: areaId, dirty: true };
+    });
+  }
+
   function updateArea(areaId: string, patch: Partial<StoreArea>) {
     setEditor((current) =>
       current
@@ -608,11 +620,11 @@ function App() {
                             areaItem.id === editor.selectedAreaId ? "is-selected" : ""
                           }`}
                           style={boxStyle(areaItem.box)}
-                          onClick={() => updateEditor({ selectedAreaId: areaItem.id })}
+                          onClick={() => selectArea(areaItem.id)}
                           onPointerDown={(event) => {
                             if (!areaItem.box) return;
                             event.preventDefault();
-                            updateEditor({ selectedAreaId: areaItem.id });
+                            selectArea(areaItem.id);
                             setDragState({
                               areaId: areaItem.id,
                               mode: "move",
@@ -635,7 +647,7 @@ function App() {
                                 if (!areaItem.box) return;
                                 event.preventDefault();
                                 event.stopPropagation();
-                                updateEditor({ selectedAreaId: areaItem.id });
+                                selectArea(areaItem.id);
                                 setDragState({
                                   areaId: areaItem.id,
                                   mode: "resize",
@@ -705,7 +717,7 @@ function App() {
                         errors.length > 0 ? "has-error" : ""
                       }`}
                       key={areaItem.id}
-                      onClick={() => updateEditor({ selectedAreaId: areaItem.id })}
+                      onClick={() => selectArea(areaItem.id)}
                     >
                       <div className="area-card-head">
                         <span className={`type-dot area-${areaItem.type || "unknown"}`} aria-hidden="true" />
