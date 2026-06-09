@@ -1133,6 +1133,39 @@ sudo journalctl -u erzhuang-project.service --since "30 minutes ago" | grep "des
 - 列表加载失败时给出 toast，而不是静默显示空列表。
 - 版本号从 `1.1.3` 升级到 `1.1.4`，按规则属于小版本：前端搜索状态修复。
 
+## 2026-06-09 GitHub CLI 与 PR 流程确认
+
+用户反馈：
+
+- 本机 GitHub CLI 已可用。
+
+确认结果：
+
+- `gh` 路径：`/Users/sylar/.local/bin/gh`
+- 版本：`gh version 2.93.0`
+- 登录账号：`shalei-pm`
+- token scope：`gist`、`read:org`、`repo`、`workflow`
+- 仓库访问正常：`shalei-pm/erzhuang-project`
+- 默认分支：`main`
+- 当前无打开 PR。
+- 当前无 GitHub Actions run 记录，说明仓库暂未配置 CI 或没有运行历史。
+
+Codex 使用注意：
+
+- 普通沙箱下 `gh` 可能无法访问 GitHub API 或 macOS keyring。
+- 在 Codex 中使用 `gh` 查询仓库、PR、Actions 时，通常需要提升权限。
+- 提升权限后已验证 `gh auth status` 和 `gh repo view` 可用。
+
+全局研发流程约定：
+
+1. 常规研发默认从 `main` 创建 `codex/<task-name>` 分支。
+2. 专项会话或主会话在分支内实现、测试、提交。
+3. 分支推送到 GitHub 后，用 `gh pr create` 创建 PR。
+4. 主会话负责 review、决定合并、必要时打回修改。
+5. PR 合并后，主会话负责发布到 Lighthouse、验证 `/health`、验证页面版本号，并记录发布结果。
+6. 紧急线上修复或用户明确要求快速闭环时，可以直接在 `main` 小步提交并发布，但最终说明必须标注原因。
+7. 后续如配置 GitHub Actions，PR 合并前必须检查 CI 结果。
+
 ## 明日待办
 
 1. 开始前先运行：

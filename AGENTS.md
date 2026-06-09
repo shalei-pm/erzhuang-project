@@ -74,7 +74,10 @@
 ## 开发原则
 
 - 本地优先：先在 `/Users/sylar/erzhuang-project` 里开发和测试。
-- 小步提交：每个可验证的小功能都适合形成一次 Git 提交。
+- 常规研发默认走分支和 PR：从 `main` 拉出 `codex/...` 分支开发，验证后推送到 GitHub，并用 GitHub CLI 创建 PR。
+- 小步提交：每个可验证的小功能都适合形成一次 Git 提交；提交信息应描述业务或技术目标。
+- 主会话负责 PR review、合并判断、发布和回滚；专项前端/后端会话负责各自分支内实现，并向主会话汇报结果。
+- 紧急线上修复或用户明确要求快速闭环时，可以直接在 `main` 小步提交并发布，但需要在最终说明中标注原因。
 - 测试先行或同步补测试：尤其是 `/health` 这类发布验证接口。
 - 发布前必须跑：
   - `go test ./...`
@@ -83,6 +86,24 @@
   - `systemctl status`
   - `curl http://127.0.0.1:<port>/health`
 - 每次发布和回滚，都在文档或发布记录中记录版本、时间、操作和验证结果。
+
+## GitHub CLI 与 PR 流程
+
+- 本机 GitHub CLI 路径：`/Users/sylar/.local/bin/gh`。
+- `gh` 已登录 GitHub 账号：`shalei-pm`。
+- Codex 在沙箱中调用 `gh` 访问 GitHub API 时，通常需要提升权限以访问网络和系统 keyring。
+- 只读检查常用命令：
+  - `/Users/sylar/.local/bin/gh auth status`
+  - `/Users/sylar/.local/bin/gh repo view shalei-pm/erzhuang-project`
+  - `/Users/sylar/.local/bin/gh pr list --repo shalei-pm/erzhuang-project`
+- 标准研发流程：
+  1. 从干净 `main` 创建 `codex/<task-name>` 分支。
+  2. 实现代码和文档，按风险补测试。
+  3. 本地验证通过后提交并推送分支。
+  4. 用 `gh pr create` 创建 PR。
+  5. 主会话 review PR，必要时打回专项会话修改。
+  6. PR 合并后由主会话发布到 Lighthouse，并验证 `/health` 和页面版本号。
+- 当前仓库暂未配置 GitHub Actions；后续如增加 CI，PR 合并前必须检查 CI 结果。
 
 ## 版本号规则
 
