@@ -84,13 +84,14 @@ function App() {
   const planRef = useRef<HTMLDivElement | null>(null);
   const areaCardRefs = useRef<Record<string, HTMLElement | null>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const listRequestIdRef = useRef(0);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const firstIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const lastIndex = Math.min(total, page * PAGE_SIZE);
 
   useEffect(() => {
-    void loadStores();
+    void loadStores(query, page);
   }, [page, query]);
 
   useEffect(() => {
@@ -146,12 +147,25 @@ function App() {
     };
   }, [dragState]);
 
-  async function loadStores() {
+  async function loadStores(nextQuery = query, nextPage = page) {
+    const requestId = listRequestIdRef.current + 1;
+    listRequestIdRef.current = requestId;
     setLoading(true);
-    const response = await designPlanApi.listStores(query, page, PAGE_SIZE);
-    setStores(response.items);
-    setTotal(response.total);
-    setLoading(false);
+    try {
+      const response = await designPlanApi.listStores(nextQuery.trim(), nextPage, PAGE_SIZE);
+      if (listRequestIdRef.current !== requestId) return;
+      setStores(response.items);
+      setTotal(response.total);
+    } catch (error) {
+      if (listRequestIdRef.current !== requestId) return;
+      setStores([]);
+      setTotal(0);
+      setToast(errorMessage(error, "门店列表加载失败，请稍后重试。"));
+    } finally {
+      if (listRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
+    }
   }
 
   function handleSearch(value: string) {
