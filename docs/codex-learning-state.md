@@ -1166,6 +1166,38 @@ Codex 使用注意：
 6. 紧急线上修复或用户明确要求快速闭环时，可以直接在 `main` 小步提交并发布，但最终说明必须标注原因。
 7. 后续如配置 GitHub Actions，PR 合并前必须检查 CI 结果。
 
+## 2026-06-10 Supabase RLS 安全告警处理
+
+用户收到 Supabase 邮件告警：
+
+- Critical issue: Table publicly accessible
+- Issue code: `rls_disabled_in_public`
+- Project ref: `alsobcuythtbkldxmbvq`
+
+判断：
+
+- 本项目在 Supabase 的 `public` schema 下创建了 `tasks`、`design_plan_stores`、`design_plan_store_areas`、`design_plan_operation_logs`。
+- Supabase 会将 `public` schema 表暴露给 Supabase API 层。
+- 即使当前业务只通过 Go 后端连接数据库，也应该对 `public` 表开启 Row-Level Security。
+
+处理方案：
+
+- 在运行时 schema 初始化中增加：
+  - `alter table tasks enable row level security`
+  - `alter table design_plan_stores enable row level security`
+  - `alter table design_plan_store_areas enable row level security`
+  - `alter table design_plan_operation_logs enable row level security`
+- 同步更新 `db/schema.sql` 和 `db/design_plan_schema.sql`。
+- 在 `docs/database-plan.md` 记录 RLS 规则、立即修复 SQL 和验证 SQL。
+- 在 `AGENTS.md` 增加数据库安全开发规则：Supabase `public` schema 新表必须开启 RLS。
+- 版本号从 `1.1.4` 升级到 `1.1.5`，按规则属于小版本：安全配置修复。
+
+注意：
+
+- 本次不新增 anon/authenticated policy。
+- 第一版仍保持浏览器端不直连 Supabase，业务读写统一经过 Go 后端 API。
+- Go 后端使用数据库连接串访问 PostgreSQL，不受 Supabase API 层 RLS policy 限制。
+
 ## 明日待办
 
 1. 开始前先运行：

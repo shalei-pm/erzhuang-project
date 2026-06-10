@@ -24,6 +24,38 @@
 - 不使用公司密钥、公司账号、公司代码。
 - 不把数据库密码、连接串、API Key 提交到 GitHub。
 
+## Supabase RLS 安全规则
+
+Supabase 会把 `public` schema 里的表暴露给 Supabase API 层。任何新建在 `public` schema 的表都必须开启 Row-Level Security，即使当前项目只通过 Go 后端连接数据库。
+
+当前项目规则：
+
+- `public` 表必须执行 `alter table ... enable row level security`。
+- 第一版不允许浏览器端直接通过 Supabase anon key 读写业务表。
+- 业务读写统一经过 Go 后端 API。
+- 除非明确设计前端直连 Supabase，否则不要给 anon/authenticated 角色添加业务表的开放读写 policy。
+- 数据库连接串只放在本机环境变量或服务器 `/etc/erzhuang-project.env`，不提交到 GitHub。
+
+现有 Supabase 项目收到 `rls_disabled_in_public` 告警时，可在 Supabase SQL Editor 执行：
+
+```sql
+alter table if exists public.tasks enable row level security;
+alter table if exists public.design_plan_stores enable row level security;
+alter table if exists public.design_plan_store_areas enable row level security;
+alter table if exists public.design_plan_operation_logs enable row level security;
+```
+
+验证 SQL：
+
+```sql
+select schemaname, tablename, rowsecurity
+from pg_tables
+where schemaname = 'public'
+order by tablename;
+```
+
+预期本项目相关表的 `rowsecurity` 均为 `true`。
+
 ## 连接方式
 
 Go 后端只通过环境变量读取数据库配置。

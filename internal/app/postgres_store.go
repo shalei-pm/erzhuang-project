@@ -62,6 +62,7 @@ func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 			(3, '部署到腾讯云 Lighthouse', true),
 			(4, '接入 Supabase PostgreSQL', false)
 		on conflict (id) do nothing`,
+		`alter table tasks enable row level security`,
 	}
 
 	for _, statement := range statements {

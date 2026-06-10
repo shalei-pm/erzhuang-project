@@ -67,3 +67,7 @@ create table if not exists design_plan_operation_logs (
 
 create index if not exists design_plan_operation_logs_store_id_idx
   on design_plan_operation_logs (store_id, created_at desc);
+
+alter table design_plan_stores enable row level security;
+alter table design_plan_store_areas enable row level security;
+alter table design_plan_operation_logs enable row level security;
