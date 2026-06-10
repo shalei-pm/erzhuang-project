@@ -1198,6 +1198,17 @@ Codex 使用注意：
 - 第一版仍保持浏览器端不直连 Supabase，业务读写统一经过 Go 后端 API。
 - Go 后端使用数据库连接串访问 PostgreSQL，不受 Supabase API 层 RLS policy 限制。
 
+发布结果：
+
+- 提交：`38abcf3 Enable Supabase RLS for public tables`
+- 线上版本：`1.1.5`
+- 服务器部署：成功
+- 服务器测试：`go test ./...` 通过
+- 前端构建：通过
+- systemd 重启：成功
+- `/health`：返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`
+- 服务器未安装 `psql`，RLS 状态建议通过 Supabase SQL Editor 执行验证 SQL 确认。
+
 ## 明日待办
 
 1. 开始前先运行：
