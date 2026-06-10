@@ -1235,6 +1235,24 @@ Codex 使用注意：
 - 结果：浏览器端通过 Supabase anon/authenticated 角色仍不能读写业务表；Go 后端服务端数据库连接不受影响。
 - 版本号从 `1.1.5` 升级到 `1.1.6`，按规则属于小版本：数据库安全策略说明和 Advisor 提示修复。
 
+发布结果：
+
+- 提交：`3ee780e Add explicit Supabase deny policies`
+- 线上版本：`1.1.6`
+- 服务器部署：成功
+- 服务器测试：`go test ./...` 通过
+- 前端构建：通过
+- systemd 重启：成功
+- `/health`：返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`
+
+RLS policy 验证：
+
+- `design_plan_operation_logs rowsecurity=true policies=design_plan_operation_logs_no_client_access`
+- `design_plan_store_areas rowsecurity=true policies=design_plan_store_areas_no_client_access`
+- `design_plan_stores rowsecurity=true policies=design_plan_stores_no_client_access`
+- `tasks rowsecurity=true policies=tasks_no_client_access`
+- `RLS_POLICY_CHECK=PASS`
+
 ## 明日待办
 
 1. 开始前先运行：
