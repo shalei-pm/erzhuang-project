@@ -1207,7 +1207,13 @@ Codex 使用注意：
 - 前端构建：通过
 - systemd 重启：成功
 - `/health`：返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`
-- 服务器未安装 `psql`，RLS 状态建议通过 Supabase SQL Editor 执行验证 SQL 确认。
+- RLS 状态验证：通过 TAT 在服务器读取受保护的 `/etc/erzhuang-project.env`，使用只读 SQL 查询 `pg_tables.rowsecurity`。
+- 验证结果：
+  - `design_plan_operation_logs rowsecurity=true`
+  - `design_plan_store_areas rowsecurity=true`
+  - `design_plan_stores rowsecurity=true`
+  - `tasks rowsecurity=true`
+  - `RLS_CHECK=PASS`
 
 ## 明日待办
 
