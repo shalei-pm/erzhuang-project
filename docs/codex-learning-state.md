@@ -1215,6 +1215,26 @@ Codex 使用注意：
   - `tasks rowsecurity=true`
   - `RLS_CHECK=PASS`
 
+## 2026-06-10 Supabase RLS policy 提示处理
+
+用户反馈 Supabase Advisor 继续提示：
+
+- `Detects cases where row level security (RLS) has been enabled on a table but no RLS policies have been created.`
+
+判断：
+
+- 这不是最初“表公开可读写”的问题。
+- 当前 RLS 已开启且没有 policy 时，Supabase API 侧默认拒绝访问。
+- 但为了让权限意图更明确，并减少 Advisor 提示，项目应增加显式拒绝前端直连的 policy。
+
+处理方案：
+
+- 对 `tasks`、`design_plan_stores`、`design_plan_store_areas`、`design_plan_operation_logs` 增加 `*_no_client_access` policy。
+- policy 作用对象：`anon, authenticated`。
+- policy 规则：`for all using (false) with check (false)`。
+- 结果：浏览器端通过 Supabase anon/authenticated 角色仍不能读写业务表；Go 后端服务端数据库连接不受影响。
+- 版本号从 `1.1.5` 升级到 `1.1.6`，按规则属于小版本：数据库安全策略说明和 Advisor 提示修复。
+
 ## 明日待办
 
 1. 开始前先运行：

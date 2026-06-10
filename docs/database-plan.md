@@ -34,6 +34,7 @@ Supabase 会把 `public` schema 里的表暴露给 Supabase API 层。任何新�
 - 第一版不允许浏览器端直接通过 Supabase anon key 读写业务表。
 - 业务读写统一经过 Go 后端 API。
 - 除非明确设计前端直连 Supabase，否则不要给 anon/authenticated 角色添加业务表的开放读写 policy。
+- 为了让权限意图更明确，并避免 Supabase Advisor 提示“RLS 已开启但没有 policy”，业务表应给 anon/authenticated 增加显式拒绝 policy：`using (false) with check (false)`。
 - 数据库连接串只放在本机环境变量或服务器 `/etc/erzhuang-project.env`，不提交到 GitHub。
 
 现有 Supabase 项目收到 `rls_disabled_in_public` 告警时，可在 Supabase SQL Editor 执行：
@@ -43,6 +44,30 @@ alter table if exists public.tasks enable row level security;
 alter table if exists public.design_plan_stores enable row level security;
 alter table if exists public.design_plan_store_areas enable row level security;
 alter table if exists public.design_plan_operation_logs enable row level security;
+
+drop policy if exists tasks_no_client_access on public.tasks;
+create policy tasks_no_client_access on public.tasks
+  for all to anon, authenticated
+  using (false)
+  with check (false);
+
+drop policy if exists design_plan_stores_no_client_access on public.design_plan_stores;
+create policy design_plan_stores_no_client_access on public.design_plan_stores
+  for all to anon, authenticated
+  using (false)
+  with check (false);
+
+drop policy if exists design_plan_store_areas_no_client_access on public.design_plan_store_areas;
+create policy design_plan_store_areas_no_client_access on public.design_plan_store_areas
+  for all to anon, authenticated
+  using (false)
+  with check (false);
+
+drop policy if exists design_plan_operation_logs_no_client_access on public.design_plan_operation_logs;
+create policy design_plan_operation_logs_no_client_access on public.design_plan_operation_logs
+  for all to anon, authenticated
+  using (false)
+  with check (false);
 ```
 
 验证 SQL：

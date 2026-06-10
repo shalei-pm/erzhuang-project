@@ -12,3 +12,9 @@ insert into tasks (id, title, done) values
 on conflict (id) do nothing;
 
 alter table tasks enable row level security;
+
+drop policy if exists tasks_no_client_access on tasks;
+create policy tasks_no_client_access on tasks
+  for all to anon, authenticated
+  using (false)
+  with check (false);

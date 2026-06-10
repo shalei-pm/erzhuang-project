@@ -71,3 +71,21 @@ create index if not exists design_plan_operation_logs_store_id_idx
 alter table design_plan_stores enable row level security;
 alter table design_plan_store_areas enable row level security;
 alter table design_plan_operation_logs enable row level security;
+
+drop policy if exists design_plan_stores_no_client_access on design_plan_stores;
+create policy design_plan_stores_no_client_access on design_plan_stores
+  for all to anon, authenticated
+  using (false)
+  with check (false);
+
+drop policy if exists design_plan_store_areas_no_client_access on design_plan_store_areas;
+create policy design_plan_store_areas_no_client_access on design_plan_store_areas
+  for all to anon, authenticated
+  using (false)
+  with check (false);
+
+drop policy if exists design_plan_operation_logs_no_client_access on design_plan_operation_logs;
+create policy design_plan_operation_logs_no_client_access on design_plan_operation_logs
+  for all to anon, authenticated
+  using (false)
+  with check (false);

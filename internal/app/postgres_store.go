@@ -63,6 +63,11 @@ func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 			(4, '接入 Supabase PostgreSQL', false)
 		on conflict (id) do nothing`,
 		`alter table tasks enable row level security`,
+		`drop policy if exists tasks_no_client_access on tasks`,
+		`create policy tasks_no_client_access on tasks
+			for all to anon, authenticated
+			using (false)
+			with check (false)`,
 	}
 
 	for _, statement := range statements {
