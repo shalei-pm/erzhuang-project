@@ -6,15 +6,13 @@
 
 - `frontend-builder` 阶段：使用 Node 构建 `frontend/`，产物为 `frontend/dist`；构建时会复制 `testdata/`，因为当前前端 mock 数据引用了 `testdata/design-plans/generated/sample-store-floor-plan.png`。
 - `go-builder` 阶段：执行 `go test ./...`，并构建 `./cmd/server`。
-- `runtime` 阶段：基于公司内网 Debian slim 镜像，安装：
-  - `ca-certificates`：用于 HTTPS 证书校验。
-  - `poppler-utils`：提供 `pdftoppm`，用于 PDF 转图片。
+- `runtime` 阶段：基于 Docker Hub 公开镜像 `minidocks/poppler:latest` 的 DaoCloud 大陆代理地址 `m.daocloud.io/docker.io/minidocks/poppler:latest`，镜像内已包含 `pdftoppm`，用于 PDF 转图片。
 - 运行镜像内路径：
   - 后端二进制：`/app/erzhuang-project`
   - 前端产物：`/app/frontend/dist`
   - 默认上传目录：`/app/uploads/design-plan`
 - Go 服务会读取 `FRONTEND_DIR`，把前端产物挂到 `/erzhuang/`，并兼容 `/erzhuang/api/...` 到后端 `/api/...` 的转发前缀。
-- Dockerfile 中基础镜像使用公司内网镜像地址：`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:23.11.1-alpine`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-ops/debian:bookworm-slim`。如果公司发布系统提示基础镜像不存在或无权限，需要让发布平台同学确认这些镜像 tag 是否可被 Kaniko 拉取。
+- Dockerfile 中构建阶段基础镜像使用公司内网镜像地址：`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:23.11.1-alpine`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye`；运行阶段使用 Docker Hub 镜像 `minidocks/poppler:latest` 的 DaoCloud 大陆代理地址 `m.daocloud.io/docker.io/minidocks/poppler:latest`，避免在公司 Kaniko 构建时访问 Debian apt 源安装 `poppler-utils`。
 
 ## 本地构建
 

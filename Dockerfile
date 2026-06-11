@@ -20,13 +20,12 @@ COPY . ./
 RUN go test ./...
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/erzhuang-project ./cmd/server
 
-FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-ops/debian:bookworm-slim AS runtime
+FROM m.daocloud.io/docker.io/minidocks/poppler:latest AS runtime
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates poppler-utils \
-    && rm -rf /var/lib/apt/lists/*
+RUN command -v pdftoppm
 
+COPY --from=go-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=go-builder /out/erzhuang-project /app/erzhuang-project
 COPY --from=frontend-builder /src/frontend/dist /app/frontend/dist
 
