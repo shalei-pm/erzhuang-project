@@ -98,6 +98,35 @@ GOCACHE=/Users/sylar/.codex/worktrees/1e39/erzhuang-project/.cache/go-build /Use
 - 旧 `design_plan_*` 表未迁移，新表与旧设计图模块并行存在；后续需要专门做设计图适配阶段。
 - Postgres schema 使用 `create table if not exists` 和增量式索引/policy，尚未引入正式迁移工具。
 
+## 后续 Ezviz 集成约束
+
+对齐主会话 `main` 的 `5e387a0 Expand Ezviz integration requirements` 后，本阶段模型/API stub 不需要接真实萤石云，也没有发现必须立即修改的阻塞点。
+
+已兼容的基础点：
+
+- `video_recorders.ezviz_account_id` 已存在，后续可以按账号维度缓存 token，禁止全局单 token。
+- `video_recorders.device_code` 已保存录像机设备编码；后续调用萤石 OpenAPI 时应作为 `deviceSerial` 原样传递，可在 client 边界统一转大写。
+- `video_channels.channel_no` 已按正整数保存，并有 `(recorder_id, channel_no)` 唯一索引；后续必须按萤石返回和系统记录原样传参，不做 `+1/-1`。
+- `POST /api/store-space/recorders/{recorder_id}/scan-channels` 已有稳定 `501 not implemented` stub，可在 Phase 4 接入 `device/camera/list`。
+- `POST /api/store-space/recorders/{recorder_id}/recognize-channels` 已有稳定 `501 not implemented` stub，可在 Phase 5 接入串行抓图和识别队列。
+- `video_channels.recognition_result jsonb` 可保存 AI 识别原始结果；`operation_logs` 可先记录扫描/抓图操作摘要，后续若需要更强审计可加 nullable 结构化字段。
+
+后续实现必须遵守：
+
+- `device/camera/list` 使用 `application/x-www-form-urlencoded`，请求参数为 `accessToken` 和 `deviceSerial`。
+- `device/capture` 的 `deviceSerial` 和 `channelNo` 原样来自系统记录，不做通道号偏移。
+- token 缓存 key 必须是 `ezviz_account_id`，优先使用 `token/get` 返回的毫秒级 `data.expireTime`，没有时再兜底 7 天，并提前 1 小时刷新。
+- 遇到 `10002` / `10014` 时清除该账号 token，重新取 token 后重试当前请求一次。
+- 抓图限流必须保守：同设备串行、同 `deviceSerial + channelNo` 4 秒内不重复抓、同账号并发不超过 2。
+- 萤石错误必须保留原始 `code` 和 `msg`，不要只落模糊失败文案；建议 Phase 4 给扫描/抓图相关日志补 `error_code`、`error_message`、`raw_response jsonb` 等 nullable 字段。
+- 真实集成前应先实现探针脚本或等价命令，验证 `device/camera/list` 真实字段、`channelNo` 起始规则、前 3 个通道串行抓图和错误码统计。
+- `appSecret`、`accessToken` 不得返回前端，不得写入普通日志，不得提交 GitHub。
+
+需要主会话 review 的命名点：
+
+- 新文档建议代码和数据库优先使用 `device_serial`，当前 Phase 1 schema/API 采用 PRD 里的 `device_code`。这不阻塞后续实现，但 Phase 4 若要更贴近萤石语义，可选择新增 `device_serial` 兼容字段或在 `internal/ezviz` client 边界显式把 `device_code` 映射为 `deviceSerial`。
+- 当前 `video_recorders.ezviz_account_id` 允许为空，是为了支持“先录设备编码，后配置账号”的练习链路；真实扫描接口实现时必须在缺失账号时返回结构化错误，禁止兜底任意账号。
+
 ## 给主会话的 review 重点
 
 - API 路径和 JSON 字段是否满足前端 Phase 2 使用。
