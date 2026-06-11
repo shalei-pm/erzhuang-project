@@ -12,7 +12,7 @@
   - 后端二进制：`/app/erzhuang-project`
   - 前端产物：`/app/frontend/dist`
   - 默认上传目录：`/app/uploads/design-plan`
-- Go 服务会读取 `APP_BASE_PATH` 和 `FRONTEND_DIR`，默认把前端产物挂到 `/erzhuang-project`，并兼容 `/erzhuang-project/api/...` 到后端 `/api/...` 的转发前缀。
+- Go 服务会读取 `APP_BASE_PATH` 和 `FRONTEND_DIR`，默认把前端产物挂到 `/erzhuang-project`，并兼容 `/erzhuang-project/api/...` 到后端 `/api/...`、`/erzhuang-project/health` 到后端 `/health` 的转发前缀。
 - Dockerfile 中构建阶段基础镜像使用公司内网镜像地址：`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:23.11.1-alpine`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye`。
 - 运行阶段暂用公司 Debian 镜像，不在 Kaniko 构建时访问 Debian apt 源安装 `poppler-utils`。
 - 已尝试 Docker Hub 镜像 `minidocks/poppler:latest` 的 DaoCloud 大陆代理地址 `m.daocloud.io/docker.io/minidocks/poppler:latest`，但 DaoCloud 返回 `this image is not in the allowlist`，需等运维同步到公司内网镜像或配置可用白名单后再切换。
@@ -82,7 +82,8 @@ docker run --rm \
 - 镜像构建和推送时使用占位镜像仓库地址，真实仓库地址不要写入文档或代码。
 - `DATABASE_URL`、`OPENAI_API_KEY` 等敏感配置应使用 K8s `Secret` 注入，不要做成镜像层、ConfigMap 明文或 Git 文件。
 - `UPLOAD_DIR` 对应目录建议挂载 PVC，避免 Pod 重建后上传文件丢失。
-- readiness/liveness probe 可先使用 `GET /health`，端口为容器端口 `18080`。
+- K8s 容器内 readiness/liveness probe 可使用 `GET /health`，端口为容器端口 `18080`。
+- 经过公司域名/Ingress 的外部健康检查可使用 `GET /erzhuang-project/health`。
 - 资源限制需要覆盖 PDF 转图片场景；`pdftoppm` 对大 PDF 可能有瞬时 CPU 和内存消耗。
 - 当前镜像已包含 `/app/frontend/dist`，Go 服务会直接提供 `/erzhuang-project` 前端页面。
 - 公司网关/Ingress 当前 path 配置建议为 `/erzhuang-project`，不依赖 rewrite/strip path。
@@ -140,7 +141,7 @@ steps:
 - `kaniko-executor` 的构建上下文应为仓库根目录。
 - 镜像运行端口为 `18080`，不是纯前端 nginx 常见的 `80`。
 - K8s Service/Ingress 应转发到容器端口 `18080`。
-- 健康检查使用 `GET /health`。
+- 容器内健康检查使用 `GET /health`；域名外部健康检查使用 `GET /erzhuang-project/health`。
 - 页面路径默认为 `/erzhuang-project`；接口路径默认为 `/erzhuang-project/api/...`，Go 服务会转到内部 `/api/...`。
 
 运行时环境变量建议：

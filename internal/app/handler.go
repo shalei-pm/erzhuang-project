@@ -63,6 +63,13 @@ func withBasePathAPIPrefixes(next http.Handler) http.Handler {
 	basePaths := configuredBasePaths()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for _, basePath := range basePaths {
+			if r.URL.Path == basePath+"/health" {
+				cloned := r.Clone(r.Context())
+				cloned.URL.Path = "/health"
+				next.ServeHTTP(w, cloned)
+				return
+			}
+
 			apiPrefix := basePath + "/api/"
 			if strings.HasPrefix(r.URL.Path, apiPrefix) {
 				cloned := r.Clone(r.Context())
