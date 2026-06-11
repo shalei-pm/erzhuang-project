@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:22-alpine AS frontend-builder
+FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:23.11.1-alpine AS frontend-builder
 WORKDIR /src/frontend
 
 COPY frontend/package*.json ./

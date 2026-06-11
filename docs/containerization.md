@@ -14,7 +14,7 @@
   - 前端产物：`/app/frontend/dist`
   - 默认上传目录：`/app/uploads/design-plan`
 - Go 服务会读取 `FRONTEND_DIR`，把前端产物挂到 `/erzhuang/`，并兼容 `/erzhuang/api/...` 到后端 `/api/...` 的转发前缀。
-- Dockerfile 中基础镜像使用公司内网镜像地址：`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:22-alpine`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-ops/debian:bookworm-slim`。如果公司发布系统提示基础镜像不存在或无权限，需要让发布平台同学确认这些镜像 tag 是否可被 Kaniko 拉取。
+- Dockerfile 中基础镜像使用公司内网镜像地址：`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:23.11.1-alpine`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-ops/debian:bookworm-slim`。如果公司发布系统提示基础镜像不存在或无权限，需要让发布平台同学确认这些镜像 tag 是否可被 Kaniko 拉取。
 
 ## 本地构建
 
