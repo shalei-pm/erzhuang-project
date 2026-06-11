@@ -438,6 +438,10 @@ GET  /api/store-space/recognition-jobs/{job_id}
 
 ## 6. 萤石云集成
 
+详细接口和工程约束见：
+
+- `docs/ezviz-openapi-notes.md`
+
 ### 6.1 Client 边界
 
 建议新增：
@@ -454,7 +458,18 @@ internal/ezviz/client.go
 - 判断有效通道。
 - 抓取通道截图。
 
-具体接口字段待拿到萤石云 API 文档和测试账号后确认。
+已确认的抓图链路接口：
+
+- 获取 token：`POST https://open.ys7.com/api/lapp/token/get`
+- 设备抓图：`POST https://open.ys7.com/api/lapp/device/capture`
+
+请求格式必须是：
+
+```text
+application/x-www-form-urlencoded
+```
+
+禁止使用 JSON body。
 
 ### 6.2 多账号
 
@@ -465,14 +480,81 @@ internal/ezviz/client.go
 - 根据录像机关联的 `ezviz_account_id` 取密钥。
 - 调用对应账号的 API。
 - 如果设备不存在或无权限，录像机置为离线。
+- token 必须按 `ezviz_account_id` 缓存，禁止使用全局单 token。
+- 映射缺少账号 ID 时必须返回结构化错误，禁止默认使用任意账号。
 
-### 6.3 失败处理
+### 6.3 token 刷新
+
+萤石 `accessToken` 有有效期，服务不能假设长期有效。
+
+如果萤石接口返回以下错误码：
+
+- `10002`
+- `10014`
+
+后端必须：
+
+1. 丢弃该账号缓存 token。
+2. 使用该账号 appKey/appSecret 重新获取 accessToken。
+3. 使用新 token 重试当前请求一次。
+4. 如果仍失败，再返回错误。
+
+不要只依赖定时刷新。
+
+### 6.4 失败处理
 
 - 账号不可用：提示账号不可用。
 - 设备不存在/无权限：录像机离线。
 - 通道抓图失败：单通道重试，最多 3 次。
 - AI 识别失败：单通道重试，最多 3 次。
 - 3 次失败后，通道状态为 recognition_failed。
+- 所有萤石 HTTP 请求必须设置 timeout。
+- token 获取失败最多重试 2 次。
+- 抓图普通失败最多重试 1 次。
+- 设备超时最多重试 1 次，不要长时间阻塞。
+
+常见错误码：
+
+| 错误码 | 处理建议 |
+| --- | --- |
+| 200 | 成功 |
+| 10002 | token 过期/无效，刷新 token 后重试一次 |
+| 10014 | token 过期/无效，刷新 token 后重试一次 |
+| 60012 | 可能是通道不存在、设备未响应或账号无权限 |
+| 20008 | 设备响应超时，可能设备离线、网络异常或通道无响应 |
+| 9001 | 抓图场景可作为无有效画面或设备异常处理 |
+
+### 6.5 图片处理
+
+萤石抓图成功后返回 `data.picUrl`。
+
+本项目不直接把萤石 `picUrl` 透传给前端作为长期地址。后端应：
+
+1. 获取 `picUrl`。
+2. 服务端下载图片。
+3. 保存最近一次缩略图和大图。
+4. 前端展示本系统图片地址。
+5. 大图一周后删除，保留缩略图和识别结果。
+
+### 6.6 审计日志
+
+每次抓图请求必须记录审计日志，不记录 appSecret/accessToken。
+
+建议字段：
+
+- request_id
+- request_user，第一版可固定 `admin`
+- store_id
+- store_name
+- device_serial
+- channel_no
+- area_name
+- ezviz_account_id
+- result
+- error_code
+- error_message
+- captured_at
+- cost_ms
 
 ## 7. AI 识别
 

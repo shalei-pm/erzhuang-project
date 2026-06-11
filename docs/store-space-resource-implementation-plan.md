@@ -179,11 +179,17 @@ codex/store-space-video-recognition
 - 新增萤石云账号配置 API。
 - 新增账号配置 UI。
 - 新增 `internal/ezviz` client。
+- 按 `ezviz_account_id` 缓存 accessToken，禁止全局单 token。
+- 使用 `application/x-www-form-urlencoded` 调用萤石 OpenAPI，禁止 JSON body。
+- 实现 token 过期自动刷新：遇到 `10002` / `10014` 刷新 token 并重试当前请求一次。
+- 所有萤石 HTTP 请求设置 timeout。
+- 结构化处理萤石错误码和配置缺失错误。
 - 新增录像机扫描 API。
 - 实现设备在线/离线判断。
 - 实现有效通道扫描。
 - 重新扫描时保留仍有效通道确认结果。
 - 失效通道标记 inactive 并隐藏。
+- 记录抓图/扫描相关审计日志，不记录 appSecret/accessToken。
 
 验收：
 
@@ -192,6 +198,11 @@ codex/store-space-video-recognition
 - 设备不存在或无权限时，录像机离线。
 - 单台录像机可扫描有效通道。
 - 有效通道数量正确展示。
+- token 按账号维度缓存，A 账号设备不会误用 B 账号 token。
+- token 过期时可自动刷新并重试一次。
+- 请求萤石接口时使用 x-www-form-urlencoded。
+- 错误返回包含结构化错误码和可读原因。
+- 日志不泄露 appSecret/accessToken。
 
 依赖用户提供：
 
@@ -210,6 +221,8 @@ codex/store-space-video-recognition
 任务：
 
 - 单通道抓图。
+- 抓图成功后读取萤石 `data.picUrl`。
+- 服务端下载图片，不长期透传萤石 picUrl。
 - 缩略图和大图保存。
 - 大图一周过期字段。
 - 单台录像机队列式识别全部通道。
@@ -224,6 +237,7 @@ codex/store-space-video-recognition
 
 - 通道列表展示缩略图。
 - 点击缩略图可看大图。
+- 图片地址来自本系统存储，不直接依赖萤石临时 picUrl。
 - 单台录像机识别时展示进度。
 - 失败通道最多重试 3 次。
 - AI 结果只预填，不自动生效。

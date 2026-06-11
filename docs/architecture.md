@@ -172,6 +172,7 @@ Relevant documents:
 - `docs/store-space-resource-prd.md`
 - `docs/store-space-resource-tech-plan.md`
 - `docs/store-space-resource-implementation-plan.md`
+- `docs/ezviz-openapi-notes.md`
 
 Planned specialist threads:
 
