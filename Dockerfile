@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-bookworm-slim AS frontend-builder
+FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:22-alpine AS frontend-builder
 WORKDIR /src/frontend
 
 COPY frontend/package*.json ./
@@ -9,7 +9,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM golang:1.22-bookworm AS go-builder
+FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye AS go-builder
 WORKDIR /src
 
 COPY go.mod go.sum ./
@@ -19,7 +19,7 @@ COPY . ./
 RUN go test ./...
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/erzhuang-project ./cmd/server
 
-FROM debian:bookworm-slim AS runtime
+FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-ops/debian:bookworm-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update \
