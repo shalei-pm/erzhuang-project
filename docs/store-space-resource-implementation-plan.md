@@ -179,10 +179,16 @@ codex/store-space-video-recognition
 - 新增萤石云账号配置 API。
 - 新增账号配置 UI。
 - 新增 `internal/ezviz` client。
+- 新增萤石探针脚本或等价命令，用真实账号和录像机确认 `device/camera/list` 响应字段。
+- 接入 `device/camera/list` 获取设备通道列表。
+- 解析 `channelNo`、`cameraName`、`status`，字段以探针实测为准。
+- `channelNo` 原样传给萤石 API，不做 `+1/-1`。
 - 按 `ezviz_account_id` 缓存 accessToken，禁止全局单 token。
+- 优先使用 `token/get` 返回的 `data.expireTime`，没有时兜底 7 天，并提前 1 小时刷新。
 - 使用 `application/x-www-form-urlencoded` 调用萤石 OpenAPI，禁止 JSON body。
 - 实现 token 过期自动刷新：遇到 `10002` / `10014` 刷新 token 并重试当前请求一次。
 - 所有萤石 HTTP 请求设置 timeout。
+- 实现抓图限流：同设备串行、同通道 4 秒内不重复抓，同账号并发不超过 2。
 - 结构化处理萤石错误码和配置缺失错误。
 - 新增录像机扫描 API。
 - 实现设备在线/离线判断。
@@ -198,9 +204,12 @@ codex/store-space-video-recognition
 - 设备不存在或无权限时，录像机离线。
 - 单台录像机可扫描有效通道。
 - 有效通道数量正确展示。
+- 探针脚本能输出 token、expireTime、通道列表原始脱敏响应和前 3 个通道抓图结果。
 - token 按账号维度缓存，A 账号设备不会误用 B 账号 token。
+- `expireTime` 能正确解析和提前刷新。
 - token 过期时可自动刷新并重试一次。
 - 请求萤石接口时使用 x-www-form-urlencoded。
+- 抓图队列不会对同一录像机并发调用。
 - 错误返回包含结构化错误码和可读原因。
 - 日志不泄露 appSecret/accessToken。
 
@@ -222,6 +231,7 @@ codex/store-space-video-recognition
 
 - 单通道抓图。
 - 抓图成功后读取萤石 `data.picUrl`。
+- 萤石 `picUrl` 约 2 小时有效，仅作为服务端下载的中间地址。
 - 服务端下载图片，不长期透传萤石 picUrl。
 - 缩略图和大图保存。
 - 大图一周过期字段。

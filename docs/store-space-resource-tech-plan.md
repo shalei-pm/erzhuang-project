@@ -457,10 +457,13 @@ internal/ezviz/client.go
 - 查询设备通道列表。
 - 判断有效通道。
 - 抓取通道截图。
+- 按账号缓存 token，并解析 `expireTime`。
+- 执行同设备/同通道抓图限流。
 
 已确认的抓图链路接口：
 
 - 获取 token：`POST https://open.ys7.com/api/lapp/token/get`
+- 获取设备通道列表：`POST https://open.ys7.com/api/lapp/device/camera/list`
 - 设备抓图：`POST https://open.ys7.com/api/lapp/device/capture`
 
 请求格式必须是：
@@ -501,6 +504,12 @@ application/x-www-form-urlencoded
 
 不要只依赖定时刷新。
 
+缓存策略：
+
+- 优先使用萤石返回的毫秒级 `data.expireTime`。
+- 如果没有 `expireTime`，兜底按 7 天有效期处理。
+- 缓存时提前 1 小时刷新。
+
 ### 6.4 失败处理
 
 - 账号不可用：提示账号不可用。
@@ -518,15 +527,27 @@ application/x-www-form-urlencoded
 | 错误码 | 处理建议 |
 | --- | --- |
 | 200 | 成功 |
+| 10001 | 参数错误 |
 | 10002 | token 过期/无效，刷新 token 后重试一次 |
+| 10005 | appKey 异常或冻结 |
 | 10014 | token 过期/无效，刷新 token 后重试一次 |
+| 10017 | appKey 不存在 |
+| 10028 | 抓图接口调用次数超限，降频后最多重试一次 |
+| 10030 | appKey 和 appSecret 不匹配 |
+| 20002 | 设备不存在或账号无权限 |
+| 20006 | 网络异常 |
+| 20007 | 设备不在线 |
 | 60012 | 可能是通道不存在、设备未响应或账号无权限 |
 | 20008 | 设备响应超时，可能设备离线、网络异常或通道无响应 |
+| 20014 | deviceSerial 不合法 |
+| 60020 | 设备不支持抓图命令 |
 | 9001 | 抓图场景可作为无有效画面或设备异常处理 |
 
 ### 6.5 图片处理
 
 萤石抓图成功后返回 `data.picUrl`。
+
+萤石文档说明 `picUrl` 有效期约 2 小时。
 
 本项目不直接把萤石 `picUrl` 透传给前端作为长期地址。后端应：
 
@@ -536,7 +557,38 @@ application/x-www-form-urlencoded
 4. 前端展示本系统图片地址。
 5. 大图一周后删除，保留缩略图和识别结果。
 
-### 6.6 审计日志
+### 6.6 抓图限流
+
+抓图是设备指令，不是普通静态资源请求。第一版应保守限流：
+
+- 同一 `ezviz_account_id` 并发不超过 2。
+- 同一 `device_serial` 并发为 1。
+- 同一 `device_serial + channel_no` 4 秒内不重复抓图。
+- 单台录像机批量识别时串行处理通道。
+- 遇到 `10028` 时等待 5 到 10 秒后最多重试一次。
+
+### 6.7 通道编号和设备编码
+
+- `channelNo` 按当前经验为 1-based。
+- 系统中填写多少通道号，就原样传给萤石 API，不做 `+1/-1`。
+- `deviceSerial` 是萤石 OpenAPI 参数，业务页面可称为“录像机设备编码”。
+- 请求萤石 API 前可统一将 `deviceSerial` 转为大写。
+- 不建议使用 `deviceId` 作为主字段，避免混淆。
+
+### 6.8 探针脚本
+
+真实集成前应先做探针脚本或等价命令，读取真实设备响应：
+
+- token 是否成功。
+- `expireTime` 原始值。
+- `device/camera/list` 原始脱敏响应。
+- 通道字段、`channelNo`、`cameraName`、`status`。
+- 前 3 个通道串行抓图测试。
+- 错误码统计。
+
+探针结果用于固化字段解析逻辑。
+
+### 6.9 审计日志
 
 每次抓图请求必须记录审计日志，不记录 appSecret/accessToken。
 
