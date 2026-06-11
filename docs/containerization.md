@@ -4,7 +4,7 @@
 
 ## 镜像内容
 
-- `frontend-builder` 阶段：使用 Node 构建 `frontend/`，产物为 `frontend/dist`。
+- `frontend-builder` 阶段：使用 Node 构建 `frontend/`，产物为 `frontend/dist`；构建时会复制 `testdata/`，因为当前前端 mock 数据引用了 `testdata/design-plans/generated/sample-store-floor-plan.png`。
 - `go-builder` 阶段：执行 `go test ./...`，并构建 `./cmd/server`。
 - `runtime` 阶段：基于公司内网 Debian slim 镜像，安装：
   - `ca-certificates`：用于 HTTPS 证书校验。

@@ -6,6 +6,7 @@ WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 
+COPY testdata/ /src/testdata/
 COPY frontend/ ./
 RUN npm run build
 
