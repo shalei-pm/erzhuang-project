@@ -6,13 +6,16 @@
 
 - `frontend-builder` 阶段：使用 Node 构建 `frontend/`，产物为 `frontend/dist`；构建时会复制 `testdata/`，因为当前前端 mock 数据引用了 `testdata/design-plans/generated/sample-store-floor-plan.png`。
 - `go-builder` 阶段：执行 `go test ./...`，并构建 `./cmd/server`。
-- `runtime` 阶段：基于 Docker Hub 公开镜像 `minidocks/poppler:latest` 的 DaoCloud 大陆代理地址 `m.daocloud.io/docker.io/minidocks/poppler:latest`，镜像内已包含 `pdftoppm`，用于 PDF 转图片。
+- `runtime` 阶段：当前临时基于公司内网镜像 `soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-ops/debian:bookworm-slim`，用于先跑通 Wharf -> Kaniko -> 镜像仓库 -> K8s 发布链路。
+- PDF 转图片依赖 `pdftoppm`；当前 runtime 临时镜像不包含该工具，等运维同步可用的 poppler runtime 镜像后再恢复。
 - 运行镜像内路径：
   - 后端二进制：`/app/erzhuang-project`
   - 前端产物：`/app/frontend/dist`
   - 默认上传目录：`/app/uploads/design-plan`
 - Go 服务会读取 `FRONTEND_DIR`，把前端产物挂到 `/erzhuang/`，并兼容 `/erzhuang/api/...` 到后端 `/api/...` 的转发前缀。
-- Dockerfile 中构建阶段基础镜像使用公司内网镜像地址：`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:23.11.1-alpine`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye`；运行阶段使用 Docker Hub 镜像 `minidocks/poppler:latest` 的 DaoCloud 大陆代理地址 `m.daocloud.io/docker.io/minidocks/poppler:latest`，避免在公司 Kaniko 构建时访问 Debian apt 源安装 `poppler-utils`。
+- Dockerfile 中构建阶段基础镜像使用公司内网镜像地址：`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:23.11.1-alpine`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye`。
+- 运行阶段暂用公司 Debian 镜像，不在 Kaniko 构建时访问 Debian apt 源安装 `poppler-utils`。
+- 已尝试 Docker Hub 镜像 `minidocks/poppler:latest` 的 DaoCloud 大陆代理地址 `m.daocloud.io/docker.io/minidocks/poppler:latest`，但 DaoCloud 返回 `this image is not in the allowlist`，需等运维同步到公司内网镜像或配置可用白名单后再切换。
 
 ## 本地构建
 
