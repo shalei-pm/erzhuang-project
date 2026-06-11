@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	AppName = "erzhuang-project"
-	Version = "v2"
+	AppName            = "erzhuang-project"
+	Version            = "v2"
+	defaultAppBasePath = "/erzhuang-project"
+	legacyAppBasePath  = "/erzhuang"
 )
 
 type HealthResponse struct {
@@ -54,20 +56,44 @@ func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository) htt
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
 	designplan.RegisterRoutes(mux, designplan.NewService(designPlanRepo))
 	registerFrontendRoutes(mux)
-	return withErzhuangAPIPrefix(mux)
+	return withBasePathAPIPrefixes(mux)
 }
 
-func withErzhuangAPIPrefix(next http.Handler) http.Handler {
+func withBasePathAPIPrefixes(next http.Handler) http.Handler {
+	basePaths := configuredBasePaths()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/erzhuang/api/") {
-			cloned := r.Clone(r.Context())
-			cloned.URL.Path = strings.TrimPrefix(r.URL.Path, "/erzhuang")
-			next.ServeHTTP(w, cloned)
-			return
+		for _, basePath := range basePaths {
+			apiPrefix := basePath + "/api/"
+			if strings.HasPrefix(r.URL.Path, apiPrefix) {
+				cloned := r.Clone(r.Context())
+				cloned.URL.Path = strings.TrimPrefix(r.URL.Path, basePath)
+				next.ServeHTTP(w, cloned)
+				return
+			}
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func configuredBasePaths() []string {
+	basePath := normalizeBasePath(os.Getenv("APP_BASE_PATH"))
+	paths := []string{basePath}
+	if basePath != legacyAppBasePath {
+		paths = append(paths, legacyAppBasePath)
+	}
+	return paths
+}
+
+func normalizeBasePath(value string) string {
+	if value == "" || value == "/" {
+		return defaultAppBasePath
+	}
+	value = "/" + strings.Trim(value, "/")
+	if value == "/" {
+		return defaultAppBasePath
+	}
+	return value
 }
 
 func registerFrontendRoutes(mux *http.ServeMux) {
@@ -76,13 +102,17 @@ func registerFrontendRoutes(mux *http.ServeMux) {
 		return
 	}
 
-	mux.Handle("GET /erzhuang/", frontendHandler(frontendDir))
+	for _, basePath := range configuredBasePaths() {
+		mux.Handle("GET "+basePath, frontendHandler(frontendDir, basePath))
+		mux.Handle("GET "+basePath+"/", frontendHandler(frontendDir, basePath))
+	}
 }
 
-func frontendHandler(frontendDir string) http.Handler {
+func frontendHandler(frontendDir string, basePath string) http.Handler {
 	fileServer := http.FileServer(http.Dir(frontendDir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/erzhuang/")
+		path := strings.TrimPrefix(r.URL.Path, basePath)
+		path = strings.TrimPrefix(path, "/")
 		if path == "" {
 			http.ServeFile(w, r, filepath.Join(frontendDir, "index.html"))
 			return

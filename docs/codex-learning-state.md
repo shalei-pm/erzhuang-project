@@ -19,8 +19,8 @@
 - `scripts/build-image.sh`：发布系统可调用的镜像构建脚本，支持 `IMAGE_NAME`、`IMAGE_TAG`、`DOCKERFILE`、`CONTEXT`。
 - `docs/containerization.md`：记录本地构建、运行、环境变量、K8s 对接注意事项。
 - Go 服务支持：
-  - 读取 `FRONTEND_DIR` 并托管 `/erzhuang/` 前端页面。
-  - 兼容 `/erzhuang/api/...` 到 `/api/...`，适配当前 Vite base 和前端 API 默认路径。
+  - 读取 `APP_BASE_PATH` 和 `FRONTEND_DIR` 并托管 `/erzhuang-project` 前端页面。
+  - 兼容 `/erzhuang-project/api/...` 到 `/api/...`，适配公司发布系统 path 配置和前端 API 默认路径。
 
 验证结果：
 
@@ -33,7 +33,7 @@
 
 - 容器默认监听：`0.0.0.0:18080`。
 - 健康检查：`GET /health`。
-- 前端入口：`GET /erzhuang/`。
+- 前端入口：`GET /erzhuang-project`。
 - 数据库通过运行时环境变量 `DATABASE_URL` 注入，不写入镜像和 Git。
 - AI/PDF 识别相关密钥通过运行时 Secret 注入；上传目录建议在 K8s 挂 PVC 或后续改对象存储。
 

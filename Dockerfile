@@ -35,6 +35,7 @@ COPY --from=go-builder /out/erzhuang-project /app/erzhuang-project
 COPY --from=frontend-builder /src/frontend/dist /app/frontend/dist
 
 ENV ADDR=0.0.0.0:18080 \
+    APP_BASE_PATH=/erzhuang-project \
     FRONTEND_DIR=/app/frontend/dist \
     UPLOAD_DIR=/app/uploads/design-plan
 

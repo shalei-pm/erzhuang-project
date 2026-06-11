@@ -12,7 +12,7 @@
   - 后端二进制：`/app/erzhuang-project`
   - 前端产物：`/app/frontend/dist`
   - 默认上传目录：`/app/uploads/design-plan`
-- Go 服务会读取 `FRONTEND_DIR`，把前端产物挂到 `/erzhuang/`，并兼容 `/erzhuang/api/...` 到后端 `/api/...` 的转发前缀。
+- Go 服务会读取 `APP_BASE_PATH` 和 `FRONTEND_DIR`，默认把前端产物挂到 `/erzhuang-project`，并兼容 `/erzhuang-project/api/...` 到后端 `/api/...` 的转发前缀。
 - Dockerfile 中构建阶段基础镜像使用公司内网镜像地址：`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:23.11.1-alpine`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye`。
 - 运行阶段暂用公司 Debian 镜像，不在 Kaniko 构建时访问 Debian apt 源安装 `poppler-utils`。
 - 已尝试 Docker Hub 镜像 `minidocks/poppler:latest` 的 DaoCloud 大陆代理地址 `m.daocloud.io/docker.io/minidocks/poppler:latest`，但 DaoCloud 返回 `this image is not in the allowlist`，需等运维同步到公司内网镜像或配置可用白名单后再切换。
@@ -68,6 +68,7 @@ docker run --rm \
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `ADDR` | 否 | `0.0.0.0:18080` | 服务监听地址；容器内应监听 `0.0.0.0`。 |
+| `APP_BASE_PATH` | 否 | `/erzhuang-project` | 应用对外路径前缀；当前公司域名下配置为 `/erzhuang-project`。 |
 | `DATABASE_URL` | 否 | 空 | PostgreSQL 连接串；为空时使用内存存储。不要写入镜像或 Git。 |
 | `FRONTEND_DIR` | 否 | `/app/frontend/dist` | 前端生产构建产物目录，镜像内已预置。 |
 | `UPLOAD_DIR` | 否 | `/app/uploads/design-plan` | 设计图上传和转换文件目录，生产建议挂载持久化存储。 |
@@ -83,8 +84,9 @@ docker run --rm \
 - `UPLOAD_DIR` 对应目录建议挂载 PVC，避免 Pod 重建后上传文件丢失。
 - readiness/liveness probe 可先使用 `GET /health`，端口为容器端口 `18080`。
 - 资源限制需要覆盖 PDF 转图片场景；`pdftoppm` 对大 PDF 可能有瞬时 CPU 和内存消耗。
-- 当前镜像已包含 `/app/frontend/dist`，Go 服务会直接提供 `/erzhuang/` 前端页面。
-- 如果公司网关把应用挂到其他路径，需要同步调整 `frontend/vite.config.ts` 的 `base` 和 `VITE_DESIGN_PLAN_API_BASE`，再重新构建镜像。
+- 当前镜像已包含 `/app/frontend/dist`，Go 服务会直接提供 `/erzhuang-project` 前端页面。
+- 公司网关/Ingress 当前 path 配置建议为 `/erzhuang-project`，不依赖 rewrite/strip path。
+- 如果未来新增其他项目，例如 `/aaa-project`，建议对应项目也使用自己的 base path，并让应用代码、前端 `base`、默认 API base、`APP_BASE_PATH` 保持一致。
 
 ## 公司发布系统流水线建议
 
@@ -139,13 +141,14 @@ steps:
 - 镜像运行端口为 `18080`，不是纯前端 nginx 常见的 `80`。
 - K8s Service/Ingress 应转发到容器端口 `18080`。
 - 健康检查使用 `GET /health`。
-- 页面路径默认为 `/erzhuang/`；接口路径默认为 `/erzhuang/api/...`，Go 服务会转到内部 `/api/...`。
+- 页面路径默认为 `/erzhuang-project`；接口路径默认为 `/erzhuang-project/api/...`，Go 服务会转到内部 `/api/...`。
 
 运行时环境变量建议：
 
 | 变量 | 建议来源 | 说明 |
 | --- | --- | --- |
 | `ADDR` | 普通环境变量 | 建议固定为 `0.0.0.0:18080`。 |
+| `APP_BASE_PATH` | 普通环境变量 | 建议固定为 `/erzhuang-project`；需要和发布系统域名 path 配置一致。 |
 | `DATABASE_URL` | K8s Secret | 外部 PostgreSQL 连接串。 |
 | `OPENAI_API_KEY` | K8s Secret | 如需 AI 识别图纸时配置。 |
 | `OPENAI_MODEL` | 普通环境变量 | 可选，不配时使用代码默认值。 |

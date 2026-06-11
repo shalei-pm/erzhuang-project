@@ -193,7 +193,7 @@ export class ApiError extends Error {
   }
 }
 
-const DEFAULT_API_BASE = "/erzhuang/api/design-plan";
+const DEFAULT_API_BASE = "/erzhuang-project/api/design-plan";
 const API_BASE = trimTrailingSlash(import.meta.env.VITE_DESIGN_PLAN_API_BASE || DEFAULT_API_BASE);
 const API_MODE = normalizeApiMode(import.meta.env.VITE_DESIGN_PLAN_API_MODE);
 const MOCK_PLAN_IMAGE = sampleStoreFloorPlanUrl;

@@ -106,6 +106,27 @@ func TestTasksUnderErzhuangAPIPrefix(t *testing.T) {
 	}
 }
 
+func TestTasksUnderConfiguredBasePath(t *testing.T) {
+	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
+	request := httptest.NewRequest(http.MethodGet, "/erzhuang-project/api/tasks", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	var response []Task
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if len(response) == 0 {
+		t.Fatal("expected at least one task")
+	}
+}
+
 func TestServesFrontendIndexUnderErzhuang(t *testing.T) {
 	frontendDir := t.TempDir()
 	t.Setenv("FRONTEND_DIR", frontendDir)
@@ -122,6 +143,27 @@ func TestServesFrontendIndexUnderErzhuang(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
 	}
 	if !strings.Contains(recorder.Body.String(), "container frontend") {
+		t.Fatalf("expected frontend index body, got %q", recorder.Body.String())
+	}
+}
+
+func TestServesFrontendIndexUnderConfiguredBasePath(t *testing.T) {
+	frontendDir := t.TempDir()
+	t.Setenv("FRONTEND_DIR", frontendDir)
+	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
+	if err := os.WriteFile(filepath.Join(frontendDir, "index.html"), []byte("<html>project frontend</html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/erzhuang-project", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), "project frontend") {
 		t.Fatalf("expected frontend index body, got %q", recorder.Body.String())
 	}
 }
