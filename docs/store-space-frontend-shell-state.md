@@ -1,0 +1,96 @@
+# Store Space Frontend Shell State
+
+更新时间：2026-06-11
+
+分支：
+
+```text
+codex/store-space-frontend-shell
+```
+
+基线提交：
+
+```text
+f819793 Document store space resource expansion
+```
+
+## 实现范围
+
+- 将 `frontend/src/App.tsx` 从单文件页面改为轻量编排层，负责列表、创建浮层、详情页状态切换和 toast。
+- 新增前端组件：
+  - `StoreList`：门店空间资源列表，新字段包含新氧机构 ID、设计图状态、录像机数量、通道数量、三类业务区域数量。
+  - `CreateStoreModal`：添加门店浮层，支持门店名称、新氧机构 ID、设计图 PDF、最多 3 台录像机设备编码和萤石云账号选择。
+  - `StoreDetail`：门店详情页，包含“设计图标注”和“通道映射”两个 Tab。
+  - `DesignPlanTab`：复用现有图纸预览、区域卡片、矩形框拖动、四角缩放和保存标注体验；识别改为手动触发。
+  - `VideoChannelTab`：通道映射 UI 壳，支持录像机列表、扫描按钮、识别按钮、有效通道列表、截图缩略图占位、区域类型/编号编辑、确认/编辑状态和识别进度占位。
+  - `FloorPlanCanvas`、`AreaCardList`：从原 `App.tsx` 拆出的图纸与区域卡片组件。
+- 新增前端 domain 工具：
+  - `areas.ts`：区域标签、展示名、保存前规范化、区域计数。
+  - `designPlan.ts`：图纸上传状态、矩形框 clamp/resize、文件名生成。
+  - `format.ts`：时间和错误消息格式化。
+- 扩展 `frontend/src/api.ts`：
+  - 增加门店空间资源相关类型：设计图状态、萤石云账号、录像机、通道、非业务画面类型。
+  - 增加 `storeSpaceApi` mock adapter。
+  - 保持现有 `designPlanApi` 兼容，真实后端接口未接入时继续使用 mock。
+
+## 交互说明
+
+- 创建门店时，设计图 PDF 与录像机设备编码至少填写一个。
+- 创建后默认进入：
+  - 有设计图：设计图标注 Tab。
+  - 只有录像机：通道映射 Tab。
+- 设计图 Tab 保留原有比例坐标矩形框交互，支持拖动和四角缩放。
+- 设计图识别不会在上传后自动触发，需要点击“识别图纸区域”。
+- 通道映射 Tab 目前只使用 mock 数据：
+  - 扫描录像机会补齐有效通道。
+  - 识别本录像机会预填业务区域或非业务画面。
+  - 人工确认业务通道后，会在 mock 状态中生成或绑定业务区域。
+- 萤石云账号入口仅展示账号名和配置入口，不展示、不保存、不请求真实密钥。
+
+## 改动文件
+
+```text
+frontend/src/App.tsx
+frontend/src/api.ts
+frontend/src/styles.css
+frontend/src/components/AreaCardList.tsx
+frontend/src/components/CreateStoreModal.tsx
+frontend/src/components/DesignPlanTab.tsx
+frontend/src/components/FloorPlanCanvas.tsx
+frontend/src/components/StoreDetail.tsx
+frontend/src/components/StoreList.tsx
+frontend/src/components/VideoChannelTab.tsx
+frontend/src/domain/areas.ts
+frontend/src/domain/designPlan.ts
+frontend/src/domain/format.ts
+docs/store-space-frontend-shell-state.md
+```
+
+## 验证结果
+
+已执行：
+
+```sh
+PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-darwin-arm64/bin:$PATH npm install
+PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-darwin-arm64/bin:$PATH npm run build
+```
+
+结果：
+
+- `npm install` 通过，审计 0 个漏洞。
+- `npm run build` 通过，包含 `tsc -b` 和 `vite build`。
+
+## 风险和限制
+
+- 本阶段没有接真实 `store-space` 后端 API，通道扫描、识别、确认均为前端 mock。
+- 详情页新增录像机、删除录像机、萤石云账号配置只预留入口，等待后端接口和安全方案。
+- 当前 mock 的设计图保存仍复用旧 `designPlanApi.saveStore` 合同；后端新表和 API 合并后，需要对齐 `storeSpaceApi` 的真实 HTTP adapter。
+- 视觉回归只通过构建检查，尚未在浏览器中逐屏截图验收。
+
+## 给主会话的 Review 重点
+
+- 是否接受 `App.tsx` 的拆分边界：页面编排在 App，图纸交互在 `DesignPlanTab`/`FloorPlanCanvas`，通道映射在 `VideoChannelTab`。
+- 门店列表字段是否符合 PRD 第一阶段口径。
+- 添加门店浮层是否满足“设计图或录像机至少一个”的产品规则。
+- 通道映射 mock 的交互状态是否足够支撑后续真实 API 接入。
+- 样式是否保持现有简洁后台风格，没有偏离设计图标注体验。

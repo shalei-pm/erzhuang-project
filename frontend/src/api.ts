@@ -4,6 +4,27 @@ export type AreaType = "treatment" | "consultation" | "beauty";
 
 export type Confidence = "high" | "medium" | "low";
 export type StoreStatus = "completed" | "needs_review" | "incomplete";
+export type DesignPlanStatus = "not_uploaded" | "pending_recognition" | "pending_annotation" | "completed";
+export type RecorderStatus = "online" | "offline";
+export type ChannelStatus =
+  | "pending_recognition"
+  | "pending_confirmation"
+  | "confirmed_business"
+  | "confirmed_non_business"
+  | "recognition_failed"
+  | "inactive";
+export type NonBusinessSceneType =
+  | "front_desk"
+  | "corridor"
+  | "passage"
+  | "waiting_area"
+  | "hall"
+  | "entrance"
+  | "storage"
+  | "pharmacy"
+  | "machine_room"
+  | "unknown";
+export type SceneType = AreaType | NonBusinessSceneType;
 
 export type AreaBox = {
   x: number;
@@ -25,7 +46,11 @@ export type StoreArea = {
 export type StoreSummary = {
   id: number;
   name: string;
+  externalOrgId: string;
   thumbnailUrl: string;
+  designPlanStatus: DesignPlanStatus;
+  recorderCount: number;
+  channelCount: number;
   treatmentCount: number;
   consultationCount: number;
   beautyCount: number;
@@ -42,7 +67,49 @@ export type StoreDetail = StoreSummary & {
   pageCount: number;
   previewUrl: string;
   areas: StoreArea[];
+  recorders: VideoRecorder[];
   recognitionResult?: unknown;
+};
+
+export type EzvizAccount = {
+  id: number;
+  accountName: string;
+  status: "unverified" | "available" | "unavailable";
+  lastVerifiedAt: string;
+};
+
+export type RecorderDraft = {
+  id: string;
+  ezvizAccountId: number;
+  deviceCode: string;
+};
+
+export type VideoRecorder = {
+  id: number;
+  storeId: number;
+  ezvizAccountId: number;
+  accountName: string;
+  deviceCode: string;
+  status: RecorderStatus;
+  effectiveChannelCount: number;
+  lastScannedAt: string;
+  recognitionProgress?: string;
+  channels: VideoChannel[];
+};
+
+export type VideoChannel = {
+  id: number;
+  recorderId: number;
+  recorderCode: string;
+  channelNo: number;
+  channelName: string;
+  status: ChannelStatus;
+  thumbnailUrl: string;
+  sceneType: SceneType;
+  areaType: AreaType | "";
+  areaNumber: string;
+  recognitionAttempts: number;
+  confirmedAt?: string;
 };
 
 export type StoreListResponse = {
@@ -74,6 +141,7 @@ export type RecognitionResult = {
 export type SaveStorePayload = {
   id?: number;
   name: string;
+  externalOrgId?: string;
   fileName: string;
   originalPath?: string;
   previewPath?: string;
@@ -84,6 +152,14 @@ export type SaveStorePayload = {
   uploadId?: string;
   recognitionResult?: unknown;
   areas: StoreArea[];
+  recorders?: VideoRecorder[];
+};
+
+export type CreateStoreSpacePayload = {
+  name: string;
+  externalOrgId: string;
+  designPlan?: UploadResult | null;
+  recorders: RecorderDraft[];
 };
 
 type ApiMode = "auto" | "http" | "mock";
@@ -204,7 +280,14 @@ const PAGE_SIZE = 20;
 
 let warnedFallback = false;
 let nextStoreId = 38;
+let nextRecorderId = 900;
+let nextChannelId = 5000;
 const mockUploads = new Map<string, string>();
+
+let mockEzvizAccounts: EzvizAccount[] = [
+  { id: 1, accountName: "华东门店萤石云", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
+  { id: 2, accountName: "华南测试账号", status: "unverified", lastVerifiedAt: "" },
+];
 
 let mockStores: StoreDetail[] = [
   createMockStore(1, "杭州西湖旗舰店", "completed", [
@@ -356,6 +439,123 @@ const mockAdapter = {
     await delay(180);
     mockStores = mockStores.filter((store) => store.id !== id);
   },
+
+  async listEzvizAccounts(): Promise<EzvizAccount[]> {
+    await delay(120);
+    return clone(mockEzvizAccounts);
+  },
+
+  async createStoreSpace(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
+    await delay(260);
+    const now = new Date().toISOString();
+    const storeId = nextStoreId++;
+    const recorders = payload.recorders
+      .filter((item) => item.deviceCode.trim())
+      .map((item) => createMockRecorder(storeId, item.deviceCode.trim(), item.ezvizAccountId));
+    const detail = createMockStore(storeId, payload.name.trim(), "incomplete", []);
+    detail.externalOrgId = payload.externalOrgId.trim();
+    detail.fileName = payload.designPlan?.fileName ?? "";
+    detail.originalPath = payload.designPlan?.originalPath ?? "";
+    detail.previewPath = payload.designPlan?.previewPath ?? "";
+    detail.thumbnailPath = payload.designPlan?.thumbnailPath ?? "";
+    detail.pageCount = payload.designPlan?.pageCount ?? 0;
+    detail.previewUrl = payload.designPlan?.previewUrl ?? "";
+    detail.thumbnailUrl = payload.designPlan?.thumbnailUrl ?? "";
+    detail.designPlanStatus = payload.designPlan ? "pending_annotation" : "not_uploaded";
+    detail.recorders = recorders;
+    detail.recorderCount = recorders.length;
+    detail.channelCount = countChannels(recorders);
+    detail.updatedAt = now;
+    mockStores = [detail, ...mockStores];
+    return clone(detail);
+  },
+
+  async scanRecorder(storeId: number, recorderId: number): Promise<VideoRecorder> {
+    await delay(360);
+    const store = mockStores.find((item) => item.id === storeId);
+    const recorder = store?.recorders.find((item) => item.id === recorderId);
+    if (!store || !recorder) {
+      throw new Error("录像机不存在");
+    }
+    const scanned = {
+      ...recorder,
+      status: "online" as RecorderStatus,
+      lastScannedAt: new Date().toISOString(),
+      channels: recorder.channels.length > 0 ? recorder.channels : createMockChannels(recorder.id, recorder.deviceCode),
+    };
+    scanned.effectiveChannelCount = scanned.channels.filter((item) => item.status !== "inactive").length;
+    replaceMockRecorder(storeId, scanned);
+    return clone(scanned);
+  },
+
+  async recognizeRecorder(storeId: number, recorderId: number): Promise<VideoRecorder> {
+    await delay(520);
+    const store = mockStores.find((item) => item.id === storeId);
+    const recorder = store?.recorders.find((item) => item.id === recorderId);
+    if (!store || !recorder) {
+      throw new Error("录像机不存在");
+    }
+    const recognizedChannels = ensureRecorderChannels(recorder).map((channel, index) => {
+      if (channel.status === "confirmed_business" || channel.status === "confirmed_non_business") return channel;
+      const presets = [
+        { sceneType: "consultation" as SceneType, areaType: "consultation" as AreaType, areaNumber: "1" },
+        { sceneType: "treatment" as SceneType, areaType: "treatment" as AreaType, areaNumber: "2" },
+        { sceneType: "front_desk" as SceneType, areaType: "" as const, areaNumber: "" },
+        { sceneType: "corridor" as SceneType, areaType: "" as const, areaNumber: "" },
+      ];
+      const preset = presets[index % presets.length];
+      return {
+        ...channel,
+        ...preset,
+        status: "pending_confirmation" as ChannelStatus,
+        recognitionAttempts: channel.recognitionAttempts + 1,
+      };
+    });
+    const recognized = {
+      ...recorder,
+      channels: recognizedChannels,
+      effectiveChannelCount: recognizedChannels.filter((item) => item.status !== "inactive").length,
+      recognitionProgress: `已完成 ${recognizedChannels.length}/${recognizedChannels.length}`,
+    };
+    replaceMockRecorder(storeId, recognized);
+    return clone(recognized);
+  },
+
+  async confirmChannel(storeId: number, channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
+    await delay(180);
+    const store = mockStores.find((item) => item.id === storeId);
+    if (!store) throw new Error("门店不存在");
+    const now = new Date().toISOString();
+    const nextRecorders: VideoRecorder[] = store.recorders.map((recorder) => ({
+      ...recorder,
+      channels: recorder.channels.map((channel) => {
+        if (channel.id !== channelId) return channel;
+        const isBusiness = Boolean(patch.areaType);
+        const status: ChannelStatus = isBusiness ? "confirmed_business" : "confirmed_non_business";
+        const sceneType: SceneType = patch.sceneType || (patch.areaType ? patch.areaType : "unknown");
+        return {
+          ...channel,
+          ...patch,
+          sceneType,
+          status,
+          confirmedAt: now,
+        };
+      }),
+    }));
+    const nextStore = {
+      ...store,
+      recorders: nextRecorders,
+      areas: mergeAreasFromConfirmedChannels(store.areas, nextRecorders),
+      updatedAt: now,
+    };
+    const counts = countAreas(nextStore.areas);
+    nextStore.treatmentCount = counts.treatment;
+    nextStore.consultationCount = counts.consultation;
+    nextStore.beautyCount = counts.beauty;
+    nextStore.areaCount = nextStore.areas.length;
+    mockStores = mockStores.map((item) => (item.id === storeId ? nextStore : item));
+    return clone(nextStore);
+  },
 };
 
 const httpAdapter = {
@@ -475,6 +675,71 @@ export const designPlanApi = {
   },
 };
 
+export const storeSpaceApi = {
+  async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
+    return designPlanApi.listStores(query, page, pageSize);
+  },
+
+  async getStore(id: number): Promise<StoreDetail> {
+    return designPlanApi.getStore(id);
+  },
+
+  async uploadPdf(file: File | string = "mock-design-plan.pdf"): Promise<UploadResult> {
+    return designPlanApi.uploadPdf(file);
+  },
+
+  async recognizeUpload(uploadId: string): Promise<RecognitionResult> {
+    return designPlanApi.recognizeUpload(uploadId);
+  },
+
+  async checkDuplicate(name: string, excludeStoreId?: number): Promise<DuplicateCheckResult> {
+    return designPlanApi.checkDuplicate(name, excludeStoreId);
+  },
+
+  async saveStore(payload: SaveStorePayload): Promise<StoreDetail> {
+    return designPlanApi.saveStore(payload);
+  },
+
+  async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
+    if (API_MODE === "http") {
+      throw new ApiError(501, "门店空间资源后端接口尚未接入，本阶段仅提供前端 mock。");
+    }
+    return mockAdapter.createStoreSpace(payload);
+  },
+
+  async deleteStore(id: number): Promise<void> {
+    return designPlanApi.deleteStore(id);
+  },
+
+  async listEzvizAccounts(): Promise<EzvizAccount[]> {
+    if (API_MODE === "http") {
+      throw new ApiError(501, "萤石云账号后端接口尚未接入，本阶段仅提供前端 mock。");
+    }
+    return mockAdapter.listEzvizAccounts();
+  },
+
+  async scanRecorder(storeId: number, recorderId: number): Promise<VideoRecorder> {
+    if (API_MODE === "http") {
+      throw new ApiError(501, "录像机扫描后端接口尚未接入，本阶段仅提供前端 mock。");
+    }
+    return mockAdapter.scanRecorder(storeId, recorderId);
+  },
+
+  async recognizeRecorder(storeId: number, recorderId: number): Promise<VideoRecorder> {
+    if (API_MODE === "http") {
+      throw new ApiError(501, "通道识别后端接口尚未接入，本阶段仅提供前端 mock。");
+    }
+    return mockAdapter.recognizeRecorder(storeId, recorderId);
+  },
+
+  async confirmChannel(storeId: number, channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
+    if (API_MODE === "http") {
+      throw new ApiError(501, "通道确认后端接口尚未接入，本阶段仅提供前端 mock。");
+    }
+    return mockAdapter.confirmChannel(storeId, channelId, patch);
+  },
+};
+
 async function withFallback<T>(httpCall: () => Promise<T>, mockCall: () => Promise<T>): Promise<T> {
   if (API_MODE === "mock") {
     return mockCall();
@@ -528,7 +793,11 @@ function mapBackendSummary(item: BackendStoreSummary): StoreSummary {
   return {
     id: item.id,
     name: item.name,
+    externalOrgId: "",
     thumbnailUrl: toDisplayImageUrl(item.thumbnail_url),
+    designPlanStatus: item.thumbnail_url ? "completed" : "not_uploaded",
+    recorderCount: 0,
+    channelCount: 0,
     treatmentCount: item.treatment_count,
     consultationCount: item.consultation_count,
     beautyCount: item.beauty_count,
@@ -555,6 +824,10 @@ function mapBackendDetail(store: BackendStoreDetail): StoreDetail {
     pageCount: store.page_count || 1,
     thumbnailUrl: toDisplayImageUrl(store.thumbnail_url || store.thumbnail_path),
     previewUrl: toDisplayImageUrl(store.preview_url || store.preview_image_path),
+    externalOrgId: "",
+    designPlanStatus: store.preview_url || store.preview_image_path ? "completed" : "not_uploaded",
+    recorderCount: 0,
+    channelCount: 0,
     treatmentCount: counts.treatment,
     consultationCount: counts.consultation,
     beautyCount: counts.beauty,
@@ -563,6 +836,7 @@ function mapBackendDetail(store: BackendStoreDetail): StoreDetail {
     updatedAt: store.updated_at,
     recognitionResult: store.recognition_result,
     areas,
+    recorders: [],
   };
 }
 
@@ -606,7 +880,11 @@ function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
   return {
     id: match.id,
     name: match.name,
+    externalOrgId: "",
     thumbnailUrl: toDisplayImageUrl(match.thumbnail_url),
+    designPlanStatus: match.thumbnail_url ? "completed" : "not_uploaded",
+    recorderCount: 0,
+    channelCount: 0,
     treatmentCount: match.treatment_count ?? 0,
     consultationCount: match.consultation_count ?? 0,
     beautyCount: match.beauty_count ?? 0,
@@ -709,9 +987,11 @@ function inferMockStoreName(fileName: string) {
 function createMockStore(id: number, name: string, status: StoreStatus, areas: StoreArea[]): StoreDetail {
   const now = new Date(Date.now() - id * 18 * 60 * 60 * 1000).toISOString();
   const counts = countAreas(areas);
+  const recorders = id <= 3 ? [createMockRecorder(id, `EZVIZ-${String(860000 + id)}`, 1)] : [];
   return {
     id,
     name,
+    externalOrgId: id <= 3 ? `XY${String(10000 + id)}` : "",
     thumbnailUrl: MOCK_PLAN_IMAGE,
     previewUrl: MOCK_PLAN_IMAGE,
     originalPath: MOCK_ORIGINAL_PDF_PATH,
@@ -719,6 +999,9 @@ function createMockStore(id: number, name: string, status: StoreStatus, areas: S
     thumbnailPath: MOCK_THUMBNAIL_PATH,
     pageCount: 1,
     fileName: `${name}-design.pdf`,
+    designPlanStatus: "completed",
+    recorderCount: recorders.length,
+    channelCount: countChannels(recorders),
     status,
     updatedAt: now,
     areaCount: areas.length,
@@ -726,6 +1009,7 @@ function createMockStore(id: number, name: string, status: StoreStatus, areas: S
     consultationCount: counts.consultation,
     beautyCount: counts.beauty,
     areas,
+    recorders,
   };
 }
 
@@ -739,6 +1023,7 @@ function buildDetailFromPayload(payload: SaveStorePayload, updatedAt: string): S
   return {
     id: payload.id ?? nextStoreId++,
     name: payload.name.trim(),
+    externalOrgId: payload.externalOrgId?.trim() ?? "",
     fileName: payload.fileName,
     originalPath: payload.originalPath || MOCK_ORIGINAL_PDF_PATH,
     previewPath: payload.previewPath || MOCK_PREVIEW_IMAGE_PATH,
@@ -746,6 +1031,9 @@ function buildDetailFromPayload(payload: SaveStorePayload, updatedAt: string): S
     pageCount: payload.pageCount || 1,
     thumbnailUrl: payload.thumbnailUrl,
     previewUrl: payload.previewUrl,
+    designPlanStatus: payload.previewUrl ? "pending_annotation" : "not_uploaded",
+    recorderCount: payload.recorders?.length ?? 0,
+    channelCount: countChannels(payload.recorders ?? []),
     treatmentCount: counts.treatment,
     consultationCount: counts.consultation,
     beautyCount: counts.beauty,
@@ -753,7 +1041,93 @@ function buildDetailFromPayload(payload: SaveStorePayload, updatedAt: string): S
     status,
     updatedAt,
     areas,
+    recorders: payload.recorders ?? [],
   };
+}
+
+function createMockRecorder(storeId: number, deviceCode: string, ezvizAccountId: number): VideoRecorder {
+  const account = mockEzvizAccounts.find((item) => item.id === ezvizAccountId) ?? mockEzvizAccounts[0];
+  const id = nextRecorderId++;
+  const channels = storeId <= 3 ? createMockChannels(id, deviceCode) : [];
+  return {
+    id,
+    storeId,
+    ezvizAccountId: account?.id ?? 1,
+    accountName: account?.accountName ?? "未选择账号",
+    deviceCode,
+    status: storeId <= 3 ? "online" : "offline",
+    effectiveChannelCount: channels.length,
+    lastScannedAt: storeId <= 3 ? new Date(Date.now() - storeId * 60 * 60 * 1000).toISOString() : "",
+    recognitionProgress: storeId <= 3 ? "等待人工确认" : "",
+    channels,
+  };
+}
+
+function createMockChannels(recorderId: number, recorderCode: string): VideoChannel[] {
+  const scenes: Array<Pick<VideoChannel, "sceneType" | "areaType" | "areaNumber" | "status">> = [
+    { sceneType: "consultation", areaType: "consultation", areaNumber: "1", status: "pending_confirmation" },
+    { sceneType: "treatment", areaType: "treatment", areaNumber: "1", status: "confirmed_business" },
+    { sceneType: "front_desk", areaType: "", areaNumber: "", status: "confirmed_non_business" },
+  ];
+  return scenes.map((scene, index) => ({
+    id: nextChannelId++,
+    recorderId,
+    recorderCode,
+    channelNo: index + 1,
+    channelName: `通道 ${index + 1}`,
+    thumbnailUrl: "",
+    recognitionAttempts: scene.status === "pending_confirmation" ? 1 : 2,
+    confirmedAt: scene.status.startsWith("confirmed") ? new Date(Date.now() - (index + 1) * 32 * 60 * 1000).toISOString() : undefined,
+    ...scene,
+  }));
+}
+
+function ensureRecorderChannels(recorder: VideoRecorder): VideoChannel[] {
+  return recorder.channels.length > 0 ? recorder.channels : createMockChannels(recorder.id, recorder.deviceCode);
+}
+
+function replaceMockRecorder(storeId: number, nextRecorder: VideoRecorder) {
+  mockStores = mockStores.map((store) => {
+    if (store.id !== storeId) return store;
+    const recorders = store.recorders.map((recorder) => (recorder.id === nextRecorder.id ? nextRecorder : recorder));
+    return {
+      ...store,
+      recorders,
+      recorderCount: recorders.length,
+      channelCount: countChannels(recorders),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+}
+
+function mergeAreasFromConfirmedChannels(areas: StoreArea[], recorders: VideoRecorder[]): StoreArea[] {
+  const nextAreas = [...areas];
+  for (const recorder of recorders) {
+    for (const channel of recorder.channels) {
+      if (channel.status !== "confirmed_business" || !channel.areaType || !channel.areaNumber.trim()) continue;
+      const exists = nextAreas.some((areaItem) => areaItem.type === channel.areaType && areaItem.number === channel.areaNumber);
+      if (!exists) {
+        nextAreas.push(
+          area(
+            `channel-${channel.id}`,
+            "",
+            channel.areaType,
+            channel.areaNumber,
+            "medium",
+            { x: 0.38, y: 0.32, width: 0.16, height: 0.11 },
+          ),
+        );
+      }
+    }
+  }
+  return nextAreas;
+}
+
+function countChannels(recorders: VideoRecorder[]) {
+  return recorders.reduce(
+    (total, recorder) => total + recorder.channels.filter((channel) => channel.status !== "inactive").length,
+    0,
+  );
 }
 
 function area(
