@@ -1,10 +1,41 @@
 # Codex Learning State
 
-最后更新：2026-06-08
+最后更新：2026-06-11
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-11 单镜像容器化分支
+
+当前分支：`codex/containerize-single-image`
+
+目标：为 PM 同事项目提供一个可由公司发布系统脚本构建的 Docker image，后续由公司发布系统推送并发布到内网 K8s。
+
+本次新增：
+
+- `Dockerfile`：多阶段构建，包含前端 Vite 产物、Go 后端二进制、`ca-certificates`、`poppler-utils`。
+- `.dockerignore`：排除 Git、本地依赖、构建产物、上传文件和本地环境文件。
+- `scripts/build-image.sh`：发布系统可调用的镜像构建脚本，支持 `IMAGE_NAME`、`IMAGE_TAG`、`DOCKERFILE`、`CONTEXT`。
+- `docs/containerization.md`：记录本地构建、运行、环境变量、K8s 对接注意事项。
+- Go 服务支持：
+  - 读取 `FRONTEND_DIR` 并托管 `/erzhuang/` 前端页面。
+  - 兼容 `/erzhuang/api/...` 到 `/api/...`，适配当前 Vite base 和前端 API 默认路径。
+
+验证结果：
+
+- `go test ./...`：通过。
+- `bash -n scripts/build-image.sh`：通过。
+- `npm ci && npm run build`（在 `frontend/`）：通过。
+- `IMAGE_TAG=local ./scripts/build-image.sh`：已执行到 Docker 构建入口，但本机 Docker 环境不可用，报错为 Docker daemon/buildx 缺失或未启动；需在有 Docker daemon 的发布机/本机重试。
+
+重要运行约定：
+
+- 容器默认监听：`0.0.0.0:18080`。
+- 健康检查：`GET /health`。
+- 前端入口：`GET /erzhuang/`。
+- 数据库通过运行时环境变量 `DATABASE_URL` 注入，不写入镜像和 Git。
+- AI/PDF 识别相关密钥通过运行时 Secret 注入；上传目录建议在 K8s 挂 PVC 或后续改对象存储。
 
 当前新增产品需求讨论：
 

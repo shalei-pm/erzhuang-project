@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 )
@@ -50,7 +53,44 @@ func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository) htt
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
 	designplan.RegisterRoutes(mux, designplan.NewService(designPlanRepo))
-	return mux
+	registerFrontendRoutes(mux)
+	return withErzhuangAPIPrefix(mux)
+}
+
+func withErzhuangAPIPrefix(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/erzhuang/api/") {
+			cloned := r.Clone(r.Context())
+			cloned.URL.Path = strings.TrimPrefix(r.URL.Path, "/erzhuang")
+			next.ServeHTTP(w, cloned)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func registerFrontendRoutes(mux *http.ServeMux) {
+	frontendDir := os.Getenv("FRONTEND_DIR")
+	if frontendDir == "" {
+		return
+	}
+
+	mux.Handle("GET /erzhuang/", frontendHandler(frontendDir))
+}
+
+func frontendHandler(frontendDir string) http.Handler {
+	fileServer := http.FileServer(http.Dir(frontendDir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/erzhuang/")
+		if path == "" {
+			http.ServeFile(w, r, filepath.Join(frontendDir, "index.html"))
+			return
+		}
+
+		r.URL.Path = path
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
