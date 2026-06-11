@@ -77,6 +77,48 @@ export function createManualArea(): StoreArea {
   };
 }
 
+export function mergeRecognizedAreas(existingAreas: StoreArea[], recognizedAreas: StoreArea[]): StoreArea[] {
+  const recognizedByKey = new Map<string, StoreArea>();
+
+  recognizedAreas.forEach((area) => {
+    const key = businessAreaKey(area);
+    if (key) {
+      recognizedByKey.set(key, area);
+    }
+  });
+
+  const matchedKeys = new Set<string>();
+  const mergedExisting = existingAreas.map((existingArea, index) => {
+    const key = businessAreaKey(existingArea);
+    const recognizedArea = key ? recognizedByKey.get(key) : undefined;
+    if (!recognizedArea) {
+      return ensureAnnotationPlaceholder(existingArea, index);
+    }
+    matchedKeys.add(key);
+    return withGeneratedAreaFields({
+      ...existingArea,
+      confidence: recognizedArea.confidence,
+      needsReview: recognizedArea.needsReview || !recognizedArea.box,
+      box: recognizedArea.box ?? existingArea.box ?? pendingAnnotationBox(index),
+    });
+  });
+
+  const newAreas = recognizedAreas
+    .filter((recognizedArea) => {
+      const key = businessAreaKey(recognizedArea);
+      return !key || !matchedKeys.has(key);
+    })
+    .map((recognizedArea, index) =>
+      withGeneratedAreaFields({
+        ...recognizedArea,
+        box: recognizedArea.box ?? pendingAnnotationBox(mergedExisting.length + index),
+        needsReview: recognizedArea.needsReview || !recognizedArea.box,
+      }),
+    );
+
+  return [...mergedExisting, ...newAreas];
+}
+
 export function countAreaTypes(areas: StoreArea[]) {
   return areas.reduce(
     (counts, item) => {
@@ -87,4 +129,27 @@ export function countAreaTypes(areas: StoreArea[]) {
     },
     { treatment: 0, consultation: 0, beauty: 0 },
   );
+}
+
+function businessAreaKey(area: StoreArea) {
+  if (!area.type || !area.number.trim()) return "";
+  return `${area.type}:${Number(area.number.trim())}`;
+}
+
+function ensureAnnotationPlaceholder(area: StoreArea, index: number): StoreArea {
+  if (area.box) return area;
+  return withGeneratedAreaFields({
+    ...area,
+    box: pendingAnnotationBox(index),
+    needsReview: true,
+  });
+}
+
+function pendingAnnotationBox(index: number): AreaBox {
+  return {
+    x: 0.08 + (index % 4) * 0.18,
+    y: 0.12 + (Math.floor(index / 4) % 3) * 0.16,
+    width: 0.14,
+    height: 0.1,
+  };
 }

@@ -18,7 +18,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
   const [name, setName] = useState("");
   const [externalOrgId, setExternalOrgId] = useState("");
   const [designPlan, setDesignPlan] = useState<UploadResult | null>(null);
-  const [recorders, setRecorders] = useState<RecorderDraft[]>([createRecorderDraft(accounts[0]?.id ?? 1)]);
+  const [recorders, setRecorders] = useState<RecorderDraft[]>([createRecorderDraft(defaultAccountId(accounts))]);
   const [message, setMessage] = useState("");
 
   async function handlePdfSelected(fileList: FileList | null) {
@@ -51,6 +51,9 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
     const repeatedDeviceCode = cleanRecorders.find(
       (item, index) => cleanRecorders.findIndex((other) => other.deviceCode === item.deviceCode) !== index,
     );
+    const missingAccount = cleanRecorders.some(
+      (item) => !item.ezvizAccountId || !accounts.some((account) => account.id === item.ezvizAccountId),
+    );
 
     if (!name.trim()) {
       setMessage("门店名称不能为空");
@@ -62,6 +65,10 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
     }
     if (repeatedDeviceCode) {
       setMessage("同一门店内录像机设备编码不允许重复");
+      return;
+    }
+    if (missingAccount) {
+      setMessage("请选择萤石云账号");
       return;
     }
 
@@ -121,7 +128,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
               </div>
               <button
                 disabled={recorders.length >= MAX_RECORDERS}
-                onClick={() => setRecorders((items) => [...items, createRecorderDraft(accounts[0]?.id ?? 1)])}
+                onClick={() => setRecorders((items) => [...items, createRecorderDraft(defaultAccountId(accounts))])}
               >
                 增加录像机
               </button>
@@ -133,8 +140,12 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
                   萤石云账号
                   <select
                     value={recorder.ezvizAccountId}
-                    onChange={(event) => updateRecorder(recorder.id, { ezvizAccountId: Number(event.target.value) })}
+                    disabled={accounts.length === 0}
+                    onChange={(event) =>
+                      updateRecorder(recorder.id, { ezvizAccountId: event.target.value ? Number(event.target.value) : "" })
+                    }
                   >
+                    <option value="">{accounts.length === 0 ? "暂无可选账号" : "请选择账号"}</option>
                     {accounts.map((account) => (
                       <option value={account.id} key={account.id}>
                         {account.accountName}
@@ -179,10 +190,14 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
   );
 }
 
-function createRecorderDraft(ezvizAccountId: number): RecorderDraft {
+function createRecorderDraft(ezvizAccountId: number | ""): RecorderDraft {
   return {
     id: `recorder-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     ezvizAccountId,
     deviceCode: "",
   };
+}
+
+function defaultAccountId(accounts: EzvizAccount[]) {
+  return accounts[0]?.id ?? "";
 }

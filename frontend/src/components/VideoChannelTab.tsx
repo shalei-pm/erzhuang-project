@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  ApiError,
   storeSpaceApi,
   type AreaType,
   type EzvizAccount,
@@ -42,6 +43,8 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       const nextRecorder = await storeSpaceApi.scanRecorder(store.id, recorder.id);
       onRecorderUpdated(nextRecorder);
       onToast(`已扫描 ${recorder.deviceCode}，发现 ${nextRecorder.effectiveChannelCount} 个有效通道。`);
+    } catch (error) {
+      onToast(channelErrorMessage(error, "扫描失败，请稍后重试。"));
     } finally {
       setWorkingRecorderId(null);
     }
@@ -52,7 +55,9 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     try {
       const nextRecorder = await storeSpaceApi.recognizeRecorder(store.id, recorder.id);
       onRecorderUpdated(nextRecorder);
-      onToast(`已完成 ${recorder.deviceCode} 的通道识别 mock。`);
+      onToast(`已完成 ${recorder.deviceCode} 的通道识别。`);
+    } catch (error) {
+      onToast(channelErrorMessage(error, "通道识别失败，请稍后重试。"));
     } finally {
       setWorkingRecorderId(null);
     }
@@ -67,19 +72,23 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onToast("确认为业务区域时，编号必填。");
       return;
     }
-    const updated = await storeSpaceApi.confirmChannel(store.id, channel.id, {
-      ...patch,
-      areaType,
-      areaNumber,
-      sceneType,
-    });
-    setEditingChannels((current) => {
-      const next = { ...current };
-      delete next[channel.id];
-      return next;
-    });
-    onStoreUpdated(updated);
-    onToast("通道确认已写入 mock 状态。");
+    try {
+      const updated = await storeSpaceApi.confirmChannel(store.id, channel.id, {
+        ...patch,
+        areaType,
+        areaNumber,
+        sceneType,
+      });
+      setEditingChannels((current) => {
+        const next = { ...current };
+        delete next[channel.id];
+        return next;
+      });
+      onStoreUpdated(updated);
+      onToast("通道确认已保存。");
+    } catch (error) {
+      onToast(channelErrorMessage(error, "通道确认失败，请稍后重试。"));
+    }
   }
 
   function updateChannelDraft(channelId: number, patch: Partial<VideoChannel>) {
@@ -269,4 +278,14 @@ function channelStatusLabel(status: VideoChannel["status"]) {
     inactive: "已失效",
   };
   return labels[status];
+}
+
+function channelErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.status === 404) {
+    return "通道映射接口未就绪或资源不存在，请确认后端服务状态。";
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
 }

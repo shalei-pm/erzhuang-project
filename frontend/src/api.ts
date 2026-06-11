@@ -80,7 +80,7 @@ export type EzvizAccount = {
 
 export type RecorderDraft = {
   id: string;
-  ezvizAccountId: number;
+  ezvizAccountId: number | "";
   deviceCode: string;
 };
 
@@ -254,6 +254,60 @@ type BackendDuplicateMatch = {
   updated_at?: string;
 };
 
+type BackendEzvizAccount = {
+  id: number;
+  account_name?: string;
+  accountName?: string;
+  status?: EzvizAccount["status"];
+  last_verified_at?: string;
+  lastVerifiedAt?: string;
+};
+
+type BackendVideoRecorder = {
+  id: number;
+  store_id?: number;
+  storeId?: number;
+  ezviz_account_id?: number;
+  ezvizAccountId?: number;
+  account_name?: string;
+  accountName?: string;
+  device_code?: string;
+  deviceCode?: string;
+  status?: RecorderStatus;
+  effective_channel_count?: number;
+  effectiveChannelCount?: number;
+  last_scanned_at?: string;
+  lastScannedAt?: string;
+  recognition_progress?: string;
+  recognitionProgress?: string;
+  channels?: BackendVideoChannel[];
+};
+
+type BackendVideoChannel = {
+  id: number;
+  recorder_id?: number;
+  recorderId?: number;
+  recorder_code?: string;
+  recorderCode?: string;
+  channel_no?: number;
+  channelNo?: number;
+  channel_name?: string;
+  channelName?: string;
+  status?: ChannelStatus;
+  thumbnail_url?: string;
+  thumbnailUrl?: string;
+  scene_type?: SceneType;
+  sceneType?: SceneType;
+  area_type?: AreaType | "";
+  areaType?: AreaType | "";
+  area_number?: number | string | null;
+  areaNumber?: number | string | null;
+  recognition_attempts?: number;
+  recognitionAttempts?: number;
+  confirmed_at?: string;
+  confirmedAt?: string;
+};
+
 type DuplicateCheckResult = {
   exactMatch: StoreSummary | null;
   similarMatches: StoreSummary[];
@@ -271,6 +325,8 @@ export class ApiError extends Error {
 
 const DEFAULT_API_BASE = "/erzhuang/api/design-plan";
 const API_BASE = trimTrailingSlash(import.meta.env.VITE_DESIGN_PLAN_API_BASE || DEFAULT_API_BASE);
+const DEFAULT_STORE_SPACE_API_BASE = "/erzhuang/api/store-space";
+const STORE_SPACE_API_BASE = trimTrailingSlash(import.meta.env.VITE_STORE_SPACE_API_BASE || DEFAULT_STORE_SPACE_API_BASE);
 const API_MODE = normalizeApiMode(import.meta.env.VITE_DESIGN_PLAN_API_MODE);
 const MOCK_PLAN_IMAGE = sampleStoreFloorPlanUrl;
 const MOCK_ORIGINAL_PDF_PATH = "mock/uploads/sample-store-floor-plan.pdf";
@@ -450,8 +506,8 @@ const mockAdapter = {
     const now = new Date().toISOString();
     const storeId = nextStoreId++;
     const recorders = payload.recorders
-      .filter((item) => item.deviceCode.trim())
-      .map((item) => createMockRecorder(storeId, item.deviceCode.trim(), item.ezvizAccountId));
+      .filter((item) => item.deviceCode.trim() && item.ezvizAccountId)
+      .map((item) => createMockRecorder(storeId, item.deviceCode.trim(), Number(item.ezvizAccountId)));
     const detail = createMockStore(storeId, payload.name.trim(), "incomplete", []);
     detail.externalOrgId = payload.externalOrgId.trim();
     detail.fileName = payload.designPlan?.fileName ?? "";
@@ -628,6 +684,43 @@ const httpAdapter = {
   },
 };
 
+const storeSpaceHttpAdapter = {
+  async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
+    const response = await requestJSON<BackendStoreDetail>(`${STORE_SPACE_API_BASE}/stores`, {
+      method: "POST",
+      body: JSON.stringify(toStoreSpaceCreatePayload(payload)),
+    });
+    return mapBackendDetail(response);
+  },
+
+  async listEzvizAccounts(): Promise<EzvizAccount[]> {
+    const response = await requestJSON<BackendEzvizAccount[]>(`${STORE_SPACE_API_BASE}/ezviz-accounts`);
+    return response.map(mapBackendEzvizAccount);
+  },
+
+  async scanRecorder(recorderId: number): Promise<VideoRecorder> {
+    const response = await requestJSON<BackendVideoRecorder>(`${STORE_SPACE_API_BASE}/recorders/${recorderId}/scan-channels`, {
+      method: "POST",
+    });
+    return mapBackendRecorder(response);
+  },
+
+  async recognizeRecorder(recorderId: number): Promise<VideoRecorder> {
+    const response = await requestJSON<BackendVideoRecorder>(`${STORE_SPACE_API_BASE}/recorders/${recorderId}/recognize-channels`, {
+      method: "POST",
+    });
+    return mapBackendRecorder(response);
+  },
+
+  async confirmChannel(channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
+    const response = await requestJSON<BackendStoreDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/confirmation`, {
+      method: "PUT",
+      body: JSON.stringify(toStoreSpaceChannelConfirmationPayload(patch)),
+    });
+    return mapBackendDetail(response);
+  },
+};
+
 export const designPlanApi = {
   endpoints: {
     base: API_BASE,
@@ -676,6 +769,10 @@ export const designPlanApi = {
 };
 
 export const storeSpaceApi = {
+  endpoints: {
+    base: STORE_SPACE_API_BASE,
+  },
+
   async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
     return designPlanApi.listStores(query, page, pageSize);
   },
@@ -701,10 +798,10 @@ export const storeSpaceApi = {
   },
 
   async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
-    if (API_MODE === "http") {
-      throw new ApiError(501, "门店空间资源后端接口尚未接入，本阶段仅提供前端 mock。");
+    if (API_MODE === "mock") {
+      return mockAdapter.createStoreSpace(payload);
     }
-    return mockAdapter.createStoreSpace(payload);
+    return storeSpaceHttpAdapter.createStore(payload);
   },
 
   async deleteStore(id: number): Promise<void> {
@@ -712,31 +809,31 @@ export const storeSpaceApi = {
   },
 
   async listEzvizAccounts(): Promise<EzvizAccount[]> {
-    if (API_MODE === "http") {
-      throw new ApiError(501, "萤石云账号后端接口尚未接入，本阶段仅提供前端 mock。");
+    if (API_MODE === "mock") {
+      return mockAdapter.listEzvizAccounts();
     }
-    return mockAdapter.listEzvizAccounts();
+    return storeSpaceHttpAdapter.listEzvizAccounts();
   },
 
   async scanRecorder(storeId: number, recorderId: number): Promise<VideoRecorder> {
-    if (API_MODE === "http") {
-      throw new ApiError(501, "录像机扫描后端接口尚未接入，本阶段仅提供前端 mock。");
+    if (API_MODE === "mock") {
+      return mockAdapter.scanRecorder(storeId, recorderId);
     }
-    return mockAdapter.scanRecorder(storeId, recorderId);
+    return storeSpaceHttpAdapter.scanRecorder(recorderId);
   },
 
   async recognizeRecorder(storeId: number, recorderId: number): Promise<VideoRecorder> {
-    if (API_MODE === "http") {
-      throw new ApiError(501, "通道识别后端接口尚未接入，本阶段仅提供前端 mock。");
+    if (API_MODE === "mock") {
+      return mockAdapter.recognizeRecorder(storeId, recorderId);
     }
-    return mockAdapter.recognizeRecorder(storeId, recorderId);
+    return storeSpaceHttpAdapter.recognizeRecorder(recorderId);
   },
 
   async confirmChannel(storeId: number, channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
-    if (API_MODE === "http") {
-      throw new ApiError(501, "通道确认后端接口尚未接入，本阶段仅提供前端 mock。");
+    if (API_MODE === "mock") {
+      return mockAdapter.confirmChannel(storeId, channelId, patch);
     }
-    return mockAdapter.confirmChannel(storeId, channelId, patch);
+    return storeSpaceHttpAdapter.confirmChannel(channelId, patch);
   },
 };
 
@@ -863,6 +960,49 @@ function mapBackendRecognition(result: BackendRecognitionResult): RecognitionRes
   };
 }
 
+function mapBackendEzvizAccount(account: BackendEzvizAccount): EzvizAccount {
+  return {
+    id: account.id,
+    accountName: account.account_name ?? account.accountName ?? `账号 ${account.id}`,
+    status: account.status ?? "unverified",
+    lastVerifiedAt: account.last_verified_at ?? account.lastVerifiedAt ?? "",
+  };
+}
+
+function mapBackendRecorder(recorder: BackendVideoRecorder): VideoRecorder {
+  const id = recorder.id;
+  const deviceCode = recorder.device_code ?? recorder.deviceCode ?? "";
+  return {
+    id,
+    storeId: recorder.store_id ?? recorder.storeId ?? 0,
+    ezvizAccountId: recorder.ezviz_account_id ?? recorder.ezvizAccountId ?? 0,
+    accountName: recorder.account_name ?? recorder.accountName ?? "",
+    deviceCode,
+    status: recorder.status ?? "offline",
+    effectiveChannelCount: recorder.effective_channel_count ?? recorder.effectiveChannelCount ?? recorder.channels?.length ?? 0,
+    lastScannedAt: recorder.last_scanned_at ?? recorder.lastScannedAt ?? "",
+    recognitionProgress: recorder.recognition_progress ?? recorder.recognitionProgress,
+    channels: (recorder.channels ?? []).map((channel) => mapBackendChannel(channel, id, deviceCode)),
+  };
+}
+
+function mapBackendChannel(channel: BackendVideoChannel, recorderId: number, recorderCode: string): VideoChannel {
+  return {
+    id: channel.id,
+    recorderId: channel.recorder_id ?? channel.recorderId ?? recorderId,
+    recorderCode: channel.recorder_code ?? channel.recorderCode ?? recorderCode,
+    channelNo: channel.channel_no ?? channel.channelNo ?? 0,
+    channelName: channel.channel_name ?? channel.channelName ?? "",
+    status: channel.status ?? "pending_recognition",
+    thumbnailUrl: toDisplayImageUrl(channel.thumbnail_url ?? channel.thumbnailUrl),
+    sceneType: channel.scene_type ?? channel.sceneType ?? "unknown",
+    areaType: channel.area_type ?? channel.areaType ?? "",
+    areaNumber: channel.area_number == null && channel.areaNumber == null ? "" : String(channel.area_number ?? channel.areaNumber),
+    recognitionAttempts: channel.recognition_attempts ?? channel.recognitionAttempts ?? 0,
+    confirmedAt: channel.confirmed_at ?? channel.confirmedAt,
+  };
+}
+
 function mapBackendArea(areaItem: BackendStoreArea): StoreArea {
   const confidence = areaItem.confidence || "high";
   return {
@@ -913,6 +1053,34 @@ function toBackendPayload(payload: SaveStorePayload): BackendStorePayload {
       box: areaItem.box ?? undefined,
       display_order: index + 1,
     })),
+  };
+}
+
+function toStoreSpaceCreatePayload(payload: CreateStoreSpacePayload) {
+  return {
+    name: payload.name,
+    external_org_id: payload.externalOrgId,
+    design_plan_upload_id: payload.designPlan?.uploadId ?? "",
+    recorders: payload.recorders
+      .filter((recorder) => recorder.deviceCode.trim())
+      .map((recorder) => ({
+        ezviz_account_id: recorder.ezvizAccountId,
+        device_code: recorder.deviceCode.trim(),
+      })),
+  };
+}
+
+function toStoreSpaceChannelConfirmationPayload(patch: Partial<VideoChannel>) {
+  if (patch.areaType) {
+    return {
+      kind: "business",
+      area_type: patch.areaType,
+      area_number: patch.areaNumber ? Number(patch.areaNumber) : undefined,
+    };
+  }
+  return {
+    kind: "non_business",
+    scene_type: patch.sceneType ?? "unknown",
   };
 }
 
@@ -1052,7 +1220,7 @@ function createMockRecorder(storeId: number, deviceCode: string, ezvizAccountId:
   return {
     id,
     storeId,
-    ezvizAccountId: account?.id ?? 1,
+    ezvizAccountId: account?.id ?? 0,
     accountName: account?.accountName ?? "未选择账号",
     deviceCode,
     status: storeId <= 3 ? "online" : "offline",

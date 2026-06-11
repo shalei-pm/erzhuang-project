@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { storeSpaceApi, type AreaType, type StoreArea, type StoreDetail } from "../api";
-import { createManualArea, normalizeAreaForSave, withGeneratedAreaFields } from "../domain/areas";
+import { createManualArea, mergeRecognizedAreas, normalizeAreaForSave, withGeneratedAreaFields } from "../domain/areas";
 import { clampBox, type DragState, planFileNameForStore, resizeBox, stageText, type UploadStage } from "../domain/designPlan";
 import { errorMessage } from "../domain/format";
 import { AreaCardList } from "./AreaCardList";
@@ -151,8 +151,9 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
     setUploadMessage("正在识别图纸区域。");
     try {
       const recognition = await storeSpaceApi.recognizeUpload(uploadId ?? `store-${store.id}`);
-      setAreas(recognition.areas);
-      setSelectedAreaId(recognition.areas[0]?.id ?? null);
+      const mergedAreas = mergeRecognizedAreas(areas, recognition.areas);
+      setAreas(mergedAreas);
+      setSelectedAreaId(mergedAreas[0]?.id ?? null);
       setRecognitionResult(recognition.rawResult ?? recognition);
       setUploadStage("ready");
       setUploadMessage(
