@@ -1253,6 +1253,26 @@ RLS policy 验证：
 - `tasks rowsecurity=true policies=tasks_no_client_access`
 - `RLS_POLICY_CHECK=PASS`
 
+## 2026-06-11 门店空间资源后端基础分支
+
+后端专项分支：
+
+- 分支：`codex/store-space-backend-foundation`
+- 基线：`f819793`
+- 范围：新增 `internal/storespace`，接入 `/api/store-space/*` 基础 API，新增门店空间资源 PostgreSQL schema 和 RLS deny policy。
+- 边界：未操作腾讯云、nginx、systemd、Supabase 控制台、部署脚本、云密钥、萤石云密钥或 AI key；未改现有 `internal/designplan` 业务实现。
+- 状态文档：`docs/store-space-backend-foundation-state.md`
+
+本地验证：
+
+```sh
+GOCACHE=/Users/sylar/.codex/worktrees/1e39/erzhuang-project/.cache/go-build /Users/sylar/erzhuang-project/.tools/go/bin/go test -c ./internal/storespace
+GOCACHE=/Users/sylar/.codex/worktrees/1e39/erzhuang-project/.cache/go-build /Users/sylar/erzhuang-project/.tools/go/bin/go test -c ./internal/app
+GOCACHE=/Users/sylar/.codex/worktrees/1e39/erzhuang-project/.cache/go-build /Users/sylar/erzhuang-project/.tools/go/bin/go build ./...
+```
+
+结果：均通过。`go test ./internal/storespace` 在本机仍命中已知 macOS `missing LC_UUID load command` 问题，最终完整测试需主会话在服务器 Linux 环境执行。
+
 ## 明日待办
 
 1. 开始前先运行：

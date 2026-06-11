@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
 
 const (
@@ -37,19 +38,20 @@ type Handler struct {
 }
 
 func NewHandler() http.Handler {
-	return NewHandlerWithStores(NewMemoryStore(), designplan.NewMemoryStore())
+	return NewHandlerWithStores(NewMemoryStore(), designplan.NewMemoryStore(), storespace.NewMemoryStore())
 }
 
 func NewHandlerWithStore(store Store) http.Handler {
-	return NewHandlerWithStores(store, designplan.NewMemoryStore())
+	return NewHandlerWithStores(store, designplan.NewMemoryStore(), storespace.NewMemoryStore())
 }
 
-func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository) http.Handler {
+func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository, storeSpaceRepo storespace.Repository) http.Handler {
 	handler := &Handler{store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
 	designplan.RegisterRoutes(mux, designplan.NewService(designPlanRepo))
+	storespace.RegisterRoutes(mux, storespace.NewService(storeSpaceRepo))
 	return mux
 }
 
