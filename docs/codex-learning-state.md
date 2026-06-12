@@ -1491,6 +1491,17 @@ git diff --check
   - `store-space` 的 `Area` 增加 `box` 返回字段。
   - `PostgresStore.listAreas` 左连接最新一条 `design_plan_annotations`，把 `box_x/y/width/height` 转为前端使用的 `box`。
   - 新增 `parseAreaBox` 单元测试，覆盖坐标解析和缺失坐标不返回 box 的情况。
+- 发布结果：
+  - 本地 commit：`fac00f7`
+  - 线上 commit：`fac00f7`
+  - 线上页面版本：`2.3.2 (fac00f7)`
+  - TAT InvocationId：`inv-s4rhar0q7h`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：`/erzhuang/assets/index-Bn7UK7y3.js`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/api/store-space/stores?page=1&page_size=50` 仍返回 `total=8`。
+    - 抽查 `/erzhuang/api/store-space/stores/6`，11 个区域均已返回 `box` 坐标，可供前端恢复旧设计图矩形标注。
 
 ## 明日待办
 
