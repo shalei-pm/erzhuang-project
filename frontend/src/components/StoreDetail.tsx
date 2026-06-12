@@ -70,9 +70,10 @@ export function StoreDetail({ store, initialTab, saving, accounts, onBack, onSto
         </button>
       </nav>
 
-      {activeTab === "design-plan" ? (
+      <div hidden={activeTab !== "design-plan"}>
         <DesignPlanTab store={store} saving={saving} onStoreUpdated={onStoreUpdated} onToast={onToast} />
-      ) : (
+      </div>
+      <div hidden={activeTab !== "channels"}>
         <VideoChannelTab
           store={store}
           accounts={accounts}
@@ -80,7 +81,7 @@ export function StoreDetail({ store, initialTab, saving, accounts, onBack, onSto
           onRecorderUpdated={updateRecorder}
           onToast={onToast}
         />
-      )}
+      </div>
     </section>
   );
 }

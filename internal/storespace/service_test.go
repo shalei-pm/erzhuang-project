@@ -406,6 +406,14 @@ func TestConfirmChannelReplacingVideoOnlyAreaRemovesOldArea(t *testing.T) {
 	if len(first.Areas) != 1 || first.Areas[0].Number != 1 {
 		t.Fatalf("expected treatment 1 after first confirm, got %#v", first.Areas)
 	}
+	if _, err := service.FindOrCreateArea(context.Background(), AreaLookup{
+		StoreID:    store.ID,
+		Type:       AreaTypeTreatment,
+		NumberText: "3",
+		Source:     AreaSourceVideoChannel,
+	}); err != nil {
+		t.Fatalf("create stale video area: %v", err)
+	}
 
 	updated, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
 		AreaType:   AreaTypeTreatment,

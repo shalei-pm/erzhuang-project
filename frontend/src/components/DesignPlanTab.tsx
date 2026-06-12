@@ -183,7 +183,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
       return;
     }
     setUploadStage("recognizing");
-    setUploadMessage("正在识别图纸区域。");
+    setUploadMessage("正在识别图纸区域，可切换页面，完成后返回查看结果。");
     try {
       const recognition = await storeSpaceApi.recognizeUpload(uploadId ?? `store-${store.id}`);
       const mergedAreas = mergeRecognizedAreas(areas, recognition.areas);

@@ -326,7 +326,6 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 					continue
 				}
 
-				previousAreaID := channel.AreaID
 				channel.SceneType = input.SceneType
 				channel.UpdatedAt = now
 				channel.ConfirmedAt = &now
@@ -335,7 +334,7 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 					channel.AreaNumber = 0
 					channel.AreaID = 0
 					channel.Status = ChannelStatusConfirmedNonBusiness
-					s.deleteUnusedVideoAreaLocked(store, previousAreaID)
+					s.deleteUnusedVideoAreasLocked(store)
 					store.UpdatedAt = now
 					copy := cloneStore(*store)
 					return &copy, nil
@@ -354,9 +353,7 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 				channel.AreaID = area.ID
 				channel.SceneType = SceneType(area.Type)
 				channel.Status = ChannelStatusConfirmedBusiness
-				if previousAreaID != area.ID {
-					s.deleteUnusedVideoAreaLocked(store, previousAreaID)
-				}
+				s.deleteUnusedVideoAreasLocked(store)
 				store.UpdatedAt = now
 				copy := cloneStore(*store)
 				return &copy, nil
@@ -512,23 +509,23 @@ func (s *MemoryStore) findOrCreateAreaLocked(store *Store, areaType AreaType, ar
 	return &store.Areas[len(store.Areas)-1], nil
 }
 
-func (s *MemoryStore) deleteUnusedVideoAreaLocked(store *Store, areaID int64) {
-	if areaID == 0 {
-		return
-	}
+func (s *MemoryStore) deleteUnusedVideoAreasLocked(store *Store) {
+	referenced := map[int64]bool{}
 	for _, recorder := range store.Recorders {
 		for _, channel := range recorder.Channels {
-			if channel.AreaID == areaID {
-				return
+			if channel.AreaID != 0 {
+				referenced[channel.AreaID] = true
 			}
 		}
 	}
-	for index, area := range store.Areas {
-		if area.ID == areaID && area.Source == AreaSourceVideoChannel && area.Box == nil {
-			store.Areas = append(store.Areas[:index], store.Areas[index+1:]...)
-			return
+	nextAreas := store.Areas[:0]
+	for _, area := range store.Areas {
+		if area.Source == AreaSourceVideoChannel && area.Box == nil && !referenced[area.ID] {
+			continue
 		}
+		nextAreas = append(nextAreas, area)
 	}
+	store.Areas = nextAreas
 }
 
 type PostgresStore struct {
@@ -909,13 +906,12 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 	defer tx.Rollback()
 
 	var storeID int64
-	var previousAreaID int64
 	err = tx.QueryRowContext(ctx, `
-		select r.store_id, coalesce(c.area_id, 0)
+		select r.store_id
 		from video_channels c
 		join video_recorders r on r.id = c.recorder_id
 		where c.id = $1
-	`, channelID).Scan(&storeID, &previousAreaID)
+	`, channelID).Scan(&storeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -941,7 +937,7 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 		`, ChannelStatusConfirmedNonBusiness, sceneType, channelID); err != nil {
 			return nil, err
 		}
-		if err := deleteUnusedVideoArea(ctx, tx, previousAreaID); err != nil {
+		if err := deleteUnusedVideoAreas(ctx, tx, storeID); err != nil {
 			return nil, err
 		}
 	} else {
@@ -994,10 +990,8 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 		`, ChannelStatusConfirmedBusiness, SceneType(input.AreaType), input.AreaType, number, area.ID, channelID); err != nil {
 			return nil, err
 		}
-		if previousAreaID != area.ID {
-			if err := deleteUnusedVideoArea(ctx, tx, previousAreaID); err != nil {
-				return nil, err
-			}
+		if err := deleteUnusedVideoAreas(ctx, tx, storeID); err != nil {
+			return nil, err
 		}
 	}
 
@@ -1424,13 +1418,10 @@ func queryArea(ctx context.Context, tx queryRunner, storeID int64, areaType Area
 	return &area, nil
 }
 
-func deleteUnusedVideoArea(ctx context.Context, tx queryRunner, areaID int64) error {
-	if areaID == 0 {
-		return nil
-	}
+func deleteUnusedVideoAreas(ctx context.Context, tx queryRunner, storeID int64) error {
 	_, err := tx.ExecContext(ctx, `
 		delete from store_areas a
-		where a.id = $1
+		where a.store_id = $1
 			and a.source = $2
 			and not exists (
 				select 1 from design_plan_annotations dpa
@@ -1440,7 +1431,7 @@ func deleteUnusedVideoArea(ctx context.Context, tx queryRunner, areaID int64) er
 				select 1 from video_channels vc
 				where vc.area_id = a.id
 			)
-	`, areaID, AreaSourceVideoChannel)
+	`, storeID, AreaSourceVideoChannel)
 	return err
 }
 
