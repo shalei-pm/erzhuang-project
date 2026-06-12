@@ -38,7 +38,7 @@ const channelTypeFilters: { value: ChannelTypeFilter; label: string }[] = [
 type VideoChannelTabProps = {
   store: StoreDetail;
   accounts: EzvizAccount[];
-  onStoreUpdated: (store: StoreDetail) => void;
+  onStoreUpdated: (update: StoreDetail | ((store: StoreDetail) => StoreDetail)) => void;
   onRecorderUpdated: (recorder: VideoRecorder) => void;
   onToast: (message: string) => void;
 };
@@ -101,12 +101,10 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       return next;
     });
     try {
-      let nextStore = store;
       for (let index = 0; index < targetChannels.length; index++) {
         const channel = targetChannels[index];
         const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
-        nextStore = replaceChannelInStore(nextStore, updatedChannel);
-        onStoreUpdated(nextStore);
+        onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
         setRecognizingChannelIds((current) => {
           const next = new Set(current);
           next.delete(channel.id);
@@ -255,8 +253,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     setChannelError("");
     try {
       const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
-      const nextStore = replaceChannelInStore(store, updatedChannel);
-      onStoreUpdated(nextStore);
+      onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
       onToast(`已重新识别录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo}。`);
     } catch (error) {
       const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");

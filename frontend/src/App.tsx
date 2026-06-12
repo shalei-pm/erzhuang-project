@@ -24,6 +24,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<StoreDetailTab>("design-plan");
   const [deletingStoreIds, setDeletingStoreIds] = useState<Set<number>>(() => new Set());
   const listRequestIdRef = useRef(0);
+  const activeStoreRef = useRef<StoreDetailType | null>(null);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const cityOptions = uniqueCities(stores);
@@ -35,6 +36,10 @@ function App() {
   useEffect(() => {
     void loadStores(query, page);
   }, [page, query]);
+
+  useEffect(() => {
+    activeStoreRef.current = activeStore;
+  }, [activeStore]);
 
   useEffect(() => {
     void storeSpaceApi
@@ -138,9 +143,13 @@ function App() {
     }
   }
 
-  function handleStoreUpdated(store: StoreDetailType) {
-    setActiveStore(store);
-    setStores((items) => items.map((item) => (item.id === store.id ? store : item)));
+  function handleStoreUpdated(update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType)) {
+    const currentStore = activeStoreRef.current;
+    if (!currentStore && typeof update === "function") return;
+    const nextStore = typeof update === "function" ? update(currentStore as StoreDetailType) : update;
+    activeStoreRef.current = nextStore;
+    setActiveStore(nextStore);
+    setStores((items) => items.map((item) => (item.id === nextStore.id ? nextStore : item)));
   }
 
   if (activeStore) {

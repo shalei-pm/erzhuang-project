@@ -11,7 +11,7 @@ type StoreDetailProps = {
   saving: boolean;
   accounts: EzvizAccount[];
   onBack: () => void;
-  onStoreUpdated: (store: StoreDetailType) => void;
+  onStoreUpdated: (update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType)) => void;
   onToast: (message: string) => void;
 };
 
@@ -23,16 +23,16 @@ export function StoreDetail({ store, initialTab, saving, accounts, onBack, onSto
   }, [initialTab, store.id]);
 
   function updateRecorder(nextRecorder: VideoRecorder) {
-    onStoreUpdated({
-      ...store,
-      recorders: store.recorders.map((recorder) => (recorder.id === nextRecorder.id ? nextRecorder : recorder)),
-      recorderCount: store.recorders.length,
-      channelCount: store.recorders.reduce(
+    onStoreUpdated((currentStore) => ({
+      ...currentStore,
+      recorders: currentStore.recorders.map((recorder) => (recorder.id === nextRecorder.id ? nextRecorder : recorder)),
+      recorderCount: currentStore.recorders.length,
+      channelCount: currentStore.recorders.reduce(
         (total, recorder) =>
           total + (recorder.id === nextRecorder.id ? nextRecorder.channels.length : recorder.channels.length),
         0,
       ),
-    });
+    }));
   }
 
   return (

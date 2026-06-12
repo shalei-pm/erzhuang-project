@@ -18,7 +18,7 @@ const emptyValidation: ValidationResult = { fieldErrors: [], areaErrors: {} };
 type DesignPlanTabProps = {
   store: StoreDetail;
   saving: boolean;
-  onStoreUpdated: (store: StoreDetail) => void;
+  onStoreUpdated: (update: StoreDetail | ((store: StoreDetail) => StoreDetail)) => void;
   onToast: (message: string) => void;
 };
 
