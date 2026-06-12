@@ -701,18 +701,33 @@ td:nth-child(10) {
   gap: 6px;
 }
 
-.detail-header .plain-button {
+.detail-back-button {
   justify-self: start;
   width: fit-content;
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  min-height: 34px;
+  padding: 0 14px 0 12px;
+  border-color: rgba(37, 99, 235, 0.72);
+  background: var(--brand);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
+  font-size: var(--button-font-normal);
   font-weight: 700;
 }
 
-.detail-header .plain-button:hover:not(:disabled) {
-  border-color: #93c5fd;
-  background: #dbeafe;
+.detail-back-button span:first-child {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.detail-back-button:hover:not(:disabled) {
+  border-color: var(--brand-hover);
+  background: var(--brand-hover);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22);
+}
+
+.detail-back-button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.22);
+  outline-offset: 2px;
 }
 
 .detail-metrics {

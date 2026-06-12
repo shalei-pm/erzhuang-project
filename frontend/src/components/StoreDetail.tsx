@@ -35,8 +35,9 @@ export function StoreDetail({ store, initialTab, saving, accounts, onBack, onSto
     <section className="detail-page">
       <header className="detail-header">
         <div>
-          <button className="plain-button" onClick={onBack}>
-            返回列表
+          <button className="detail-back-button" onClick={onBack} aria-label="返回机构列表">
+            <span aria-hidden="true">←</span>
+            <span>返回列表</span>
           </button>
           <h1>{store.name}</h1>
           <div className="detail-metrics" aria-label="门店资源概览">
