@@ -108,6 +108,12 @@ function App() {
     }
   }
 
+  async function createEzvizAccount(accountName: string) {
+    const account = await storeSpaceApi.createEzvizAccount({ accountName });
+    setAccounts((items) => [...items, account].sort((left, right) => left.accountName.localeCompare(right.accountName, "zh-Hans-CN")));
+    return account;
+  }
+
   async function deleteStore(store: StoreSummary) {
     const ok = window.confirm("删除后将清除该门店的设计图、区域、录像机、通道、截图和识别结果，且无法恢复。是否确认删除？");
     if (!ok) return;
@@ -201,6 +207,7 @@ function App() {
           uploading={uploading}
           saving={saving}
           onUploadPdf={uploadPdf}
+          onCreateEzvizAccount={createEzvizAccount}
           onClose={() => setCreateOpen(false)}
           onSubmit={createStore}
         />

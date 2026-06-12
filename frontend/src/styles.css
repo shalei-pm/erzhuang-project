@@ -165,6 +165,31 @@ h1 {
   color: var(--text-muted);
 }
 
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.modal-close-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.modal-close-button:hover:not(:disabled) {
+  border-color: var(--border-subtle);
+  background: var(--surface-subtle);
+  color: var(--text-main);
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -607,6 +632,21 @@ td:nth-child(10) {
   grid-template-columns: minmax(160px, 220px) 1fr auto;
   align-items: end;
   gap: 10px;
+}
+
+.account-create-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.recorder-empty-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .modal-actions {

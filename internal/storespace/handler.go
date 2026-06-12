@@ -19,6 +19,7 @@ func NewHandler(service *Service) *Handler {
 func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	handler := NewHandler(service)
 	mux.HandleFunc("GET /api/store-space/ezviz-accounts", handler.listEzvizAccounts)
+	mux.HandleFunc("POST /api/store-space/ezviz-accounts", handler.createEzvizAccount)
 	mux.HandleFunc("GET /api/store-space/stores", handler.listStores)
 	mux.HandleFunc("POST /api/store-space/stores", handler.createStore)
 	mux.HandleFunc("POST /api/store-space/stores/check-duplicate", handler.checkDuplicate)
@@ -35,6 +36,19 @@ func (h *Handler) listEzvizAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, accounts)
+}
+
+func (h *Handler) createEzvizAccount(w http.ResponseWriter, r *http.Request) {
+	var input CreateEzvizAccountInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	account, err := h.service.CreateEzvizAccount(r.Context(), input)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, account)
 }
 
 func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {

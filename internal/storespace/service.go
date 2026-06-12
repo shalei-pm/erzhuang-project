@@ -19,6 +19,21 @@ func (s *Service) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error)
 	return s.repo.ListEzvizAccounts(ctx)
 }
 
+func (s *Service) CreateEzvizAccount(ctx context.Context, input CreateEzvizAccountInput) (*EzvizAccount, error) {
+	if err := validateCreateEzvizAccountInput(input); err != nil {
+		return nil, err
+	}
+	input.AccountName = strings.TrimSpace(input.AccountName)
+	exists, err := s.repo.EzvizAccountNameExists(ctx, input.AccountName)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, &ValidationError{Fields: map[string]string{"account_name": "萤石云账号名称已存在"}}
+	}
+	return s.repo.CreateEzvizAccount(ctx, input)
+}
+
 func (s *Service) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {
 	return s.repo.ListStores(ctx, filters)
 }

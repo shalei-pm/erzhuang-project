@@ -50,6 +50,17 @@ func validateCreateStoreInput(input CreateStoreInput) error {
 	return nil
 }
 
+func validateCreateEzvizAccountInput(input CreateEzvizAccountInput) error {
+	fields := map[string]string{}
+	if strings.TrimSpace(input.AccountName) == "" {
+		fields["account_name"] = "账号名称必填"
+	}
+	if len(fields) > 0 {
+		return &ValidationError{Fields: fields}
+	}
+	return nil
+}
+
 func validateAreaLookup(input AreaLookup) (int, error) {
 	fields := map[string]string{}
 	if input.StoreID <= 0 {

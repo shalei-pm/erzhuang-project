@@ -102,6 +102,10 @@ type CreateStoreInput struct {
 	Recorders          []RecorderInput `json:"recorders,omitempty"`
 }
 
+type CreateEzvizAccountInput struct {
+	AccountName string `json:"account_name"`
+}
+
 type RecorderInput struct {
 	EzvizAccountID int64  `json:"ezviz_account_id,omitempty"`
 	DeviceCode     string `json:"device_code"`

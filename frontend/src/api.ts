@@ -78,6 +78,10 @@ export type EzvizAccount = {
   lastVerifiedAt: string;
 };
 
+export type CreateEzvizAccountPayload = {
+  accountName: string;
+};
+
 export type RecorderDraft = {
   id: string;
   ezvizAccountId: number | "";
@@ -800,6 +804,14 @@ const storeSpaceHttpAdapter = {
     return response.map(mapBackendEzvizAccount);
   },
 
+  async createEzvizAccount(payload: CreateEzvizAccountPayload): Promise<EzvizAccount> {
+    const response = await requestJSON<BackendEzvizAccount>(`${STORE_SPACE_API_BASE}/ezviz-accounts`, {
+      method: "POST",
+      body: JSON.stringify({ account_name: payload.accountName.trim() }),
+    });
+    return mapBackendEzvizAccount(response);
+  },
+
   async scanRecorder(recorderId: number): Promise<VideoRecorder> {
     const response = await requestJSON<BackendVideoRecorder>(`${STORE_SPACE_API_BASE}/recorders/${recorderId}/scan-channels`, {
       method: "POST",
@@ -915,6 +927,20 @@ export const storeSpaceApi = {
       return mockAdapter.listEzvizAccounts();
     }
     return storeSpaceHttpAdapter.listEzvizAccounts();
+  },
+
+  async createEzvizAccount(payload: CreateEzvizAccountPayload): Promise<EzvizAccount> {
+    if (API_MODE === "mock") {
+      const account: EzvizAccount = {
+        id: Date.now(),
+        accountName: payload.accountName.trim(),
+        status: "unverified",
+        lastVerifiedAt: "",
+      };
+      mockEzvizAccounts = [...mockEzvizAccounts, account];
+      return clone(account);
+    }
+    return storeSpaceHttpAdapter.createEzvizAccount(payload);
   },
 
   async scanRecorder(storeId: number, recorderId: number): Promise<VideoRecorder> {

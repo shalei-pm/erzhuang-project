@@ -9,17 +9,20 @@ type CreateStoreModalProps = {
   uploading: boolean;
   saving: boolean;
   onUploadPdf: (file: File) => Promise<UploadResult>;
+  onCreateEzvizAccount: (accountName: string) => Promise<EzvizAccount>;
   onClose: () => void;
   onSubmit: (payload: CreateStoreSpacePayload) => Promise<void>;
 };
 
-export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onClose, onSubmit }: CreateStoreModalProps) {
+export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onCreateEzvizAccount, onClose, onSubmit }: CreateStoreModalProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [name, setName] = useState("");
   const [externalOrgId, setExternalOrgId] = useState("");
   const [designPlan, setDesignPlan] = useState<UploadResult | null>(null);
-  const [recorders, setRecorders] = useState<RecorderDraft[]>([createRecorderDraft()]);
+  const [recorders, setRecorders] = useState<RecorderDraft[]>([]);
   const [message, setMessage] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [creatingAccount, setCreatingAccount] = useState(false);
 
   async function handlePdfSelected(fileList: FileList | null) {
     const file = fileList?.[0];
@@ -42,6 +45,29 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
 
   function updateRecorder(id: string, patch: Partial<RecorderDraft>) {
     setRecorders((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }
+
+  async function createAccount() {
+    const cleanName = accountName.trim();
+    if (!cleanName) {
+      setMessage("请输入萤石云账号名称");
+      return;
+    }
+    setCreatingAccount(true);
+    try {
+      const account = await onCreateEzvizAccount(cleanName);
+      setAccountName("");
+      setMessage(`已新增萤石云账号：${account.accountName}`);
+      if (recorders.length === 0) {
+        setRecorders([createRecorderDraft(account.id)]);
+      } else {
+        setRecorders((items) => items.map((item) => (item.ezvizAccountId ? item : { ...item, ezvizAccountId: account.id })));
+      }
+    } catch {
+      setMessage("萤石云账号新增失败，请稍后重试");
+    } finally {
+      setCreatingAccount(false);
+    }
   }
 
   function validateAndSubmit() {
@@ -88,8 +114,8 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
             <strong>添加门店</strong>
             <p>设计图和录像机至少提供一个，创建后进入对应详情页继续维护。</p>
           </div>
-          <button className="plain-button" onClick={onClose} aria-label="关闭添加门店">
-            x
+          <button className="icon-button modal-close-button" onClick={onClose} aria-label="关闭添加门店" title="关闭">
+            <span aria-hidden="true">×</span>
           </button>
         </header>
 
@@ -127,14 +153,29 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
                 <span>选填，最多 3 台</span>
               </div>
               <button
+                className="icon-button"
                 disabled={recorders.length >= MAX_RECORDERS}
                 onClick={() => setRecorders((items) => [...items, createRecorderDraft()])}
+                aria-label="增加录像机"
+                title="增加录像机"
               >
-                增加录像机
+                <span aria-hidden="true">+</span>
               </button>
             </div>
 
-            {recorders.map((recorder, index) => (
+            <div className="account-create-row">
+              <label>
+                萤石云账号
+                <input value={accountName} onChange={(event) => setAccountName(event.target.value)} placeholder="例如 华南门店萤石云" />
+              </label>
+              <button disabled={creatingAccount} onClick={() => void createAccount()}>
+                {creatingAccount ? "新增中" : "新增账号"}
+              </button>
+            </div>
+
+            {recorders.length === 0 ? <p className="recorder-empty-hint">如需配置录像机，点击右上角加号新增设备编码。</p> : null}
+
+            {recorders.map((recorder) => (
               <div className="recorder-draft-row" key={recorder.id}>
                 <label>
                   萤石云账号
@@ -163,7 +204,6 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
                 </label>
                 <button
                   className="danger-link"
-                  disabled={recorders.length === 1 && index === 0}
                   onClick={() => setRecorders((items) => items.filter((item) => item.id !== recorder.id))}
                 >
                   删除
@@ -190,10 +230,10 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
   );
 }
 
-function createRecorderDraft(): RecorderDraft {
+function createRecorderDraft(ezvizAccountId: number | "" = ""): RecorderDraft {
   return {
     id: `recorder-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    ezvizAccountId: "",
+    ezvizAccountId,
     deviceCode: "",
   };
 }

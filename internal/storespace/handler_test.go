@@ -34,6 +34,56 @@ func TestListEzvizAccountsEndpointReturnsSafeFieldsOnly(t *testing.T) {
 	}
 }
 
+func TestCreateEzvizAccountEndpointReturnsSafeFieldsOnly(t *testing.T) {
+	handler := newTestHandler()
+	request := httptest.NewRequest(http.MethodPost, "/api/store-space/ezviz-accounts", bytes.NewBufferString(`{"account_name":"华南测试账号"}`))
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, forbidden := range []string{"app_key", "app_secret_ciphertext", "access_token_ciphertext", "access_token", "app_secret"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("response leaks forbidden field %q: %s", forbidden, body)
+		}
+	}
+	var account EzvizAccount
+	if err := json.Unmarshal([]byte(body), &account); err != nil {
+		t.Fatalf("decode account: %v", err)
+	}
+	if account.AccountName != "华南测试账号" || account.Status != "unverified" {
+		t.Fatalf("unexpected account: %#v", account)
+	}
+}
+
+func TestCreateEzvizAccountEndpointRejectsDuplicateName(t *testing.T) {
+	handler := newTestHandler()
+	body := `{"account_name":"华南测试账号"}`
+	first := httptest.NewRequest(http.MethodPost, "/api/store-space/ezviz-accounts", bytes.NewBufferString(body))
+	handler.ServeHTTP(httptest.NewRecorder(), first)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/store-space/ezviz-accounts", bytes.NewBufferString(body))
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Fields map[string]string `json:"fields"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Fields["account_name"] != "萤石云账号名称已存在" {
+		t.Fatalf("unexpected fields: %#v", response.Fields)
+	}
+}
+
 func TestCreateStoreEndpointReturnsValidationFields(t *testing.T) {
 	handler := newTestHandler()
 	request := httptest.NewRequest(http.MethodPost, "/api/store-space/stores", bytes.NewBufferString(`{"name":"深圳壹方城"}`))

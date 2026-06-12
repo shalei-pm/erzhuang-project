@@ -15,6 +15,8 @@ var ErrNotFound = errors.New("store space resource not found")
 
 type Repository interface {
 	ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error)
+	CreateEzvizAccount(ctx context.Context, input CreateEzvizAccountInput) (*EzvizAccount, error)
+	EzvizAccountNameExists(ctx context.Context, accountName string) (bool, error)
 	ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error)
 	GetStore(ctx context.Context, id int64) (*Store, error)
 	CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error)
@@ -30,7 +32,9 @@ type MemoryStore struct {
 	nextAreaID     int64
 	nextPlanID     int64
 	nextRecorderID int64
+	nextAccountID  int64
 	stores         map[int64]*Store
+	accounts       map[int64]*EzvizAccount
 	deviceCodes    map[string]int64
 }
 
@@ -40,13 +44,59 @@ func NewMemoryStore() *MemoryStore {
 		nextAreaID:     1,
 		nextPlanID:     1,
 		nextRecorderID: 1,
+		nextAccountID:  1,
 		stores:         map[int64]*Store{},
+		accounts:       map[int64]*EzvizAccount{},
 		deviceCodes:    map[string]int64{},
 	}
 }
 
 func (s *MemoryStore) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error) {
-	return []EzvizAccount{}, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accounts := make([]EzvizAccount, 0, len(s.accounts))
+	for _, account := range s.accounts {
+		accounts = append(accounts, *account)
+	}
+	sort.Slice(accounts, func(i, j int) bool {
+		if accounts[i].AccountName == accounts[j].AccountName {
+			return accounts[i].ID < accounts[j].ID
+		}
+		return accounts[i].AccountName < accounts[j].AccountName
+	})
+	return accounts, nil
+}
+
+func (s *MemoryStore) CreateEzvizAccount(ctx context.Context, input CreateEzvizAccountInput) (*EzvizAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	account := EzvizAccount{
+		ID:          s.nextAccountID,
+		AccountName: strings.TrimSpace(input.AccountName),
+		Status:      "unverified",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	s.nextAccountID++
+	s.accounts[account.ID] = &account
+	copy := account
+	return &copy, nil
+}
+
+func (s *MemoryStore) EzvizAccountNameExists(ctx context.Context, accountName string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cleanName := strings.TrimSpace(accountName)
+	for _, account := range s.accounts {
+		if account.AccountName == cleanName {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *MemoryStore) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {
@@ -284,6 +334,40 @@ func (s *PostgresStore) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, 
 		accounts = append(accounts, account)
 	}
 	return accounts, rows.Err()
+}
+
+func (s *PostgresStore) CreateEzvizAccount(ctx context.Context, input CreateEzvizAccountInput) (*EzvizAccount, error) {
+	var account EzvizAccount
+	err := s.db.QueryRowContext(ctx, `
+		insert into ezviz_accounts (account_name, status)
+		values ($1, 'unverified')
+		returning id, account_name, status, last_verified_at, created_at, updated_at
+	`, strings.TrimSpace(input.AccountName)).Scan(
+		&account.ID,
+		&account.AccountName,
+		&account.Status,
+		&account.LastVerifiedAt,
+		&account.CreatedAt,
+		&account.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &account, nil
+}
+
+func (s *PostgresStore) EzvizAccountNameExists(ctx context.Context, accountName string) (bool, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `
+		select id
+		from ezviz_accounts
+		where account_name = $1
+		limit 1
+	`, strings.TrimSpace(accountName)).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {

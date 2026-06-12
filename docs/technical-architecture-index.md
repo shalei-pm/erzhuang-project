@@ -140,6 +140,14 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - 主操作按钮：`--button-font-large`，用于添加门店、保存、上传等最高优先级操作。
   - 普通操作按钮：`--button-font-normal`，用于编辑、删除、上移、下移、新增区域等常规操作。
   - 特殊紧凑按钮：`--button-font-special`，用于图纸查看工具、关闭 toast 等空间很小的辅助操作。
+- 图标按钮规范：
+  - 使用 `.icon-button` 固定为 32px 正方形，用于关闭、增加、收起等轻操作。
+  - 图标按钮必须有 `aria-label`，可补 `title`，页面上不展示解释性长文案。
+  - 模态框关闭按钮使用 `.modal-close-button`，不直接用普通文本 `x`，避免不同字体下视觉变形。
+- 当前后台风格：
+  - 定位为轻量企业后台 / SaaS admin，参考 Ant Design、Arco Design、Semi Design 的克制信息密度和控件层级。
+  - 项目没有直接引入这些组件库，而是用 tokenized CSS 自建基础样式，方便快速迭代和后续统一换色。
+  - 页面以白色内容面、浅灰背景、细边框、轻阴影为主；卡片半径控制在 8px 内，避免营销化装饰。
 - 重点样式区：
   - 列表表格和缩略图。
   - lightbox 弹窗。
