@@ -1634,18 +1634,15 @@ git diff --check
 - 用户反馈：
   - 设计图区域较多时，点击左侧矩形框会让页面整体滚动去找右侧卡片，导致左侧图纸跑出视野。
   - 门店只有一台录像机时，删除后没有再次添加录像机的入口。
-  - 机构详情页左上角“返回列表”按钮颜色不醒目，容易忽略。
 - 根因：
   - 区域卡片定位直接使用 `scrollIntoView`，浏览器会滚动页面级祖先容器。
   - 右侧 `area-pane` 未固定高度，区域多时会撑高整个详情页，无法形成内部滚动。
   - 通道映射页只支持删除录像机，缺少已有门店补录录像机的接口和表单。
-  - 返回按钮按普通轻量按钮处理，视觉优先级过低。
 - 修复：
   - 设计图编辑区固定桌面高度，右侧区域面板独立滚动。
   - 点击左侧矩形框或新增区域后，只滚动右侧区域面板，并把对应卡片定位到面板可视区中部。
   - 新增 `POST /api/store-space/stores/{id}/recorders`，支持已有门店补录录像机。
   - 通道映射 Tab 增加“添加录像机”表单，删除到 0 台后仍可补录。
-  - 返回列表按钮改为蓝色轻量胶囊按钮，提高可见性。
 - 本地验证：
   - `git diff --check` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
@@ -1656,7 +1653,53 @@ git diff --check
     - 删除唯一录像机后，通道映射页仍展示“添加录像机”表单。
     - 填写 `DNEW12345` 后可重新添加录像机，列表恢复为 1 台。
 - 发布状态：
-  - 待提交、推送、发布。
+  - 线上 commit：`edb5f9c`
+  - 线上页面版本：`2.4.1 (edb5f9c)`
+  - TAT InvocationId：`inv-t4rk6ggmb6`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：
+    - `/erzhuang/assets/index-7ssrpJ7q.js`
+    - `/erzhuang/assets/index-CXbT8UIV.css`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/` HTML 已引用新 JS/CSS。
+    - 线上 JS 中已确认包含 `2.4.1`、`edb5f9c`、“添加录像机”、“返回列表”、“区域卡片”。
+
+## 2026-06-12 详情页返回按钮 2.4.2 修复
+
+本次版本号从 `2.4.1` 升级到 `2.4.2`：
+
+- 用户反馈：
+  - 机构详情页左上角“返回列表”按钮颜色不醒目，几次被忽略。
+- 根因：
+  - 按钮仍沿用普通弱操作按钮的视觉层级，虽然是浅蓝，但高度只有 26px，缺少方向图标和明确的导航权重。
+- 修复：
+  - `StoreDetail` 中为返回按钮增加独立 `detail-back-button` 类名和左箭头。
+  - 详情页返回按钮改成蓝底白字的专用导航按钮，高度 34px，保留紧凑尺寸但提高第一眼识别度。
+  - TAT 工具补充 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` 环境变量读取能力，避免非交互环境无法发布；密钥仍不写入仓库。
+- 本地验证：
+  - `git diff --check` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `PYTHONPYCACHEPREFIX=/Users/sylar/erzhuang-project/.cache/pycache python3 -m py_compile tools/tat_run.py tools/tencent_api.py tools/tencent_credentials.py` 通过。
+  - 本地 mock 浏览器复验：
+    - `.detail-back-button` 位于详情页左上角，尺寸约 101 x 34。
+    - 背景色为 `rgb(37, 99, 235)`，文字为白色，标题区域未被异常撑高。
+- 发布状态：
+  - 按钮修复 commit：`e549029`
+  - 部署工具 commit：`3d84d4f`
+  - 线上 commit：`3d84d4f`
+  - 线上页面版本：`2.4.2 (3d84d4f)`
+  - TAT InvocationId：`inv-r4rkfw0f56`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：
+    - `/erzhuang/assets/index-DBJ1sfb3.js`
+    - `/erzhuang/assets/index-Cx20omGX.css`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/` HTML 已引用新 JS/CSS。
+    - 线上 JS 中已确认包含 `2.4.2 (3d84d4f)`、`detail-back-button` 和“返回列表”。
+    - 线上 CSS 中已确认包含 `detail-back-button`、`#2563eb` 和 `box-shadow`。
 
 ## 明日待办
 
