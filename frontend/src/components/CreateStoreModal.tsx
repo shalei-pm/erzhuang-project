@@ -3,6 +3,28 @@ import type { CreateStoreSpacePayload, EzvizAccount, RecorderDraft, UploadResult
 
 const MAX_PDF_BYTES = 5 * 1024 * 1024;
 const MAX_RECORDERS = 3;
+const CITY_OPTIONS = [
+  "北京",
+  "上海",
+  "广州",
+  "深圳",
+  "成都",
+  "杭州",
+  "重庆",
+  "武汉",
+  "苏州",
+  "西安",
+  "南京",
+  "长沙",
+  "天津",
+  "郑州",
+  "东莞",
+  "青岛",
+  "昆明",
+  "宁波",
+  "合肥",
+  "佛山",
+];
 
 type CreateStoreModalProps = {
   accounts: EzvizAccount[];
@@ -15,6 +37,7 @@ type CreateStoreModalProps = {
 
 export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onClose, onSubmit }: CreateStoreModalProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [city, setCity] = useState("");
   const [name, setName] = useState("");
   const [externalOrgId, setExternalOrgId] = useState("");
   const [designPlan, setDesignPlan] = useState<UploadResult | null>(null);
@@ -56,6 +79,10 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
       (item) => !item.ezvizAccountId || !accounts.some((account) => account.id === item.ezvizAccountId),
     );
 
+    if (!city.trim()) {
+      setMessage("请选择城市");
+      return;
+    }
     if (!name.trim()) {
       setMessage("门店名称不能为空");
       return;
@@ -74,6 +101,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
     }
 
     void onSubmit({
+      city: city.trim(),
       name: name.trim(),
       externalOrgId: externalOrgId.trim(),
       designPlan,
@@ -95,6 +123,17 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
         </header>
 
         <div className="create-form">
+          <label>
+            城市
+            <select value={city} onChange={(event) => setCity(event.target.value)}>
+              <option value="">请选择城市</option>
+              {CITY_OPTIONS.map((option) => (
+                <option value={option} key={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
           <label>
             门店名称
             <input value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入门店名称" />

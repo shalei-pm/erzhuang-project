@@ -45,6 +45,7 @@ export type StoreArea = {
 
 export type StoreSummary = {
   id: number;
+  city: string;
   name: string;
   externalOrgId: string;
   thumbnailUrl: string;
@@ -144,6 +145,7 @@ export type RecognitionResult = {
 
 export type SaveStorePayload = {
   id?: number;
+  city?: string;
   name: string;
   externalOrgId?: string;
   fileName: string;
@@ -160,6 +162,7 @@ export type SaveStorePayload = {
 };
 
 export type CreateStoreSpacePayload = {
+  city: string;
   name: string;
   externalOrgId: string;
   designPlan?: UploadResult | null;
@@ -177,6 +180,7 @@ type BackendStoreListResponse = {
 
 type BackendStoreSummary = {
   id: number;
+  city?: string;
   name: string;
   thumbnail_url?: string;
   treatment_count: number;
@@ -189,6 +193,7 @@ type BackendStoreSummary = {
 
 type BackendStoreDetail = {
   id: number;
+  city?: string;
   name: string;
   pdf_file_name?: string;
   original_pdf_path?: string;
@@ -247,6 +252,7 @@ type BackendStorePayload = {
 
 type BackendDuplicateMatch = {
   id: number;
+  city?: string;
   name: string;
   reason?: string;
   thumbnail_url?: string;
@@ -323,6 +329,8 @@ type BackendStoreSpaceListResponse = {
 
 type BackendStoreSpaceSummary = {
   id: number;
+  city?: string;
+  cityName?: string;
   name: string;
   external_org_id?: string;
   externalOrgId?: string;
@@ -614,6 +622,7 @@ const mockAdapter = {
       .filter((item) => item.deviceCode.trim() && item.ezvizAccountId)
       .map((item) => createMockRecorder(storeId, item.deviceCode.trim(), Number(item.ezvizAccountId)));
     const detail = createMockStore(storeId, payload.name.trim(), "incomplete", []);
+    detail.city = payload.city.trim();
     detail.externalOrgId = payload.externalOrgId.trim();
     detail.fileName = payload.designPlan?.fileName ?? "";
     detail.originalPath = payload.designPlan?.originalPath ?? "";
@@ -1086,6 +1095,7 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
 function mapBackendSummary(item: BackendStoreSummary): StoreSummary {
   return {
     id: item.id,
+    city: item.city ?? "",
     name: item.name,
     externalOrgId: "",
     thumbnailUrl: toDisplayImageUrl(item.thumbnail_url),
@@ -1110,6 +1120,7 @@ function mapBackendDetail(store: BackendStoreDetail): StoreDetail {
 
   return {
     id: store.id,
+    city: store.city ?? "",
     name: store.name,
     fileName: displayPlanFileName(store.pdf_file_name, store.original_pdf_path, store.name),
     originalPath: store.original_pdf_path || MOCK_ORIGINAL_PDF_PATH,
@@ -1160,6 +1171,7 @@ function mapBackendRecognition(result: BackendRecognitionResult): RecognitionRes
 function mapStoreSpaceSummary(store: BackendStoreSpaceSummary): StoreSummary {
   return {
     id: store.id,
+    city: store.city ?? store.cityName ?? "",
     name: store.name,
     externalOrgId: store.external_org_id ?? store.externalOrgId ?? "",
     thumbnailUrl: "",
@@ -1298,6 +1310,7 @@ function mapBackendArea(areaItem: BackendStoreArea): StoreArea {
 function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
   return {
     id: match.id,
+    city: match.city ?? "",
     name: match.name,
     externalOrgId: "",
     thumbnailUrl: toDisplayImageUrl(match.thumbnail_url),
@@ -1316,6 +1329,7 @@ function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
 function duplicateMatchToStoreSpaceSummary(match: BackendDuplicateMatch): StoreSummary {
   return {
     id: match.id,
+    city: match.city ?? "",
     name: match.name,
     externalOrgId: "",
     thumbnailUrl: "",
@@ -1360,6 +1374,7 @@ function toBackendPayload(payload: SaveStorePayload): BackendStorePayload {
 
 function toStoreSpaceCreatePayload(payload: CreateStoreSpacePayload) {
   return {
+    city: payload.city,
     name: payload.name,
     external_org_id: payload.externalOrgId,
     design_plan_upload_id: payload.designPlan?.uploadId ?? "",
@@ -1457,12 +1472,18 @@ function inferMockStoreName(fileName: string) {
   return baseName || "成都太古里体验店";
 }
 
+function inferMockCity(name: string) {
+  const cities = ["北京", "上海", "广州", "深圳", "成都", "杭州", "重庆", "武汉", "苏州", "西安", "南京", "长沙", "天津", "郑州", "东莞", "青岛", "昆明", "宁波", "合肥", "佛山"];
+  return cities.find((city) => name.includes(city)) ?? "";
+}
+
 function createMockStore(id: number, name: string, status: StoreStatus, areas: StoreArea[]): StoreDetail {
   const now = new Date(Date.now() - id * 18 * 60 * 60 * 1000).toISOString();
   const counts = countAreas(areas);
   const recorders = id <= 3 ? [createMockRecorder(id, `EZVIZ-${String(860000 + id)}`, 1)] : [];
   return {
     id,
+    city: inferMockCity(name),
     name,
     externalOrgId: id <= 3 ? `XY${String(10000 + id)}` : "",
     thumbnailUrl: MOCK_PLAN_IMAGE,
@@ -1495,6 +1516,7 @@ function buildDetailFromPayload(payload: SaveStorePayload, updatedAt: string): S
 
   return {
     id: payload.id ?? nextStoreId++,
+    city: payload.city?.trim() ?? "",
     name: payload.name.trim(),
     externalOrgId: payload.externalOrgId?.trim() ?? "",
     fileName: payload.fileName,

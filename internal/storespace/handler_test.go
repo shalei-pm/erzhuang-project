@@ -109,7 +109,7 @@ func TestCreateStoreEndpointReturnsValidationFields(t *testing.T) {
 
 func TestCreateStoreEndpointCreatesRecorderOnlyStore(t *testing.T) {
 	handler := newTestHandler()
-	body := `{"name":"深圳壹方城","recorders":[{"device_code":"D12345678"}]}`
+	body := `{"city":"深圳","name":"深圳壹方城","recorders":[{"device_code":"D12345678"}]}`
 	request := httptest.NewRequest(http.MethodPost, "/api/store-space/stores", bytes.NewBufferString(body))
 	recorder := httptest.NewRecorder()
 
@@ -125,11 +125,14 @@ func TestCreateStoreEndpointCreatesRecorderOnlyStore(t *testing.T) {
 	if len(store.Recorders) != 1 || store.Recorders[0].DeviceCode != "D12345678" {
 		t.Fatalf("unexpected recorders: %#v", store.Recorders)
 	}
+	if store.City != "深圳" {
+		t.Fatalf("expected city to be saved, got %q", store.City)
+	}
 }
 
 func TestDeleteRecorderEndpointRemovesRecorder(t *testing.T) {
 	handler := newTestHandler()
-	createBody := `{"name":"深圳壹方城","recorders":[{"device_code":"D12345678"},{"device_code":"D87654321"}]}`
+	createBody := `{"city":"深圳","name":"深圳壹方城","recorders":[{"device_code":"D12345678"},{"device_code":"D87654321"}]}`
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/store-space/stores", bytes.NewBufferString(createBody))
 	createRecorder := httptest.NewRecorder()
 

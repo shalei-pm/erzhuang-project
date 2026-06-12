@@ -21,6 +21,9 @@ func validateCreateStoreInput(input CreateStoreInput) error {
 	if strings.TrimSpace(input.Name) == "" {
 		fields["name"] = "门店名称必填"
 	}
+	if strings.TrimSpace(input.City) == "" {
+		fields["city"] = "城市必填"
+	}
 
 	hasDesignPlan := strings.TrimSpace(input.DesignPlanUploadID) != ""
 	hasRecorder := false

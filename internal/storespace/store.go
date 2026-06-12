@@ -154,6 +154,7 @@ func (s *MemoryStore) CreateStore(ctx context.Context, input CreateStoreInput) (
 	now := time.Now().UTC()
 	store := Store{
 		ID:               s.nextStoreID,
+		City:             strings.TrimSpace(input.City),
 		Name:             strings.TrimSpace(input.Name),
 		NormalizedName:   NormalizeStoreName(input.Name),
 		ExternalOrgID:    strings.TrimSpace(input.ExternalOrgID),
@@ -410,6 +411,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 	rows, err := s.db.QueryContext(ctx, `
 		select
 			s.id,
+			s.city,
 			s.name,
 			s.external_org_id,
 			s.design_plan_status,
@@ -441,6 +443,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 		var item StoreListItem
 		if err := rows.Scan(
 			&item.ID,
+			&item.City,
 			&item.Name,
 			&item.ExternalOrgID,
 			&item.DesignPlanStatus,
@@ -465,12 +468,13 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 func (s *PostgresStore) GetStore(ctx context.Context, id int64) (*Store, error) {
 	var store Store
 	err := s.db.QueryRowContext(ctx, `
-		select id, name, normalized_name, external_org_id, design_plan_status,
+		select id, city, name, normalized_name, external_org_id, design_plan_status,
 			overall_status, created_at, updated_at
 		from stores
 		where id = $1
 	`, id).Scan(
 		&store.ID,
+		&store.City,
 		&store.Name,
 		&store.NormalizedName,
 		&store.ExternalOrgID,
@@ -518,10 +522,10 @@ func (s *PostgresStore) CreateStore(ctx context.Context, input CreateStoreInput)
 
 	var id int64
 	err = tx.QueryRowContext(ctx, `
-		insert into stores (name, normalized_name, external_org_id, design_plan_status, overall_status)
-		values ($1, $2, $3, $4, $5)
+		insert into stores (city, name, normalized_name, external_org_id, design_plan_status, overall_status)
+		values ($1, $2, $3, $4, $5, $6)
 		returning id
-	`, strings.TrimSpace(input.Name), NormalizeStoreName(input.Name), strings.TrimSpace(input.ExternalOrgID),
+	`, strings.TrimSpace(input.City), strings.TrimSpace(input.Name), NormalizeStoreName(input.Name), strings.TrimSpace(input.ExternalOrgID),
 		designPlanStatus, OverallStatusPartial).Scan(&id)
 	if err != nil {
 		return nil, err
@@ -921,6 +925,7 @@ func normalizeFilters(filters StoreFilters) StoreFilters {
 func storeListItem(store Store) StoreListItem {
 	item := StoreListItem{
 		ID:               store.ID,
+		City:             store.City,
 		Name:             store.Name,
 		ExternalOrgID:    store.ExternalOrgID,
 		DesignPlanStatus: store.DesignPlanStatus,

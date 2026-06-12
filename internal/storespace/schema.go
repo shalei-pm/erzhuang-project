@@ -18,6 +18,7 @@ func PostgresSchemaStatements() []string {
 	return []string{
 		`create table if not exists stores (
 			id bigserial primary key,
+			city text not null default '',
 			name text not null,
 			normalized_name text not null unique,
 			external_org_id text not null default '',
@@ -30,6 +31,7 @@ func PostgresSchemaStatements() []string {
 			constraint stores_overall_status_check
 				check (overall_status in ('incomplete', 'partial', 'completed', 'exception'))
 		)`,
+		`alter table stores add column if not exists city text not null default ''`,
 		`create index if not exists stores_updated_at_idx on stores (updated_at desc)`,
 		`create table if not exists store_areas (
 			id bigserial primary key,
@@ -226,8 +228,9 @@ func PostgresSchemaStatements() []string {
 			for all to anon, authenticated
 			using (false)
 			with check (false)`,
-		`insert into stores (name, normalized_name, design_plan_status, overall_status, created_at, updated_at)
+		`insert into stores (city, name, normalized_name, design_plan_status, overall_status, created_at, updated_at)
 		select
+			'',
 			dps.name,
 			dps.normalized_name,
 			case

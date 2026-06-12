@@ -21,12 +21,16 @@ func TestCreateStoreRequiresDesignPlanOrRecorder(t *testing.T) {
 	if validationError.Fields["resources"] != "请至少上传设计图或填写一个录像机设备编码" {
 		t.Fatalf("unexpected resources error: %#v", validationError.Fields)
 	}
+	if validationError.Fields["city"] != "城市必填" {
+		t.Fatalf("unexpected city error: %#v", validationError.Fields)
+	}
 }
 
 func TestCreateStoreAcceptsDesignPlanOnly(t *testing.T) {
 	service := NewService(NewMemoryStore())
 
 	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City:               "深圳",
 		Name:               "深圳壹方城",
 		DesignPlanUploadID: "upload_123",
 	})
@@ -37,6 +41,9 @@ func TestCreateStoreAcceptsDesignPlanOnly(t *testing.T) {
 	if store.ID == 0 {
 		t.Fatal("expected store id")
 	}
+	if store.City != "深圳" {
+		t.Fatalf("expected city to be saved, got %q", store.City)
+	}
 	if store.DesignPlanStatus != DesignPlanStatusPendingRecognition {
 		t.Fatalf("expected pending recognition design plan status, got %q", store.DesignPlanStatus)
 	}
@@ -45,10 +52,35 @@ func TestCreateStoreAcceptsDesignPlanOnly(t *testing.T) {
 	}
 }
 
+func TestListStoresIncludesCity(t *testing.T) {
+	service := NewService(NewMemoryStore())
+
+	_, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City:               "深圳",
+		Name:               "深圳壹方城",
+		DesignPlanUploadID: "upload_123",
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	result, err := service.ListStores(context.Background(), StoreFilters{})
+	if err != nil {
+		t.Fatalf("list stores: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 store, got %d", len(result.Items))
+	}
+	if result.Items[0].City != "深圳" {
+		t.Fatalf("expected city in list item, got %q", result.Items[0].City)
+	}
+}
+
 func TestCreateStoreAcceptsRecordersOnlyAndRejectsDuplicateCodes(t *testing.T) {
 	service := NewService(NewMemoryStore())
 
 	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
 		Name: "深圳壹方城",
 		Recorders: []RecorderInput{
 			{DeviceCode: "D12345678"},
@@ -63,6 +95,7 @@ func TestCreateStoreAcceptsRecordersOnlyAndRejectsDuplicateCodes(t *testing.T) {
 	}
 
 	_, err = service.CreateStore(context.Background(), CreateStoreInput{
+		City: "广州",
 		Name: "广州天河",
 		Recorders: []RecorderInput{
 			{DeviceCode: "D12345678"},
@@ -82,6 +115,7 @@ func TestDeleteRecorderReleasesDeviceCode(t *testing.T) {
 	ctx := context.Background()
 
 	store, err := service.CreateStore(ctx, CreateStoreInput{
+		City: "深圳",
 		Name: "深圳壹方城",
 		Recorders: []RecorderInput{
 			{DeviceCode: "D12345678"},
@@ -96,6 +130,7 @@ func TestDeleteRecorderReleasesDeviceCode(t *testing.T) {
 	}
 
 	nextStore, err := service.CreateStore(ctx, CreateStoreInput{
+		City: "广州",
 		Name: "广州天河",
 		Recorders: []RecorderInput{
 			{DeviceCode: "D12345678"},
@@ -113,6 +148,7 @@ func TestCreateStoreRejectsDuplicateRecorderCodesInRequest(t *testing.T) {
 	service := NewService(NewMemoryStore())
 
 	_, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
 		Name: "深圳壹方城",
 		Recorders: []RecorderInput{
 			{DeviceCode: "D12345678"},
@@ -132,6 +168,7 @@ func TestCreateStoreRejectsDuplicateRecorderCodesInRequest(t *testing.T) {
 func TestFindOrCreateAreaRequiresNumberAndEnforcesUniqueness(t *testing.T) {
 	service := NewService(NewMemoryStore())
 	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
 		Name: "深圳壹方城",
 		Recorders: []RecorderInput{
 			{DeviceCode: "D12345678"},

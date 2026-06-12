@@ -96,6 +96,7 @@ type StoreFilters struct {
 }
 
 type CreateStoreInput struct {
+	City               string          `json:"city"`
 	Name               string          `json:"name"`
 	ExternalOrgID      string          `json:"external_org_id,omitempty"`
 	DesignPlanUploadID string          `json:"design_plan_upload_id,omitempty"`
@@ -139,6 +140,7 @@ type AreaLookup struct {
 
 type Store struct {
 	ID               int64            `json:"id"`
+	City             string           `json:"city"`
 	Name             string           `json:"name"`
 	NormalizedName   string           `json:"normalized_name,omitempty"`
 	ExternalOrgID    string           `json:"external_org_id"`
@@ -153,6 +155,7 @@ type Store struct {
 
 type StoreListItem struct {
 	ID                int64            `json:"id"`
+	City              string           `json:"city"`
 	Name              string           `json:"name"`
 	ExternalOrgID     string           `json:"external_org_id"`
 	DesignPlanStatus  DesignPlanStatus `json:"design_plan_status"`

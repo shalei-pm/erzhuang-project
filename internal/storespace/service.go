@@ -46,6 +46,7 @@ func (s *Service) CreateStore(ctx context.Context, input CreateStoreInput) (*Sto
 	if err := validateCreateStoreInput(input); err != nil {
 		return nil, err
 	}
+	input.City = strings.TrimSpace(input.City)
 	input.Name = strings.TrimSpace(input.Name)
 	input.ExternalOrgID = strings.TrimSpace(input.ExternalOrgID)
 	input.DesignPlanUploadID = strings.TrimSpace(input.DesignPlanUploadID)

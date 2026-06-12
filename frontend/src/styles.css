@@ -283,6 +283,8 @@ h1 {
 
 .store-table th:nth-child(1),
 .store-table td:nth-child(1),
+.store-table th:nth-child(2),
+.store-table td:nth-child(2),
 .store-table th:nth-child(5),
 .store-table td:nth-child(5),
 .store-table th:nth-child(6),
@@ -292,7 +294,9 @@ h1 {
 .store-table th:nth-child(8),
 .store-table td:nth-child(8),
 .store-table th:nth-child(9),
-.store-table td:nth-child(9) {
+.store-table td:nth-child(9),
+.store-table th:nth-child(10),
+.store-table td:nth-child(10) {
   width: 76px;
 }
 
@@ -300,14 +304,15 @@ h1 {
 .store-table td:nth-child(3),
 .store-table th:nth-child(4),
 .store-table td:nth-child(4),
-.store-table th:nth-child(10),
-.store-table td:nth-child(10) {
+.store-table th:nth-child(11),
+.store-table td:nth-child(11) {
   width: 122px;
 }
 
-.store-table th:nth-child(11),
-.store-table td:nth-child(11) {
-  width: 160px;
+.store-table th:nth-child(12),
+.store-table td:nth-child(12) {
+  width: 184px;
+  padding-right: 18px;
 }
 
 table {
@@ -473,6 +478,10 @@ td:nth-child(10) {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.store-table .row-actions {
+  justify-content: flex-start;
 }
 
 .row-actions button,

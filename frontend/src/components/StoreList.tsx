@@ -24,6 +24,7 @@ export function StoreList({ stores, loading, page, pageSize, onOpenStore, onDele
         <thead>
           <tr>
             <th>序号</th>
+            <th>城市</th>
             <th>门店名称</th>
             <th>新氧机构 ID</th>
             <th>设计图状态</th>
@@ -39,13 +40,13 @@ export function StoreList({ stores, loading, page, pageSize, onOpenStore, onDele
         <tbody>
           {loading ? (
             <tr>
-              <td colSpan={11} className="empty-cell">
+              <td colSpan={12} className="empty-cell">
                 正在加载门店列表
               </td>
             </tr>
           ) : stores.length === 0 ? (
             <tr>
-              <td colSpan={11} className="empty-cell">
+              <td colSpan={12} className="empty-cell">
                 <div className="empty-state">
                   <div className="empty-illustration" aria-hidden="true">
                     <span />
@@ -61,6 +62,7 @@ export function StoreList({ stores, loading, page, pageSize, onOpenStore, onDele
             stores.map((store, index) => (
               <tr key={store.id}>
                 <td>{(page - 1) * pageSize + index + 1}</td>
+                <td>{store.city || "未设置"}</td>
                 <td className="store-name">{store.name}</td>
                 <td>{store.externalOrgId || "-"}</td>
                 <td>

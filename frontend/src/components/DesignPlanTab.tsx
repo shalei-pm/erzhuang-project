@@ -241,6 +241,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
     }
     const saved = await storeSpaceApi.saveStore({
       id: store.id,
+      city: store.city,
       name: store.name,
       externalOrgId: store.externalOrgId,
       fileName,

@@ -1543,6 +1543,79 @@ git diff --check
     - 线上 JS 中已确认包含 `2.3.3 (7abcc23)`。
   - 备注：部署脚本健康检查前 11 次连接失败，第 12 次成功；服务最终健康，仍符合当前冷启动较慢的已知现象。
 
+## 2026-06-12 门店列表与详情布局 2.3.4 修复
+
+本次版本号从 `2.3.3` 升级到 `2.3.4`：
+
+- 用户反馈：
+  - 机构详情页“返回列表”按钮过大。
+  - 机构详情页首屏高度偏高，希望默认适配 1080 分辨率。
+  - 机构列表页操作按钮出现溢出列表的情况。
+- 根因：
+  - 2.3.3 统一全局按钮后，`.plain-button` 继承了普通按钮高度、padding，并在详情 header 的 grid 布局中被拉伸为整行宽度。
+  - 列表操作按钮统一为 72px 后，最后一列宽度仍为 122px，两个按钮加间距后容易溢出。
+  - 设计图画布使用 `calc(100vh - 140px)`，对 1080 高度的后台页面偏高。
+- 修复：
+  - `.plain-button` 调整为 26px 高轻量文字按钮，详情页返回按钮限制为内容宽度。
+  - 列表操作列增宽到 160px，行内操作按钮收敛为 68px。
+  - 详情页 header 间距收紧，设计图编辑区域和画布高度改为 `clamp`，适配 1080 首屏。
+- 本地验证：
+  - `git diff --check` 通过。
+  - `npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - 1440x1080 浏览器复验：
+    - 返回按钮尺寸为 66x26。
+    - 详情页无需纵向滚动，主内容底部约 829px。
+    - 列表操作按钮组 136px，操作列 160px，表格无横向溢出。
+- 发布结果：
+  - 本地 commit：`5dd89c6`
+  - 线上 commit：`5dd89c6`
+  - 线上页面版本：`2.3.4 (5dd89c6)`
+  - TAT InvocationId：`inv-t4rigm075g`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：
+    - `/erzhuang/assets/index-B9o-QAd9.js`
+    - `/erzhuang/assets/index-CHPZUwoD.css`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/` HTML 已引用新 JS/CSS。
+    - 线上 JS 中已确认包含 `2.3.4 (5dd89c6)`。
+
+## 2026-06-12 城市字段与门店列表 2.4.0 迭代
+
+本次版本号从 `2.3.4` 升级到 `2.4.0`：
+
+- 用户反馈：
+  - “添加门店”弹窗没有看到城市字段。
+  - 机构列表需要在门店名称前展示城市列，旧数据无城市时展示“未设置”。
+  - 机构列表操作按钮虽然已进入列表内，但距离右侧边缘过近。
+- 产品规则：
+  - 新建门店必须选择城市。
+  - 城市先内置一线/新一线城市下拉。
+  - 列表列顺序调整为：序号 / 城市 / 门店名称 / 新氧机构 ID / 设计图状态 / 录像机 / 通道 / 面诊室 / 治疗室 / 生美 / 更新时间 / 操作。
+- 后端修复：
+  - `stores` 表新增 `city text not null default ''`，schema 初始化和迁移都覆盖。
+  - 创建门店接口新增 `city` 校验，缺失时返回“城市必填”。
+  - MemoryStore 和 PostgresStore 的创建、列表、详情均返回 city。
+  - 旧设计图迁移到 stores 时 city 为空，前端统一显示“未设置”。
+- 前端修复：
+  - 创建门店弹窗新增城市下拉。
+  - 创建门店请求体传入 `city`。
+  - StoreSummary/StoreDetail 和 store-space API 映射补齐 city。
+  - 门店列表新增城市列，空值显示“未设置”。
+  - 操作列宽度和右侧 padding 调整，避免按钮贴边。
+- 本地验证：
+  - `git diff --check` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - 本地浏览器检查：
+    - 列表表头顺序包含城市列，且位于门店名称前。
+    - 旧数据城市显示“未设置”。
+    - 添加门店弹窗展示城市下拉，包含北京、上海、广州、深圳等城市。
+    - 操作列按钮右侧留白约 56px。
+- 发布状态：
+  - 待提交、推送、发布。
+
 ## 明日待办
 
 1. 开始前先运行：
