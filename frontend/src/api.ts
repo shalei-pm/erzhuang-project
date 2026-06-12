@@ -308,6 +308,88 @@ type BackendVideoChannel = {
   confirmedAt?: string;
 };
 
+type BackendStoreSpaceListResponse = {
+  items: BackendStoreSpaceSummary[];
+  page: number;
+  page_size?: number;
+  pageSize?: number;
+  total: number;
+};
+
+type BackendStoreSpaceSummary = {
+  id: number;
+  name: string;
+  external_org_id?: string;
+  externalOrgId?: string;
+  design_plan_status?: DesignPlanStatus;
+  designPlanStatus?: DesignPlanStatus;
+  overall_status?: string;
+  overallStatus?: string;
+  recorder_count?: number;
+  recorderCount?: number;
+  channel_count?: number;
+  channelCount?: number;
+  treatment_count?: number;
+  treatmentCount?: number;
+  consultation_count?: number;
+  consultationCount?: number;
+  beauty_count?: number;
+  beautyCount?: number;
+  area_count?: number;
+  areaCount?: number;
+  updated_at?: string;
+  updatedAt?: string;
+};
+
+type BackendStoreSpaceDetail = BackendStoreSpaceSummary & {
+  design_plans?: BackendStoreSpaceDesignPlan[];
+  designPlans?: BackendStoreSpaceDesignPlan[];
+  areas?: BackendStoreSpaceArea[];
+  recorders?: BackendStoreSpaceRecorder[];
+};
+
+type BackendStoreSpaceDesignPlan = {
+  id?: number;
+  pdf_file_name?: string;
+  pdfFileName?: string;
+  original_pdf_path?: string;
+  originalPdfPath?: string;
+  preview_image_path?: string;
+  previewImagePath?: string;
+  thumbnail_path?: string;
+  thumbnailPath?: string;
+  preview_url?: string;
+  previewUrl?: string;
+  thumbnail_url?: string;
+  thumbnailUrl?: string;
+  page_count?: number;
+  pageCount?: number;
+  recognition_result?: unknown;
+  recognitionResult?: unknown;
+};
+
+type BackendStoreSpaceArea = {
+  id?: number;
+  display_name?: string;
+  displayName?: string;
+  area_type?: AreaType;
+  areaType?: AreaType;
+  area_number?: number | string | null;
+  areaNumber?: number | string | null;
+  status?: "candidate" | "confirmed";
+  source?: string;
+  confidence?: Confidence;
+  needs_review?: boolean;
+  needsReview?: boolean;
+  box?: AreaBox;
+  annotation?: {
+    box?: AreaBox;
+    status?: "pending" | "confirmed";
+  };
+};
+
+type BackendStoreSpaceRecorder = BackendVideoRecorder;
+
 type DuplicateCheckResult = {
   exactMatch: StoreSummary | null;
   similarMatches: StoreSummary[];
@@ -686,11 +768,31 @@ const httpAdapter = {
 
 const storeSpaceHttpAdapter = {
   async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
-    const response = await requestJSON<BackendStoreDetail>(`${STORE_SPACE_API_BASE}/stores`, {
+    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores`, {
       method: "POST",
       body: JSON.stringify(toStoreSpaceCreatePayload(payload)),
     });
-    return mapBackendDetail(response);
+    return mapStoreSpaceDetail(response);
+  },
+
+  async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
+    const search = new URLSearchParams({
+      q: query,
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    const response = await requestJSON<BackendStoreSpaceListResponse>(`${STORE_SPACE_API_BASE}/stores?${search.toString()}`);
+    return {
+      items: response.items.map(mapStoreSpaceSummary),
+      page: response.page,
+      pageSize: response.page_size ?? response.pageSize ?? pageSize,
+      total: response.total,
+    };
+  },
+
+  async getStore(id: number): Promise<StoreDetail> {
+    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores/${id}`);
+    return mapStoreSpaceDetail(response);
   },
 
   async listEzvizAccounts(): Promise<EzvizAccount[]> {
@@ -713,11 +815,11 @@ const storeSpaceHttpAdapter = {
   },
 
   async confirmChannel(channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
-    const response = await requestJSON<BackendStoreDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/confirmation`, {
+    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/confirmation`, {
       method: "PUT",
       body: JSON.stringify(toStoreSpaceChannelConfirmationPayload(patch)),
     });
-    return mapBackendDetail(response);
+    return mapStoreSpaceDetail(response);
   },
 };
 
@@ -960,6 +1062,88 @@ function mapBackendRecognition(result: BackendRecognitionResult): RecognitionRes
   };
 }
 
+function mapStoreSpaceSummary(store: BackendStoreSpaceSummary): StoreSummary {
+  return {
+    id: store.id,
+    name: store.name,
+    externalOrgId: store.external_org_id ?? store.externalOrgId ?? "",
+    thumbnailUrl: "",
+    designPlanStatus: store.design_plan_status ?? store.designPlanStatus ?? "not_uploaded",
+    recorderCount: store.recorder_count ?? store.recorderCount ?? 0,
+    channelCount: store.channel_count ?? store.channelCount ?? 0,
+    treatmentCount: store.treatment_count ?? store.treatmentCount ?? 0,
+    consultationCount: store.consultation_count ?? store.consultationCount ?? 0,
+    beautyCount: store.beauty_count ?? store.beautyCount ?? 0,
+    areaCount: store.area_count ?? store.areaCount ?? 0,
+    status: mapStoreSpaceOverallStatus(store.overall_status ?? store.overallStatus),
+    updatedAt: store.updated_at ?? store.updatedAt ?? new Date().toISOString(),
+  };
+}
+
+function mapStoreSpaceDetail(store: BackendStoreSpaceDetail): StoreDetail {
+  const designPlan = firstStoreSpaceDesignPlan(store);
+  const areas = (store.areas ?? []).map(mapStoreSpaceArea);
+  const recorders = (store.recorders ?? []).map(mapBackendRecorder);
+  const counts = countAreas(areas);
+  const summary = mapStoreSpaceSummary({
+    ...store,
+    treatment_count: store.treatment_count ?? store.treatmentCount ?? counts.treatment,
+    consultation_count: store.consultation_count ?? store.consultationCount ?? counts.consultation,
+    beauty_count: store.beauty_count ?? store.beautyCount ?? counts.beauty,
+    area_count: store.area_count ?? store.areaCount ?? areas.length,
+    recorder_count: store.recorder_count ?? store.recorderCount ?? recorders.length,
+    channel_count: store.channel_count ?? store.channelCount ?? countChannels(recorders),
+  });
+
+  return {
+    ...summary,
+    fileName: displayPlanFileName(designPlan?.pdf_file_name ?? designPlan?.pdfFileName, designPlan?.original_pdf_path ?? designPlan?.originalPdfPath, store.name),
+    originalPath: designPlan?.original_pdf_path ?? designPlan?.originalPdfPath ?? "",
+    previewPath: designPlan?.preview_image_path ?? designPlan?.previewImagePath ?? "",
+    thumbnailPath: designPlan?.thumbnail_path ?? designPlan?.thumbnailPath ?? "",
+    pageCount: designPlan?.page_count ?? designPlan?.pageCount ?? 0,
+    previewUrl: toDisplayImageUrl(designPlan?.preview_url ?? designPlan?.previewUrl ?? designPlan?.preview_image_path ?? designPlan?.previewImagePath),
+    thumbnailUrl: toDisplayImageUrl(designPlan?.thumbnail_url ?? designPlan?.thumbnailUrl ?? designPlan?.thumbnail_path ?? designPlan?.thumbnailPath),
+    recognitionResult: designPlan?.recognition_result ?? designPlan?.recognitionResult,
+    areas,
+    recorders,
+  };
+}
+
+function mapStoreSpaceArea(areaItem: BackendStoreSpaceArea): StoreArea {
+  const type = areaItem.area_type ?? areaItem.areaType ?? "";
+  const number = areaItem.area_number == null && areaItem.areaNumber == null ? "" : String(areaItem.area_number ?? areaItem.areaNumber);
+  return {
+    id: areaItem.id ? String(areaItem.id) : `area-${type || "unknown"}-${number || Date.now()}`,
+    name: areaItem.display_name ?? areaItem.displayName ?? areaDisplayNameFromParts(type, number),
+    type,
+    number,
+    confidence: areaItem.confidence ?? "high",
+    needsReview: Boolean(areaItem.needs_review ?? areaItem.needsReview) || areaItem.status === "candidate" || areaItem.annotation?.status === "pending",
+    box: areaItem.box ?? areaItem.annotation?.box ?? null,
+  };
+}
+
+function firstStoreSpaceDesignPlan(store: BackendStoreSpaceDetail) {
+  return (store.design_plans ?? store.designPlans ?? [])[0];
+}
+
+function mapStoreSpaceOverallStatus(status: string | undefined): StoreStatus {
+  if (status === "completed") return "completed";
+  if (status === "incomplete") return "incomplete";
+  return "needs_review";
+}
+
+function areaDisplayNameFromParts(type: AreaType | "", number: string) {
+  if (!type) return "";
+  const labels: Record<AreaType, string> = {
+    treatment: "治疗室",
+    consultation: "面诊室",
+    beauty: "生美",
+  };
+  return number.trim() ? `${labels[type]} ${number.trim()}` : labels[type];
+}
+
 function mapBackendEzvizAccount(account: BackendEzvizAccount): EzvizAccount {
   return {
     id: account.id,
@@ -1062,9 +1246,9 @@ function toStoreSpaceCreatePayload(payload: CreateStoreSpacePayload) {
     external_org_id: payload.externalOrgId,
     design_plan_upload_id: payload.designPlan?.uploadId ?? "",
     recorders: payload.recorders
-      .filter((recorder) => recorder.deviceCode.trim())
+      .filter((recorder) => recorder.deviceCode.trim() && recorder.ezvizAccountId)
       .map((recorder) => ({
-        ezviz_account_id: recorder.ezvizAccountId,
+        ezviz_account_id: Number(recorder.ezvizAccountId),
         device_code: recorder.deviceCode.trim(),
       })),
   };

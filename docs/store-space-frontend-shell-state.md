@@ -68,6 +68,33 @@ f819793 Document store space resource expansion
   - 旧 `designPlanApi` 保持原 fallback 行为，避免影响现有设计图功能。
 - 去掉用户可见文案里的“mock”字样。
 
+## 第二轮 Review 修复记录
+
+更新时间：2026-06-12
+
+主会话第二轮 review 后已修复：
+
+- 新增 store-space 后端独立 DTO 和 mapper：
+  - `BackendStoreSpaceSummary`
+  - `BackendStoreSpaceDetail`
+  - `BackendStoreSpaceArea`
+  - `BackendStoreSpaceRecorder`
+  - `mapStoreSpaceSummary`
+  - `mapStoreSpaceDetail`
+- `storeSpaceHttpAdapter.createStore()` 已改用 `mapStoreSpaceDetail()`，不再复用旧 design-plan 的 `mapBackendDetail()`。
+- `storeSpaceHttpAdapter.confirmChannel()` 的返回类型已改为 `BackendStoreSpaceDetail`，并使用 `mapStoreSpaceDetail()` 解析。
+- store-space mapper 会读取新后端字段：
+  - `external_org_id`
+  - `design_plan_status`
+  - `overall_status`
+  - `design_plans`
+  - `recorders`
+  - `areas[].area_type`
+  - `areas[].display_name`
+  - `areas[].area_number`
+- `CreateStoreModal` 仍保持“填写录像机设备编码必须选择萤石云账号”的前端校验；提交 payload 时只传有效数字 `ezviz_account_id`，不会把空值传成 `""`。
+- 注意：`storeSpaceApi.listStores()` 和 `storeSpaceApi.getStore()` 在当前 shell 阶段仍复用旧 `designPlanApi`，用于保护现有设计图列表体验。真正切换到门店空间资源列表/详情时，需要改为 `storeSpaceHttpAdapter.listStores()` / `storeSpaceHttpAdapter.getStore()` 并使用本次新增的 store-space list/get mapper。
+
 ## 改动文件
 
 ```text
@@ -105,6 +132,7 @@ PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-da
 
 - `storeSpaceApi` 在 `auto/http` 模式下会尝试真实 `/api/store-space` 接口；如果后端接口未就绪，会直接暴露错误，不会静默使用前端 mock。
 - 前端 mock 仅用于 `VITE_DESIGN_PLAN_API_MODE=mock` 的本地演示。
+- 当前列表和详情读取仍暂走旧 design-plan adapter；这不是完整接入 store-space 后端列表/详情。
 - 详情页新增录像机、删除录像机、萤石云账号配置只预留入口，等待后端接口和安全方案。
 - 当前设计图保存仍复用旧 `designPlanApi.saveStore` 合同；后端新表和 API 合并后，需要继续对齐 `storeSpaceApi` 的真实 HTTP adapter。
 - 视觉回归只通过构建检查，尚未在浏览器中逐屏截图验收。
