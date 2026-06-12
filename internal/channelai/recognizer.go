@@ -9,11 +9,15 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const defaultModel = "gpt-5.5"
+const defaultCommandTimeout = 75 * time.Second
 
 type Result struct {
 	SceneType      string          `json:"scene_type"`
@@ -24,6 +28,7 @@ type Result struct {
 	Confidence     string          `json:"confidence"`
 	NeedsReview    bool            `json:"needs_review"`
 	RawNotes       string          `json:"raw_notes"`
+	Provider       string          `json:"provider,omitempty"`
 	RawResult      json.RawMessage `json:"raw_result,omitempty"`
 }
 
@@ -31,11 +36,59 @@ type Recognizer interface {
 	Recognize(ctx context.Context, imageURL string) (Result, error)
 }
 
+func NewRecognizerFromEnv() (Recognizer, bool, error) {
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CHANNEL_AI_PROVIDER")))
+	switch provider {
+	case "", "openai", "responses", "openai-responses":
+		recognizer, enabled := NewOpenAIRecognizerFromEnv()
+		return recognizer, enabled, nil
+	case "external-command", "command", "script":
+		return NewCommandRecognizerFromEnv()
+	case "minimax", "minimax-script", "minimax-understand-image":
+		return NewMiniMaxCommandRecognizerFromEnv()
+	default:
+		return nil, false, fmt.Errorf("unsupported CHANNEL_AI_PROVIDER %q", provider)
+	}
+}
+
 type OpenAIRecognizer struct {
 	apiKey     string
 	baseURL    string
 	model      string
 	httpClient *http.Client
+}
+
+type CommandRecognizer struct {
+	command string
+	args    []string
+	timeout time.Duration
+}
+
+func NewCommandRecognizerFromEnv() (Recognizer, bool, error) {
+	command := strings.TrimSpace(os.Getenv("CHANNEL_AI_COMMAND"))
+	if command == "" {
+		return nil, false, errors.New("CHANNEL_AI_COMMAND is required when CHANNEL_AI_PROVIDER=external-command")
+	}
+	return &CommandRecognizer{
+		command: command,
+		args:    commandArgsFromEnv(),
+		timeout: commandTimeoutFromEnv(),
+	}, true, nil
+}
+
+func NewMiniMaxCommandRecognizerFromEnv() (Recognizer, bool, error) {
+	command := strings.TrimSpace(os.Getenv("MINIMAX_UNDERSTAND_IMAGE_SCRIPT"))
+	if command == "" {
+		command = strings.TrimSpace(os.Getenv("CHANNEL_AI_COMMAND"))
+	}
+	if command == "" {
+		command = "/root/.openclaw/workspace/skills/minimax-understand-image/scripts/understand_image.py"
+	}
+	return &CommandRecognizer{
+		command: command,
+		args:    commandArgsFromEnv(),
+		timeout: commandTimeoutFromEnv(),
+	}, true, nil
 }
 
 func NewOpenAIRecognizerFromEnv() (Recognizer, bool) {
@@ -127,7 +180,143 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, imageURL string) (Resu
 		return Result{}, fmt.Errorf("parse channel recognition json: %w", err)
 	}
 	output.RawResult = json.RawMessage(responseBody)
+	output.Provider = "openai"
 	return normalize(output), nil
+}
+
+func (r *CommandRecognizer) Recognize(ctx context.Context, imageURL string) (Result, error) {
+	imageURL = strings.TrimSpace(imageURL)
+	if imageURL == "" {
+		return Result{}, errors.New("missing channel snapshot image url")
+	}
+	if strings.TrimSpace(r.command) == "" {
+		return Result{}, errors.New("missing channel ai command")
+	}
+	timeout := r.timeout
+	if timeout <= 0 {
+		timeout = defaultCommandTimeout
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	command, args := r.commandAndArgs(imageURL)
+	cmd := exec.CommandContext(commandCtx, command, args...)
+	cmd.Env = append(os.Environ(),
+		"CHANNEL_AI_IMAGE_URL="+imageURL,
+		"CHANNEL_AI_PROMPT="+prompt(),
+	)
+	output, err := cmd.CombinedOutput()
+	if commandCtx.Err() != nil {
+		return Result{}, fmt.Errorf("channel ai command timed out after %s", timeout)
+	}
+	trimmedOutput := strings.TrimSpace(string(output))
+	if err != nil {
+		if trimmedOutput == "" {
+			return Result{}, fmt.Errorf("channel ai command failed: %w", err)
+		}
+		return Result{}, fmt.Errorf("channel ai command failed: %w: %s", err, trimmedOutput)
+	}
+	result, err := parseCommandRecognitionOutput([]byte(trimmedOutput))
+	if err != nil {
+		return Result{}, err
+	}
+	result.RawResult = json.RawMessage(trimmedOutput)
+	result.Provider = commandProviderName()
+	return normalize(result), nil
+}
+
+func (r *CommandRecognizer) commandAndArgs(imageURL string) (string, []string) {
+	args := make([]string, 0, len(r.args)+1)
+	for _, arg := range r.args {
+		args = append(args, commandArg(arg, imageURL))
+	}
+	if len(args) == 0 {
+		args = []string{"--image-url", imageURL}
+	}
+	interpreter := strings.TrimSpace(os.Getenv("CHANNEL_AI_COMMAND_INTERPRETER"))
+	if interpreter != "" {
+		return interpreter, append([]string{r.command}, args...)
+	}
+	if strings.EqualFold(filepath.Ext(r.command), ".py") {
+		return "python3", append([]string{r.command}, args...)
+	}
+	return r.command, args
+}
+
+func commandArg(value string, imageURL string) string {
+	replacer := strings.NewReplacer(
+		"{image_url}", imageURL,
+		"{prompt}", prompt(),
+	)
+	return replacer.Replace(value)
+}
+
+func commandArgsFromEnv() []string {
+	value := strings.TrimSpace(os.Getenv("CHANNEL_AI_COMMAND_ARGS"))
+	if value == "" {
+		return nil
+	}
+	return strings.Fields(value)
+}
+
+func commandTimeoutFromEnv() time.Duration {
+	value := strings.TrimSpace(os.Getenv("CHANNEL_AI_COMMAND_TIMEOUT_SECONDS"))
+	if value == "" {
+		return defaultCommandTimeout
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		return defaultCommandTimeout
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func commandProviderName() string {
+	provider := strings.TrimSpace(os.Getenv("CHANNEL_AI_PROVIDER"))
+	if provider == "" {
+		return "external-command"
+	}
+	return provider
+}
+
+func parseCommandRecognitionOutput(output []byte) (Result, error) {
+	output = bytes.TrimSpace(output)
+	if len(output) == 0 {
+		return Result{}, errors.New("channel ai command returned empty output")
+	}
+	var direct Result
+	if err := json.Unmarshal(output, &direct); err == nil && looksLikeResult(direct) {
+		return direct, nil
+	}
+	var wrapper map[string]json.RawMessage
+	if err := json.Unmarshal(output, &wrapper); err != nil {
+		return Result{}, fmt.Errorf("parse channel ai command json: %w", err)
+	}
+	for _, key := range []string{"result", "data", "output", "response"} {
+		raw, ok := wrapper[key]
+		if !ok {
+			continue
+		}
+		var nested Result
+		if err := json.Unmarshal(raw, &nested); err == nil && looksLikeResult(nested) {
+			return nested, nil
+		}
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil {
+			parsed, err := parseCommandRecognitionOutput([]byte(text))
+			if err == nil {
+				return parsed, nil
+			}
+		}
+	}
+	return Result{}, errors.New("channel ai command output did not contain recognition result")
+}
+
+func looksLikeResult(result Result) bool {
+	return strings.TrimSpace(result.SceneType) != "" ||
+		strings.TrimSpace(result.AreaType) != "" ||
+		strings.TrimSpace(result.AreaNumber) != "" ||
+		strings.TrimSpace(result.RawNotes) != ""
 }
 
 func normalize(result Result) Result {

@@ -1,10 +1,26 @@
 # Codex Learning State
 
-最后更新：2026-06-08
+最后更新：2026-06-12
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-12 通道视觉模型切换 2.7.2 开发记录
+
+- 版本号：`2.7.2`。
+- 目标：
+  - 给监控截图 AI 识别增加 provider 切换入口，便于对比当前 OpenAI-compatible 模型和 MiniMax/OpenClaw 图像理解脚本的速度。
+  - 默认行为保持不变：未配置 `CHANNEL_AI_PROVIDER` 时继续走 `VISION_API_KEY` / `VISION_API_BASE_URL` / `VISION_MODEL`。
+  - 新增 `CHANNEL_AI_PROVIDER=minimax-script` 和 `CHANNEL_AI_PROVIDER=external-command`，通过外部命令调用图像理解脚本；MiniMax 脚本默认路径为 `/root/.openclaw/workspace/skills/minimax-understand-image/scripts/understand_image.py`。
+  - `recognition_result` 增加 `provider` 字段，和 `recognition_ms` 一起用于线上速度对比。
+- 安全约定：
+  - MiniMax key 不写入代码、文档或 Git，只通过服务器环境变量 `MINIMAX_API_KEY` 注入。
+  - 当前代码只接 provider 切换和外部脚本适配；真正切到 MiniMax 前，需要先确认服务器上脚本存在并确认脚本参数格式。
+- 本地验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
 
 当前新增产品需求讨论：
 

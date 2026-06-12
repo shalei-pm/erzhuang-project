@@ -32,6 +32,7 @@ func (a *ChannelAIAdapter) RecognizeChannel(ctx context.Context, imageURL string
 		Confidence:     result.Confidence,
 		NeedsReview:    result.NeedsReview,
 		RawNotes:       result.RawNotes,
+		Provider:       result.Provider,
 		RawResult:      rawResult,
 	}, nil
 }

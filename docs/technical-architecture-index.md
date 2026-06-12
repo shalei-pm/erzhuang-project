@@ -341,7 +341,7 @@ POST   /api/design-plan/uploads/{upload_id}/recognize
 
 - `internal/ezviz/client.go`：萤石云 token、通道列表、抓图 OpenAPI。
 - `internal/storespace/ezviz_scanner.go`：把萤石云能力适配到门店空间服务。
-- `internal/channelai/recognizer.go`：监控截图视觉识别，读取 `VISION_API_BASE_URL`、`VISION_API_KEY`、`VISION_MODEL`。
+- `internal/channelai/recognizer.go`：监控截图视觉识别，默认读取 `VISION_API_BASE_URL`、`VISION_API_KEY`、`VISION_MODEL`；也支持 `CHANNEL_AI_PROVIDER=minimax-script/external-command` 切换到外部图像理解脚本。
 - `internal/storespace/channelai_adapter.go`：将通道 AI 结果映射为 store-space 识别结果。
 - `internal/storespace/service.go`：串行抓图、AI 预填、耗时统计、已确认通道保护。
 - `internal/storespace/store.go`：保存最近截图、识别结果、预填类型和编号。
@@ -352,7 +352,7 @@ POST   /api/design-plan/uploads/{upload_id}/recognize
 - AI 只做预填，用户点击“确认”后才锁定为正式通道映射。
 - 编号卡片如果明确写了“治疗室 1 / 面诊室 2 / 生美 3”，优先于画面环境判断。
 - 已确认通道再次识别时只刷新截图和耗时，不自动覆盖用户确认过的类型和编号。
-- `recognition_result` 内记录 `capture_ms`、`recognition_ms`、`total_ms`，用于评估模型速度。
+- `recognition_result` 内记录 `provider`、`capture_ms`、`recognition_ms`、`total_ms`，用于评估模型速度和区分当前识别模型。
 
 ### 图纸框四角拉伸
 

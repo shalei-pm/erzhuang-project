@@ -150,6 +150,7 @@ type ChannelRecognitionResult struct {
 	Confidence     string
 	NeedsReview    bool
 	RawNotes       string
+	Provider       string
 	RawResult      string
 }
 

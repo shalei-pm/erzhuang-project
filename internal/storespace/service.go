@@ -343,6 +343,7 @@ func applyChannelRecognition(snapshot *ChannelSnapshotInput, result ChannelRecog
 	}
 	payload := map[string]any{
 		"status":          "recognized",
+		"provider":        strings.TrimSpace(result.Provider),
 		"scene_type":      sceneType,
 		"area_type":       areaType,
 		"area_number":     number,

@@ -30,7 +30,9 @@ func main() {
 		storeSpaceRepo := storespace.NewPostgresStore(db)
 		storeSpaceService := storespace.NewService(storeSpaceRepo)
 		var channelRecognizer storespace.ChannelRecognizer
-		if recognizer, enabled := channelai.NewOpenAIRecognizerFromEnv(); enabled {
+		if recognizer, enabled, err := channelai.NewRecognizerFromEnv(); err != nil {
+			log.Printf("channel ai recognizer disabled: %v", err)
+		} else if enabled {
 			channelRecognizer = storespace.NewChannelAIAdapter(recognizer)
 			log.Print("channel ai recognizer enabled")
 		}

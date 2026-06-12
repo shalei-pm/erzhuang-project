@@ -545,6 +545,7 @@ func TestRecognizeRecorderChannelsPrefillsAIResultAndKeepsPendingConfirmation(t 
 			DecisionSource: "number_card",
 			Confidence:     "high",
 			RawNotes:       "编号卡片显示治疗室 2",
+			Provider:       "test-provider",
 		},
 	})
 	store, err := service.CreateStore(context.Background(), CreateStoreInput{
@@ -579,6 +580,9 @@ func TestRecognizeRecorderChannelsPrefillsAIResultAndKeepsPendingConfirmation(t 
 	}
 	if !strings.Contains(channel.RecognitionResult, `"recognition_ms"`) {
 		t.Fatalf("expected timing metrics in recognition result, got %s", channel.RecognitionResult)
+	}
+	if !strings.Contains(channel.RecognitionResult, `"provider":"test-provider"`) {
+		t.Fatalf("expected recognition provider in recognition result, got %s", channel.RecognitionResult)
 	}
 }
 
