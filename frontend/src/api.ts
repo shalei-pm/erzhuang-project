@@ -111,10 +111,13 @@ export type VideoChannel = {
   channelName: string;
   status: ChannelStatus;
   thumbnailUrl: string;
+  fullImageUrl: string;
+  fullImageExpiresAt?: string;
   sceneType: SceneType;
   areaType: AreaType | "";
   areaNumber: string;
   recognitionAttempts: number;
+  recognitionResult?: unknown;
   confirmedAt?: string;
 };
 
@@ -313,6 +316,10 @@ type BackendVideoChannel = {
   status?: ChannelStatus;
   thumbnail_url?: string;
   thumbnailUrl?: string;
+  full_image_url?: string;
+  fullImageUrl?: string;
+  full_image_expires_at?: string;
+  fullImageExpiresAt?: string;
   scene_type?: SceneType;
   sceneType?: SceneType;
   area_type?: AreaType | "";
@@ -321,6 +328,8 @@ type BackendVideoChannel = {
   areaNumber?: number | string | null;
   recognition_attempts?: number;
   recognitionAttempts?: number;
+  recognition_result?: unknown;
+  recognitionResult?: unknown;
   confirmed_at?: string;
   confirmedAt?: string;
 };
@@ -724,6 +733,10 @@ const mockAdapter = {
         ...channel,
         ...preset,
         status: "pending_confirmation" as ChannelStatus,
+        thumbnailUrl: channel.thumbnailUrl || `https://picsum.photos/seed/${recorder.deviceCode}-${channel.channelNo}/240/160`,
+        fullImageUrl: channel.fullImageUrl || `https://picsum.photos/seed/${recorder.deviceCode}-${channel.channelNo}/960/640`,
+        fullImageExpiresAt: channel.fullImageExpiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        recognitionResult: { status: "captured" },
         recognitionAttempts: channel.recognitionAttempts + 1,
       };
     });
@@ -1375,10 +1388,13 @@ function mapBackendChannel(channel: BackendVideoChannel, recorderId: number, rec
     channelName: channel.channel_name ?? channel.channelName ?? "",
     status: channel.status ?? "pending_recognition",
     thumbnailUrl: toDisplayImageUrl(channel.thumbnail_url ?? channel.thumbnailUrl),
+    fullImageUrl: toDisplayImageUrl(channel.full_image_url ?? channel.fullImageUrl ?? channel.thumbnail_url ?? channel.thumbnailUrl),
+    fullImageExpiresAt: channel.full_image_expires_at ?? channel.fullImageExpiresAt,
     sceneType: channel.scene_type ?? channel.sceneType ?? "unknown",
     areaType: channel.area_type ?? channel.areaType ?? "",
     areaNumber: channel.area_number == null && channel.areaNumber == null ? "" : String(channel.area_number ?? channel.areaNumber),
     recognitionAttempts: channel.recognition_attempts ?? channel.recognitionAttempts ?? 0,
+    recognitionResult: channel.recognition_result ?? channel.recognitionResult,
     confirmedAt: channel.confirmed_at ?? channel.confirmedAt,
   };
 }
@@ -1681,6 +1697,7 @@ function createMockChannels(recorderId: number, recorderCode: string): VideoChan
     channelNo: index + 1,
     channelName: `通道 ${index + 1}`,
     thumbnailUrl: "",
+    fullImageUrl: "",
     recognitionAttempts: scene.status === "pending_confirmation" ? 1 : 2,
     confirmedAt: scene.status.startsWith("confirmed") ? new Date(Date.now() - (index + 1) * 32 * 60 * 1000).toISOString() : undefined,
     ...scene,

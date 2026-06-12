@@ -36,6 +36,7 @@ type VideoChannelTabProps = {
 export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
   const [recognizingChannelId, setRecognizingChannelId] = useState<number | null>(null);
+  const [previewChannel, setPreviewChannel] = useState<VideoChannel | null>(null);
   const [confirmingChannelId, setConfirmingChannelId] = useState<number | null>(null);
   const [channelError, setChannelError] = useState("");
   const [addingRecorder, setAddingRecorder] = useState(false);
@@ -162,7 +163,9 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     setChannelError("");
     try {
       await storeSpaceApi.recognizeRecorder(store.id, recorder.id);
-      onToast(`通道 ${channel.channelNo} 的截图识别已触发。`);
+      const nextStore = await storeSpaceApi.getStore(store.id);
+      onStoreUpdated(nextStore);
+      onToast(`已重新抓取录像机 ${recorder.deviceCode} 的通道截图。`);
     } catch (error) {
       const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
       setChannelError(`通道 ${channel.channelNo} 识别失败：${message}`);
@@ -305,14 +308,22 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                   channel.status === "pending_recognition" ||
                   channel.status === "recognition_failed" ||
                   Boolean(draft.status);
+                const recognitionMessage = channelRecognitionMessage(channel);
                 return (
                   <tr key={channel.id}>
                     <td>{recorder.deviceCode}</td>
                     <td>{channel.channelNo}</td>
                     <td>
-                      <div className="channel-thumb" aria-label="截图缩略图占位">
+                      <button
+                        className={`channel-thumb ${channel.thumbnailUrl ? "has-image" : ""}`}
+                        type="button"
+                        disabled={!channel.fullImageUrl && !channel.thumbnailUrl}
+                        aria-label={channel.thumbnailUrl ? `查看通道 ${channel.channelNo} 截图` : "暂无截图"}
+                        onClick={() => setPreviewChannel(channel)}
+                      >
                         {channel.thumbnailUrl ? <img src={channel.thumbnailUrl} alt={`通道 ${channel.channelNo} 截图`} /> : <span />}
-                      </div>
+                      </button>
+                      {recognitionMessage ? <div className="channel-row-note">{recognitionMessage}</div> : null}
                     </td>
                     <td>
                       {isEditable ? (
@@ -387,8 +398,86 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
           </table>
         </section>
       ))}
+      {previewChannel ? (
+        <div className="snapshot-preview-backdrop" role="dialog" aria-modal="true" onClick={() => setPreviewChannel(null)}>
+          <div className="snapshot-preview" onClick={(event) => event.stopPropagation()}>
+            <div className="snapshot-preview-head">
+              <div>
+                <strong>通道 {previewChannel.channelNo} 最近截图</strong>
+                <span>{previewChannel.fullImageExpiresAt ? `大图有效期至 ${formatDateTime(previewChannel.fullImageExpiresAt)}` : "来自萤石云抓图"}</span>
+              </div>
+              <button type="button" onClick={() => setPreviewChannel(null)} aria-label="关闭截图预览">
+                ×
+              </button>
+            </div>
+            <img src={previewChannel.fullImageUrl || previewChannel.thumbnailUrl} alt={`通道 ${previewChannel.channelNo} 最近截图`} />
+          </div>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function channelRecognitionMessage(channel: VideoChannel) {
+  const result = channel.recognitionResult;
+  if (!result) return "";
+  if (typeof result === "string") {
+    try {
+      return channelRecognitionMessageFromObject(JSON.parse(result));
+    } catch {
+      return result;
+    }
+  }
+  if (typeof result === "object" && result) {
+    return channelRecognitionMessageFromObject(result);
+  }
+  return "";
+}
+
+function channelRecognitionMessageFromObject(value: unknown) {
+  if (!value || typeof value !== "object") return "";
+  const result = value as {
+    status?: string;
+    message?: string;
+    area_type?: AreaType | "";
+    area_number?: string;
+    confidence?: string;
+    recognition_ms?: number;
+    total_ms?: number;
+    capture_ms?: number;
+  };
+  const timing = recognitionTimingLabel(result);
+  if (result.status === "capture_failed" || result.status === "recognition_failed") {
+    return [result.message || "识别失败", timing].filter(Boolean).join(" · ");
+  }
+  if (result.status === "recognized") {
+    const area = result.area_type ? `${areaTypeLabels[result.area_type]}${result.area_number ? ` ${result.area_number}` : ""}` : "其他区域";
+    const confidence = result.confidence === "low" ? "低置信" : "";
+    return [area, confidence, timing].filter(Boolean).join(" · ");
+  }
+  if (result.status === "captured") {
+    return ["已抓图", timing].filter(Boolean).join(" · ");
+  }
+  return result.message || timing;
+}
+
+function recognitionTimingLabel(result: { capture_ms?: number; recognition_ms?: number; total_ms?: number }) {
+  const parts: string[] = [];
+  if (typeof result.capture_ms === "number" && result.capture_ms > 0) {
+    parts.push(`抓图 ${formatDuration(result.capture_ms)}`);
+  }
+  if (typeof result.recognition_ms === "number" && result.recognition_ms > 0) {
+    parts.push(`识别 ${formatDuration(result.recognition_ms)}`);
+  }
+  if (typeof result.total_ms === "number" && result.total_ms > 0) {
+    parts.push(`总 ${formatDuration(result.total_ms)}`);
+  }
+  return parts.join(" / ");
+}
+
+function formatDuration(ms: number) {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.max(1, Math.round(ms))}ms`;
 }
 
 function nonBusinessLabel(sceneType: VideoChannel["sceneType"]) {

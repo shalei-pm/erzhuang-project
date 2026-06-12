@@ -2,14 +2,18 @@ package storespace
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Service struct {
-	repo    Repository
-	scanner ChannelScanner
+	repo       Repository
+	scanner    ChannelScanner
+	recognizer ChannelRecognizer
 }
 
 func NewService(repo Repository) *Service {
@@ -20,8 +24,17 @@ func NewServiceWithScanner(repo Repository, scanner ChannelScanner) *Service {
 	return &Service{repo: repo, scanner: scanner}
 }
 
+func NewServiceWithScannerAndRecognizer(repo Repository, scanner ChannelScanner, recognizer ChannelRecognizer) *Service {
+	return &Service{repo: repo, scanner: scanner, recognizer: recognizer}
+}
+
 type ChannelScanner interface {
 	ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error)
+	CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error)
+}
+
+type ChannelRecognizer interface {
+	RecognizeChannel(ctx context.Context, imageURL string) (ChannelRecognitionResult, error)
 }
 
 func (s *Service) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error) {
@@ -200,11 +213,198 @@ func (s *Service) ConfirmChannel(ctx context.Context, channelID int64, input Cha
 	return s.repo.ConfirmChannel(ctx, channelID, input)
 }
 
-func (s *Service) RecognizeRecorderChannels(ctx context.Context, recorderID int64) error {
-	return ErrNotImplemented
+func (s *Service) RecognizeRecorderChannels(ctx context.Context, recorderID int64) (*Recorder, error) {
+	if s.scanner == nil {
+		return nil, ErrNotImplemented
+	}
+	recorder, err := s.repo.GetRecorder(ctx, recorderID)
+	if err != nil {
+		return nil, err
+	}
+	if recorder.EzvizAccountID == 0 {
+		return nil, &ValidationError{Fields: map[string]string{"ezviz_account_id": "缺少萤石云账号"}}
+	}
+	account, err := s.repo.GetEzvizAccount(ctx, recorder.EzvizAccountID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, &ValidationError{Fields: map[string]string{"ezviz_account_id": "找不到萤石云账号"}}
+		}
+		return nil, err
+	}
+	channels := make([]Channel, 0, len(recorder.Channels))
+	for _, channel := range recorder.Channels {
+		if !channel.IsActive || channel.Status == ChannelStatusInactive {
+			continue
+		}
+		channels = append(channels, channel)
+	}
+	for index, channel := range channels {
+		channelStarted := time.Now()
+		captureStarted := time.Now()
+		snapshot, err := s.scanner.CaptureChannel(ctx, *account, *recorder, channel)
+		captureMS := elapsedMilliseconds(captureStarted)
+		if err != nil {
+			_, saveErr := s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
+				RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
+			})
+			if saveErr != nil {
+				return nil, saveErr
+			}
+			continue
+		}
+		snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
+		if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
+			recognitionStarted := time.Now()
+			result, err := s.recognizer.RecognizeChannel(ctx, firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath))
+			recognitionMS := elapsedMilliseconds(recognitionStarted)
+			if err != nil {
+				snapshot.Status = ChannelStatusRecognitionFailed
+				snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+			} else {
+				applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+			}
+		}
+		if _, err := s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot); err != nil {
+			return nil, err
+		}
+		if index < len(channels)-1 {
+			time.Sleep(1200 * time.Millisecond)
+		}
+	}
+	return s.repo.GetRecorder(ctx, recorderID)
 }
 
 var ErrNotImplemented = errors.New("not implemented")
+
+func channelRecognitionStatusJSON(status string, message string, captureMS int64, recognitionMS int64, totalMS int64) string {
+	payload := map[string]any{
+		"status":         status,
+		"capture_ms":     captureMS,
+		"recognition_ms": recognitionMS,
+		"total_ms":       totalMS,
+	}
+	if strings.TrimSpace(message) != "" {
+		payload["message"] = strings.TrimSpace(message)
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+func channelRecognitionErrorJSON(err error, captureMS int64, recognitionMS int64, totalMS int64) string {
+	message := "截图失败"
+	if err != nil {
+		message = fmt.Sprintf("%v", err)
+	}
+	status := "capture_failed"
+	if captureMS > 0 {
+		status = "recognition_failed"
+	}
+	return channelRecognitionStatusJSON(status, message, captureMS, recognitionMS, totalMS)
+}
+
+func applyChannelRecognition(snapshot *ChannelSnapshotInput, result ChannelRecognitionResult, captureMS int64, recognitionMS int64, totalMS int64) {
+	sceneType := normalizeRecognitionSceneType(result.SceneType)
+	areaType := normalizeRecognitionAreaType(result.AreaType)
+	number := strings.TrimSpace(result.AreaNumber)
+	if areaType != "" {
+		sceneType = SceneType(areaType)
+	}
+	snapshot.Status = ChannelStatusPendingConfirmation
+	snapshot.SceneType = sceneType
+	snapshot.AreaType = areaType
+	if onlyDigits(number) {
+		snapshot.AreaNumberText = number
+	}
+	payload := map[string]any{
+		"status":          "recognized",
+		"scene_type":      sceneType,
+		"area_type":       areaType,
+		"area_number":     number,
+		"card_text":       strings.TrimSpace(result.CardText),
+		"decision_source": normalizeRecognitionDecisionSource(result.DecisionSource),
+		"confidence":      normalizeRecognitionConfidence(result.Confidence),
+		"needs_review":    result.NeedsReview,
+		"raw_notes":       strings.TrimSpace(result.RawNotes),
+		"capture_ms":      captureMS,
+		"recognition_ms":  recognitionMS,
+		"total_ms":        totalMS,
+	}
+	if strings.TrimSpace(result.RawResult) != "" {
+		payload["raw_result"] = json.RawMessage(result.RawResult)
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		snapshot.RecognitionResult = channelRecognitionStatusJSON("recognized", "", captureMS, recognitionMS, totalMS)
+		return
+	}
+	snapshot.RecognitionResult = string(data)
+}
+
+func normalizeRecognitionAreaType(value string) AreaType {
+	switch AreaType(strings.ToLower(strings.TrimSpace(value))) {
+	case AreaTypeTreatment:
+		return AreaTypeTreatment
+	case AreaTypeConsultation:
+		return AreaTypeConsultation
+	case AreaTypeBeauty:
+		return AreaTypeBeauty
+	default:
+		return ""
+	}
+}
+
+func normalizeRecognitionSceneType(value string) SceneType {
+	sceneType := SceneType(strings.ToLower(strings.TrimSpace(value)))
+	if validSceneType(sceneType) {
+		return sceneType
+	}
+	return SceneTypeUnknown
+}
+
+func normalizeRecognitionDecisionSource(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "number_card", "scene", "none":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "none"
+	}
+}
+
+func normalizeRecognitionConfidence(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "high", "medium", "low":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "medium"
+	}
+}
+
+func elapsedMilliseconds(started time.Time) int64 {
+	if started.IsZero() {
+		return 0
+	}
+	elapsed := time.Since(started).Milliseconds()
+	if elapsed < 0 {
+		return 0
+	}
+	return elapsed
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func isConfirmedChannelStatus(status ChannelStatus) bool {
+	return status == ChannelStatusConfirmedBusiness || status == ChannelStatusConfirmedNonBusiness
+}
 
 func (s *Service) ensureNoExactDuplicate(ctx context.Context, name string, excludeStoreID int64) error {
 	result, err := s.repo.CheckDuplicate(ctx, name, excludeStoreID)

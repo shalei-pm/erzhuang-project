@@ -129,11 +129,34 @@ type ChannelInput struct {
 	IsActive    bool
 }
 
+type ChannelSnapshotInput struct {
+	ThumbnailPath      string
+	FullImagePath      string
+	FullImageExpiresAt *time.Time
+	RecognitionResult  string
+	Status             ChannelStatus
+	SceneType          SceneType
+	AreaType           AreaType
+	AreaNumberText     string
+}
+
+type ChannelRecognitionResult struct {
+	SceneType      string
+	AreaType       string
+	AreaNumber     string
+	CardText       string
+	DecisionSource string
+	Confidence     string
+	NeedsReview    bool
+	RawNotes       string
+	RawResult      string
+}
+
 type ChannelConfirmationInput struct {
 	Kind       string    `json:"kind,omitempty"`
 	AreaType   AreaType  `json:"area_type,omitempty"`
 	AreaNumber string    `json:"area_number,omitempty"`
-	SceneType   SceneType `json:"scene_type,omitempty"`
+	SceneType  SceneType `json:"scene_type,omitempty"`
 }
 
 type SaveDesignPlanInput struct {
@@ -148,13 +171,13 @@ type SaveDesignPlanInput struct {
 }
 
 type DesignAreaInput struct {
-	ID          int64      `json:"id,omitempty"`
-	DisplayName string     `json:"display_name,omitempty"`
-	Type        AreaType   `json:"area_type"`
-	NumberText  string     `json:"area_number"`
-	Confidence  string     `json:"confidence,omitempty"`
-	NeedsReview bool       `json:"needs_review,omitempty"`
-	Box         *AreaBox   `json:"box,omitempty"`
+	ID          int64    `json:"id,omitempty"`
+	DisplayName string   `json:"display_name,omitempty"`
+	Type        AreaType `json:"area_type"`
+	NumberText  string   `json:"area_number"`
+	Confidence  string   `json:"confidence,omitempty"`
+	NeedsReview bool     `json:"needs_review,omitempty"`
+	Box         *AreaBox `json:"box,omitempty"`
 }
 
 type DuplicateCheckRequest struct {
@@ -279,6 +302,10 @@ type Channel struct {
 	AreaNumber          int           `json:"area_number,omitempty"`
 	AreaID              int64         `json:"area_id,omitempty"`
 	RecognitionAttempts int           `json:"recognition_attempts"`
+	RecognitionResult   string        `json:"recognition_result,omitempty"`
+	ThumbnailURL        string        `json:"thumbnail_url,omitempty"`
+	FullImageURL        string        `json:"full_image_url,omitempty"`
+	FullImageExpiresAt  *time.Time    `json:"full_image_expires_at,omitempty"`
 	ConfirmedAt         *time.Time    `json:"confirmed_at,omitempty"`
 	CreatedAt           time.Time     `json:"created_at"`
 	UpdatedAt           time.Time     `json:"updated_at"`

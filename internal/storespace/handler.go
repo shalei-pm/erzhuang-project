@@ -183,12 +183,12 @@ func (h *Handler) recognizeRecorderChannels(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	err := h.service.RecognizeRecorderChannels(r.Context(), recorderID)
+	recorder, err := h.service.RecognizeRecorderChannels(r.Context(), recorderID)
 	if err != nil {
 		handleServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+	writeJSON(w, http.StatusOK, recorder)
 }
 
 func (h *Handler) confirmChannel(w http.ResponseWriter, r *http.Request) {

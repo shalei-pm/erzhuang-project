@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 )
@@ -89,4 +90,30 @@ func (s *EzvizScanner) ScanRecorderChannels(ctx context.Context, account EzvizAc
 		})
 	}
 	return channels, nil
+}
+
+func (s *EzvizScanner) CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error) {
+	if s == nil || s.client == nil {
+		return ChannelSnapshotInput{}, ErrNotImplemented
+	}
+	credentials, ok := s.accounts[account.AccountName]
+	if !ok {
+		return ChannelSnapshotInput{}, &ValidationError{Fields: map[string]string{"ezviz_account_id": "找不到萤石云账号配置"}}
+	}
+	if strings.TrimSpace(credentials.AppKey) == "" {
+		return ChannelSnapshotInput{}, &ValidationError{Fields: map[string]string{"app_key": "缺少萤石云 appKey"}}
+	}
+	if strings.TrimSpace(credentials.AppSecret) == "" {
+		return ChannelSnapshotInput{}, &ValidationError{Fields: map[string]string{"app_secret": "缺少萤石云 appSecret"}}
+	}
+	result, err := s.client.Capture(ctx, credentials, recorder.DeviceCode, channel.ChannelNo)
+	if err != nil {
+		return ChannelSnapshotInput{}, err
+	}
+	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+	return ChannelSnapshotInput{
+		ThumbnailPath:      result.PicURL,
+		FullImagePath:      result.PicURL,
+		FullImageExpiresAt: &expiresAt,
+	}, nil
 }

@@ -26,6 +26,7 @@ type Repository interface {
 	GetRecorder(ctx context.Context, recorderID int64) (*Recorder, error)
 	GetEzvizAccount(ctx context.Context, accountID int64) (*EzvizAccount, error)
 	ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error)
+	SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error)
 	ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error)
 	DeleteStore(ctx context.Context, id int64) error
 	DeleteRecorder(ctx context.Context, recorderID int64) error
@@ -380,6 +381,51 @@ func (s *MemoryStore) ReplaceRecorderChannels(ctx context.Context, recorderID in
 			copy := *recorder
 			copy.Channels = append([]Channel(nil), recorder.Channels...)
 			return &copy, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (s *MemoryStore) SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	for _, store := range s.stores {
+		for recorderIndex := range store.Recorders {
+			recorder := &store.Recorders[recorderIndex]
+			for channelIndex := range recorder.Channels {
+				channel := &recorder.Channels[channelIndex]
+				if channel.ID != channelID {
+					continue
+				}
+				if strings.TrimSpace(input.ThumbnailPath) != "" || strings.TrimSpace(input.FullImagePath) != "" {
+					channel.ThumbnailURL = strings.TrimSpace(input.ThumbnailPath)
+					channel.FullImageURL = strings.TrimSpace(input.FullImagePath)
+					channel.FullImageExpiresAt = input.FullImageExpiresAt
+				}
+				if input.Status != "" {
+					channel.Status = input.Status
+				}
+				if input.SceneType != "" {
+					channel.SceneType = input.SceneType
+				}
+				if input.AreaType != "" {
+					channel.AreaType = input.AreaType
+				} else if input.Status == ChannelStatusPendingConfirmation {
+					channel.AreaType = ""
+				}
+				if number := mustPositiveInt(input.AreaNumberText); number > 0 {
+					channel.AreaNumber = number
+				} else if input.Status == ChannelStatusPendingConfirmation {
+					channel.AreaNumber = 0
+				}
+				channel.RecognitionResult = strings.TrimSpace(input.RecognitionResult)
+				channel.RecognitionAttempts++
+				channel.UpdatedAt = now
+				copy := *channel
+				return &copy, nil
+			}
 		}
 	}
 	return nil, ErrNotFound
@@ -1074,6 +1120,55 @@ func (s *PostgresStore) ReplaceRecorderChannels(ctx context.Context, recorderID 
 	return s.GetRecorder(ctx, recorderID)
 }
 
+func (s *PostgresStore) SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var recorderID int64
+	if err := tx.QueryRowContext(ctx, `select recorder_id from video_channels where id = $1`, channelID).Scan(&recorderID); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.ThumbnailPath) != "" || strings.TrimSpace(input.FullImagePath) != "" {
+		if _, err := tx.ExecContext(ctx, `
+			insert into channel_snapshots (channel_id, thumbnail_path, full_image_path, full_image_expires_at)
+			values ($1, $2, $3, $4)
+		`, channelID, input.ThumbnailPath, input.FullImagePath, input.FullImageExpiresAt); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update video_channels
+		set recognition_attempts = recognition_attempts + 1,
+			recognition_result = nullif($1, '')::jsonb,
+			status = case when nullif($3, '') is null then status else $3 end,
+			scene_type = case when nullif($4, '') is null then scene_type else $4 end,
+			area_type = case when nullif($3, '') is null then area_type else nullif($5, '') end,
+			area_number = case when nullif($3, '') is null then area_number else nullif($6, 0) end,
+			updated_at = now()
+		where id = $2
+	`, input.RecognitionResult, channelID, input.Status, input.SceneType, input.AreaType, mustPositiveInt(input.AreaNumberText)); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	channels, err := s.listChannels(ctx, recorderID)
+	if err != nil {
+		return nil, err
+	}
+	for index := range channels {
+		if channels[index].ID == channelID {
+			return &channels[index], nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
 func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1508,8 +1603,17 @@ func (s *PostgresStore) listChannels(ctx context.Context, recorderID int64) ([]C
 	rows, err := s.db.QueryContext(ctx, `
 		select id, recorder_id, channel_no, channel_name, status, is_active,
 			scene_type, coalesce(area_type, ''), coalesce(area_number, 0),
-			coalesce(area_id, 0), recognition_attempts, confirmed_at, created_at, updated_at
+			coalesce(area_id, 0), recognition_attempts, coalesce(recognition_result::text, ''),
+			snapshot.thumbnail_path, snapshot.full_image_path, snapshot.full_image_expires_at,
+			confirmed_at, created_at, updated_at
 		from video_channels
+		left join lateral (
+			select thumbnail_path, full_image_path, full_image_expires_at
+			from channel_snapshots
+			where channel_id = video_channels.id
+			order by created_at desc, id desc
+			limit 1
+		) snapshot on true
 		where recorder_id = $1
 		order by channel_no
 	`, recorderID)
@@ -1521,6 +1625,9 @@ func (s *PostgresStore) listChannels(ctx context.Context, recorderID int64) ([]C
 	channels := []Channel{}
 	for rows.Next() {
 		var channel Channel
+		var thumbnailPath sql.NullString
+		var fullImagePath sql.NullString
+		var fullImageExpiresAt sql.NullTime
 		if err := rows.Scan(
 			&channel.ID,
 			&channel.RecorderID,
@@ -1533,11 +1640,20 @@ func (s *PostgresStore) listChannels(ctx context.Context, recorderID int64) ([]C
 			&channel.AreaNumber,
 			&channel.AreaID,
 			&channel.RecognitionAttempts,
+			&channel.RecognitionResult,
+			&thumbnailPath,
+			&fullImagePath,
+			&fullImageExpiresAt,
 			&channel.ConfirmedAt,
 			&channel.CreatedAt,
 			&channel.UpdatedAt,
 		); err != nil {
 			return nil, err
+		}
+		channel.ThumbnailURL = thumbnailPath.String
+		channel.FullImageURL = fullImagePath.String
+		if fullImageExpiresAt.Valid {
+			channel.FullImageExpiresAt = &fullImageExpiresAt.Time
 		}
 		channels = append(channels, channel)
 	}

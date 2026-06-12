@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/app"
+	"github.com/shalei-pm/erzhuang-project/internal/channelai"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 
@@ -28,10 +29,15 @@ func main() {
 
 		storeSpaceRepo := storespace.NewPostgresStore(db)
 		storeSpaceService := storespace.NewService(storeSpaceRepo)
+		var channelRecognizer storespace.ChannelRecognizer
+		if recognizer, enabled := channelai.NewOpenAIRecognizerFromEnv(); enabled {
+			channelRecognizer = storespace.NewChannelAIAdapter(recognizer)
+			log.Print("channel ai recognizer enabled")
+		}
 		if scanner, enabled, err := storespace.NewEzvizScannerFromEnv(); err != nil {
 			log.Fatalf("ezviz scanner setup failed: %v", err)
 		} else if enabled {
-			storeSpaceService = storespace.NewServiceWithScanner(storeSpaceRepo, scanner)
+			storeSpaceService = storespace.NewServiceWithScannerAndRecognizer(storeSpaceRepo, scanner, channelRecognizer)
 			log.Print("ezviz scanner enabled")
 		}
 		handler = app.NewHandlerWithServices(app.NewPostgresStore(db), designplan.NewService(designplan.NewPostgresStore(db)), storeSpaceService)

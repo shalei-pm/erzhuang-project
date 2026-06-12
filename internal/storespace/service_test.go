@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestCreateStoreRequiresDesignPlanOrRecorder(t *testing.T) {
@@ -318,6 +320,165 @@ func TestScanRecorderChannelsStoresActiveChannelsOnly(t *testing.T) {
 	}
 }
 
+func TestRecognizeRecorderChannelsCapturesSnapshots(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+		snapshots: map[int]string{
+			1: "https://example.test/channel-1.jpg",
+		},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	updated, err := service.RecognizeRecorderChannels(context.Background(), recorder.ID)
+	if err != nil {
+		t.Fatalf("recognize recorder channels: %v", err)
+	}
+
+	if len(updated.Channels) != 1 {
+		t.Fatalf("expected one channel, got %#v", updated.Channels)
+	}
+	if updated.Channels[0].ThumbnailURL != "https://example.test/channel-1.jpg" {
+		t.Fatalf("expected snapshot URL on channel, got %#v", updated.Channels[0])
+	}
+	if updated.Channels[0].RecognitionAttempts != 1 {
+		t.Fatalf("expected one recognition attempt, got %#v", updated.Channels[0])
+	}
+}
+
+func TestRecognizeRecorderChannelsPrefillsAIResultAndKeepsPendingConfirmation(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+		snapshots: map[int]string{
+			1: "https://example.test/channel-1.jpg",
+		},
+	}, fakeChannelRecognizer{
+		result: ChannelRecognitionResult{
+			SceneType:      string(SceneTypeTreatment),
+			AreaType:       string(AreaTypeTreatment),
+			AreaNumber:     "2",
+			CardText:       "治疗室 2",
+			DecisionSource: "number_card",
+			Confidence:     "high",
+			RawNotes:       "编号卡片显示治疗室 2",
+		},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	updated, err := service.RecognizeRecorderChannels(context.Background(), recorder.ID)
+	if err != nil {
+		t.Fatalf("recognize recorder channels: %v", err)
+	}
+
+	channel := updated.Channels[0]
+	if channel.Status != ChannelStatusPendingConfirmation {
+		t.Fatalf("expected pending confirmation, got %#v", channel)
+	}
+	if channel.AreaType != AreaTypeTreatment || channel.AreaNumber != 2 || channel.SceneType != SceneTypeTreatment {
+		t.Fatalf("expected AI prefill from number card, got %#v", channel)
+	}
+	if !strings.Contains(channel.RecognitionResult, `"decision_source":"number_card"`) {
+		t.Fatalf("expected recognition result to include decision source, got %s", channel.RecognitionResult)
+	}
+	if !strings.Contains(channel.RecognitionResult, `"recognition_ms"`) {
+		t.Fatalf("expected timing metrics in recognition result, got %s", channel.RecognitionResult)
+	}
+}
+
+func TestRecognizeRecorderChannelsDoesNotOverwriteConfirmedChannel(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+		snapshots: map[int]string{
+			1: "https://example.test/channel-1.jpg",
+		},
+	}, fakeChannelRecognizer{
+		result: ChannelRecognitionResult{
+			SceneType:      string(SceneTypeConsultation),
+			AreaType:       string(AreaTypeConsultation),
+			AreaNumber:     "9",
+			CardText:       "面诊室 9",
+			DecisionSource: "number_card",
+			Confidence:     "high",
+		},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "1",
+	}); err != nil {
+		t.Fatalf("confirm channel: %v", err)
+	}
+
+	updated, err := service.RecognizeRecorderChannels(context.Background(), recorder.ID)
+	if err != nil {
+		t.Fatalf("recognize recorder channels: %v", err)
+	}
+
+	channel := updated.Channels[0]
+	if channel.Status != ChannelStatusConfirmedBusiness {
+		t.Fatalf("expected confirmed channel to stay locked, got %#v", channel)
+	}
+	if channel.AreaType != AreaTypeTreatment || channel.AreaNumber != 1 {
+		t.Fatalf("expected confirmed business mapping to stay unchanged, got %#v", channel)
+	}
+	if channel.ThumbnailURL == "" {
+		t.Fatalf("expected snapshot to still refresh, got %#v", channel)
+	}
+}
+
 func TestConfirmChannelCreatesBusinessArea(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华南"})
@@ -345,7 +506,7 @@ func TestConfirmChannelCreatesBusinessArea(t *testing.T) {
 	updated, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
 		AreaType:   AreaTypeTreatment,
 		AreaNumber: "1",
-		SceneType:   SceneTypeTreatment,
+		SceneType:  SceneTypeTreatment,
 	})
 	if err != nil {
 		t.Fatalf("confirm channel: %v", err)
@@ -557,11 +718,37 @@ func TestSaveDesignPlanPreservesConfirmedChannelAreaSource(t *testing.T) {
 }
 
 type fakeChannelScanner struct {
-	channels []ScannedChannel
+	channels  []ScannedChannel
+	snapshots map[int]string
 }
 
 func (f fakeChannelScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
 	return f.channels, nil
+}
+
+func (f fakeChannelScanner) CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error) {
+	url := f.snapshots[channel.ChannelNo]
+	if url == "" {
+		url = "https://example.test/default.jpg"
+	}
+	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+	return ChannelSnapshotInput{
+		ThumbnailPath:      url,
+		FullImagePath:      url,
+		FullImageExpiresAt: &expiresAt,
+	}, nil
+}
+
+type fakeChannelRecognizer struct {
+	result ChannelRecognitionResult
+	err    error
+}
+
+func (f fakeChannelRecognizer) RecognizeChannel(ctx context.Context, imageURL string) (ChannelRecognitionResult, error) {
+	if f.err != nil {
+		return ChannelRecognitionResult{}, f.err
+	}
+	return f.result, nil
 }
 
 func TestFindOrCreateAreaRequiresNumberAndEnforcesUniqueness(t *testing.T) {
