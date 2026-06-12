@@ -883,6 +883,11 @@ td:nth-child(10) {
   background: var(--surface);
 }
 
+.recorder-table-wrap {
+  display: grid;
+  gap: 0;
+}
+
 .recorder-table th:nth-child(1),
 .recorder-table td:nth-child(1) {
   width: 220px;
@@ -919,6 +924,56 @@ td:nth-child(10) {
   min-width: 64px;
 }
 
+.recorder-operation-area {
+  display: grid;
+  grid-template-columns: auto minmax(78px, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.recorder-thinking-label,
+.recorder-muted-label {
+  justify-self: end;
+  max-width: 118px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recorder-thinking-label {
+  background: linear-gradient(90deg, var(--text-muted) 0%, #94a3b8 38%, var(--text-muted) 72%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinkingSweep 1.45s ease-in-out infinite;
+}
+
+.recorder-table-progress {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  background: transparent;
+  opacity: 1;
+}
+
+.recorder-table-progress.is-complete {
+  animation: progressFade 0.9s ease forwards;
+}
+
+.recorder-table-progress i {
+  display: block;
+  width: var(--progress, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #14b8a6);
+  box-shadow: 0 0 10px rgba(20, 184, 166, 0.18);
+  transition: width 0.28s ease;
+}
+
 .button-spinner {
   width: 14px;
   height: 14px;
@@ -943,59 +998,6 @@ td:nth-child(10) {
 
 .add-recorder-form button {
   min-width: 92px;
-}
-
-.recognition-progress {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  min-height: 24px;
-  padding: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.recognition-progress div {
-  display: grid;
-  gap: 5px;
-  min-width: 128px;
-}
-
-.recognition-progress strong {
-  color: var(--text-main);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.recognition-progress i {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 5px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #e2e8f0;
-}
-
-.recognition-progress i::after {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--progress, 0%);
-  border-radius: inherit;
-  background: linear-gradient(90deg, #2563eb, #14b8a6);
-  content: "";
-  transition: width 0.24s ease;
-}
-
-.recognition-progress span {
-  width: 14px;
-  height: 14px;
-  border: 2px solid #dbeafe;
-  border-top-color: var(--brand);
-  border-radius: 999px;
-  animation: spin 0.8s linear infinite;
 }
 
 .inline-error {
@@ -1449,6 +1451,27 @@ td:nth-child(10) {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes thinkingSweep {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -120% 0;
+  }
+}
+
+@keyframes progressFade {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
   }
 }
 

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   ApiError,
   storeSpaceApi,
@@ -47,6 +47,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
   const [recognizingChannelIds, setRecognizingChannelIds] = useState<Set<number>>(() => new Set());
   const [recorderProgress, setRecorderProgress] = useState<Record<number, { done: number; total: number }>>({});
+  const [completedRecorderProgressId, setCompletedRecorderProgressId] = useState<number | null>(null);
   const [previewChannel, setPreviewChannel] = useState<VideoChannel | null>(null);
   const [confirmingChannelId, setConfirmingChannelId] = useState<number | null>(null);
   const [channelError, setChannelError] = useState("");
@@ -57,7 +58,16 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
   const [channelTypeFilter, setChannelTypeFilter] = useState<ChannelTypeFilter>("all");
   const [editingChannels, setEditingChannels] = useState<Record<number, Partial<VideoChannel>>>({});
+  const completionTimerRef = useRef<number | null>(null);
   const regionAccounts = selectableRegionAccounts(accounts);
+
+  useEffect(() => {
+    return () => {
+      if (completionTimerRef.current !== null) {
+        window.clearTimeout(completionTimerRef.current);
+      }
+    };
+  }, []);
 
   async function scanRecorder(recorder: VideoRecorder) {
     setWorkingRecorderId(recorder.id);
@@ -82,6 +92,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       return;
     }
     setWorkingRecorderId(recorder.id);
+    setCompletedRecorderProgressId(null);
     setChannelError("");
     setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: 0, total: targetChannels.length } }));
     setRecognizingChannelIds((current) => {
@@ -103,6 +114,14 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         });
         setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: index + 1, total: targetChannels.length } }));
       }
+      setCompletedRecorderProgressId(recorder.id);
+      if (completionTimerRef.current !== null) {
+        window.clearTimeout(completionTimerRef.current);
+      }
+      completionTimerRef.current = window.setTimeout(() => {
+        setCompletedRecorderProgressId(null);
+        completionTimerRef.current = null;
+      }, 900);
       onToast(`已完成 ${recorder.deviceCode} 的通道识别。`);
     } catch (error) {
       const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
@@ -293,79 +312,71 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
             <p>可在上方填写设备编码并添加，添加后再扫描通道。</p>
           </div>
         ) : (
-          <table className="recorder-table">
-            <thead>
-              <tr>
-                <th>录像机名称</th>
-                <th>状态</th>
-                <th>有效通道数</th>
-                <th>上次扫描时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {store.recorders.map((recorder) => {
-                const hasScanned = recorder.effectiveChannelCount > 0 || recorder.channels.length > 0 || Boolean(recorder.lastScannedAt);
-                const isDeleting = deletingRecorderIds.has(recorder.id);
-                return (
-                  <tr key={recorder.id}>
-                    <td>
-                      <strong>{recorder.deviceCode}</strong>
-                    </td>
-                    <td>
-                      <span className={`status-pill recorder-${recorder.status}`}>{recorder.status === "online" ? "在线" : "离线"}</span>
-                    </td>
-                    <td>{recorder.effectiveChannelCount}</td>
-                    <td>{formatDateTime(recorder.lastScannedAt)}</td>
-                    <td>
-                      <div className="row-actions recorder-actions">
-                        <button disabled={workingRecorderId === recorder.id || isDeleting} onClick={() => void scanRecorder(recorder)}>
-                          {hasScanned ? "再次扫描" : "扫描通道"}
-                        </button>
-                        {hasScanned ? (
-                          <button disabled={workingRecorderId === recorder.id || isDeleting} onClick={() => void recognizeRecorder(recorder)}>
-                            {workingRecorderId === recorder.id ? (
-                              <>
-                                <span className="button-spinner" aria-hidden="true" />
-                                识别中
-                              </>
-                            ) : (
-                              "识别区域"
-                            )}
-                          </button>
-                        ) : null}
-                        <button
-                          className="danger-link"
-                          disabled={workingRecorderId === recorder.id || isDeleting}
-                          onClick={() => void deleteRecorder(recorder)}
-                        >
-                          {isDeleting ? (
-                            <>
-                              <span className="button-spinner" aria-hidden="true" />
-                              删除中
-                            </>
-                          ) : (
-                            "删除"
-                          )}
-                        </button>
-                      </div>
-                      {workingRecorderId === recorder.id ? (
-                        <div className="recognition-progress">
-                          <span aria-hidden="true" />
-                          <div>
-                            <strong>{recognitionProgressLabel(recorderProgress[recorder.id])}</strong>
-                            <i style={{ "--progress": `${recognitionProgressPercent(recorderProgress[recorder.id])}%` } as CSSProperties} />
+          <div className="recorder-table-wrap">
+            <table className="recorder-table">
+              <thead>
+                <tr>
+                  <th>录像机名称</th>
+                  <th>状态</th>
+                  <th>有效通道数</th>
+                  <th>上次扫描时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {store.recorders.map((recorder) => {
+                  const hasScanned = recorder.effectiveChannelCount > 0 || recorder.channels.length > 0 || Boolean(recorder.lastScannedAt);
+                  const isDeleting = deletingRecorderIds.has(recorder.id);
+                  const isRecognizingRecorder = workingRecorderId === recorder.id;
+                  return (
+                    <tr key={recorder.id}>
+                      <td>
+                        <strong>{recorder.deviceCode}</strong>
+                      </td>
+                      <td>
+                        <span className={`status-pill recorder-${recorder.status}`}>{recorder.status === "online" ? "在线" : "离线"}</span>
+                      </td>
+                      <td>{recorder.effectiveChannelCount}</td>
+                      <td>{formatDateTime(recorder.lastScannedAt)}</td>
+                      <td>
+                        <div className="recorder-operation-area">
+                          <div className="row-actions recorder-actions">
+                            <button disabled={isRecognizingRecorder || isDeleting} onClick={() => void scanRecorder(recorder)}>
+                              {hasScanned ? "再次扫描" : "扫描通道"}
+                            </button>
+                            {hasScanned ? (
+                              <button disabled={isRecognizingRecorder || isDeleting} onClick={() => void recognizeRecorder(recorder)}>
+                                识别区域
+                              </button>
+                            ) : null}
+                            <button className="danger-link" disabled={isRecognizingRecorder || isDeleting} onClick={() => void deleteRecorder(recorder)}>
+                              {isDeleting ? (
+                                <>
+                                  <span className="button-spinner" aria-hidden="true" />
+                                  删除中
+                                </>
+                              ) : (
+                                "删除"
+                              )}
+                            </button>
                           </div>
+                          {isRecognizingRecorder ? (
+                            <span className="recorder-thinking-label">{recognitionProgressLabel(recorderProgress[recorder.id])}</span>
+                          ) : recorder.recognitionProgress ? (
+                            <span className="recorder-muted-label">{recorder.recognitionProgress}</span>
+                          ) : null}
                         </div>
-                      ) : recorder.recognitionProgress ? (
-                        <div className="recognition-progress">{recorder.recognitionProgress}</div>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <RecorderTableProgress
+              progress={activeRecorderProgress(workingRecorderId, completedRecorderProgressId, recorderProgress)}
+              complete={workingRecorderId === null && completedRecorderProgressId !== null}
+            />
+          </div>
         )}
       </section>
 
@@ -666,6 +677,25 @@ function recognitionProgressLabel(progress?: { done: number; total: number }) {
 function recognitionProgressPercent(progress?: { done: number; total: number }) {
   if (!progress || progress.total <= 0) return 0;
   return Math.min(100, Math.round((progress.done / progress.total) * 100));
+}
+
+function activeRecorderProgress(
+  workingRecorderId: number | null,
+  completedRecorderProgressId: number | null,
+  recorderProgress: Record<number, { done: number; total: number }>,
+) {
+  if (workingRecorderId !== null) return recorderProgress[workingRecorderId];
+  if (completedRecorderProgressId !== null) return recorderProgress[completedRecorderProgressId];
+  return undefined;
+}
+
+function RecorderTableProgress({ progress, complete }: { progress?: { done: number; total: number }; complete: boolean }) {
+  if (!progress) return null;
+  return (
+    <div className={`recorder-table-progress${complete ? " is-complete" : ""}`} aria-hidden="true">
+      <i style={{ "--progress": `${recognitionProgressPercent(progress)}%` } as CSSProperties} />
+    </div>
+  );
 }
 
 function nonBusinessLabel(sceneType: VideoChannel["sceneType"]) {
