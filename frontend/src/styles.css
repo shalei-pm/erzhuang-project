@@ -907,6 +907,17 @@ td:nth-child(10) {
   animation: spin 0.8s linear infinite;
 }
 
+.inline-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-control);
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .channel-table {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);

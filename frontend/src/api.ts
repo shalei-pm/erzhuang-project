@@ -1436,7 +1436,7 @@ function toStoreSpaceChannelConfirmationPayload(patch: Partial<VideoChannel>) {
     return {
       kind: "business",
       area_type: patch.areaType,
-      area_number: patch.areaNumber ? Number(patch.areaNumber) : undefined,
+      area_number: patch.areaNumber ? String(patch.areaNumber) : undefined,
     };
   }
   return {

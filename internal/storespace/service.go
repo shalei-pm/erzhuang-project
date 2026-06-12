@@ -168,6 +168,22 @@ func (s *Service) ScanRecorderChannels(ctx context.Context, recorderID int64) (*
 	return s.repo.ReplaceRecorderChannels(ctx, recorderID, channelInputs)
 }
 
+func (s *Service) ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error) {
+	input.AreaNumber = strings.TrimSpace(input.AreaNumber)
+	if input.SceneType == "" {
+		input.SceneType = SceneTypeUnknown
+	}
+	number, err := validateChannelConfirmationInput(input)
+	if err != nil {
+		return nil, err
+	}
+	if input.AreaType != "" {
+		input.AreaNumber = strconv.Itoa(number)
+		input.SceneType = SceneType(input.AreaType)
+	}
+	return s.repo.ConfirmChannel(ctx, channelID, input)
+}
+
 func (s *Service) RecognizeRecorderChannels(ctx context.Context, recorderID int64) error {
 	return ErrNotImplemented
 }

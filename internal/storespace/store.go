@@ -25,6 +25,7 @@ type Repository interface {
 	GetRecorder(ctx context.Context, recorderID int64) (*Recorder, error)
 	GetEzvizAccount(ctx context.Context, accountID int64) (*EzvizAccount, error)
 	ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error)
+	ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error)
 	DeleteStore(ctx context.Context, id int64) error
 	DeleteRecorder(ctx context.Context, recorderID int64) error
 	CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error)
@@ -311,6 +312,55 @@ func (s *MemoryStore) ReplaceRecorderChannels(ctx context.Context, recorderID in
 	return nil, ErrNotFound
 }
 
+func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	for _, store := range s.stores {
+		for recorderIndex := range store.Recorders {
+			recorder := &store.Recorders[recorderIndex]
+			for channelIndex := range recorder.Channels {
+				channel := &recorder.Channels[channelIndex]
+				if channel.ID != channelID {
+					continue
+				}
+
+				channel.SceneType = input.SceneType
+				channel.UpdatedAt = now
+				channel.ConfirmedAt = &now
+				if input.AreaType == "" {
+					channel.AreaType = ""
+					channel.AreaNumber = 0
+					channel.AreaID = 0
+					channel.Status = ChannelStatusConfirmedNonBusiness
+					store.UpdatedAt = now
+					copy := cloneStore(*store)
+					return &copy, nil
+				}
+
+				number, err := strconv.Atoi(strings.TrimSpace(input.AreaNumber))
+				if err != nil || number <= 0 {
+					return nil, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
+				}
+				area, err := s.findOrCreateAreaLocked(store, input.AreaType, number, AreaSourceVideoChannel, now)
+				if err != nil {
+					return nil, err
+				}
+				channel.AreaType = area.Type
+				channel.AreaNumber = area.Number
+				channel.AreaID = area.ID
+				channel.SceneType = SceneType(area.Type)
+				channel.Status = ChannelStatusConfirmedBusiness
+				store.UpdatedAt = now
+				copy := cloneStore(*store)
+				return &copy, nil
+			}
+		}
+	}
+	return nil, ErrNotFound
+}
+
 func (s *MemoryStore) DeleteStore(ctx context.Context, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -427,6 +477,34 @@ func (s *MemoryStore) FindOrCreateArea(ctx context.Context, input AreaLookup, ar
 	store.UpdatedAt = now
 	copy := area
 	return &copy, nil
+}
+
+func (s *MemoryStore) findOrCreateAreaLocked(store *Store, areaType AreaType, areaNumber int, source AreaSource, now time.Time) (*Area, error) {
+	for index := range store.Areas {
+		area := &store.Areas[index]
+		if area.Type == areaType && area.Number == areaNumber {
+			if area.Source != source && source != "" {
+				area.Source = AreaSourceMultiple
+				area.UpdatedAt = now
+			}
+			return area, nil
+		}
+	}
+
+	area := Area{
+		ID:          s.nextAreaID,
+		StoreID:     store.ID,
+		Type:        areaType,
+		Number:      areaNumber,
+		DisplayName: areaDisplayName(areaType, areaNumber),
+		Source:      source,
+		Status:      AreaStatusConfirmed,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	s.nextAreaID++
+	store.Areas = append(store.Areas, area)
+	return &store.Areas[len(store.Areas)-1], nil
 }
 
 type PostgresStore struct {
@@ -797,6 +875,107 @@ func (s *PostgresStore) ReplaceRecorderChannels(ctx context.Context, recorderID 
 		return nil, err
 	}
 	return s.GetRecorder(ctx, recorderID)
+}
+
+func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var storeID int64
+	err = tx.QueryRowContext(ctx, `
+		select r.store_id
+		from video_channels c
+		join video_recorders r on r.id = c.recorder_id
+		where c.id = $1
+	`, channelID).Scan(&storeID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if input.AreaType == "" {
+		sceneType := input.SceneType
+		if sceneType == "" {
+			sceneType = SceneTypeUnknown
+		}
+		if _, err := tx.ExecContext(ctx, `
+			update video_channels
+			set status = $1,
+				scene_type = $2,
+				area_type = null,
+				area_number = null,
+				area_id = null,
+				confirmed_at = now(),
+				updated_at = now()
+			where id = $3
+		`, ChannelStatusConfirmedNonBusiness, sceneType, channelID); err != nil {
+			return nil, err
+		}
+	} else {
+		number, err := strconv.Atoi(strings.TrimSpace(input.AreaNumber))
+		if err != nil || number <= 0 {
+			return nil, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
+		}
+		area, err := queryArea(ctx, tx, storeID, input.AreaType, number)
+		if errors.Is(err, ErrNotFound) {
+			err = tx.QueryRowContext(ctx, `
+				insert into store_areas (store_id, area_type, area_number, display_name, source, status)
+				values ($1, $2, $3, $4, $5, $6)
+				returning id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
+			`, storeID, input.AreaType, number, areaDisplayName(input.AreaType, number), AreaSourceVideoChannel, AreaStatusConfirmed).Scan(
+				&area.ID,
+				&area.StoreID,
+				&area.Type,
+				&area.Number,
+				&area.DisplayName,
+				&area.Source,
+				&area.Status,
+				&area.CreatedAt,
+				&area.UpdatedAt,
+			)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if area.Source != AreaSourceVideoChannel && area.Source != AreaSourceMultiple {
+			if _, err := tx.ExecContext(ctx, `
+				update store_areas
+				set source = $1, updated_at = now()
+				where id = $2
+			`, AreaSourceMultiple, area.ID); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			update video_channels
+			set status = $1,
+				scene_type = $2,
+				area_type = $3,
+				area_number = $4,
+				area_id = $5,
+				confirmed_at = now(),
+				updated_at = now()
+			where id = $6
+		`, ChannelStatusConfirmedBusiness, SceneType(input.AreaType), input.AreaType, number, area.ID, channelID); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `update stores set updated_at = now() where id = $1`, storeID); err != nil {
+		return nil, err
+	}
+	if err := insertOperationLog(ctx, tx, "confirm_channel", "channel", channelID, storeID, "confirmed video channel mapping"); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, storeID)
 }
 
 func (s *PostgresStore) DeleteStore(ctx context.Context, id int64) error {

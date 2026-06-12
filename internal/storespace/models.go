@@ -129,6 +129,13 @@ type ChannelInput struct {
 	IsActive    bool
 }
 
+type ChannelConfirmationInput struct {
+	Kind       string    `json:"kind,omitempty"`
+	AreaType   AreaType  `json:"area_type,omitempty"`
+	AreaNumber string    `json:"area_number,omitempty"`
+	SceneType   SceneType `json:"scene_type,omitempty"`
+}
+
 type DuplicateCheckRequest struct {
 	Name           string `json:"name"`
 	ExcludeStoreID int64  `json:"exclude_store_id,omitempty"`

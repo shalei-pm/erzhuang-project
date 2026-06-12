@@ -36,6 +36,8 @@ type VideoChannelTabProps = {
 export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
   const [recognizingChannelId, setRecognizingChannelId] = useState<number | null>(null);
+  const [confirmingChannelId, setConfirmingChannelId] = useState<number | null>(null);
+  const [channelError, setChannelError] = useState("");
   const [addingRecorder, setAddingRecorder] = useState(false);
   const [newRecorderCode, setNewRecorderCode] = useState("");
   const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
@@ -43,12 +45,15 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
 
   async function scanRecorder(recorder: VideoRecorder) {
     setWorkingRecorderId(recorder.id);
+    setChannelError("");
     try {
       const nextRecorder = await storeSpaceApi.scanRecorder(store.id, recorder.id);
       onRecorderUpdated(nextRecorder);
       onToast(`已扫描 ${recorder.deviceCode}，发现 ${nextRecorder.effectiveChannelCount} 个有效通道。`);
     } catch (error) {
-      onToast(channelErrorMessage(error, "扫描失败，请稍后重试。"));
+      const message = channelErrorMessage(error, "扫描失败，请稍后重试。");
+      setChannelError(`录像机 ${recorder.deviceCode} 扫描失败：${message}`);
+      onToast(message);
     } finally {
       setWorkingRecorderId(null);
     }
@@ -56,12 +61,15 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
 
   async function recognizeRecorder(recorder: VideoRecorder) {
     setWorkingRecorderId(recorder.id);
+    setChannelError("");
     try {
       const nextRecorder = await storeSpaceApi.recognizeRecorder(store.id, recorder.id);
       onRecorderUpdated(nextRecorder);
       onToast(`已完成 ${recorder.deviceCode} 的通道识别。`);
     } catch (error) {
-      onToast(channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。"));
+      const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
+      setChannelError(`录像机 ${recorder.deviceCode} 识别失败：${message}`);
+      onToast(message);
     } finally {
       setWorkingRecorderId(null);
     }
@@ -114,6 +122,8 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onToast("确认为业务区域时，编号必填。");
       return;
     }
+    setConfirmingChannelId(channel.id);
+    setChannelError("");
     try {
       const updated = await storeSpaceApi.confirmChannel(store.id, channel.id, {
         ...patch,
@@ -129,7 +139,11 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onStoreUpdated(updated);
       onToast("通道确认已保存。");
     } catch (error) {
-      onToast(channelErrorMessage(error, "通道确认失败，请稍后重试。"));
+      const message = channelErrorMessage(error, "通道确认失败，请稍后重试。");
+      setChannelError(`通道 ${channel.channelNo} 确认失败：${message}`);
+      onToast(message);
+    } finally {
+      setConfirmingChannelId(null);
     }
   }
 
@@ -145,11 +159,14 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
 
   async function recognizeChannel(recorder: VideoRecorder, channel: VideoChannel) {
     setRecognizingChannelId(channel.id);
+    setChannelError("");
     try {
       await storeSpaceApi.recognizeRecorder(store.id, recorder.id);
       onToast(`通道 ${channel.channelNo} 的截图识别已触发。`);
     } catch (error) {
-      onToast(channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。"));
+      const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
+      setChannelError(`通道 ${channel.channelNo} 识别失败：${message}`);
+      onToast(message);
     } finally {
       setRecognizingChannelId(null);
     }
@@ -187,6 +204,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
             </button>
           </div>
         </div>
+        {channelError ? <div className="inline-error">{channelError}</div> : null}
 
         {store.recorders.length === 0 ? (
           <div className="manual-panel">
@@ -334,7 +352,16 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     <td>
                       <div className="row-actions">
                         {isEditable ? (
-                          <button onClick={() => void confirmChannel(channel)}>确认</button>
+                          <button disabled={confirmingChannelId === channel.id} onClick={() => void confirmChannel(channel)}>
+                            {confirmingChannelId === channel.id ? (
+                              <>
+                                <span className="button-spinner" aria-hidden="true" />
+                                确认中
+                              </>
+                            ) : (
+                              "确认"
+                            )}
+                          </button>
                         ) : (
                           <button onClick={() => updateChannelDraft(channel.id, { status: "pending_confirmation" })}>编辑</button>
                         )}
@@ -389,6 +416,9 @@ function channelErrorMessage(error: unknown, fallback: string) {
   }
   if (error instanceof ApiError && error.status === 501) {
     return "截图识别能力还在接入中，当前可以先完成真实通道扫描。";
+  }
+  if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
+    return Object.values(error.fields).join("；");
   }
   if (error instanceof Error && error.message.trim()) {
     return error.message;

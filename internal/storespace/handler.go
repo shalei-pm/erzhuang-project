@@ -29,6 +29,7 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	mux.HandleFunc("DELETE /api/store-space/recorders/{recorder_id}", handler.deleteRecorder)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/scan-channels", handler.scanRecorderChannels)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/recognize-channels", handler.recognizeRecorderChannels)
+	mux.HandleFunc("PUT /api/store-space/channels/{channel_id}/confirmation", handler.confirmChannel)
 }
 
 func (h *Handler) listEzvizAccounts(w http.ResponseWriter, r *http.Request) {
@@ -170,6 +171,23 @@ func (h *Handler) recognizeRecorderChannels(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (h *Handler) confirmChannel(w http.ResponseWriter, r *http.Request) {
+	channelID, ok := parseID(w, r, "channel_id")
+	if !ok {
+		return
+	}
+	var input ChannelConfirmationInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	store, err := h.service.ConfirmChannel(r.Context(), channelID, input)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, store)
 }
 
 func parseID(w http.ResponseWriter, r *http.Request, key string) (int64, bool) {

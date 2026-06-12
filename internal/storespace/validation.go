@@ -102,6 +102,43 @@ func validateAreaLookup(input AreaLookup) (int, error) {
 	return number, nil
 }
 
+func validateChannelConfirmationInput(input ChannelConfirmationInput) (int, error) {
+	fields := map[string]string{}
+	kind := strings.TrimSpace(input.Kind)
+	if kind != "" && kind != "business" && kind != "non_business" {
+		fields["kind"] = "确认类型只能是 business 或 non_business"
+	}
+	if input.AreaType == "" {
+		if kind == "business" {
+			fields["area_type"] = "业务区域类型必填"
+		}
+		if input.SceneType != "" && !validSceneType(input.SceneType) {
+			fields["scene_type"] = "场景类型不合法"
+		}
+		if len(fields) > 0 {
+			return 0, &ValidationError{Fields: fields}
+		}
+		return 0, nil
+	}
+	if !validAreaType(input.AreaType) {
+		fields["area_type"] = "区域类型只能是 treatment、consultation、beauty"
+	}
+	numberText := strings.TrimSpace(input.AreaNumber)
+	if numberText == "" {
+		fields["area_number"] = "区域编号必填"
+	} else if !onlyDigits(numberText) {
+		fields["area_number"] = "区域编号只能是数字"
+	}
+	if len(fields) > 0 {
+		return 0, &ValidationError{Fields: fields}
+	}
+	number, err := strconv.Atoi(numberText)
+	if err != nil || number <= 0 {
+		return 0, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
+	}
+	return number, nil
+}
+
 func validAreaType(value AreaType) bool {
 	return value == AreaTypeTreatment || value == AreaTypeConsultation || value == AreaTypeBeauty
 }
@@ -111,6 +148,27 @@ func validAreaSource(value AreaSource) bool {
 		value == AreaSourceDesignPlan ||
 		value == AreaSourceVideoChannel ||
 		value == AreaSourceMultiple
+}
+
+func validSceneType(value SceneType) bool {
+	switch value {
+	case SceneTypeTreatment,
+		SceneTypeConsultation,
+		SceneTypeBeauty,
+		SceneTypeFrontDesk,
+		SceneTypeCorridor,
+		SceneTypePassage,
+		SceneTypeWaitingArea,
+		SceneTypeHall,
+		SceneTypeEntrance,
+		SceneTypeStorage,
+		SceneTypePharmacy,
+		SceneTypeMachineRoom,
+		SceneTypeUnknown:
+		return true
+	default:
+		return false
+	}
 }
 
 func onlyDigits(value string) bool {

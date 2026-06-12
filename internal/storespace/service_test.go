@@ -318,6 +318,60 @@ func TestScanRecorderChannelsStoresActiveChannelsOnly(t *testing.T) {
 	}
 }
 
+func TestConfirmChannelCreatesBusinessArea(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华南"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GQ2603603"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	updated, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "1",
+		SceneType:   SceneTypeTreatment,
+	})
+	if err != nil {
+		t.Fatalf("confirm channel: %v", err)
+	}
+
+	if len(updated.Areas) != 1 {
+		t.Fatalf("expected one business area, got %#v", updated.Areas)
+	}
+	if updated.Areas[0].Type != AreaTypeTreatment || updated.Areas[0].Number != 1 || updated.Areas[0].Source != AreaSourceVideoChannel {
+		t.Fatalf("unexpected area after confirm: %#v", updated.Areas[0])
+	}
+	if len(updated.Recorders) != 1 || len(updated.Recorders[0].Channels) != 1 {
+		t.Fatalf("expected channel in updated store: %#v", updated.Recorders)
+	}
+	channel := updated.Recorders[0].Channels[0]
+	if channel.Status != ChannelStatusConfirmedBusiness {
+		t.Fatalf("expected confirmed business channel, got %q", channel.Status)
+	}
+	if channel.AreaID != updated.Areas[0].ID || channel.AreaType != AreaTypeTreatment || channel.AreaNumber != 1 {
+		t.Fatalf("expected channel linked to area, got %#v", channel)
+	}
+	if channel.ConfirmedAt == nil {
+		t.Fatal("expected confirmation timestamp")
+	}
+}
+
 type fakeChannelScanner struct {
 	channels []ScannedChannel
 }
