@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -733,10 +734,32 @@ func (s *PostgresStore) FindOrCreateArea(ctx context.Context, input AreaLookup, 
 
 func (s *PostgresStore) listAreas(ctx context.Context, storeID int64) ([]Area, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
-		from store_areas
-		where store_id = $1
-		order by area_type, area_number
+		select
+			a.id,
+			a.store_id,
+			a.area_type,
+			a.area_number,
+			a.display_name,
+			a.source,
+			a.status,
+			annotation.box_x,
+			annotation.box_y,
+			annotation.box_width,
+			annotation.box_height,
+			a.created_at,
+			a.updated_at
+		from store_areas a
+		left join lateral (
+			select box_x, box_y, box_width, box_height
+			from design_plan_annotations dpa
+			join store_design_plans sdp on sdp.id = dpa.design_plan_id
+			where dpa.area_id = a.id
+				and sdp.store_id = a.store_id
+			order by dpa.updated_at desc, dpa.id desc
+			limit 1
+		) annotation on true
+		where a.store_id = $1
+		order by a.area_type, a.area_number
 	`, storeID)
 	if err != nil {
 		return nil, err
@@ -746,12 +769,53 @@ func (s *PostgresStore) listAreas(ctx context.Context, storeID int64) ([]Area, e
 	areas := []Area{}
 	for rows.Next() {
 		var area Area
-		if err := rows.Scan(&area.ID, &area.StoreID, &area.Type, &area.Number, &area.DisplayName, &area.Source, &area.Status, &area.CreatedAt, &area.UpdatedAt); err != nil {
+		var boxX, boxY, boxWidth, boxHeight sql.NullString
+		if err := rows.Scan(
+			&area.ID,
+			&area.StoreID,
+			&area.Type,
+			&area.Number,
+			&area.DisplayName,
+			&area.Source,
+			&area.Status,
+			&boxX,
+			&boxY,
+			&boxWidth,
+			&boxHeight,
+			&area.CreatedAt,
+			&area.UpdatedAt,
+		); err != nil {
 			return nil, err
+		}
+		if box, ok := parseAreaBox(boxX, boxY, boxWidth, boxHeight); ok {
+			area.Box = box
 		}
 		areas = append(areas, area)
 	}
 	return areas, rows.Err()
+}
+
+func parseAreaBox(boxX, boxY, boxWidth, boxHeight sql.NullString) (*AreaBox, bool) {
+	if !boxX.Valid || !boxY.Valid || !boxWidth.Valid || !boxHeight.Valid {
+		return nil, false
+	}
+	x, err := strconv.ParseFloat(boxX.String, 64)
+	if err != nil {
+		return nil, false
+	}
+	y, err := strconv.ParseFloat(boxY.String, 64)
+	if err != nil {
+		return nil, false
+	}
+	width, err := strconv.ParseFloat(boxWidth.String, 64)
+	if err != nil {
+		return nil, false
+	}
+	height, err := strconv.ParseFloat(boxHeight.String, 64)
+	if err != nil {
+		return nil, false
+	}
+	return &AreaBox{X: x, Y: y, Width: width, Height: height}, true
 }
 
 func (s *PostgresStore) listDesignPlans(ctx context.Context, storeID int64) ([]DesignPlan, error) {

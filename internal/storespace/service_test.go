@@ -2,6 +2,7 @@ package storespace
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 )
@@ -174,5 +175,24 @@ func TestFindOrCreateAreaRequiresNumberAndEnforcesUniqueness(t *testing.T) {
 	}
 	if validationError.Fields["area_number"] != "区域编号必填" {
 		t.Fatalf("unexpected area number error: %#v", validationError.Fields)
+	}
+}
+
+func TestParseAreaBoxReturnsAnnotationCoordinates(t *testing.T) {
+	box, ok := parseAreaBox(
+		sql.NullString{String: "0.12", Valid: true},
+		sql.NullString{String: "0.23", Valid: true},
+		sql.NullString{String: "0.34", Valid: true},
+		sql.NullString{String: "0.45", Valid: true},
+	)
+	if !ok {
+		t.Fatal("expected box to parse")
+	}
+	if box.X != 0.12 || box.Y != 0.23 || box.Width != 0.34 || box.Height != 0.45 {
+		t.Fatalf("unexpected box: %#v", box)
+	}
+
+	if _, ok := parseAreaBox(sql.NullString{}, sql.NullString{String: "0.23", Valid: true}, sql.NullString{String: "0.34", Valid: true}, sql.NullString{String: "0.45", Valid: true}); ok {
+		t.Fatal("expected missing coordinate to skip box")
 	}
 }

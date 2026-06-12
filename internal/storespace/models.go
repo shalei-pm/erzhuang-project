@@ -180,8 +180,16 @@ type Area struct {
 	DisplayName string     `json:"display_name"`
 	Source      AreaSource `json:"source"`
 	Status      AreaStatus `json:"status"`
+	Box         *AreaBox   `json:"box,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+type AreaBox struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
 }
 
 type DesignPlan struct {

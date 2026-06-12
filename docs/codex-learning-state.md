@@ -1463,6 +1463,34 @@ git diff --check
   - 门店详情页移除“门店详情”冗余文案。
   - 录像机列表标题下移除 `1 / 3 台`。
   - 录像机操作改成圆角按钮样式。
+- 发布结果：
+  - 本地 commit：`191e4ee`
+  - 线上 commit：`191e4ee`
+  - 线上页面版本：`2.3.1 (191e4ee)`
+  - TAT InvocationId：`inv-s4rh2w0iqb`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：`/erzhuang/assets/index-DYHlvXR0.js`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/api/store-space/stores?page=1&page_size=50` 返回 `total=8`。
+    - 新列表已同时包含 5 个 2.x 测试门店和 3 个 1.x 历史设计图门店：
+      - `新氧青春诊所 深圳龙岗坂田万科项目`
+      - `新氧青春广州塔门店`
+      - `新氧青春诊所 深圳壹方城项目`
+    - 抽查 `/erzhuang/api/store-space/stores/6` 可读取 `深圳壹方城项目` 的设计图和 11 个区域。
+
+## 2026-06-12 旧门店标注框坐标 2.3.2 修复
+
+本次版本号从 `2.3.1` 升级到 `2.3.2`：
+
+- 发布后补充验收发现：
+  - 旧门店已经恢复到新列表和新详情接口。
+  - 但 `store-space` 详情接口只返回区域主数据，没有返回 `design_plan_annotations` 中的矩形框坐标。
+  - 前端已经支持读取 `area.box`，因此需要后端补齐该字段，避免历史门店进入设计图 Tab 后缺少左侧标注框。
+- 修复：
+  - `store-space` 的 `Area` 增加 `box` 返回字段。
+  - `PostgresStore.listAreas` 左连接最新一条 `design_plan_annotations`，把 `box_x/y/width/height` 转为前端使用的 `box`。
+  - 新增 `parseAreaBox` 单元测试，覆盖坐标解析和缺失坐标不返回 box 的情况。
 
 ## 明日待办
 
