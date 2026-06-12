@@ -1640,6 +1640,10 @@ function toDisplayImageUrl(value?: string) {
   if (value.startsWith("mock/")) {
     return MOCK_PLAN_IMAGE;
   }
+  const storedUploadMatch = value.match(/^uploads\/([^/]+)\/(preview|thumbnail)\.png$/);
+  if (storedUploadMatch) {
+    return `/api/design-plan/uploads/${storedUploadMatch[1]}/${storedUploadMatch[2]}`;
+  }
   if (/^\/api\/design-plan\/uploads\/[^/]+\/(preview|thumbnail)$/.test(value)) {
     return `/erzhuang${value}`;
   }

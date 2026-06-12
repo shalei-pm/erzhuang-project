@@ -142,6 +142,19 @@
   - mock 账号补充华中，方便本地无后端时也能覆盖该选项。
   - 增加 `scripts/check-region-options.mjs`，用于检查大区白名单必须包含四个区域。
 
+## 2026-06-12 设计图详情图片恢复 2.9.2 修复记录
+
+- 版本号：`2.9.2`。
+- 问题：
+  - 用户保存设计图标注后，从机构列表重新进入机构详情，设计图图片加载不出来。
+- 根因：
+  - 保存后的设计图详情接口返回内部存储路径，例如 `uploads/{upload_id}/preview.png`。
+  - 前端重新进入详情时没有把该内部路径转换为可访问的图片接口 `/api/design-plan/uploads/{upload_id}/preview`。
+  - 服务器文件实际存在，详情接口也返回 200，问题位于前端图片 URL 映射层。
+- 修复：
+  - `toDisplayImageUrl` 增加对 `uploads/{upload_id}/preview.png` 和 `uploads/{upload_id}/thumbnail.png` 的转换。
+  - 新增 `scripts/check-design-plan-image-url.mjs`，用于防止保存后内部图片路径无法恢复为前端可访问 URL。
+
 当前新增产品需求讨论：
 
 - 项目方向：设计图标记与诊室区域管理。
