@@ -344,7 +344,7 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 				if err != nil || number <= 0 {
 					return nil, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
 				}
-				area, err := s.findOrCreateAreaLocked(store, input.AreaType, number, AreaSourceVideoChannel, now)
+				area, err := s.updateOrFindVideoAreaLocked(store, channel.AreaID, input.AreaType, number, now)
 				if err != nil {
 					return nil, err
 				}
@@ -361,6 +361,30 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 		}
 	}
 	return nil, ErrNotFound
+}
+
+func (s *MemoryStore) updateOrFindVideoAreaLocked(store *Store, currentAreaID int64, areaType AreaType, areaNumber int, now time.Time) (*Area, error) {
+	if currentAreaID != 0 {
+		for index := range store.Areas {
+			area := &store.Areas[index]
+			if area.ID != currentAreaID || (area.Source != AreaSourceVideoChannel && area.Source != AreaSourceMultiple) {
+				continue
+			}
+			if existing := findAreaByTypeNumber(store.Areas, areaType, areaNumber); existing != nil && existing.ID != currentAreaID {
+				if existing.Source != AreaSourceVideoChannel && existing.Source != AreaSourceMultiple {
+					existing.Source = AreaSourceMultiple
+				}
+				existing.UpdatedAt = now
+				return existing, nil
+			}
+			area.Type = areaType
+			area.Number = areaNumber
+			area.DisplayName = areaDisplayName(areaType, areaNumber)
+			area.UpdatedAt = now
+			return area, nil
+		}
+	}
+	return s.findOrCreateAreaLocked(store, areaType, areaNumber, AreaSourceVideoChannel, now)
 }
 
 func (s *MemoryStore) DeleteStore(ctx context.Context, id int64) error {
@@ -482,15 +506,12 @@ func (s *MemoryStore) FindOrCreateArea(ctx context.Context, input AreaLookup, ar
 }
 
 func (s *MemoryStore) findOrCreateAreaLocked(store *Store, areaType AreaType, areaNumber int, source AreaSource, now time.Time) (*Area, error) {
-	for index := range store.Areas {
-		area := &store.Areas[index]
-		if area.Type == areaType && area.Number == areaNumber {
-			if area.Source != source && source != "" {
-				area.Source = AreaSourceMultiple
-				area.UpdatedAt = now
-			}
-			return area, nil
+	if area := findAreaByTypeNumber(store.Areas, areaType, areaNumber); area != nil {
+		if area.Source != source && source != "" {
+			area.Source = AreaSourceMultiple
+			area.UpdatedAt = now
 		}
+		return area, nil
 	}
 
 	area := Area{
@@ -507,6 +528,15 @@ func (s *MemoryStore) findOrCreateAreaLocked(store *Store, areaType AreaType, ar
 	s.nextAreaID++
 	store.Areas = append(store.Areas, area)
 	return &store.Areas[len(store.Areas)-1], nil
+}
+
+func findAreaByTypeNumber(areas []Area, areaType AreaType, areaNumber int) *Area {
+	for index := range areas {
+		if areas[index].Type == areaType && areas[index].Number == areaNumber {
+			return &areas[index]
+		}
+	}
+	return nil
 }
 
 func (s *MemoryStore) deleteUnusedVideoAreasLocked(store *Store) {
@@ -945,26 +975,7 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 		if err != nil || number <= 0 {
 			return nil, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
 		}
-		area, err := queryArea(ctx, tx, storeID, input.AreaType, number)
-		if errors.Is(err, ErrNotFound) {
-			createdArea := Area{}
-			err = tx.QueryRowContext(ctx, `
-				insert into store_areas (store_id, area_type, area_number, display_name, source, status)
-				values ($1, $2, $3, $4, $5, $6)
-				returning id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
-			`, storeID, input.AreaType, number, areaDisplayName(input.AreaType, number), AreaSourceVideoChannel, AreaStatusConfirmed).Scan(
-				&createdArea.ID,
-				&createdArea.StoreID,
-				&createdArea.Type,
-				&createdArea.Number,
-				&createdArea.DisplayName,
-				&createdArea.Source,
-				&createdArea.Status,
-				&createdArea.CreatedAt,
-				&createdArea.UpdatedAt,
-			)
-			area = &createdArea
-		}
+		area, err := updateOrFindVideoArea(ctx, tx, storeID, channelID, input.AreaType, number)
 		if err != nil {
 			return nil, err
 		}
@@ -1416,6 +1427,121 @@ func queryArea(ctx context.Context, tx queryRunner, storeID int64, areaType Area
 		return nil, err
 	}
 	return &area, nil
+}
+
+func updateOrFindVideoArea(ctx context.Context, tx queryRunner, storeID int64, channelID int64, areaType AreaType, areaNumber int) (*Area, error) {
+	var currentAreaID int64
+	if err := tx.QueryRowContext(ctx, `
+		select coalesce(area_id, 0)
+		from video_channels
+		where id = $1
+	`, channelID).Scan(&currentAreaID); err != nil {
+		return nil, err
+	}
+
+	if currentAreaID != 0 {
+		var existingID int64
+		err := tx.QueryRowContext(ctx, `
+			select id
+			from store_areas
+			where store_id = $1 and area_type = $2 and area_number = $3
+		`, storeID, areaType, areaNumber).Scan(&existingID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		if err == nil && existingID != currentAreaID {
+			area, queryErr := queryArea(ctx, tx, storeID, areaType, areaNumber)
+			if queryErr != nil {
+				return nil, queryErr
+			}
+			if area.Source != AreaSourceVideoChannel && area.Source != AreaSourceMultiple {
+				if _, updateErr := tx.ExecContext(ctx, `
+					update store_areas
+					set source = $1, updated_at = now()
+					where id = $2
+				`, AreaSourceMultiple, area.ID); updateErr != nil {
+					return nil, updateErr
+				}
+				area.Source = AreaSourceMultiple
+			}
+			return area, nil
+		}
+
+		var area Area
+		var annotationCount int
+		err = tx.QueryRowContext(ctx, `
+			select a.id, a.store_id, a.area_type, a.area_number, a.display_name, a.source, a.status,
+				a.created_at, a.updated_at, count(dpa.id)
+			from store_areas a
+			left join design_plan_annotations dpa on dpa.area_id = a.id
+			where a.id = $1 and a.store_id = $2
+			group by a.id
+		`, currentAreaID, storeID).Scan(
+			&area.ID,
+			&area.StoreID,
+			&area.Type,
+			&area.Number,
+			&area.DisplayName,
+			&area.Source,
+			&area.Status,
+			&area.CreatedAt,
+			&area.UpdatedAt,
+			&annotationCount,
+		)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		if err == nil && (area.Source == AreaSourceVideoChannel || area.Source == AreaSourceMultiple) {
+			err = tx.QueryRowContext(ctx, `
+				update store_areas
+				set area_type = $1,
+					area_number = $2,
+					display_name = $3,
+					updated_at = now()
+				where id = $4
+				returning id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
+			`, areaType, areaNumber, areaDisplayName(areaType, areaNumber), currentAreaID).Scan(
+				&area.ID,
+				&area.StoreID,
+				&area.Type,
+				&area.Number,
+				&area.DisplayName,
+				&area.Source,
+				&area.Status,
+				&area.CreatedAt,
+				&area.UpdatedAt,
+			)
+			if err != nil {
+				return nil, err
+			}
+			return &area, nil
+		}
+	}
+
+	area, err := queryArea(ctx, tx, storeID, areaType, areaNumber)
+	if errors.Is(err, ErrNotFound) {
+		createdArea := Area{}
+		err = tx.QueryRowContext(ctx, `
+			insert into store_areas (store_id, area_type, area_number, display_name, source, status)
+			values ($1, $2, $3, $4, $5, $6)
+			returning id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
+		`, storeID, areaType, areaNumber, areaDisplayName(areaType, areaNumber), AreaSourceVideoChannel, AreaStatusConfirmed).Scan(
+			&createdArea.ID,
+			&createdArea.StoreID,
+			&createdArea.Type,
+			&createdArea.Number,
+			&createdArea.DisplayName,
+			&createdArea.Source,
+			&createdArea.Status,
+			&createdArea.CreatedAt,
+			&createdArea.UpdatedAt,
+		)
+		area = &createdArea
+	}
+	if err != nil {
+		return nil, err
+	}
+	return area, nil
 }
 
 func deleteUnusedVideoAreas(ctx context.Context, tx queryRunner, storeID int64) error {

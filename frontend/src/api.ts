@@ -38,6 +38,7 @@ export type StoreArea = {
   name: string;
   type: AreaType | "";
   number: string;
+  source?: "manual" | "design_plan" | "video_channel" | "multiple";
   confidence: Confidence;
   needsReview: boolean;
   box: AreaBox | null;
@@ -1264,15 +1265,26 @@ function mapStoreSpaceDetail(store: BackendStoreSpaceDetail): StoreDetail {
 function mapStoreSpaceArea(areaItem: BackendStoreSpaceArea): StoreArea {
   const type = areaItem.area_type ?? areaItem.areaType ?? "";
   const number = areaItem.area_number == null && areaItem.areaNumber == null ? "" : String(areaItem.area_number ?? areaItem.areaNumber);
+  const source = normalizeAreaSource(areaItem.source);
+  const hasPendingAnnotation = areaItem.annotation?.status === "pending";
   return {
     id: areaItem.id ? String(areaItem.id) : `area-${type || "unknown"}-${number || Date.now()}`,
     name: areaItem.display_name ?? areaItem.displayName ?? areaDisplayNameFromParts(type, number),
     type,
     number,
+    source,
     confidence: areaItem.confidence ?? "high",
-    needsReview: Boolean(areaItem.needs_review ?? areaItem.needsReview) || areaItem.status === "candidate" || areaItem.annotation?.status === "pending",
+    needsReview:
+      source === "video_channel" || source === "multiple"
+        ? false
+        : Boolean(areaItem.needs_review ?? areaItem.needsReview) || areaItem.status === "candidate" || hasPendingAnnotation,
     box: areaItem.box ?? areaItem.annotation?.box ?? null,
   };
+}
+
+function normalizeAreaSource(source: string | undefined): StoreArea["source"] {
+  if (source === "manual" || source === "design_plan" || source === "video_channel" || source === "multiple") return source;
+  return undefined;
 }
 
 function firstStoreSpaceDesignPlan(store: BackendStoreSpaceDetail) {

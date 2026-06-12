@@ -435,6 +435,62 @@ func TestConfirmChannelReplacingVideoOnlyAreaRemovesOldArea(t *testing.T) {
 	}
 }
 
+func TestConfirmChannelUpdatesExistingVideoAreaWhenNumberChanges(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华南"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GQ2603603"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	first, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "1",
+	})
+	if err != nil {
+		t.Fatalf("confirm treatment 1: %v", err)
+	}
+	firstAreaID := first.Areas[0].ID
+
+	updated, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "2",
+	})
+	if err != nil {
+		t.Fatalf("change channel to treatment 2: %v", err)
+	}
+
+	if len(updated.Areas) != 1 {
+		t.Fatalf("expected one updated area, got %#v", updated.Areas)
+	}
+	if updated.Areas[0].ID != firstAreaID {
+		t.Fatalf("expected area id %d to be reused, got %#v", firstAreaID, updated.Areas[0])
+	}
+	if updated.Areas[0].Type != AreaTypeTreatment || updated.Areas[0].Number != 2 {
+		t.Fatalf("expected existing area to become treatment 2, got %#v", updated.Areas[0])
+	}
+	channel := updated.Recorders[0].Channels[0]
+	if channel.AreaID != firstAreaID || channel.AreaNumber != 2 {
+		t.Fatalf("expected channel to stay linked to updated area, got %#v", channel)
+	}
+}
+
 type fakeChannelScanner struct {
 	channels []ScannedChannel
 }

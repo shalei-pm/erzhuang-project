@@ -78,9 +78,11 @@ export function createManualArea(): StoreArea {
 }
 
 export function mergeRecognizedAreas(existingAreas: StoreArea[], recognizedAreas: StoreArea[]): StoreArea[] {
+  const recognizedById = new Map<string, StoreArea>();
   const recognizedByKey = new Map<string, StoreArea>();
 
   recognizedAreas.forEach((area) => {
+    recognizedById.set(area.id, area);
     const key = businessAreaKey(area);
     if (key) {
       recognizedByKey.set(key, area);
@@ -88,15 +90,23 @@ export function mergeRecognizedAreas(existingAreas: StoreArea[], recognizedAreas
   });
 
   const matchedKeys = new Set<string>();
+  const matchedIds = new Set<string>();
   const mergedExisting = existingAreas.map((existingArea, index) => {
     const key = businessAreaKey(existingArea);
-    const recognizedArea = key ? recognizedByKey.get(key) : undefined;
+    const recognizedArea = recognizedById.get(existingArea.id) ?? (key ? recognizedByKey.get(key) : undefined);
     if (!recognizedArea) {
       return ensureAnnotationPlaceholder(existingArea, index);
     }
-    matchedKeys.add(key);
+    matchedIds.add(recognizedArea.id);
+    if (key) matchedKeys.add(key);
+    const recognizedKey = businessAreaKey(recognizedArea);
+    if (recognizedKey) matchedKeys.add(recognizedKey);
     return withGeneratedAreaFields({
       ...existingArea,
+      name: recognizedArea.name,
+      type: recognizedArea.type,
+      number: recognizedArea.number,
+      source: recognizedArea.source,
       confidence: recognizedArea.confidence,
       needsReview: recognizedArea.needsReview || !recognizedArea.box,
       box: recognizedArea.box ?? existingArea.box ?? pendingAnnotationBox(index),
@@ -105,6 +115,7 @@ export function mergeRecognizedAreas(existingAreas: StoreArea[], recognizedAreas
 
   const newAreas = recognizedAreas
     .filter((recognizedArea) => {
+      if (matchedIds.has(recognizedArea.id)) return false;
       const key = businessAreaKey(recognizedArea);
       return !key || !matchedKeys.has(key);
     })

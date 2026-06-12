@@ -26,6 +26,7 @@ export function AreaCardList({
     <div className="area-list">
       {areas.map((areaItem, index) => {
         const errors = areaErrors[areaItem.id] ?? [];
+        const lockedByChannel = areaItem.source === "video_channel" || areaItem.source === "multiple";
         return (
           <article
             ref={(node) => {
@@ -46,12 +47,14 @@ export function AreaCardList({
               <strong>{areaDisplayName(areaItem) || `区域 ${index + 1}`}</strong>
               <span className="area-card-subtitle">{areaSummary(areaItem)}</span>
               {areaItem.needsReview ? <span className="review-tag">需确认</span> : null}
+              {lockedByChannel ? <span className="review-tag is-confirmed">通道已确认</span> : null}
             </div>
             <div className="area-form-grid">
               <label>
                 区域类型
                 <select
                   value={areaItem.type}
+                  disabled={lockedByChannel}
                   onChange={(event) => onUpdateArea(areaItem.id, { type: event.target.value as AreaType | "" })}
                 >
                   <option value="">请选择</option>
@@ -64,12 +67,14 @@ export function AreaCardList({
                 编号
                 <input
                   value={areaItem.number}
+                  disabled={lockedByChannel}
                   onChange={(event) => onUpdateArea(areaItem.id, { number: event.target.value })}
                   inputMode="numeric"
                   placeholder="必填"
                 />
               </label>
             </div>
+            {lockedByChannel ? <p className="area-card-note">类型和编号由通道映射维护；这里仅补充或调整图纸标注框。</p> : null}
             {errors.length > 0 ? <p className="area-error">{errors.join("；")}</p> : null}
             <div className="area-card-actions">
               <button disabled={index === 0} onClick={() => onMoveArea(areaItem.id, -1)}>

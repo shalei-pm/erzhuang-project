@@ -1589,6 +1589,11 @@ td:nth-child(10) {
   color: var(--warning);
 }
 
+.review-tag.is-confirmed {
+  background: #ecfdf5;
+  color: #047857;
+}
+
 .area-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1605,6 +1610,13 @@ td:nth-child(10) {
 .area-form-grid input,
 .area-form-grid select {
   min-height: 32px;
+}
+
+.area-card-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .area-error {
