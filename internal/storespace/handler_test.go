@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -123,6 +124,49 @@ func TestCreateStoreEndpointCreatesRecorderOnlyStore(t *testing.T) {
 	}
 	if len(store.Recorders) != 1 || store.Recorders[0].DeviceCode != "D12345678" {
 		t.Fatalf("unexpected recorders: %#v", store.Recorders)
+	}
+}
+
+func TestDeleteRecorderEndpointRemovesRecorder(t *testing.T) {
+	handler := newTestHandler()
+	createBody := `{"name":"深圳壹方城","recorders":[{"device_code":"D12345678"},{"device_code":"D87654321"}]}`
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/store-space/stores", bytes.NewBufferString(createBody))
+	createRecorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(createRecorder, createRequest)
+
+	if createRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, createRecorder.Code, createRecorder.Body.String())
+	}
+	var created Store
+	if err := json.NewDecoder(createRecorder.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created store: %v", err)
+	}
+	if len(created.Recorders) != 2 {
+		t.Fatalf("expected two recorders, got %d", len(created.Recorders))
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/store-space/recorders/"+strconv.FormatInt(created.Recorders[0].ID, 10), nil)
+	deleteRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(deleteRecorder, deleteRequest)
+
+	if deleteRecorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusNoContent, deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/store-space/stores/"+strconv.FormatInt(created.ID, 10), nil)
+	getRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(getRecorder, getRequest)
+
+	if getRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, getRecorder.Code, getRecorder.Body.String())
+	}
+	var updated Store
+	if err := json.NewDecoder(getRecorder.Body).Decode(&updated); err != nil {
+		t.Fatalf("decode updated store: %v", err)
+	}
+	if len(updated.Recorders) != 1 || updated.Recorders[0].DeviceCode != "D87654321" {
+		t.Fatalf("unexpected recorders after delete: %#v", updated.Recorders)
 	}
 }
 

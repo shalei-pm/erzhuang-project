@@ -76,6 +76,38 @@ func TestCreateStoreAcceptsRecordersOnlyAndRejectsDuplicateCodes(t *testing.T) {
 	}
 }
 
+func TestDeleteRecorderReleasesDeviceCode(t *testing.T) {
+	service := NewService(NewMemoryStore())
+	ctx := context.Background()
+
+	store, err := service.CreateStore(ctx, CreateStoreInput{
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{DeviceCode: "D12345678"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	if err := service.DeleteRecorder(ctx, store.Recorders[0].ID); err != nil {
+		t.Fatalf("delete recorder: %v", err)
+	}
+
+	nextStore, err := service.CreateStore(ctx, CreateStoreInput{
+		Name: "广州天河",
+		Recorders: []RecorderInput{
+			{DeviceCode: "D12345678"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected device code to be reusable after delete, got %v", err)
+	}
+	if len(nextStore.Recorders) != 1 || nextStore.Recorders[0].DeviceCode != "D12345678" {
+		t.Fatalf("unexpected recorders: %#v", nextStore.Recorders)
+	}
+}
+
 func TestCreateStoreRejectsDuplicateRecorderCodesInRequest(t *testing.T) {
 	service := NewService(NewMemoryStore())
 

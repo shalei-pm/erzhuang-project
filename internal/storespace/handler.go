@@ -25,6 +25,7 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	mux.HandleFunc("POST /api/store-space/stores/check-duplicate", handler.checkDuplicate)
 	mux.HandleFunc("GET /api/store-space/stores/{id}", handler.getStore)
 	mux.HandleFunc("DELETE /api/store-space/stores/{id}", handler.deleteStore)
+	mux.HandleFunc("DELETE /api/store-space/recorders/{recorder_id}", handler.deleteRecorder)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/scan-channels", handler.scanRecorderChannels)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/recognize-channels", handler.recognizeRecorderChannels)
 }
@@ -113,6 +114,18 @@ func (h *Handler) checkDuplicate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) deleteRecorder(w http.ResponseWriter, r *http.Request) {
+	recorderID, ok := parseID(w, r, "recorder_id")
+	if !ok {
+		return
+	}
+	if err := h.service.DeleteRecorder(r.Context(), recorderID); err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) scanRecorderChannels(w http.ResponseWriter, r *http.Request) {

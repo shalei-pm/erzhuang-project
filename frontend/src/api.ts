@@ -585,6 +585,22 @@ const mockAdapter = {
     mockStores = mockStores.filter((store) => store.id !== id);
   },
 
+  async deleteRecorder(storeId: number, recorderId: number): Promise<StoreDetail> {
+    await delay(180);
+    const store = mockStores.find((item) => item.id === storeId);
+    if (!store) throw new Error("门店不存在");
+    const recorders = store.recorders.filter((recorder) => recorder.id !== recorderId);
+    const nextStore = {
+      ...store,
+      recorders,
+      recorderCount: recorders.length,
+      channelCount: countChannels(recorders),
+      updatedAt: new Date().toISOString(),
+    };
+    mockStores = mockStores.map((item) => (item.id === storeId ? nextStore : item));
+    return clone(nextStore);
+  },
+
   async listEzvizAccounts(): Promise<EzvizAccount[]> {
     await delay(120);
     return clone(mockEzvizAccounts);
@@ -858,6 +874,10 @@ const storeSpaceHttpAdapter = {
   async deleteStore(id: number): Promise<void> {
     await requestJSON<void>(`${STORE_SPACE_API_BASE}/stores/${id}`, { method: "DELETE" });
   },
+
+  async deleteRecorder(recorderId: number): Promise<void> {
+    await requestJSON<void>(`${STORE_SPACE_API_BASE}/recorders/${recorderId}`, { method: "DELETE" });
+  },
 };
 
 export const designPlanApi = {
@@ -999,6 +1019,14 @@ export const storeSpaceApi = {
       return mockAdapter.confirmChannel(storeId, channelId, patch);
     }
     return storeSpaceHttpAdapter.confirmChannel(channelId, patch);
+  },
+
+  async deleteRecorder(storeId: number, recorderId: number): Promise<StoreDetail> {
+    if (API_MODE === "mock") {
+      return mockAdapter.deleteRecorder(storeId, recorderId);
+    }
+    await storeSpaceHttpAdapter.deleteRecorder(recorderId);
+    return storeSpaceHttpAdapter.getStore(storeId);
   },
 };
 

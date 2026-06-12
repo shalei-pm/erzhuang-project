@@ -61,6 +61,21 @@ export function VideoChannelTab({ store, onStoreUpdated, onRecorderUpdated, onTo
     }
   }
 
+  async function deleteRecorder(recorder: VideoRecorder) {
+    const ok = window.confirm(`删除后将清除录像机 ${recorder.deviceCode} 及其通道映射，且无法恢复。是否确认删除？`);
+    if (!ok) return;
+    setWorkingRecorderId(recorder.id);
+    try {
+      const updated = await storeSpaceApi.deleteRecorder(store.id, recorder.id);
+      onStoreUpdated(updated);
+      onToast(`已删除录像机 ${recorder.deviceCode}。`);
+    } catch (error) {
+      onToast(channelErrorMessage(error, "删除录像机失败，请稍后重试。"));
+    } finally {
+      setWorkingRecorderId(null);
+    }
+  }
+
   async function confirmChannel(channel: VideoChannel) {
     const patch = editingChannels[channel.id] ?? {};
     const areaType = patch.areaType ?? channel.areaType;
@@ -148,7 +163,11 @@ export function VideoChannelTab({ store, onStoreUpdated, onRecorderUpdated, onTo
                             识别区域
                           </button>
                         ) : null}
-                        <button className="danger-link" onClick={() => onToast("删除录像机需要后端级联删除接口，本阶段仅展示入口。")}>
+                        <button
+                          className="danger-link"
+                          disabled={workingRecorderId === recorder.id}
+                          onClick={() => void deleteRecorder(recorder)}
+                        >
                           删除
                         </button>
                       </div>

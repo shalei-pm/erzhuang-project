@@ -76,6 +76,10 @@ func (s *Service) DeleteStore(ctx context.Context, id int64) error {
 	return s.repo.DeleteStore(ctx, id)
 }
 
+func (s *Service) DeleteRecorder(ctx context.Context, recorderID int64) error {
+	return s.repo.DeleteRecorder(ctx, recorderID)
+}
+
 func (s *Service) CheckDuplicate(ctx context.Context, request DuplicateCheckRequest) (DuplicateCheckResult, error) {
 	if strings.TrimSpace(request.Name) == "" {
 		return DuplicateCheckResult{}, &ValidationError{Fields: map[string]string{"name": "门店名称必填"}}

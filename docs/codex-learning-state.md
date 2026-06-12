@@ -1411,6 +1411,23 @@ git diff --check
   - 后端 `CGO_ENABLED=0 ./.tools/go/bin/go test ./...` 通过。
   - `git diff --check` 通过。
 
+## 2026-06-12 通道映射删除录像机 2.3.0 小迭代
+
+本次版本号从 `2.2.1` 升级到 `2.3.0`：
+
+- 原因：通道映射 Tab 中“删除录像机”此前只是占位提示，用户继续测试门店详情时无法清理误填录像机。
+- 后端新增：
+  - `DELETE /api/store-space/recorders/{recorder_id}`。
+  - 删除录像机时依赖数据库外键级联删除其通道。
+  - 删除后更新门店 `updated_at`，并写入操作日志。
+  - 内存仓储同步支持删除，并释放设备编码，便于本地 mock 和测试复用。
+- 前端新增：
+  - `storeSpaceApi.deleteRecorder(storeId, recorderId)`。
+  - 通道映射 Tab 删除按钮改为真实操作。
+  - 删除前二次确认，删除后刷新门店详情和顶部统计。
+- 验证：
+  - 后端新增 handler/service 测试覆盖删除录像机和设备编码复用。
+
 ## 明日待办
 
 1. 开始前先运行：

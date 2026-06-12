@@ -21,6 +21,7 @@ type Repository interface {
 	GetStore(ctx context.Context, id int64) (*Store, error)
 	CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error)
 	DeleteStore(ctx context.Context, id int64) error
+	DeleteRecorder(ctx context.Context, recorderID int64) error
 	CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error)
 	DeviceCodeExists(ctx context.Context, deviceCode string, excludeRecorderID int64) (bool, error)
 	FindOrCreateArea(ctx context.Context, input AreaLookup, areaNumber int) (*Area, error)
@@ -212,6 +213,24 @@ func (s *MemoryStore) DeleteStore(ctx context.Context, id int64) error {
 	}
 	delete(s.stores, id)
 	return nil
+}
+
+func (s *MemoryStore) DeleteRecorder(ctx context.Context, recorderID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, store := range s.stores {
+		for index, recorder := range store.Recorders {
+			if recorder.ID != recorderID {
+				continue
+			}
+			delete(s.deviceCodes, recorder.DeviceCode)
+			store.Recorders = append(store.Recorders[:index], store.Recorders[index+1:]...)
+			store.UpdatedAt = time.Now().UTC()
+			return nil
+		}
+	}
+	return ErrNotFound
 }
 
 func (s *MemoryStore) CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error) {
@@ -555,6 +574,37 @@ func (s *PostgresStore) DeleteStore(ctx context.Context, id int64) error {
 		return err
 	}
 	if err := insertOperationLog(ctx, tx, "delete", "store", id, id, fmt.Sprintf("deleted store %s", name)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) DeleteRecorder(ctx context.Context, recorderID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var storeID int64
+	var deviceCode string
+	if err := tx.QueryRowContext(ctx, `
+		select store_id, device_code
+		from video_recorders
+		where id = $1
+	`, recorderID).Scan(&storeID, &deviceCode); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `delete from video_recorders where id = $1`, recorderID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `update stores set updated_at = now() where id = $1`, storeID); err != nil {
+		return err
+	}
+	if err := insertOperationLog(ctx, tx, "delete", "recorder", storeID, storeID, fmt.Sprintf("deleted recorder %s", deviceCode)); err != nil {
 		return err
 	}
 	return tx.Commit()
