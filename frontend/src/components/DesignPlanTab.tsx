@@ -23,6 +23,7 @@ type DesignPlanTabProps = {
 };
 
 export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: DesignPlanTabProps) {
+  const [storeId, setStoreId] = useState(store.id);
   const [fileName, setFileName] = useState(store.fileName);
   const [uploadId, setUploadId] = useState<string | undefined>();
   const [originalPath, setOriginalPath] = useState(store.originalPath);
@@ -55,18 +56,28 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
   }, [areas, previewUrl]);
 
   useEffect(() => {
-    setFileName(store.fileName);
-    setOriginalPath(store.originalPath);
-    setPreviewPath(store.previewPath);
-    setThumbnailPath(store.thumbnailPath);
-    setPageCount(store.pageCount);
-    setPreviewUrl(store.previewUrl);
-    setPendingPreviewUrl("");
-    setThumbnailUrl(store.thumbnailUrl);
-    setRecognitionResult(store.recognitionResult);
-    setUploadStage(store.previewUrl ? "ready" : "initial");
-    setAreas(store.areas);
-    selectArea(store.areas[0]?.id ?? null);
+    const switchingStore = store.id !== storeId;
+    const backendHasDesignPlan = Boolean(store.previewUrl);
+    const hasLocalDesignPlan = Boolean(previewUrl || pendingPreviewUrl || uploadId);
+
+    if (switchingStore || backendHasDesignPlan || !hasLocalDesignPlan) {
+      setStoreId(store.id);
+      setFileName(store.fileName);
+      setOriginalPath(store.originalPath);
+      setPreviewPath(store.previewPath);
+      setThumbnailPath(store.thumbnailPath);
+      setPageCount(store.pageCount);
+      setPreviewUrl(store.previewUrl);
+      setPendingPreviewUrl("");
+      setThumbnailUrl(store.thumbnailUrl);
+      setRecognitionResult(store.recognitionResult);
+      setUploadStage(store.previewUrl ? "ready" : "initial");
+      setAreas(store.areas);
+      selectArea(store.areas[0]?.id ?? null);
+      return;
+    }
+
+    setAreas((currentAreas) => mergeRecognizedAreas(currentAreas, store.areas));
   }, [store]);
 
   useEffect(() => {
