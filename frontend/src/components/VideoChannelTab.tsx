@@ -50,6 +50,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [completedRecorderProgressId, setCompletedRecorderProgressId] = useState<number | null>(null);
   const [previewChannel, setPreviewChannel] = useState<VideoChannel | null>(null);
   const [confirmingChannelIds, setConfirmingChannelIds] = useState<Set<number>>(() => new Set());
+  const [unlockingChannelIds, setUnlockingChannelIds] = useState<Set<number>>(() => new Set());
   const [channelError, setChannelError] = useState("");
   const [addingRecorder, setAddingRecorder] = useState(false);
   const [deletingRecorderIds, setDeletingRecorderIds] = useState<Set<number>>(() => new Set());
@@ -223,6 +224,31 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         ...patch,
       },
     }));
+  }
+
+  async function unlockChannelForEdit(channel: VideoChannel) {
+    setUnlockingChannelIds((current) => addIdToSet(current, channel.id));
+    setChannelError("");
+    try {
+      const updated = await storeSpaceApi.unlockChannelForEdit(store.id, channel.id);
+      setEditingChannels((current) => ({
+        ...current,
+        [channel.id]: {
+          areaType: channel.areaType,
+          areaNumber: channel.areaType ? channel.areaNumber : channel.areaNote || channel.areaNumber,
+          areaNote: channel.areaNote,
+          sceneType: channel.sceneType,
+          status: "pending_confirmation",
+        },
+      }));
+      onStoreUpdated(updated);
+    } catch (error) {
+      const message = channelErrorMessage(error, "通道编辑状态切换失败，请稍后重试。");
+      setChannelError(`通道 ${channel.channelNo} 编辑失败：${message}`);
+      onToast(message);
+    } finally {
+      setUnlockingChannelIds((current) => removeIdFromSet(current, channel.id));
+    }
   }
 
   async function deleteChannel(recorder: VideoRecorder, channel: VideoChannel) {
@@ -438,6 +464,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                 const recognitionMessage = channelRecognitionMessage(channel);
                 const isRecognizing = recognizingChannelIds.has(channel.id);
                 const isConfirming = confirmingChannelIds.has(channel.id);
+                const isUnlocking = unlockingChannelIds.has(channel.id);
                 const isDeleting = deletingChannelIds.has(channel.id);
                 const isConfirmed = isConfirmedChannel(channel);
                 const selectedAreaType = draft.areaType !== undefined ? draft.areaType : channel.areaType;
@@ -514,8 +541,15 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                             )}
                           </button>
                         ) : (
-                          <button disabled={isDeleting} onClick={() => updateChannelDraft(channel.id, { status: "pending_confirmation" })}>
-                            编辑
+                          <button disabled={isDeleting || isUnlocking} onClick={() => void unlockChannelForEdit(channel)}>
+                            {isUnlocking ? (
+                              <>
+                                <span className="button-spinner" aria-hidden="true" />
+                                解锁中
+                              </>
+                            ) : (
+                              "编辑"
+                            )}
                           </button>
                         )}
                         <button

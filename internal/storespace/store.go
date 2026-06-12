@@ -28,6 +28,7 @@ type Repository interface {
 	GetEzvizAccount(ctx context.Context, accountID int64) (*EzvizAccount, error)
 	ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error)
 	SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error)
+	UnlockChannelForEdit(ctx context.Context, channelID int64) (*Store, error)
 	ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error)
 	DeleteStore(ctx context.Context, id int64) error
 	DeleteRecorder(ctx context.Context, recorderID int64) error
@@ -560,6 +561,34 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 				channel.SceneType = SceneType(area.Type)
 				channel.Status = ChannelStatusConfirmedBusiness
 				s.deleteUnusedVideoAreasLocked(store)
+				store.UpdatedAt = now
+				copy := cloneStore(*store)
+				return &copy, nil
+			}
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (s *MemoryStore) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	for _, store := range s.stores {
+		for recorderIndex := range store.Recorders {
+			recorder := &store.Recorders[recorderIndex]
+			for channelIndex := range recorder.Channels {
+				channel := &recorder.Channels[channelIndex]
+				if channel.ID != channelID {
+					continue
+				}
+				if channel.Status == ChannelStatusInactive || !channel.IsActive {
+					return nil, &ValidationError{Fields: map[string]string{"channel": "通道已失效，无法编辑"}}
+				}
+				channel.Status = ChannelStatusPendingConfirmation
+				channel.ConfirmedAt = nil
+				channel.UpdatedAt = now
 				store.UpdatedAt = now
 				copy := cloneStore(*store)
 				return &copy, nil
@@ -1527,6 +1556,53 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 		return nil, err
 	}
 	if err := insertOperationLog(ctx, tx, "confirm_channel", "channel", channelID, storeID, "confirmed video channel mapping"); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, storeID)
+}
+
+func (s *PostgresStore) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Store, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var storeID int64
+	var status ChannelStatus
+	var isActive bool
+	err = tx.QueryRowContext(ctx, `
+		select r.store_id, c.status, c.is_active
+		from video_channels c
+		join video_recorders r on r.id = c.recorder_id
+		where c.id = $1
+	`, channelID).Scan(&storeID, &status, &isActive)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if status == ChannelStatusInactive || !isActive {
+		return nil, &ValidationError{Fields: map[string]string{"channel": "通道已失效，无法编辑"}}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		update video_channels
+		set status = $1,
+			confirmed_at = null,
+			updated_at = now()
+		where id = $2
+	`, ChannelStatusPendingConfirmation, channelID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `update stores set updated_at = now() where id = $1`, storeID); err != nil {
+		return nil, err
+	}
+	if err := insertOperationLog(ctx, tx, "unlock_channel", "channel", channelID, storeID, "unlocked video channel for editing"); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {

@@ -206,6 +206,20 @@
   - `.danger-link:hover` 明确设置文字色为 `var(--danger)`。
   - 新增 `scripts/check-danger-link-hover-color.mjs`，防止危险按钮 hover 状态漏掉文字色。
 
+## 2026-06-12 通道编辑解锁 2.9.7 修复记录
+
+- 版本号：`2.9.7`。
+- 问题：
+  - 已确认通道点击“编辑”后，页面状态仍显示已确认，“重新识别”按钮仍不可点击。
+- 根因：
+  - 前端之前只写入本地草稿状态，后端真实通道状态仍为已确认。
+  - 已确认通道识别接口已被后端锁定，所以仅前端放开按钮也无法真正重新识别。
+- 修复：
+  - 新增后端 `UnlockChannelForEdit` 能力和 `/api/store-space/channels/{channel_id}/unlock` 接口。
+  - 点击“编辑”时调用后端解锁，将通道状态改为待确认，清空确认时间，保留当前区域类型/编号作为编辑草稿。
+  - 解锁后“重新识别”恢复可点击；后端允许待确认通道重新抓图和 AI 识别。
+  - 新增 `scripts/check-channel-edit-unlocks-state.mjs`，并更新 `scripts/check-confirmed-channel-recognition-lock.mjs`。
+
 当前新增产品需求讨论：
 
 - 项目方向：设计图标记与诊室区域管理。

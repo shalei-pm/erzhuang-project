@@ -861,6 +861,31 @@ const mockAdapter = {
     mockStores = mockStores.map((item) => (item.id === storeId ? nextStore : item));
     return clone(nextStore);
   },
+
+  async unlockChannelForEdit(storeId: number, channelId: number): Promise<StoreDetail> {
+    await delay(160);
+    const store = mockStores.find((item) => item.id === storeId);
+    if (!store) throw new Error("门店不存在");
+    const nextRecorders: VideoRecorder[] = store.recorders.map((recorder) => ({
+      ...recorder,
+      channels: recorder.channels.map((channel) =>
+        channel.id === channelId
+          ? {
+              ...channel,
+              status: "pending_confirmation" as ChannelStatus,
+              confirmedAt: "",
+            }
+          : channel,
+      ),
+    }));
+    const nextStore = {
+      ...store,
+      recorders: nextRecorders,
+      updatedAt: new Date().toISOString(),
+    };
+    mockStores = mockStores.map((item) => (item.id === storeId ? nextStore : item));
+    return clone(nextStore);
+  },
 };
 
 const httpAdapter = {
@@ -1029,6 +1054,13 @@ const storeSpaceHttpAdapter = {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/confirmation`, {
       method: "PUT",
       body: JSON.stringify(toStoreSpaceChannelConfirmationPayload(patch)),
+    });
+    return mapStoreSpaceDetail(response);
+  },
+
+  async unlockChannelForEdit(channelId: number): Promise<StoreDetail> {
+    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/unlock`, {
+      method: "POST",
     });
     return mapStoreSpaceDetail(response);
   },
@@ -1209,6 +1241,13 @@ export const storeSpaceApi = {
       return mockAdapter.confirmChannel(storeId, channelId, patch);
     }
     return storeSpaceHttpAdapter.confirmChannel(channelId, patch);
+  },
+
+  async unlockChannelForEdit(storeId: number, channelId: number): Promise<StoreDetail> {
+    if (API_MODE === "mock") {
+      return mockAdapter.unlockChannelForEdit(storeId, channelId);
+    }
+    return storeSpaceHttpAdapter.unlockChannelForEdit(channelId);
   },
 
   async deleteRecorder(storeId: number, recorderId: number): Promise<StoreDetail> {

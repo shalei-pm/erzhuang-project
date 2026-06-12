@@ -217,6 +217,10 @@ func (s *Service) ConfirmChannel(ctx context.Context, channelID int64, input Cha
 	return s.repo.ConfirmChannel(ctx, channelID, input)
 }
 
+func (s *Service) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Store, error) {
+	return s.repo.UnlockChannelForEdit(ctx, channelID)
+}
+
 func (s *Service) RecognizeRecorderChannels(ctx context.Context, recorderID int64) (*Recorder, error) {
 	if s.scanner == nil {
 		return nil, ErrNotImplemented

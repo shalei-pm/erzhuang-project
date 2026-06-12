@@ -17,8 +17,8 @@ const requiredPatterns = [
     pattern: /disabled=\{isRecognizing \|\| isDeleting \|\| isConfirmed \|\| workingRecorderId === recorder\.id\}/,
   },
   {
-    label: "edit action unlocks channel to pending confirmation",
-    pattern: /updateChannelDraft\(channel\.id,\s*\{\s*status:\s*"pending_confirmation"\s*\}\)/,
+    label: "edit action unlocks channel through api",
+    pattern: /onClick=\{\(\) => void unlockChannelForEdit\(channel\)\}/,
   },
 ];
 
