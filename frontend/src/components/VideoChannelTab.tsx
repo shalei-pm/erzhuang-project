@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import {
   ApiError,
   storeSpaceApi,
@@ -35,7 +35,8 @@ type VideoChannelTabProps = {
 
 export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
-  const [recognizingChannelId, setRecognizingChannelId] = useState<number | null>(null);
+  const [recognizingChannelIds, setRecognizingChannelIds] = useState<Set<number>>(() => new Set());
+  const [recorderProgress, setRecorderProgress] = useState<Record<number, { done: number; total: number }>>({});
   const [previewChannel, setPreviewChannel] = useState<VideoChannel | null>(null);
   const [confirmingChannelId, setConfirmingChannelId] = useState<number | null>(null);
   const [channelError, setChannelError] = useState("");
@@ -61,11 +62,33 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   }
 
   async function recognizeRecorder(recorder: VideoRecorder) {
+    const targetChannels = recorder.channels.filter((channel) => channel.status !== "inactive");
+    if (targetChannels.length === 0) {
+      onToast("暂无有效通道，请先扫描录像机。");
+      return;
+    }
     setWorkingRecorderId(recorder.id);
     setChannelError("");
+    setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: 0, total: targetChannels.length } }));
+    setRecognizingChannelIds((current) => {
+      const next = new Set(current);
+      targetChannels.forEach((channel) => next.add(channel.id));
+      return next;
+    });
     try {
-      const nextRecorder = await storeSpaceApi.recognizeRecorder(store.id, recorder.id);
-      onRecorderUpdated(nextRecorder);
+      let nextStore = store;
+      for (let index = 0; index < targetChannels.length; index++) {
+        const channel = targetChannels[index];
+        const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
+        nextStore = replaceChannelInStore(nextStore, updatedChannel);
+        onStoreUpdated(nextStore);
+        setRecognizingChannelIds((current) => {
+          const next = new Set(current);
+          next.delete(channel.id);
+          return next;
+        });
+        setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: index + 1, total: targetChannels.length } }));
+      }
       onToast(`已完成 ${recorder.deviceCode} 的通道识别。`);
     } catch (error) {
       const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
@@ -73,6 +96,11 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onToast(message);
     } finally {
       setWorkingRecorderId(null);
+      setRecognizingChannelIds((current) => {
+        const next = new Set(current);
+        targetChannels.forEach((channel) => next.delete(channel.id));
+        return next;
+      });
     }
   }
 
@@ -158,20 +186,44 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     }));
   }
 
-  async function recognizeChannel(recorder: VideoRecorder, channel: VideoChannel) {
-    setRecognizingChannelId(channel.id);
+  async function deleteChannel(recorder: VideoRecorder, channel: VideoChannel) {
+    const ok = window.confirm(`删除后将移除录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo} 映射。再次扫描如仍有效，会作为未确认通道重新出现。是否确认删除？`);
+    if (!ok) return;
     setChannelError("");
     try {
-      await storeSpaceApi.recognizeRecorder(store.id, recorder.id);
-      const nextStore = await storeSpaceApi.getStore(store.id);
+      const updated = await storeSpaceApi.deleteChannel(store.id, channel.id);
+      setEditingChannels((current) => {
+        const next = { ...current };
+        delete next[channel.id];
+        return next;
+      });
+      onStoreUpdated(updated);
+      onToast(`已删除通道 ${channel.channelNo}。`);
+    } catch (error) {
+      const message = channelErrorMessage(error, "删除通道失败，请稍后重试。");
+      setChannelError(`通道 ${channel.channelNo} 删除失败：${message}`);
+      onToast(message);
+    }
+  }
+
+  async function recognizeChannel(recorder: VideoRecorder, channel: VideoChannel) {
+    setRecognizingChannelIds((current) => new Set(current).add(channel.id));
+    setChannelError("");
+    try {
+      const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
+      const nextStore = replaceChannelInStore(store, updatedChannel);
       onStoreUpdated(nextStore);
-      onToast(`已重新抓取录像机 ${recorder.deviceCode} 的通道截图。`);
+      onToast(`已重新识别录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo}。`);
     } catch (error) {
       const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
       setChannelError(`通道 ${channel.channelNo} 识别失败：${message}`);
       onToast(message);
     } finally {
-      setRecognizingChannelId(null);
+      setRecognizingChannelIds((current) => {
+        const next = new Set(current);
+        next.delete(channel.id);
+        return next;
+      });
     }
   }
 
@@ -266,7 +318,10 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                       {workingRecorderId === recorder.id ? (
                         <div className="recognition-progress">
                           <span aria-hidden="true" />
-                          正在处理：录像机 {recorder.deviceCode}
+                          <div>
+                            <strong>{recognitionProgressLabel(recorderProgress[recorder.id])}</strong>
+                            <i style={{ "--progress": `${recognitionProgressPercent(recorderProgress[recorder.id])}%` } as CSSProperties} />
+                          </div>
                         </div>
                       ) : recorder.recognitionProgress ? (
                         <div className="recognition-progress">{recorder.recognitionProgress}</div>
@@ -309,6 +364,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                   channel.status === "recognition_failed" ||
                   Boolean(draft.status);
                 const recognitionMessage = channelRecognitionMessage(channel);
+                const isRecognizing = recognizingChannelIds.has(channel.id);
                 return (
                   <tr key={channel.id}>
                     <td>{recorder.deviceCode}</td>
@@ -377,10 +433,10 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                           <button onClick={() => updateChannelDraft(channel.id, { status: "pending_confirmation" })}>编辑</button>
                         )}
                         <button
-                          disabled={recognizingChannelId === channel.id || workingRecorderId === recorder.id}
+                          disabled={isRecognizing || workingRecorderId === recorder.id}
                           onClick={() => void recognizeChannel(recorder, channel)}
                         >
-                          {recognizingChannelId === channel.id ? (
+                          {isRecognizing ? (
                             <>
                               <span className="button-spinner" aria-hidden="true" />
                               识别中
@@ -388,6 +444,13 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                           ) : (
                             "重新识别"
                           )}
+                        </button>
+                        <button
+                          className="danger-link"
+                          disabled={isRecognizing || confirmingChannelId === channel.id || workingRecorderId === recorder.id}
+                          onClick={() => void deleteChannel(recorder, channel)}
+                        >
+                          删除
                         </button>
                       </div>
                     </td>
@@ -478,6 +541,34 @@ function recognitionTimingLabel(result: { capture_ms?: number; recognition_ms?: 
 function formatDuration(ms: number) {
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.max(1, Math.round(ms))}ms`;
+}
+
+function replaceChannelInStore(store: StoreDetail, updatedChannel: VideoChannel): StoreDetail {
+  const recorders = store.recorders.map((recorder) => {
+    if (!recorder.channels.some((channel) => channel.id === updatedChannel.id)) return recorder;
+    const channels = recorder.channels.map((channel) => (channel.id === updatedChannel.id ? { ...updatedChannel, recorderCode: recorder.deviceCode } : channel));
+    return {
+      ...recorder,
+      channels,
+      effectiveChannelCount: channels.filter((channel) => channel.status !== "inactive").length,
+    };
+  });
+  return {
+    ...store,
+    recorders,
+    channelCount: recorders.reduce((total, recorder) => total + recorder.channels.filter((channel) => channel.status !== "inactive").length, 0),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function recognitionProgressLabel(progress?: { done: number; total: number }) {
+  if (!progress || progress.total <= 0) return "正在准备识别";
+  return `识别进度 ${progress.done}/${progress.total} · ${recognitionProgressPercent(progress)}%`;
+}
+
+function recognitionProgressPercent(progress?: { done: number; total: number }) {
+  if (!progress || progress.total <= 0) return 0;
+  return Math.min(100, Math.round((progress.done / progress.total) * 100));
 }
 
 function nonBusinessLabel(sceneType: VideoChannel["sceneType"]) {

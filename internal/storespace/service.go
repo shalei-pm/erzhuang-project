@@ -142,6 +142,10 @@ func (s *Service) DeleteRecorder(ctx context.Context, recorderID int64) error {
 	return s.repo.DeleteRecorder(ctx, recorderID)
 }
 
+func (s *Service) DeleteChannel(ctx context.Context, channelID int64) (*Store, error) {
+	return s.repo.DeleteChannel(ctx, channelID)
+}
+
 func (s *Service) CheckDuplicate(ctx context.Context, request DuplicateCheckRequest) (DuplicateCheckResult, error) {
 	if strings.TrimSpace(request.Name) == "" {
 		return DuplicateCheckResult{}, &ValidationError{Fields: map[string]string{"name": "门店名称必填"}}
@@ -239,32 +243,7 @@ func (s *Service) RecognizeRecorderChannels(ctx context.Context, recorderID int6
 		channels = append(channels, channel)
 	}
 	for index, channel := range channels {
-		channelStarted := time.Now()
-		captureStarted := time.Now()
-		snapshot, err := s.scanner.CaptureChannel(ctx, *account, *recorder, channel)
-		captureMS := elapsedMilliseconds(captureStarted)
-		if err != nil {
-			_, saveErr := s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
-				RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
-			})
-			if saveErr != nil {
-				return nil, saveErr
-			}
-			continue
-		}
-		snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
-		if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
-			recognitionStarted := time.Now()
-			result, err := s.recognizer.RecognizeChannel(ctx, firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath))
-			recognitionMS := elapsedMilliseconds(recognitionStarted)
-			if err != nil {
-				snapshot.Status = ChannelStatusRecognitionFailed
-				snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
-			} else {
-				applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
-			}
-		}
-		if _, err := s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot); err != nil {
+		if _, err := s.recognizeChannel(ctx, *account, *recorder, channel); err != nil {
 			return nil, err
 		}
 		if index < len(channels)-1 {
@@ -272,6 +251,48 @@ func (s *Service) RecognizeRecorderChannels(ctx context.Context, recorderID int6
 		}
 	}
 	return s.repo.GetRecorder(ctx, recorderID)
+}
+
+func (s *Service) RecognizeChannel(ctx context.Context, channelID int64) (*Channel, error) {
+	if s.scanner == nil {
+		return nil, ErrNotImplemented
+	}
+	channel, recorder, account, err := s.repo.GetChannelContext(ctx, channelID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if !channel.IsActive || channel.Status == ChannelStatusInactive {
+		return nil, &ValidationError{Fields: map[string]string{"channel": "通道已失效，无法识别"}}
+	}
+	return s.recognizeChannel(ctx, *account, *recorder, *channel)
+}
+
+func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (*Channel, error) {
+	channelStarted := time.Now()
+	captureStarted := time.Now()
+	snapshot, err := s.scanner.CaptureChannel(ctx, account, recorder, channel)
+	captureMS := elapsedMilliseconds(captureStarted)
+	if err != nil {
+		return s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
+			RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
+		})
+	}
+	snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
+	if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
+		recognitionStarted := time.Now()
+		result, err := s.recognizer.RecognizeChannel(ctx, firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath))
+		recognitionMS := elapsedMilliseconds(recognitionStarted)
+		if err != nil {
+			snapshot.Status = ChannelStatusRecognitionFailed
+			snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+		} else {
+			applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+		}
+	}
+	return s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
 }
 
 var ErrNotImplemented = errors.New("not implemented")

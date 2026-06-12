@@ -24,12 +24,14 @@ type Repository interface {
 	SaveDesignPlan(ctx context.Context, storeID int64, input SaveDesignPlanInput) (*Store, error)
 	AddRecorder(ctx context.Context, storeID int64, input AddRecorderInput) (*Store, error)
 	GetRecorder(ctx context.Context, recorderID int64) (*Recorder, error)
+	GetChannelContext(ctx context.Context, channelID int64) (*Channel, *Recorder, *EzvizAccount, error)
 	GetEzvizAccount(ctx context.Context, accountID int64) (*EzvizAccount, error)
 	ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error)
 	SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error)
 	ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error)
 	DeleteStore(ctx context.Context, id int64) error
 	DeleteRecorder(ctx context.Context, recorderID int64) error
+	DeleteChannel(ctx context.Context, channelID int64) (*Store, error)
 	CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error)
 	DeviceCodeExists(ctx context.Context, deviceCode string, excludeRecorderID int64) (bool, error)
 	FindOrCreateArea(ctx context.Context, input AreaLookup, areaNumber int) (*Area, error)
@@ -338,6 +340,32 @@ func (s *MemoryStore) GetEzvizAccount(ctx context.Context, accountID int64) (*Ez
 	return &copy, nil
 }
 
+func (s *MemoryStore) GetChannelContext(ctx context.Context, channelID int64) (*Channel, *Recorder, *EzvizAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, store := range s.stores {
+		for recorderIndex := range store.Recorders {
+			recorder := &store.Recorders[recorderIndex]
+			for channelIndex := range recorder.Channels {
+				channel := &recorder.Channels[channelIndex]
+				if channel.ID != channelID {
+					continue
+				}
+				account, ok := s.accounts[recorder.EzvizAccountID]
+				if !ok {
+					return nil, nil, nil, ErrNotFound
+				}
+				channelCopy := *channel
+				recorderCopy := *recorder
+				accountCopy := *account
+				return &channelCopy, &recorderCopy, &accountCopy, nil
+			}
+		}
+	}
+	return nil, nil, nil, ErrNotFound
+}
+
 func (s *MemoryStore) ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -349,13 +377,54 @@ func (s *MemoryStore) ReplaceRecorderChannels(ctx context.Context, recorderID in
 			if recorder.ID != recorderID {
 				continue
 			}
-			nextChannels := make([]Channel, 0, len(channels))
-			for index, channel := range channels {
-				if !channel.IsActive {
+			scannedByNo := map[int]ChannelInput{}
+			for _, channel := range channels {
+				if channel.ChannelNo > 0 {
+					scannedByNo[channel.ChannelNo] = channel
+				}
+			}
+			maxID := int64(0)
+			for index := range recorder.Channels {
+				channel := &recorder.Channels[index]
+				if channel.ID > maxID {
+					maxID = channel.ID
+				}
+				scanned, ok := scannedByNo[channel.ChannelNo]
+				if !ok || !scanned.IsActive {
+					channel.IsActive = false
+					channel.Status = ChannelStatusInactive
+					channel.UpdatedAt = now
+					delete(scannedByNo, channel.ChannelNo)
 					continue
 				}
-				nextChannels = append(nextChannels, Channel{
-					ID:                  int64(index + 1),
+				channel.ChannelName = strings.TrimSpace(scanned.ChannelName)
+				channel.IsActive = true
+				if channel.Status == ChannelStatusInactive {
+					if channel.AreaID != 0 || channel.AreaType != "" || channel.AreaNumber != 0 || channel.ConfirmedAt != nil {
+						if channel.AreaType != "" {
+							channel.Status = ChannelStatusConfirmedBusiness
+						} else {
+							channel.Status = ChannelStatusConfirmedNonBusiness
+						}
+					} else {
+						channel.Status = ChannelStatusPendingRecognition
+						channel.SceneType = SceneTypeUnknown
+						channel.AreaType = ""
+						channel.AreaNumber = 0
+						channel.AreaID = 0
+						channel.ConfirmedAt = nil
+					}
+				}
+				channel.UpdatedAt = now
+				delete(scannedByNo, channel.ChannelNo)
+			}
+			for _, channel := range scannedByNo {
+				if !channel.IsActive || channel.ChannelNo <= 0 {
+					continue
+				}
+				maxID++
+				recorder.Channels = append(recorder.Channels, Channel{
+					ID:                  maxID,
 					RecorderID:          recorder.ID,
 					ChannelNo:           channel.ChannelNo,
 					ChannelName:         strings.TrimSpace(channel.ChannelName),
@@ -367,10 +436,12 @@ func (s *MemoryStore) ReplaceRecorderChannels(ctx context.Context, recorderID in
 					UpdatedAt:           now,
 				})
 			}
-			recorder.Channels = nextChannels
-			recorder.EffectiveChannelCount = len(nextChannels)
+			sort.Slice(recorder.Channels, func(i, j int) bool {
+				return recorder.Channels[i].ChannelNo < recorder.Channels[j].ChannelNo
+			})
+			recorder.EffectiveChannelCount = activeChannelCount(recorder.Channels)
 			recorder.LastScannedAt = &now
-			if len(nextChannels) > 0 {
+			if recorder.EffectiveChannelCount > 0 {
 				recorder.Status = RecorderStatusOnline
 			} else {
 				recorder.Status = RecorderStatusOffline
@@ -384,6 +455,16 @@ func (s *MemoryStore) ReplaceRecorderChannels(ctx context.Context, recorderID in
 		}
 	}
 	return nil, ErrNotFound
+}
+
+func activeChannelCount(channels []Channel) int {
+	count := 0
+	for _, channel := range channels {
+		if channel.IsActive && channel.Status != ChannelStatusInactive {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *MemoryStore) SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error) {
@@ -537,6 +618,35 @@ func (s *MemoryStore) DeleteRecorder(ctx context.Context, recorderID int64) erro
 		}
 	}
 	return ErrNotFound
+}
+
+func (s *MemoryStore) DeleteChannel(ctx context.Context, channelID int64) (*Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	for _, store := range s.stores {
+		for recorderIndex := range store.Recorders {
+			recorder := &store.Recorders[recorderIndex]
+			for channelIndex := range recorder.Channels {
+				channel := recorder.Channels[channelIndex]
+				if channel.ID != channelID {
+					continue
+				}
+				recorder.Channels = append(recorder.Channels[:channelIndex], recorder.Channels[channelIndex+1:]...)
+				recorder.EffectiveChannelCount = activeChannelCount(recorder.Channels)
+				if recorder.EffectiveChannelCount == 0 {
+					recorder.Status = RecorderStatusOffline
+				}
+				recorder.UpdatedAt = now
+				store.UpdatedAt = now
+				s.deleteUnusedVideoAreasLocked(store)
+				copy := cloneStore(*store)
+				return &copy, nil
+			}
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func (s *MemoryStore) CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error) {
@@ -1063,6 +1173,41 @@ func (s *PostgresStore) GetEzvizAccount(ctx context.Context, accountID int64) (*
 	return &account, nil
 }
 
+func (s *PostgresStore) GetChannelContext(ctx context.Context, channelID int64) (*Channel, *Recorder, *EzvizAccount, error) {
+	var recorderID int64
+	err := s.db.QueryRowContext(ctx, `
+		select recorder_id
+		from video_channels
+		where id = $1
+	`, channelID).Scan(&recorderID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	recorder, err := s.GetRecorder(ctx, recorderID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var channel *Channel
+	for index := range recorder.Channels {
+		if recorder.Channels[index].ID == channelID {
+			channel = &recorder.Channels[index]
+			break
+		}
+	}
+	if channel == nil {
+		return nil, nil, nil, ErrNotFound
+	}
+	account, err := s.GetEzvizAccount(ctx, recorder.EzvizAccountID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	channelCopy := *channel
+	return &channelCopy, recorder, account, nil
+}
+
 func (s *PostgresStore) ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1075,37 +1220,149 @@ func (s *PostgresStore) ReplaceRecorderChannels(ctx context.Context, recorderID 
 		return nil, err
 	}
 
-	if _, err := tx.ExecContext(ctx, `delete from video_channels where recorder_id = $1`, recorderID); err != nil {
-		return nil, err
-	}
+	scannedNumbers := []int{}
 	for _, channel := range channels {
-		if !channel.IsActive || channel.ChannelNo <= 0 {
+		if channel.ChannelNo <= 0 {
+			continue
+		}
+		scannedNumbers = append(scannedNumbers, channel.ChannelNo)
+		if channel.IsActive {
+			if _, err := tx.ExecContext(ctx, `
+				insert into video_channels (recorder_id, channel_no, channel_name, status, is_active, scene_type)
+				values ($1, $2, $3, $4, true, $5)
+				on conflict (recorder_id, channel_no) do update
+				set channel_name = excluded.channel_name,
+					is_active = true,
+					status = case
+						when video_channels.status = $6 and (
+							video_channels.area_id is not null
+							or video_channels.area_type is not null
+							or video_channels.area_number is not null
+							or video_channels.confirmed_at is not null
+						) and video_channels.area_type is not null then $7
+						when video_channels.status = $6 and (
+							video_channels.area_id is not null
+							or video_channels.area_type is not null
+							or video_channels.area_number is not null
+							or video_channels.confirmed_at is not null
+						) then $8
+						when video_channels.status = $6 then $4
+						else video_channels.status
+					end,
+					scene_type = case
+						when video_channels.status = $6 and (
+							video_channels.area_id is not null
+							or video_channels.area_type is not null
+							or video_channels.area_number is not null
+							or video_channels.confirmed_at is not null
+						) then video_channels.scene_type
+						when video_channels.status = $6 then $5
+						else video_channels.scene_type
+					end,
+					area_type = case
+						when video_channels.status = $6 and (
+							video_channels.area_id is not null
+							or video_channels.area_type is not null
+							or video_channels.area_number is not null
+							or video_channels.confirmed_at is not null
+						) then video_channels.area_type
+						when video_channels.status = $6 then null
+						else video_channels.area_type
+					end,
+					area_number = case
+						when video_channels.status = $6 and (
+							video_channels.area_id is not null
+							or video_channels.area_type is not null
+							or video_channels.area_number is not null
+							or video_channels.confirmed_at is not null
+						) then video_channels.area_number
+						when video_channels.status = $6 then null
+						else video_channels.area_number
+					end,
+					area_id = case
+						when video_channels.status = $6 and (
+							video_channels.area_id is not null
+							or video_channels.area_type is not null
+							or video_channels.area_number is not null
+							or video_channels.confirmed_at is not null
+						) then video_channels.area_id
+						when video_channels.status = $6 then null
+						else video_channels.area_id
+					end,
+					confirmed_at = case
+						when video_channels.status = $6 and (
+							video_channels.area_id is not null
+							or video_channels.area_type is not null
+							or video_channels.area_number is not null
+							or video_channels.confirmed_at is not null
+						) then video_channels.confirmed_at
+						when video_channels.status = $6 then null
+						else video_channels.confirmed_at
+					end,
+					updated_at = now()
+			`, recorderID, channel.ChannelNo, strings.TrimSpace(channel.ChannelName), ChannelStatusPendingRecognition, SceneTypeUnknown, ChannelStatusInactive, ChannelStatusConfirmedBusiness, ChannelStatusConfirmedNonBusiness); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `
-			insert into video_channels (recorder_id, channel_no, channel_name, status, is_active, scene_type)
-			values ($1, $2, $3, $4, true, $5)
-		`, recorderID, channel.ChannelNo, strings.TrimSpace(channel.ChannelName), ChannelStatusPendingRecognition, SceneTypeUnknown); err != nil {
+			update video_channels
+			set is_active = false,
+				status = $1,
+				updated_at = now()
+			where recorder_id = $2 and channel_no = $3
+		`, ChannelStatusInactive, recorderID, channel.ChannelNo); err != nil {
+			return nil, err
+		}
+	}
+	if len(scannedNumbers) > 0 {
+		args := []any{ChannelStatusInactive, recorderID}
+		placeholders := make([]string, 0, len(scannedNumbers))
+		for index, channelNo := range scannedNumbers {
+			args = append(args, channelNo)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", index+3))
+		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			update video_channels
+			set is_active = false,
+				status = $1,
+				updated_at = now()
+			where recorder_id = $2 and channel_no not in (%s)
+		`, strings.Join(placeholders, ", ")), args...); err != nil {
+			return nil, err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `
+			update video_channels
+			set is_active = false,
+				status = $1,
+				updated_at = now()
+			where recorder_id = $2
+		`, ChannelStatusInactive, recorderID); err != nil {
 			return nil, err
 		}
 	}
 
 	status := RecorderStatusOffline
-	if len(channels) > 0 {
+	activeCount := 0
+	if err := tx.QueryRowContext(ctx, `
+		select count(*)
+		from video_channels
+		where recorder_id = $1 and is_active and status <> $2
+	`, recorderID, ChannelStatusInactive).Scan(&activeCount); err != nil {
+		return nil, err
+	}
+	if activeCount > 0 {
 		status = RecorderStatusOnline
 	}
 	if _, err := tx.ExecContext(ctx, `
 		update video_recorders
 		set status = $1,
-			effective_channel_count = (
-				select count(*)
-				from video_channels
-				where recorder_id = $2 and is_active
-			),
+			effective_channel_count = $3,
 			last_scanned_at = now(),
 			updated_at = now()
 		where id = $2
-	`, status, recorderID); err != nil {
+	`, status, recorderID, activeCount); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `update stores set updated_at = now() where id = $1`, recorder.StoreID); err != nil {
@@ -1310,6 +1567,65 @@ func (s *PostgresStore) DeleteRecorder(ctx context.Context, recorderID int64) er
 		return err
 	}
 	return tx.Commit()
+}
+
+func (s *PostgresStore) DeleteChannel(ctx context.Context, channelID int64) (*Store, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var storeID int64
+	var recorderID int64
+	var channelNo int
+	if err := tx.QueryRowContext(ctx, `
+		select r.store_id, c.recorder_id, c.channel_no
+		from video_channels c
+		join video_recorders r on r.id = c.recorder_id
+		where c.id = $1
+	`, channelID).Scan(&storeID, &recorderID, &channelNo); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `delete from video_channels where id = $1`, channelID); err != nil {
+		return nil, err
+	}
+	if err := deleteUnusedVideoAreas(ctx, tx, storeID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update video_recorders
+		set effective_channel_count = (
+				select count(*)
+				from video_channels
+				where recorder_id = $1 and is_active and status <> $2
+			),
+			status = case
+				when exists (
+					select 1
+					from video_channels
+					where recorder_id = $1 and is_active and status <> $2
+				) then $3
+				else $4
+			end,
+			updated_at = now()
+		where id = $1
+	`, recorderID, ChannelStatusInactive, RecorderStatusOnline, RecorderStatusOffline); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `update stores set updated_at = now() where id = $1`, storeID); err != nil {
+		return nil, err
+	}
+	if err := insertOperationLog(ctx, tx, "delete", "channel", channelID, storeID, fmt.Sprintf("deleted channel %d", channelNo)); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, storeID)
 }
 
 func (s *PostgresStore) CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error) {

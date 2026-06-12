@@ -643,6 +643,32 @@ const mockAdapter = {
     return clone(nextStore);
   },
 
+  async deleteChannel(storeId: number, channelId: number): Promise<StoreDetail> {
+    await delay(160);
+    const store = mockStores.find((item) => item.id === storeId);
+    if (!store) throw new Error("门店不存在");
+    const recorders = store.recorders.map((recorder) => {
+      const channels = recorder.channels.filter((channel) => channel.id !== channelId);
+      return {
+        ...recorder,
+        channels,
+        effectiveChannelCount: channels.filter((channel) => channel.status !== "inactive").length,
+      };
+    });
+    const nextStore = {
+      ...store,
+      recorders,
+      channelCount: countChannels(recorders),
+      areas: mergeAreasFromConfirmedChannels(
+        store.areas.filter((areaItem) => !areaItem.id.startsWith(`channel-${channelId}`)),
+        recorders,
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    mockStores = mockStores.map((item) => (item.id === storeId ? nextStore : item));
+    return clone(nextStore);
+  },
+
   async addRecorder(storeId: number, payload: AddRecorderPayload): Promise<StoreDetail> {
     await delay(180);
     const store = mockStores.find((item) => item.id === storeId);
@@ -747,6 +773,49 @@ const mockAdapter = {
       recognitionProgress: `已完成 ${recognizedChannels.length}/${recognizedChannels.length}`,
     };
     replaceMockRecorder(storeId, recognized);
+    return clone(recognized);
+  },
+
+  async recognizeChannel(storeId: number, channelId: number): Promise<VideoChannel> {
+    await delay(520);
+    const store = mockStores.find((item) => item.id === storeId);
+    if (!store) throw new Error("门店不存在");
+    const recorder = store.recorders.find((item) => item.channels.some((channel) => channel.id === channelId));
+    const channel = recorder?.channels.find((item) => item.id === channelId);
+    if (!recorder || !channel) throw new Error("通道不存在");
+    if (channel.status === "inactive") throw new Error("通道已失效，无法识别");
+    const index = Math.max(0, recorder.channels.findIndex((item) => item.id === channelId));
+    const presets = [
+      { sceneType: "consultation" as SceneType, areaType: "consultation" as AreaType, areaNumber: "1" },
+      { sceneType: "treatment" as SceneType, areaType: "treatment" as AreaType, areaNumber: "2" },
+      { sceneType: "beauty" as SceneType, areaType: "beauty" as AreaType, areaNumber: "3" },
+      { sceneType: "corridor" as SceneType, areaType: "" as const, areaNumber: "" },
+    ];
+    const preset = presets[index % presets.length];
+    const recognized: VideoChannel = {
+      ...channel,
+      ...preset,
+      status: channel.status === "confirmed_business" || channel.status === "confirmed_non_business" ? channel.status : "pending_confirmation",
+      thumbnailUrl: `https://picsum.photos/seed/${recorder.deviceCode}-${channel.channelNo}-${Date.now()}/240/160`,
+      fullImageUrl: `https://picsum.photos/seed/${recorder.deviceCode}-${channel.channelNo}-${Date.now()}/960/640`,
+      fullImageExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      recognitionResult: {
+        status: "recognized",
+        area_type: preset.areaType,
+        area_number: preset.areaNumber,
+        confidence: "medium",
+        capture_ms: 380,
+        recognition_ms: 520,
+        total_ms: 900,
+      },
+      recognitionAttempts: channel.recognitionAttempts + 1,
+    };
+    const nextRecorder = {
+      ...recorder,
+      channels: recorder.channels.map((item) => (item.id === channelId ? recognized : item)),
+      effectiveChannelCount: recorder.channels.filter((item) => item.status !== "inactive").length,
+    };
+    replaceMockRecorder(storeId, nextRecorder);
     return clone(recognized);
   },
 
@@ -942,6 +1011,13 @@ const storeSpaceHttpAdapter = {
     return mapBackendRecorder(response);
   },
 
+  async recognizeChannel(channelId: number): Promise<VideoChannel> {
+    const response = await requestJSON<BackendVideoChannel>(`${STORE_SPACE_API_BASE}/channels/${channelId}/recognize`, {
+      method: "POST",
+    });
+    return mapBackendChannel(response, 0, "");
+  },
+
   async confirmChannel(channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/confirmation`, {
       method: "PUT",
@@ -956,6 +1032,13 @@ const storeSpaceHttpAdapter = {
 
   async deleteRecorder(recorderId: number): Promise<void> {
     await requestJSON<void>(`${STORE_SPACE_API_BASE}/recorders/${recorderId}`, { method: "DELETE" });
+  },
+
+  async deleteChannel(channelId: number): Promise<StoreDetail> {
+    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}`, {
+      method: "DELETE",
+    });
+    return mapStoreSpaceDetail(response);
   },
 
   async addRecorder(storeId: number, payload: AddRecorderPayload): Promise<StoreDetail> {
@@ -1107,6 +1190,13 @@ export const storeSpaceApi = {
     return storeSpaceHttpAdapter.recognizeRecorder(recorderId);
   },
 
+  async recognizeChannel(storeId: number, channelId: number): Promise<VideoChannel> {
+    if (API_MODE === "mock") {
+      return mockAdapter.recognizeChannel(storeId, channelId);
+    }
+    return storeSpaceHttpAdapter.recognizeChannel(channelId);
+  },
+
   async confirmChannel(storeId: number, channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
     if (API_MODE === "mock") {
       return mockAdapter.confirmChannel(storeId, channelId, patch);
@@ -1120,6 +1210,13 @@ export const storeSpaceApi = {
     }
     await storeSpaceHttpAdapter.deleteRecorder(recorderId);
     return storeSpaceHttpAdapter.getStore(storeId);
+  },
+
+  async deleteChannel(storeId: number, channelId: number): Promise<StoreDetail> {
+    if (API_MODE === "mock") {
+      return mockAdapter.deleteChannel(storeId, channelId);
+    }
+    return storeSpaceHttpAdapter.deleteChannel(channelId);
   },
 
   async addRecorder(storeId: number, payload: AddRecorderPayload): Promise<StoreDetail> {

@@ -30,6 +30,8 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	mux.HandleFunc("DELETE /api/store-space/recorders/{recorder_id}", handler.deleteRecorder)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/scan-channels", handler.scanRecorderChannels)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/recognize-channels", handler.recognizeRecorderChannels)
+	mux.HandleFunc("DELETE /api/store-space/channels/{channel_id}", handler.deleteChannel)
+	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/recognize", handler.recognizeChannel)
 	mux.HandleFunc("PUT /api/store-space/channels/{channel_id}/confirmation", handler.confirmChannel)
 }
 
@@ -165,6 +167,19 @@ func (h *Handler) deleteRecorder(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) deleteChannel(w http.ResponseWriter, r *http.Request) {
+	channelID, ok := parseID(w, r, "channel_id")
+	if !ok {
+		return
+	}
+	store, err := h.service.DeleteChannel(r.Context(), channelID)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, store)
+}
+
 func (h *Handler) scanRecorderChannels(w http.ResponseWriter, r *http.Request) {
 	recorderID, ok := parseID(w, r, "recorder_id")
 	if !ok {
@@ -189,6 +204,19 @@ func (h *Handler) recognizeRecorderChannels(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, recorder)
+}
+
+func (h *Handler) recognizeChannel(w http.ResponseWriter, r *http.Request) {
+	channelID, ok := parseID(w, r, "channel_id")
+	if !ok {
+		return
+	}
+	channel, err := h.service.RecognizeChannel(r.Context(), channelID)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, channel)
 }
 
 func (h *Handler) confirmChannel(w http.ResponseWriter, r *http.Request) {

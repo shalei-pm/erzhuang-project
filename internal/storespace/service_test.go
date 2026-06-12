@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -320,6 +321,167 @@ func TestScanRecorderChannelsStoresActiveChannelsOnly(t *testing.T) {
 	}
 }
 
+func TestScanRecorderChannelsPreservesConfirmedChannelMappings(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	scanner := &mutableFakeChannelScanner{
+		channels: []ScannedChannel{
+			{ChannelNo: 1, ChannelName: "通道1", Active: true},
+			{ChannelNo: 2, ChannelName: "通道2", Active: true},
+		},
+	}
+	service := NewServiceWithScanner(repo, scanner)
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "1",
+	}); err != nil {
+		t.Fatalf("confirm channel: %v", err)
+	}
+
+	scanner.channels = []ScannedChannel{
+		{ChannelNo: 1, ChannelName: "通道1-新名称", Active: true},
+		{ChannelNo: 2, ChannelName: "通道2", Active: false},
+		{ChannelNo: 3, ChannelName: "通道3", Active: true},
+	}
+	rescanned, err := service.ScanRecorderChannels(context.Background(), recorder.ID)
+	if err != nil {
+		t.Fatalf("rescan channels: %v", err)
+	}
+
+	if len(rescanned.Channels) != 3 {
+		t.Fatalf("expected three tracked channels after rescan, got %#v", rescanned.Channels)
+	}
+	byNo := channelsByNo(rescanned.Channels)
+	if byNo[1].Status != ChannelStatusConfirmedBusiness || byNo[1].AreaType != AreaTypeTreatment || byNo[1].AreaNumber != 1 {
+		t.Fatalf("expected confirmed channel 1 mapping to be preserved, got %#v", byNo[1])
+	}
+	if byNo[2].Status != ChannelStatusInactive || byNo[2].IsActive {
+		t.Fatalf("expected channel 2 to become inactive, got %#v", byNo[2])
+	}
+	if byNo[3].Status != ChannelStatusPendingRecognition || !byNo[3].IsActive {
+		t.Fatalf("expected new active channel 3 to be pending recognition, got %#v", byNo[3])
+	}
+	if rescanned.EffectiveChannelCount != 2 {
+		t.Fatalf("expected two effective channels, got %d", rescanned.EffectiveChannelCount)
+	}
+}
+
+func TestScanRecorderChannelsPreservesConfirmedMappingAfterChannelRecovers(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	scanner := &mutableFakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+	}
+	service := NewServiceWithScanner(repo, scanner)
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "1",
+	}); err != nil {
+		t.Fatalf("confirm channel: %v", err)
+	}
+
+	scanner.channels = []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: false}}
+	if _, err := service.ScanRecorderChannels(context.Background(), recorder.ID); err != nil {
+		t.Fatalf("scan inactive channel: %v", err)
+	}
+	scanner.channels = []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1恢复", Active: true}}
+	recovered, err := service.ScanRecorderChannels(context.Background(), recorder.ID)
+	if err != nil {
+		t.Fatalf("scan recovered channel: %v", err)
+	}
+
+	channel := recovered.Channels[0]
+	if channel.Status != ChannelStatusConfirmedBusiness || channel.AreaType != AreaTypeTreatment || channel.AreaNumber != 1 {
+		t.Fatalf("expected recovered channel to keep confirmed mapping, got %#v", channel)
+	}
+}
+
+func TestDeleteChannelAllowsRescanToRecreateAsPending(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	scanner := &mutableFakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+	}
+	service := NewServiceWithScanner(repo, scanner)
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "1",
+	}); err != nil {
+		t.Fatalf("confirm channel: %v", err)
+	}
+
+	afterDelete, err := service.DeleteChannel(context.Background(), recorder.Channels[0].ID)
+	if err != nil {
+		t.Fatalf("delete channel: %v", err)
+	}
+	if len(afterDelete.Recorders[0].Channels) != 0 {
+		t.Fatalf("expected channel deleted, got %#v", afterDelete.Recorders[0].Channels)
+	}
+
+	rescanned, err := service.ScanRecorderChannels(context.Background(), recorder.ID)
+	if err != nil {
+		t.Fatalf("rescan channels: %v", err)
+	}
+	if len(rescanned.Channels) != 1 {
+		t.Fatalf("expected channel to be recreated, got %#v", rescanned.Channels)
+	}
+	channel := rescanned.Channels[0]
+	if channel.ChannelNo != 1 || channel.Status != ChannelStatusPendingRecognition || channel.AreaType != "" || channel.AreaNumber != 0 {
+		t.Fatalf("expected recreated channel to be pending and unconfirmed, got %#v", channel)
+	}
+}
+
 func TestRecognizeRecorderChannelsCapturesSnapshots(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
@@ -476,6 +638,55 @@ func TestRecognizeRecorderChannelsDoesNotOverwriteConfirmedChannel(t *testing.T)
 	}
 	if channel.ThumbnailURL == "" {
 		t.Fatalf("expected snapshot to still refresh, got %#v", channel)
+	}
+}
+
+func TestRecognizeChannelOnlyUpdatesOneChannel(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	scanner := &countingFakeChannelScanner{
+		channels: []ScannedChannel{
+			{ChannelNo: 1, ChannelName: "通道1", Active: true},
+			{ChannelNo: 2, ChannelName: "通道2", Active: true},
+		},
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, scanner, fakeChannelRecognizer{
+		result: ChannelRecognitionResult{
+			SceneType:      string(SceneTypeBeauty),
+			AreaType:       string(AreaTypeBeauty),
+			AreaNumber:     "3",
+			DecisionSource: "number_card",
+			Confidence:     "high",
+		},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	updatedChannel, err := service.RecognizeChannel(context.Background(), recorder.Channels[1].ID)
+	if err != nil {
+		t.Fatalf("recognize channel: %v", err)
+	}
+
+	if scanner.captureCount != 1 || scanner.capturedChannelNos[0] != 2 {
+		t.Fatalf("expected only channel 2 captured, got count=%d channels=%#v", scanner.captureCount, scanner.capturedChannelNos)
+	}
+	if updatedChannel.ChannelNo != 2 || updatedChannel.AreaType != AreaTypeBeauty || updatedChannel.AreaNumber != 3 {
+		t.Fatalf("unexpected recognized channel: %#v", updatedChannel)
 	}
 }
 
@@ -732,6 +943,54 @@ func (f fakeChannelScanner) CaptureChannel(ctx context.Context, account EzvizAcc
 		url = "https://example.test/default.jpg"
 	}
 	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+	return ChannelSnapshotInput{
+		ThumbnailPath:      url,
+		FullImagePath:      url,
+		FullImageExpiresAt: &expiresAt,
+	}, nil
+}
+
+type mutableFakeChannelScanner struct {
+	channels []ScannedChannel
+}
+
+func (f *mutableFakeChannelScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
+	return f.channels, nil
+}
+
+func (f *mutableFakeChannelScanner) CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error) {
+	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+	url := "https://example.test/channel.jpg"
+	return ChannelSnapshotInput{
+		ThumbnailPath:      url,
+		FullImagePath:      url,
+		FullImageExpiresAt: &expiresAt,
+	}, nil
+}
+
+func channelsByNo(channels []Channel) map[int]Channel {
+	result := map[int]Channel{}
+	for _, channel := range channels {
+		result[channel.ChannelNo] = channel
+	}
+	return result
+}
+
+type countingFakeChannelScanner struct {
+	channels           []ScannedChannel
+	captureCount       int
+	capturedChannelNos []int
+}
+
+func (f *countingFakeChannelScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
+	return f.channels, nil
+}
+
+func (f *countingFakeChannelScanner) CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error) {
+	f.captureCount++
+	f.capturedChannelNos = append(f.capturedChannelNos, channel.ChannelNo)
+	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+	url := fmt.Sprintf("https://example.test/channel-%d.jpg", channel.ChannelNo)
 	return ChannelSnapshotInput{
 		ThumbnailPath:      url,
 		FullImagePath:      url,
