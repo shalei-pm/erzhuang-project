@@ -65,11 +65,11 @@ function App() {
     setPage(1);
   }
 
-  async function openStore(storeId: number, tab: StoreDetailTab = "design-plan") {
+  async function openStore(storeId: number, tab?: StoreDetailTab) {
     try {
       const detail = await storeSpaceApi.getStore(storeId);
       setActiveStore(detail);
-      setActiveTab(tab);
+      setActiveTab(tab ?? defaultStoreDetailTab(detail));
     } catch (error) {
       setToast(errorMessage(error, "门店详情加载失败。"));
     }
@@ -90,7 +90,7 @@ function App() {
       const detail = await storeSpaceApi.createStore(payload);
       setCreateOpen(false);
       setActiveStore(detail);
-      setActiveTab(payload.designPlan ? "design-plan" : "channels");
+      setActiveTab(defaultStoreDetailTab(detail));
       setToast("门店已创建，请继续完善空间资源。");
       await loadStores();
     } catch (error) {
@@ -98,6 +98,12 @@ function App() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function defaultStoreDetailTab(store: StoreDetailType): StoreDetailTab {
+    if (store.recorderCount > 0 || store.recorders.length > 0) return "channels";
+    if (store.designPlanStatus !== "not_uploaded" || Boolean(store.previewUrl || store.thumbnailUrl)) return "design-plan";
+    return "channels";
   }
 
   async function uploadPdf(file: File) {

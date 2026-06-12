@@ -10,6 +10,7 @@ import {
   type VideoRecorder,
 } from "../api";
 import { areaTypeLabels } from "../domain/areas";
+import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
 import { formatDateTime } from "../domain/format";
 
 const sceneLabels: Record<NonBusinessSceneType, string> = {
@@ -24,6 +25,15 @@ const sceneLabels: Record<NonBusinessSceneType, string> = {
   machine_room: "机房",
   unknown: "未知",
 };
+
+type ChannelTypeFilter = "all" | AreaType;
+
+const channelTypeFilters: { value: ChannelTypeFilter; label: string }[] = [
+  { value: "all", label: "全部" },
+  { value: "consultation", label: "面诊室" },
+  { value: "treatment", label: "治疗室" },
+  { value: "beauty", label: "生美" },
+];
 
 type VideoChannelTabProps = {
   store: StoreDetail;
@@ -45,7 +55,9 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [deletingChannelId, setDeletingChannelId] = useState<number | null>(null);
   const [newRecorderCode, setNewRecorderCode] = useState("");
   const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
+  const [channelTypeFilter, setChannelTypeFilter] = useState<ChannelTypeFilter>("all");
   const [editingChannels, setEditingChannels] = useState<Record<number, Partial<VideoChannel>>>({});
+  const regionAccounts = selectableRegionAccounts(accounts);
 
   async function scanRecorder(recorder: VideoRecorder) {
     setWorkingRecorderId(recorder.id);
@@ -125,14 +137,19 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
 
   async function addRecorder() {
     const deviceCode = newRecorderCode.trim();
+    const regionAccountId = newRecorderAccountId ? Number(newRecorderAccountId) : 0;
     if (!deviceCode) {
       onToast("录像机设备编码不能为空。");
+      return;
+    }
+    if (!regionAccountId || !regionAccounts.some((account) => account.id === regionAccountId)) {
+      onToast("请选择区域。");
       return;
     }
     setAddingRecorder(true);
     try {
       const updated = await storeSpaceApi.addRecorder(store.id, {
-        ezvizAccountId: newRecorderAccountId,
+        ezvizAccountId: regionAccountId,
         deviceCode,
       });
       setNewRecorderCode("");
@@ -248,11 +265,12 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
               value={newRecorderAccountId}
               disabled={addingRecorder}
               onChange={(event) => setNewRecorderAccountId(event.target.value ? Number(event.target.value) : "")}
+              aria-label="选择区域"
             >
-              <option value="">{accounts.length === 0 ? "默认账号" : "选择账号"}</option>
-              {accounts.map((account) => (
+              <option value="">{regionAccounts.length === 0 ? "暂无区域" : "选择区域"}</option>
+              {regionAccounts.map((account) => (
                 <option value={account.id} key={account.id}>
-                  {account.accountName}
+                  {displayAccountRegion(account)}
                 </option>
               ))}
             </select>
@@ -350,28 +368,58 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         )}
       </section>
 
-      {store.recorders.map((recorder) => (
-        <section className="channel-table-section" key={recorder.id}>
-          <div className="section-title-row">
-            <div>
-              <strong>{recorder.deviceCode} 有效通道</strong>
-              <span>请将白底黑字编号纸放在画面明显位置，例如：治疗室 1 / 面诊室 2 / 生美 3。</span>
+      <section className="channel-filter-bar" aria-label="通道筛选">
+        <div>
+          <strong>通道列表</strong>
+          <span>按业务区域类型筛选当前通道映射。</span>
+        </div>
+        <div className="segmented-control" role="radiogroup" aria-label="业务区域类型筛选">
+          {channelTypeFilters.map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              role="radio"
+              aria-checked={channelTypeFilter === filter.value}
+              className={channelTypeFilter === filter.value ? "is-active" : ""}
+              onClick={() => setChannelTypeFilter(filter.value)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {store.recorders.map((recorder) => {
+        const visibleChannels = recorder.channels.filter((channel) => channelMatchesTypeFilter(channel, channelTypeFilter, editingChannels[channel.id]));
+        return (
+          <section className="channel-table-section" key={recorder.id}>
+            <div className="section-title-row">
+              <div>
+                <strong>{recorder.deviceCode} 有效通道</strong>
+                <span>请将白底黑字编号纸放在画面明显位置，例如：治疗室 1 / 面诊室 2 / 生美 3。</span>
+              </div>
             </div>
-          </div>
-          <table className="channel-table">
-            <thead>
-              <tr>
-                <th>录像机</th>
-                <th>通道号</th>
-                <th>最近截图</th>
-                <th>业务区域类型</th>
-                <th>编号/备注</th>
-                <th>确认状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recorder.channels.map((channel) => {
+            <table className="channel-table">
+              <thead>
+                <tr>
+                  <th>录像机</th>
+                  <th>通道号</th>
+                  <th>最近截图</th>
+                  <th>业务区域类型</th>
+                  <th>编号/备注</th>
+                  <th>确认状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleChannels.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="channel-empty-cell">
+                      当前筛选下暂无通道
+                    </td>
+                  </tr>
+                ) : (
+                  visibleChannels.map((channel) => {
                 const draft = editingChannels[channel.id] ?? {};
                 const isEditable =
                   channel.status === "pending_confirmation" ||
@@ -488,11 +536,13 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     </td>
                   </tr>
                 );
-              })}
-            </tbody>
-          </table>
-        </section>
-      ))}
+                  })
+                )}
+              </tbody>
+            </table>
+          </section>
+        );
+      })}
       {previewChannel ? (
         <div className="snapshot-preview-backdrop" role="dialog" aria-modal="true" onClick={() => setPreviewChannel(null)}>
           <div className="snapshot-preview" onClick={(event) => event.stopPropagation()}>
@@ -511,6 +561,12 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       ) : null}
     </section>
   );
+}
+
+function channelMatchesTypeFilter(channel: VideoChannel, filter: ChannelTypeFilter, draft?: Partial<VideoChannel>) {
+  if (filter === "all") return true;
+  const areaType = draft?.areaType !== undefined ? draft.areaType : channel.areaType;
+  return areaType === filter;
 }
 
 function channelRecognitionMessage(channel: VideoChannel) {

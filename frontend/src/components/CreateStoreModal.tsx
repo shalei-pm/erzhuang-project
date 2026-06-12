@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { CreateStoreSpacePayload, EzvizAccount, RecorderDraft, UploadResult } from "../api";
+import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
 
 const MAX_PDF_BYTES = 5 * 1024 * 1024;
 const MAX_RECORDERS = 3;
@@ -43,6 +44,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
   const [designPlan, setDesignPlan] = useState<UploadResult | null>(null);
   const [recorders, setRecorders] = useState<RecorderDraft[]>([]);
   const [message, setMessage] = useState("");
+  const regionAccounts = selectableRegionAccounts(accounts);
 
   async function handlePdfSelected(fileList: FileList | null) {
     const file = fileList?.[0];
@@ -76,7 +78,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
       (item, index) => cleanRecorders.findIndex((other) => other.deviceCode === item.deviceCode) !== index,
     );
     const missingAccount = cleanRecorders.some(
-      (item) => !item.ezvizAccountId || !accounts.some((account) => account.id === item.ezvizAccountId),
+      (item) => !item.ezvizAccountId || !regionAccounts.some((account) => account.id === item.ezvizAccountId),
     );
 
     if (!city.trim()) {
@@ -96,7 +98,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
       return;
     }
     if (missingAccount) {
-      setMessage("请选择萤石云账号");
+      setMessage("请选择区域");
       return;
     }
 
@@ -182,18 +184,18 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
             {recorders.map((recorder) => (
               <div className="recorder-draft-row" key={recorder.id}>
                 <label>
-                  萤石云账号
+                  选择区域
                   <select
                     value={recorder.ezvizAccountId}
-                    disabled={accounts.length === 0}
+                    disabled={regionAccounts.length === 0}
                     onChange={(event) =>
                       updateRecorder(recorder.id, { ezvizAccountId: event.target.value ? Number(event.target.value) : "" })
                     }
                   >
-                    <option value="">{accounts.length === 0 ? "暂无可选账号" : "请选择账号"}</option>
-                    {accounts.map((account) => (
+                    <option value="">{regionAccounts.length === 0 ? "暂无可选区域" : "请选择区域"}</option>
+                    {regionAccounts.map((account) => (
                       <option value={account.id} key={account.id}>
-                        {account.accountName}
+                        {displayAccountRegion(account)}
                       </option>
                     ))}
                   </select>

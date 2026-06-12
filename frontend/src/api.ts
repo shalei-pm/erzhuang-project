@@ -475,8 +475,10 @@ let nextChannelId = 5000;
 const mockUploads = new Map<string, string>();
 
 let mockEzvizAccounts: EzvizAccount[] = [
-  { id: 1, accountName: "华东门店萤石云", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
-  { id: 2, accountName: "华南测试账号", status: "unverified", lastVerifiedAt: "" },
+  { id: 1, accountName: "华北", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
+  { id: 2, accountName: "华东", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
+  { id: 3, accountName: "华南", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
+  { id: 4, accountName: "华西", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
 ];
 
 let mockStores: StoreDetail[] = [
@@ -1778,7 +1780,7 @@ function createMockRecorder(storeId: number, deviceCode: string, ezvizAccountId:
     id,
     storeId,
     ezvizAccountId: account?.id ?? 0,
-    accountName: account?.accountName ?? "未选择账号",
+    accountName: account?.accountName ?? "未选择区域",
     deviceCode,
     status: storeId <= 3 ? "online" : "offline",
     effectiveChannelCount: channels.length,

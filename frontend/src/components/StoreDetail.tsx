@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { EzvizAccount, StoreDetail as StoreDetailType, VideoRecorder } from "../api";
 import { DesignPlanTab } from "./DesignPlanTab";
 import { VideoChannelTab } from "./VideoChannelTab";
@@ -17,6 +17,10 @@ type StoreDetailProps = {
 
 export function StoreDetail({ store, initialTab, saving, accounts, onBack, onStoreUpdated, onToast }: StoreDetailProps) {
   const [activeTab, setActiveTab] = useState<StoreDetailTab>(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab, store.id]);
 
   function updateRecorder(nextRecorder: VideoRecorder) {
     onStoreUpdated({

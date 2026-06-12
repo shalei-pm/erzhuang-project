@@ -820,6 +820,57 @@ td:nth-child(10) {
   gap: 14px;
 }
 
+.channel-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.channel-filter-bar strong {
+  display: block;
+  color: var(--text-strong);
+  font-size: 15px;
+}
+
+.channel-filter-bar span {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--button-radius);
+  background: var(--surface-subtle);
+}
+
+.segmented-control button {
+  min-width: 58px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--button-font-normal);
+  box-shadow: none;
+}
+
+.segmented-control button.is-active {
+  background: var(--surface);
+  color: var(--brand);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+}
+
 .recorder-panel,
 .channel-table-section {
   display: grid;
@@ -962,6 +1013,13 @@ td:nth-child(10) {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
   background: var(--surface);
+}
+
+.channel-empty-cell {
+  height: 68px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
 }
 
 .channel-table th:nth-child(1),
