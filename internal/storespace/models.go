@@ -117,6 +117,18 @@ type AddRecorderInput struct {
 	DeviceCode     string `json:"device_code"`
 }
 
+type ScannedChannel struct {
+	ChannelNo   int
+	ChannelName string
+	Active      bool
+}
+
+type ChannelInput struct {
+	ChannelNo   int
+	ChannelName string
+	IsActive    bool
+}
+
 type DuplicateCheckRequest struct {
 	Name           string `json:"name"`
 	ExcludeStoreID int64  `json:"exclude_store_id,omitempty"`

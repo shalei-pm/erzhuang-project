@@ -422,3 +422,56 @@ POST /admin/ezviz/check
 - 最近校验时间。
 - 最近校验结果。
 - 异常原因。
+
+## 16. 2026-06-12 华北测试录像机实测结果
+
+本次使用用户提供的本地测试资料运行探针命令：
+
+```sh
+go run ./cmd/ezviz-probe --data /Users/sylar/Downloads/ezviz-real-data.md --region 华北 --capture-limit 3
+```
+
+注意：
+
+- 本地测试资料不进入 Git。
+- 探针输出不打印 `appSecret` 或 `accessToken`。
+- 线上服务不要从下载目录读取密钥，应使用服务器本地环境变量或受控配置。
+
+实测结论：
+
+- 大区：华北
+- 账号名：`mjdox1`
+- 测试录像机：`GN0941203`
+- `device/camera/list` 成功返回 32 个通道。
+- 通道 `1`、`2`、`3`、`4` 的 `status=1`。
+- 通道 `5` 到 `32` 的 `status=-1`。
+- 按有效通道抓图时，通道 `1`、`2`、`3` 抓图成功。
+- 按原始返回顺序抓到 `status=-1` 通道时，通道 `10`、`11` 返回 `60012 未知错误`。
+
+工程规则更新：
+
+- 扫描阶段应只把 `status=1` 的通道作为有效通道落库。
+- `channelNo` 必须按萤石返回原样保存，不做 `+1/-1`。
+- 抓图/识别阶段应优先对有效通道串行处理。
+
+## 17. 服务器环境变量配置
+
+第一版真实链路使用服务器本地环境变量配置萤石云账号，不通过前端表单维护密钥：
+
+```sh
+EZVIZ_ACCOUNTS_JSON='[
+  {
+    "name": "华北",
+    "app_key": "REDACTED",
+    "app_secret": "REDACTED",
+    "access_token": "OPTIONAL_REDACTED"
+  }
+]'
+```
+
+规则：
+
+- `name` 必须和数据库 `ezviz_accounts.account_name` 一致。
+- `access_token` 可选，只作为初始缓存。
+- token 过期后，后端必须使用同账号的 `app_key` / `app_secret` 自动刷新。
+- 不要把 `EZVIZ_ACCOUNTS_JSON` 写入 Git。

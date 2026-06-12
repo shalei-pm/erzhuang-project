@@ -22,6 +22,9 @@ type Repository interface {
 	GetStore(ctx context.Context, id int64) (*Store, error)
 	CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error)
 	AddRecorder(ctx context.Context, storeID int64, input AddRecorderInput) (*Store, error)
+	GetRecorder(ctx context.Context, recorderID int64) (*Recorder, error)
+	GetEzvizAccount(ctx context.Context, accountID int64) (*EzvizAccount, error)
+	ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error)
 	DeleteStore(ctx context.Context, id int64) error
 	DeleteRecorder(ctx context.Context, recorderID int64) error
 	CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error)
@@ -230,6 +233,82 @@ func (s *MemoryStore) AddRecorder(ctx context.Context, storeID int64, input AddR
 
 	copy := cloneStore(*store)
 	return &copy, nil
+}
+
+func (s *MemoryStore) GetRecorder(ctx context.Context, recorderID int64) (*Recorder, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, store := range s.stores {
+		for _, recorder := range store.Recorders {
+			if recorder.ID == recorderID {
+				copy := recorder
+				copy.Channels = append([]Channel(nil), recorder.Channels...)
+				return &copy, nil
+			}
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (s *MemoryStore) GetEzvizAccount(ctx context.Context, accountID int64) (*EzvizAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	account, ok := s.accounts[accountID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	copy := *account
+	return &copy, nil
+}
+
+func (s *MemoryStore) ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	for _, store := range s.stores {
+		for recorderIndex := range store.Recorders {
+			recorder := &store.Recorders[recorderIndex]
+			if recorder.ID != recorderID {
+				continue
+			}
+			nextChannels := make([]Channel, 0, len(channels))
+			for index, channel := range channels {
+				if !channel.IsActive {
+					continue
+				}
+				nextChannels = append(nextChannels, Channel{
+					ID:                  int64(index + 1),
+					RecorderID:          recorder.ID,
+					ChannelNo:           channel.ChannelNo,
+					ChannelName:         strings.TrimSpace(channel.ChannelName),
+					Status:              ChannelStatusPendingRecognition,
+					IsActive:            true,
+					SceneType:           SceneTypeUnknown,
+					RecognitionAttempts: 0,
+					CreatedAt:           now,
+					UpdatedAt:           now,
+				})
+			}
+			recorder.Channels = nextChannels
+			recorder.EffectiveChannelCount = len(nextChannels)
+			recorder.LastScannedAt = &now
+			if len(nextChannels) > 0 {
+				recorder.Status = RecorderStatusOnline
+			} else {
+				recorder.Status = RecorderStatusOffline
+			}
+			recorder.UpdatedAt = now
+			store.UpdatedAt = now
+
+			copy := *recorder
+			copy.Channels = append([]Channel(nil), recorder.Channels...)
+			return &copy, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func (s *MemoryStore) DeleteStore(ctx context.Context, id int64) error {
@@ -627,6 +706,99 @@ func (s *PostgresStore) AddRecorder(ctx context.Context, storeID int64, input Ad
 	return s.GetStore(ctx, storeID)
 }
 
+func (s *PostgresStore) GetRecorder(ctx context.Context, recorderID int64) (*Recorder, error) {
+	recorder, err := s.queryRecorder(ctx, s.db, recorderID)
+	if err != nil {
+		return nil, err
+	}
+	channels, err := s.listChannels(ctx, recorder.ID)
+	if err != nil {
+		return nil, err
+	}
+	recorder.Channels = channels
+	return recorder, nil
+}
+
+func (s *PostgresStore) GetEzvizAccount(ctx context.Context, accountID int64) (*EzvizAccount, error) {
+	var account EzvizAccount
+	err := s.db.QueryRowContext(ctx, `
+		select id, account_name, status, last_verified_at, created_at, updated_at
+		from ezviz_accounts
+		where id = $1
+	`, accountID).Scan(
+		&account.ID,
+		&account.AccountName,
+		&account.Status,
+		&account.LastVerifiedAt,
+		&account.CreatedAt,
+		&account.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &account, nil
+}
+
+func (s *PostgresStore) ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	recorder, err := s.queryRecorder(ctx, tx, recorderID)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `delete from video_channels where recorder_id = $1`, recorderID); err != nil {
+		return nil, err
+	}
+	for _, channel := range channels {
+		if !channel.IsActive || channel.ChannelNo <= 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into video_channels (recorder_id, channel_no, channel_name, status, is_active, scene_type)
+			values ($1, $2, $3, $4, true, $5)
+		`, recorderID, channel.ChannelNo, strings.TrimSpace(channel.ChannelName), ChannelStatusPendingRecognition, SceneTypeUnknown); err != nil {
+			return nil, err
+		}
+	}
+
+	status := RecorderStatusOffline
+	if len(channels) > 0 {
+		status = RecorderStatusOnline
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update video_recorders
+		set status = $1,
+			effective_channel_count = (
+				select count(*)
+				from video_channels
+				where recorder_id = $2 and is_active
+			),
+			last_scanned_at = now(),
+			updated_at = now()
+		where id = $2
+	`, status, recorderID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `update stores set updated_at = now() where id = $1`, recorder.StoreID); err != nil {
+		return nil, err
+	}
+	if err := insertOperationLog(ctx, tx, "scan_channels", "recorder", recorderID, recorder.StoreID, fmt.Sprintf("scanned recorder %s", recorder.DeviceCode)); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetRecorder(ctx, recorderID)
+}
+
 func (s *PostgresStore) DeleteStore(ctx context.Context, id int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -933,6 +1105,73 @@ func (s *PostgresStore) listRecorders(ctx context.Context, storeID int64) ([]Rec
 		recorders = append(recorders, recorder)
 	}
 	return recorders, rows.Err()
+}
+
+func (s *PostgresStore) queryRecorder(ctx context.Context, runner queryRunner, recorderID int64) (*Recorder, error) {
+	var recorder Recorder
+	err := runner.QueryRowContext(ctx, `
+		select id, store_id, coalesce(ezviz_account_id, 0), device_code, status,
+			effective_channel_count, last_scanned_at, created_at, updated_at
+		from video_recorders
+		where id = $1
+	`, recorderID).Scan(
+		&recorder.ID,
+		&recorder.StoreID,
+		&recorder.EzvizAccountID,
+		&recorder.DeviceCode,
+		&recorder.Status,
+		&recorder.EffectiveChannelCount,
+		&recorder.LastScannedAt,
+		&recorder.CreatedAt,
+		&recorder.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &recorder, nil
+}
+
+func (s *PostgresStore) listChannels(ctx context.Context, recorderID int64) ([]Channel, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select id, recorder_id, channel_no, channel_name, status, is_active,
+			scene_type, coalesce(area_type, ''), coalesce(area_number, 0),
+			coalesce(area_id, 0), recognition_attempts, confirmed_at, created_at, updated_at
+		from video_channels
+		where recorder_id = $1
+		order by channel_no
+	`, recorderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	channels := []Channel{}
+	for rows.Next() {
+		var channel Channel
+		if err := rows.Scan(
+			&channel.ID,
+			&channel.RecorderID,
+			&channel.ChannelNo,
+			&channel.ChannelName,
+			&channel.Status,
+			&channel.IsActive,
+			&channel.SceneType,
+			&channel.AreaType,
+			&channel.AreaNumber,
+			&channel.AreaID,
+			&channel.RecognitionAttempts,
+			&channel.ConfirmedAt,
+			&channel.CreatedAt,
+			&channel.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		channels = append(channels, channel)
+	}
+	return channels, rows.Err()
 }
 
 type queryRunner interface {

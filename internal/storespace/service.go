@@ -8,11 +8,20 @@ import (
 )
 
 type Service struct {
-	repo Repository
+	repo    Repository
+	scanner ChannelScanner
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func NewServiceWithScanner(repo Repository, scanner ChannelScanner) *Service {
+	return &Service{repo: repo, scanner: scanner}
+}
+
+type ChannelScanner interface {
+	ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error)
 }
 
 func (s *Service) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error) {
@@ -123,8 +132,40 @@ func (s *Service) FindOrCreateArea(ctx context.Context, input AreaLookup) (*Area
 	return s.repo.FindOrCreateArea(ctx, input, number)
 }
 
-func (s *Service) ScanRecorderChannels(ctx context.Context, recorderID int64) error {
-	return ErrNotImplemented
+func (s *Service) ScanRecorderChannels(ctx context.Context, recorderID int64) (*Recorder, error) {
+	if s.scanner == nil {
+		return nil, ErrNotImplemented
+	}
+	recorder, err := s.repo.GetRecorder(ctx, recorderID)
+	if err != nil {
+		return nil, err
+	}
+	if recorder.EzvizAccountID == 0 {
+		return nil, &ValidationError{Fields: map[string]string{"ezviz_account_id": "缺少萤石云账号"}}
+	}
+	account, err := s.repo.GetEzvizAccount(ctx, recorder.EzvizAccountID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, &ValidationError{Fields: map[string]string{"ezviz_account_id": "找不到萤石云账号"}}
+		}
+		return nil, err
+	}
+	scannedChannels, err := s.scanner.ScanRecorderChannels(ctx, *account, *recorder)
+	if err != nil {
+		return nil, err
+	}
+	channelInputs := make([]ChannelInput, 0, len(scannedChannels))
+	for _, channel := range scannedChannels {
+		if channel.ChannelNo <= 0 || !channel.Active {
+			continue
+		}
+		channelInputs = append(channelInputs, ChannelInput{
+			ChannelNo:   channel.ChannelNo,
+			ChannelName: strings.TrimSpace(channel.ChannelName),
+			IsActive:    true,
+		})
+	}
+	return s.repo.ReplaceRecorderChannels(ctx, recorderID, channelInputs)
 }
 
 func (s *Service) RecognizeRecorderChannels(ctx context.Context, recorderID int64) error {

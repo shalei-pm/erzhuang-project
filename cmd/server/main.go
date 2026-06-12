@@ -26,7 +26,15 @@ func main() {
 		}
 		defer db.Close()
 
-		handler = app.NewHandlerWithStores(app.NewPostgresStore(db), designplan.NewPostgresStore(db), storespace.NewPostgresStore(db))
+		storeSpaceRepo := storespace.NewPostgresStore(db)
+		storeSpaceService := storespace.NewService(storeSpaceRepo)
+		if scanner, enabled, err := storespace.NewEzvizScannerFromEnv(); err != nil {
+			log.Fatalf("ezviz scanner setup failed: %v", err)
+		} else if enabled {
+			storeSpaceService = storespace.NewServiceWithScanner(storeSpaceRepo, scanner)
+			log.Print("ezviz scanner enabled")
+		}
+		handler = app.NewHandlerWithServices(app.NewPostgresStore(db), designplan.NewService(designplan.NewPostgresStore(db)), storeSpaceService)
 		log.Print("database store enabled: postgres")
 	} else {
 		log.Print("database store disabled: using memory store")

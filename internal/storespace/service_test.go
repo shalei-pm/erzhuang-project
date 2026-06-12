@@ -237,6 +237,84 @@ func TestCreateStoreRejectsDuplicateRecorderCodesInRequest(t *testing.T) {
 	}
 }
 
+func TestScanRecorderChannelsRequiresEzvizAccount(t *testing.T) {
+	service := NewServiceWithScanner(NewMemoryStore(), fakeChannelScanner{})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	_, err = service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+
+	var validationError *ValidationError
+	if !errors.As(err, &validationError) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if validationError.Fields["ezviz_account_id"] != "缺少萤石云账号" {
+		t.Fatalf("unexpected validation fields: %#v", validationError.Fields)
+	}
+}
+
+func TestScanRecorderChannelsStoresActiveChannelsOnly(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{
+			{ChannelNo: 1, ChannelName: "通道1", Active: true},
+			{ChannelNo: 2, ChannelName: "通道2", Active: true},
+			{ChannelNo: 10, ChannelName: "通道10", Active: false},
+		},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	if recorder.Status != RecorderStatusOnline {
+		t.Fatalf("expected recorder online, got %q", recorder.Status)
+	}
+	if recorder.EffectiveChannelCount != 2 {
+		t.Fatalf("expected 2 effective channels, got %d", recorder.EffectiveChannelCount)
+	}
+	if recorder.LastScannedAt == nil {
+		t.Fatal("expected last scanned time")
+	}
+	if len(recorder.Channels) != 2 {
+		t.Fatalf("expected only active channels, got %#v", recorder.Channels)
+	}
+	if recorder.Channels[0].ChannelNo != 1 || recorder.Channels[1].ChannelNo != 2 {
+		t.Fatalf("expected exact channel numbers 1 and 2, got %#v", recorder.Channels)
+	}
+}
+
+type fakeChannelScanner struct {
+	channels []ScannedChannel
+}
+
+func (f fakeChannelScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
+	return f.channels, nil
+}
+
 func TestFindOrCreateAreaRequiresNumberAndEnforcesUniqueness(t *testing.T) {
 	service := NewService(NewMemoryStore())
 	store, err := service.CreateStore(context.Background(), CreateStoreInput{
