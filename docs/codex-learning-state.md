@@ -1703,6 +1703,30 @@ git diff --check
 
 ## 明日待办
 
+## 2026-06-12 通道识别工作流 2.7.0 发布记录
+
+- 版本号：`2.7.0`。
+- Commit：`4a94700`。
+- 目标：
+  - 修复单通道“重新识别”误触发整台录像机识别的问题。
+  - 录像机级“识别区域”改为前端按通道队列执行，显示进度百分比，每完成一条立即更新截图和识别结果。
+  - “再次扫描”改为增量同步通道有效性，不清空已确认通道的业务区域映射。
+  - 通道行增加删除能力；删除后再次扫描如通道仍有效，会作为新的未确认通道出现。
+  - 门店列表缩略图改为等比铺满缩略图框，避免挤压变形和两侧留白。
+- 本地验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 发布状态：
+  - TAT InvocationId：`inv-s4rsm8giq7`。
+  - TAT 结果：`SUCCESS`。
+  - 服务器当前 commit：`4a94700`。
+  - 服务器发布脚本测试、Go build、前端 build 均通过。
+  - `erzhuang-project.service` 重启后为 active running。
+  - `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 线上 `/erzhuang/` HTML 已引用 `/erzhuang/assets/index-CZDG6jnt.js`。
+  - 线上 JS 已确认包含 `2.7.0 (4a94700)`、“重新识别”、“识别进度”、“删除后将移除”。
+
 ## 2026-06-12 通道截图与 AI 预识别 2.6.0 开发记录
 
 - 版本号：`2.6.0`。
