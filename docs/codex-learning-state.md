@@ -21,6 +21,18 @@
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
+- 发布状态：
+  - PR：`https://github.com/shalei-pm/erzhuang-project/pull/1`，已合并。
+  - Commit：`a786887`。
+  - 线上部署：SSH 执行 `/opt/apps/erzhuang-project/scripts/deploy.sh` 成功。
+  - 服务器当前 commit：`a786887`。
+  - 服务器当前版本：`2.7.2`。
+  - `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`，`erzhuang-project.service` 为 `active`。
+  - 线上前端 JS 已确认包含 `2.7.2 (a786887)`。
+- MiniMax 试跑状态：
+  - 韩国服务器未发现 `/root/.openclaw/workspace/skills/minimax-understand-image/scripts/understand_image.py`。
+  - 韩国服务器未发现 `/root/.openclaw/config/minimax.json`。
+  - 当前线上仍使用默认 `VISION_API_BASE_URL=https://vibe.soyoung.com`、`VISION_MODEL=gpt-5.5`，未切换到 MiniMax。
 
 当前新增产品需求讨论：
 
