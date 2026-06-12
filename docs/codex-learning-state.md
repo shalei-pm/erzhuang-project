@@ -1614,7 +1614,18 @@ git diff --check
     - 添加门店弹窗展示城市下拉，包含北京、上海、广州、深圳等城市。
     - 操作列按钮右侧留白约 56px。
 - 发布状态：
-  - 待提交、推送、发布。
+  - 本地功能 commit：`eb6261c`
+  - 线上 commit：`eb6261c`
+  - 线上页面版本：`2.4.0 (eb6261c)`
+  - TAT InvocationId：`inv-t4rjdb0w91`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：
+    - `/erzhuang/assets/index-PKhj2K0q.js`
+    - `/erzhuang/assets/index-DvSqg6-J.css`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/` HTML 已引用新 JS/CSS。
+    - 线上 JS 中已确认包含 `2.4.0 (eb6261c)`、“城市”和“未设置”。
 
 ## 明日待办
 
