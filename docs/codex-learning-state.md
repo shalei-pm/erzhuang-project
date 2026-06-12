@@ -34,6 +34,32 @@
   - 韩国服务器未发现 `/root/.openclaw/config/minimax.json`。
   - 当前线上仍使用默认 `VISION_API_BASE_URL=https://vibe.soyoung.com`、`VISION_MODEL=gpt-5.5`，未切换到 MiniMax。
 
+## 2026-06-12 MiniMax Token Plan 线上识别 2.7.3 发布记录
+
+- 版本号：`2.7.3`。
+- Commit：`4ac3fb0`。
+- 目标：
+  - 确认用户提供的是 MiniMax Token Plan 订阅 Key，不是普通按量计费 API Key。
+  - 根据 MiniMax 官方文档，Token Plan 可走 OpenAI-compatible Responses API：`https://api.minimaxi.com/v1`，模型 `MiniMax-M3`。
+  - 修复 `VISION_API_BASE_URL` 已包含 `/v1` 时 endpoint 被拼成 `/v1/v1/responses` 的问题。
+  - 兼容 MiniMax 可能返回 Markdown fenced JSON 的情况，并收紧 prompt 要求只输出 JSON。
+  - `recognition_result.provider` 能正确记录为 `minimax`，避免速度对比时混淆。
+- 本地验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 线上配置：
+  - `/etc/systemd/system/erzhuang-project.service.d/20-vision-ai.conf`
+  - `VISION_API_BASE_URL=https://api.minimaxi.com/v1`
+  - `VISION_MODEL=MiniMax-M3`
+  - `VISION_API_KEY` 使用 MiniMax Token Plan 订阅 Key，仅保存在服务器 systemd drop-in，不进入 Git。
+- 线上验证：
+  - 服务器部署脚本执行成功，`erzhuang-project.service` 为 `active`。
+  - `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 直接调用 MiniMax Responses API 返回 HTTP 200，耗时约 `12429ms`。
+  - 通道 `131` 真实识别成功，整体接口约 `10s`，后端记录 `capture_ms=1668`、`total_ms=6414`，识别为“弱电机房”。
+  - 通道 `132` 真实识别成功，`provider=minimax`，整体接口约 `14s`，后端记录 `capture_ms=1029`、`recognition_ms=10297`、`total_ms=11327`。
+
 当前新增产品需求讨论：
 
 - 项目方向：设计图标记与诊室区域管理。
