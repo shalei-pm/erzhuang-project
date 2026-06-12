@@ -30,6 +30,47 @@ cd /opt/apps/erzhuang-project
 
 如果任一步失败，脚本会停止。
 
+## Codex 通过 TAT 发布
+
+主会话可以直接通过腾讯云 TAT 触发服务器发布，不需要用户手动登录服务器。
+
+固定目标：
+
+- Region: `ap-seoul`
+- InstanceId: `lhins-rjfpwj1u`
+- Username: `lighthouse`
+- Server command: `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`
+
+在 Codex 中执行时，必须使用交互式 PTY，因为 `tools/tat_run.py` 会用 `getpass` 提示输入腾讯云 `SecretId` 和 `SecretKey`。不要把密钥拼进命令。
+
+命令：
+
+```sh
+python3 tools/tat_run.py --region ap-seoul --instance-id lhins-rjfpwj1u --timeout 900 --username lighthouse "cd /opt/apps/erzhuang-project && ./scripts/deploy.sh"
+```
+
+预期成功信号：
+
+- `TaskStatus: SUCCESS`
+- 输出包含 `Deploy complete`
+- 当前 commit 与 GitHub `main` 一致
+- `go test ./...` 成功
+- Go build 成功
+- 前端 build 成功
+- `curl http://127.0.0.1:18081/health` 返回健康 JSON
+
+如果健康检查失败，不要立刻重复发布。先执行只读诊断：
+
+```sh
+python3 tools/tat_run.py --region ap-seoul --instance-id lhins-rjfpwj1u --timeout 120 --username lighthouse "cd /opt/apps/erzhuang-project && echo COMMIT=$(git rev-parse --short HEAD) && echo VERSION=$(cat VERSION) && sudo systemctl status erzhuang-project.service --no-pager || true && echo '--- journal ---' && sudo journalctl -u erzhuang-project.service -n 80 --no-pager && echo '--- listeners ---' && ss -ltnp | grep -E '18081|18080' || true && echo '--- health 18081 ---' && curl -sv http://127.0.0.1:18081/health || true"
+```
+
+常见失败：
+
+- `database setup failed: timeout: context deadline exceeded`：数据库 schema 初始化超时。应检查 `cmd/server/main.go` 中 schema 初始化超时是否足够，修复后重新发布。
+- `git@github.com: Permission denied (publickey)`：服务器未使用 deploy key。检查 `scripts/deploy.sh` 中 `GIT_SSH_COMMAND`。
+- `curl 127.0.0.1:18081 failed` 且 journal 无监听日志：服务启动失败，先看 journal，不要只看 systemd 刚启动的一瞬间状态。
+
 ## 服务器依赖
 
 设计图上传识别需要额外依赖：

@@ -1341,6 +1341,26 @@ git diff --check
 - 根因：本次大版本新增较多 PostgreSQL 表、索引和 RLS policy，启动时 schema 初始化超过原有 10 秒上下文超时。
 - 修复：版本号升级到 `2.0.1`，将数据库连接 Ping 超时保留 10 秒，将 schema 初始化超时单独放宽到 90 秒。
 
+第二次发布结果：
+
+- 修复提交：`b79aad1 Extend database schema setup timeout`
+- 线上版本：`2.0.1`
+- TAT InvocationId：`inv-r4ranigidm`
+- TAT 结果：`SUCCESS`
+- 服务器 commit：`b79aad1`
+- 服务器 `go test ./...`：通过
+- 服务器 Go build：通过
+- 服务器前端 build：通过
+- systemd restart：成功
+- 内网健康检查：成功，返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`
+- 现象：因为 schema 初始化仍需数秒，健康检查前 11 次连接失败，第 12 次成功；deploy 脚本重试机制生效。
+
+流程复盘：
+
+- 发布链路没有变：本地开发 -> GitHub `main` -> TAT -> 服务器拉取 GitHub -> 测试/构建 -> systemd -> health。
+- 本次问题在于主会话一开始没有优先读取既有 runbook 和历史发布记录，导致先撞了一次非交互 `getpass`。
+- 已把 TAT 发布方式、必须使用交互式 PTY、失败诊断步骤写入 `AGENTS.md` 和 `docs/deploy-runbook.md`，作为之后本项目的固定发布能力。
+
 ## 明日待办
 
 1. 开始前先运行：
