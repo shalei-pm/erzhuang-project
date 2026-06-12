@@ -42,6 +42,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
   const [planZoom, setPlanZoom] = useState(1);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const planRef = useRef<HTMLDivElement | null>(null);
+  const areaPaneRef = useRef<HTMLElement | null>(null);
   const areaCardRefs = useRef<Record<string, HTMLElement | null>>({});
   const previousPreviewRef = useRef<{ previewUrl: string; areas: StoreArea[] } | null>(null);
 
@@ -65,15 +66,12 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
     setRecognitionResult(store.recognitionResult);
     setUploadStage(store.previewUrl ? "ready" : "initial");
     setAreas(store.areas);
-    setSelectedAreaId(store.areas[0]?.id ?? null);
+    selectArea(store.areas[0]?.id ?? null);
   }, [store]);
 
   useEffect(() => {
     if (!selectedAreaId) return;
-    areaCardRefs.current[selectedAreaId]?.scrollIntoView({
-      block: "nearest",
-      behavior: "smooth",
-    });
+    scrollToAreaCard(selectedAreaId);
   }, [selectedAreaId]);
 
   useEffect(() => {
@@ -124,7 +122,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
     if (previous) {
       setPreviewUrl(previous.previewUrl);
       setAreas(previous.areas);
-      setSelectedAreaId(previous.areas[0]?.id ?? null);
+      selectArea(previous.areas[0]?.id ?? null);
     }
     previousPreviewRef.current = null;
     setPendingPreviewUrl("");
@@ -171,7 +169,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
       setPreviewUrl(previousPreviewUrl);
       setPendingPreviewUrl("");
       setAreas(previousAreas);
-      setSelectedAreaId(previousAreas[0]?.id ?? null);
+      selectArea(previousAreas[0]?.id ?? null);
       previousPreviewRef.current = null;
       setUploadStage("failed");
       setUploadMessage(message);
@@ -190,7 +188,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
       const recognition = await storeSpaceApi.recognizeUpload(uploadId ?? `store-${store.id}`);
       const mergedAreas = mergeRecognizedAreas(areas, recognition.areas);
       setAreas(mergedAreas);
-      setSelectedAreaId(mergedAreas[0]?.id ?? null);
+      selectArea(mergedAreas[0]?.id ?? null);
       setRecognitionResult(recognition.rawResult ?? recognition);
       setUploadStage("ready");
       setUploadMessage(
@@ -211,10 +209,23 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
     setAreas((items) => items.map((item) => (item.id === areaId ? withGeneratedAreaFields({ ...item, ...patch }) : item)));
   }
 
+  function selectArea(areaId: string | null) {
+    setSelectedAreaId(areaId);
+    if (areaId) {
+      scrollToAreaCard(areaId);
+    }
+  }
+
+  function scrollToAreaCard(areaId: string) {
+    window.requestAnimationFrame(() => {
+      scrollAreaCardIntoPane(areaPaneRef.current, areaCardRefs.current[areaId]);
+    });
+  }
+
   function addArea() {
     const area = createManualArea();
     setAreas((items) => [...items, area]);
-    setSelectedAreaId(area.id);
+    selectArea(area.id);
   }
 
   function deleteArea(areaId: string) {
@@ -312,14 +323,14 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
             planZoom={planZoom}
             planRef={planRef}
             onRequestUpload={requestPdfUpload}
-            onSelectArea={setSelectedAreaId}
+            onSelectArea={selectArea}
             onStartDrag={setDragState}
             onPendingPreviewLoaded={commitPendingPreview}
             onPendingPreviewError={rollbackPendingPreview}
           />
         </div>
 
-        <aside className="area-pane">
+        <aside className="area-pane" ref={areaPaneRef}>
           <div className="area-pane-header">
             <div>
               <strong>区域卡片</strong>
@@ -352,7 +363,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
             selectedAreaId={selectedAreaId}
             areaErrors={validation.areaErrors}
             areaCardRefs={areaCardRefs}
-            onSelectArea={setSelectedAreaId}
+            onSelectArea={selectArea}
             onUpdateArea={updateArea}
             onMoveArea={moveArea}
             onDeleteArea={deleteArea}
@@ -361,6 +372,16 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
       </div>
     </section>
   );
+}
+
+function scrollAreaCardIntoPane(container: HTMLElement | null, target: HTMLElement | null) {
+  if (!container || !target) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const targetTop = targetRect.top - containerRect.top + container.scrollTop;
+  const centeredTop = targetTop - container.clientHeight / 2 + targetRect.height / 2;
+  container.scrollTo({ top: Math.max(0, centeredTop), behavior: "auto" });
 }
 
 function validateAreas(areas: StoreArea[], hasPreview: boolean): ValidationResult {

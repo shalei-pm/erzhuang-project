@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   ApiError,
   storeSpaceApi,
+  type EzvizAccount,
   type AreaType,
   type NonBusinessSceneType,
   type StoreDetail,
@@ -26,13 +27,17 @@ const sceneLabels: Record<NonBusinessSceneType, string> = {
 
 type VideoChannelTabProps = {
   store: StoreDetail;
+  accounts: EzvizAccount[];
   onStoreUpdated: (store: StoreDetail) => void;
   onRecorderUpdated: (recorder: VideoRecorder) => void;
   onToast: (message: string) => void;
 };
 
-export function VideoChannelTab({ store, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
+export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
+  const [addingRecorder, setAddingRecorder] = useState(false);
+  const [newRecorderCode, setNewRecorderCode] = useState("");
+  const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
   const [editingChannels, setEditingChannels] = useState<Record<number, Partial<VideoChannel>>>({});
 
   async function scanRecorder(recorder: VideoRecorder) {
@@ -73,6 +78,29 @@ export function VideoChannelTab({ store, onStoreUpdated, onRecorderUpdated, onTo
       onToast(channelErrorMessage(error, "删除录像机失败，请稍后重试。"));
     } finally {
       setWorkingRecorderId(null);
+    }
+  }
+
+  async function addRecorder() {
+    const deviceCode = newRecorderCode.trim();
+    if (!deviceCode) {
+      onToast("录像机设备编码不能为空。");
+      return;
+    }
+    setAddingRecorder(true);
+    try {
+      const updated = await storeSpaceApi.addRecorder(store.id, {
+        ezvizAccountId: newRecorderAccountId,
+        deviceCode,
+      });
+      setNewRecorderCode("");
+      setNewRecorderAccountId("");
+      onStoreUpdated(updated);
+      onToast(`已添加录像机 ${deviceCode.toUpperCase()}。`);
+    } catch (error) {
+      onToast(channelErrorMessage(error, "添加录像机失败，请稍后重试。"));
+    } finally {
+      setAddingRecorder(false);
     }
   }
 
@@ -120,13 +148,37 @@ export function VideoChannelTab({ store, onStoreUpdated, onRecorderUpdated, onTo
         <div className="section-title-row">
           <div>
             <strong>录像机列表</strong>
+            <span>最多 3 台，删除后可在这里重新补充。</span>
+          </div>
+          <div className="add-recorder-form" aria-label="添加录像机">
+            <select
+              value={newRecorderAccountId}
+              disabled={addingRecorder}
+              onChange={(event) => setNewRecorderAccountId(event.target.value ? Number(event.target.value) : "")}
+            >
+              <option value="">{accounts.length === 0 ? "默认账号" : "选择账号"}</option>
+              {accounts.map((account) => (
+                <option value={account.id} key={account.id}>
+                  {account.accountName}
+                </option>
+              ))}
+            </select>
+            <input
+              value={newRecorderCode}
+              disabled={addingRecorder || store.recorders.length >= 3}
+              onChange={(event) => setNewRecorderCode(event.target.value)}
+              placeholder="录像机设备编码"
+            />
+            <button disabled={addingRecorder || store.recorders.length >= 3} onClick={() => void addRecorder()}>
+              添加录像机
+            </button>
           </div>
         </div>
 
         {store.recorders.length === 0 ? (
           <div className="manual-panel">
             <strong>暂无录像机</strong>
-            <p>可以先在添加门店时录入设备编码，后续也会支持详情页补充。</p>
+            <p>可在上方填写设备编码并添加，添加后再扫描通道。</p>
           </div>
         ) : (
           <table className="recorder-table">

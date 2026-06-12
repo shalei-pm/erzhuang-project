@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { StoreDetail as StoreDetailType, VideoRecorder } from "../api";
+import type { EzvizAccount, StoreDetail as StoreDetailType, VideoRecorder } from "../api";
 import { DesignPlanTab } from "./DesignPlanTab";
 import { VideoChannelTab } from "./VideoChannelTab";
 
@@ -9,12 +9,13 @@ type StoreDetailProps = {
   store: StoreDetailType;
   initialTab: StoreDetailTab;
   saving: boolean;
+  accounts: EzvizAccount[];
   onBack: () => void;
   onStoreUpdated: (store: StoreDetailType) => void;
   onToast: (message: string) => void;
 };
 
-export function StoreDetail({ store, initialTab, saving, onBack, onStoreUpdated, onToast }: StoreDetailProps) {
+export function StoreDetail({ store, initialTab, saving, accounts, onBack, onStoreUpdated, onToast }: StoreDetailProps) {
   const [activeTab, setActiveTab] = useState<StoreDetailTab>(initialTab);
 
   function updateRecorder(nextRecorder: VideoRecorder) {
@@ -73,6 +74,7 @@ export function StoreDetail({ store, initialTab, saving, onBack, onStoreUpdated,
       ) : (
         <VideoChannelTab
           store={store}
+          accounts={accounts}
           onStoreUpdated={onStoreUpdated}
           onRecorderUpdated={updateRecorder}
           onToast={onToast}

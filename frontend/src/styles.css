@@ -704,6 +704,15 @@ td:nth-child(10) {
 .detail-header .plain-button {
   justify-self: start;
   width: fit-content;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.detail-header .plain-button:hover:not(:disabled) {
+  border-color: #93c5fd;
+  background: #dbeafe;
 }
 
 .detail-metrics {
@@ -776,6 +785,7 @@ td:nth-child(10) {
 }
 
 .detail-editor-body {
+  height: clamp(520px, calc(100vh - 360px), 680px);
   min-height: clamp(520px, calc(100vh - 360px), 680px);
 }
 
@@ -834,6 +844,23 @@ td:nth-child(10) {
 
 .recorder-actions .danger-link {
   min-width: 64px;
+}
+
+.add-recorder-form {
+  display: grid;
+  grid-template-columns: minmax(128px, 160px) minmax(180px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: min(100%, 520px);
+}
+
+.add-recorder-form input,
+.add-recorder-form select {
+  min-height: 32px;
+}
+
+.add-recorder-form button {
+  min-width: 92px;
 }
 
 .recognition-progress {
@@ -1567,6 +1594,7 @@ td:nth-child(10) {
   }
 
   .editor-body {
+    height: auto;
     grid-template-columns: 1fr;
   }
 
@@ -1577,6 +1605,11 @@ td:nth-child(10) {
 
   .area-pane {
     max-height: 42vh;
+  }
+
+  .add-recorder-form {
+    grid-template-columns: 1fr;
+    width: 100%;
   }
 }
 

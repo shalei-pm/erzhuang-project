@@ -77,6 +77,29 @@ func (s *Service) DeleteStore(ctx context.Context, id int64) error {
 	return s.repo.DeleteStore(ctx, id)
 }
 
+func (s *Service) AddRecorder(ctx context.Context, storeID int64, input AddRecorderInput) (*Store, error) {
+	if err := validateAddRecorderInput(input); err != nil {
+		return nil, err
+	}
+	store, err := s.repo.GetStore(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	if len(store.Recorders) >= 3 {
+		return nil, &ValidationError{Fields: map[string]string{"recorders": "单门店最多 3 台录像机"}}
+	}
+
+	input.DeviceCode = normalizeDeviceCode(input.DeviceCode)
+	exists, err := s.repo.DeviceCodeExists(ctx, input.DeviceCode, 0)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, &ValidationError{Fields: map[string]string{"device_code": "录像机设备编码已存在"}}
+	}
+	return s.repo.AddRecorder(ctx, storeID, input)
+}
+
 func (s *Service) DeleteRecorder(ctx context.Context, recorderID int64) error {
 	return s.repo.DeleteRecorder(ctx, recorderID)
 }

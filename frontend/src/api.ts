@@ -169,6 +169,11 @@ export type CreateStoreSpacePayload = {
   recorders: RecorderDraft[];
 };
 
+export type AddRecorderPayload = {
+  ezvizAccountId: number | "";
+  deviceCode: string;
+};
+
 type ApiMode = "auto" | "http" | "mock";
 
 type BackendStoreListResponse = {
@@ -609,6 +614,27 @@ const mockAdapter = {
     return clone(nextStore);
   },
 
+  async addRecorder(storeId: number, payload: AddRecorderPayload): Promise<StoreDetail> {
+    await delay(180);
+    const store = mockStores.find((item) => item.id === storeId);
+    if (!store) throw new Error("门店不存在");
+    const cleanCode = payload.deviceCode.trim().toUpperCase();
+    if (!cleanCode) throw new Error("录像机设备编码必填");
+    if (store.recorders.length >= 3) throw new Error("单门店最多 3 台录像机");
+    const exists = mockStores.some((item) => item.recorders.some((recorder) => recorder.deviceCode === cleanCode));
+    if (exists) throw new Error("录像机设备编码已存在");
+    const recorders = [...store.recorders, createMockRecorder(storeId, cleanCode, Number(payload.ezvizAccountId) || 0)];
+    const nextStore = {
+      ...store,
+      recorders,
+      recorderCount: recorders.length,
+      channelCount: countChannels(recorders),
+      updatedAt: new Date().toISOString(),
+    };
+    mockStores = mockStores.map((item) => (item.id === storeId ? nextStore : item));
+    return clone(nextStore);
+  },
+
   async listEzvizAccounts(): Promise<EzvizAccount[]> {
     await delay(120);
     return clone(mockEzvizAccounts);
@@ -887,6 +913,17 @@ const storeSpaceHttpAdapter = {
   async deleteRecorder(recorderId: number): Promise<void> {
     await requestJSON<void>(`${STORE_SPACE_API_BASE}/recorders/${recorderId}`, { method: "DELETE" });
   },
+
+  async addRecorder(storeId: number, payload: AddRecorderPayload): Promise<StoreDetail> {
+    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores/${storeId}/recorders`, {
+      method: "POST",
+      body: JSON.stringify({
+        ezviz_account_id: payload.ezvizAccountId ? Number(payload.ezvizAccountId) : 0,
+        device_code: payload.deviceCode.trim(),
+      }),
+    });
+    return mapStoreSpaceDetail(response);
+  },
 };
 
 export const designPlanApi = {
@@ -1036,6 +1073,13 @@ export const storeSpaceApi = {
     }
     await storeSpaceHttpAdapter.deleteRecorder(recorderId);
     return storeSpaceHttpAdapter.getStore(storeId);
+  },
+
+  async addRecorder(storeId: number, payload: AddRecorderPayload): Promise<StoreDetail> {
+    if (API_MODE === "mock") {
+      return mockAdapter.addRecorder(storeId, payload);
+    }
+    return storeSpaceHttpAdapter.addRecorder(storeId, payload);
   },
 };
 

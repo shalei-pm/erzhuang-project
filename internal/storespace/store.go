@@ -21,6 +21,7 @@ type Repository interface {
 	ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error)
 	GetStore(ctx context.Context, id int64) (*Store, error)
 	CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error)
+	AddRecorder(ctx context.Context, storeID int64, input AddRecorderInput) (*Store, error)
 	DeleteStore(ctx context.Context, id int64) error
 	DeleteRecorder(ctx context.Context, recorderID int64) error
 	CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error)
@@ -199,6 +200,35 @@ func (s *MemoryStore) CreateStore(ctx context.Context, input CreateStoreInput) (
 
 	s.stores[store.ID] = &store
 	copy := cloneStore(store)
+	return &copy, nil
+}
+
+func (s *MemoryStore) AddRecorder(ctx context.Context, storeID int64, input AddRecorderInput) (*Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	store, ok := s.stores[storeID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	code := normalizeDeviceCode(input.DeviceCode)
+	recorder := Recorder{
+		ID:             s.nextRecorderID,
+		StoreID:        store.ID,
+		EzvizAccountID: input.EzvizAccountID,
+		DeviceCode:     code,
+		Status:         RecorderStatusOffline,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.nextRecorderID++
+	store.Recorders = append(store.Recorders, recorder)
+	store.UpdatedAt = now
+	s.deviceCodes[code] = recorder.ID
+
+	copy := cloneStore(*store)
 	return &copy, nil
 }
 
@@ -560,6 +590,41 @@ func (s *PostgresStore) CreateStore(ctx context.Context, input CreateStoreInput)
 		return nil, err
 	}
 	return s.GetStore(ctx, id)
+}
+
+func (s *PostgresStore) AddRecorder(ctx context.Context, storeID int64, input AddRecorderInput) (*Store, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var existingStoreID int64
+	if err := tx.QueryRowContext(ctx, `select id from stores where id = $1`, storeID).Scan(&existingStoreID); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+
+	code := normalizeDeviceCode(input.DeviceCode)
+	var recorderID int64
+	if err := tx.QueryRowContext(ctx, `
+		insert into video_recorders (store_id, ezviz_account_id, device_code, status)
+		values ($1, nullif($2::bigint, 0), $3, $4)
+		returning id
+	`, storeID, input.EzvizAccountID, code, RecorderStatusOffline).Scan(&recorderID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `update stores set updated_at = now() where id = $1`, storeID); err != nil {
+		return nil, err
+	}
+	if err := insertOperationLog(ctx, tx, "create", "recorder", recorderID, storeID, fmt.Sprintf("added recorder %s", code)); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, storeID)
 }
 
 func (s *PostgresStore) DeleteStore(ctx context.Context, id int64) error {

@@ -144,6 +144,78 @@ func TestDeleteRecorderReleasesDeviceCode(t *testing.T) {
 	}
 }
 
+func TestAddRecorderAfterDelete(t *testing.T) {
+	service := NewService(NewMemoryStore())
+	ctx := context.Background()
+
+	store, err := service.CreateStore(ctx, CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{DeviceCode: "D12345678"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := service.DeleteRecorder(ctx, store.Recorders[0].ID); err != nil {
+		t.Fatalf("delete recorder: %v", err)
+	}
+
+	updated, err := service.AddRecorder(ctx, store.ID, AddRecorderInput{DeviceCode: "D87654321"})
+	if err != nil {
+		t.Fatalf("add recorder: %v", err)
+	}
+	if len(updated.Recorders) != 1 || updated.Recorders[0].DeviceCode != "D87654321" {
+		t.Fatalf("unexpected recorders after add: %#v", updated.Recorders)
+	}
+}
+
+func TestAddRecorderRejectsLimitAndDuplicateCode(t *testing.T) {
+	service := NewService(NewMemoryStore())
+	ctx := context.Background()
+
+	store, err := service.CreateStore(ctx, CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{DeviceCode: "D12345678"},
+			{DeviceCode: "D87654321"},
+			{DeviceCode: "D99999999"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	_, err = service.AddRecorder(ctx, store.ID, AddRecorderInput{DeviceCode: "D00000000"})
+	var validationError *ValidationError
+	if !errors.As(err, &validationError) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if validationError.Fields["recorders"] != "单门店最多 3 台录像机" {
+		t.Fatalf("unexpected limit error: %#v", validationError.Fields)
+	}
+
+	otherStore, err := service.CreateStore(ctx, CreateStoreInput{
+		City: "广州",
+		Name: "广州天河",
+		Recorders: []RecorderInput{
+			{DeviceCode: "D55555555"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create other store: %v", err)
+	}
+	_, err = service.AddRecorder(ctx, otherStore.ID, AddRecorderInput{DeviceCode: "D12345678"})
+	if !errors.As(err, &validationError) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if validationError.Fields["device_code"] != "录像机设备编码已存在" {
+		t.Fatalf("unexpected duplicate error: %#v", validationError.Fields)
+	}
+}
+
 func TestCreateStoreRejectsDuplicateRecorderCodesInRequest(t *testing.T) {
 	service := NewService(NewMemoryStore())
 

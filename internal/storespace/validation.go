@@ -64,6 +64,17 @@ func validateCreateEzvizAccountInput(input CreateEzvizAccountInput) error {
 	return nil
 }
 
+func validateAddRecorderInput(input AddRecorderInput) error {
+	fields := map[string]string{}
+	if normalizeDeviceCode(input.DeviceCode) == "" {
+		fields["device_code"] = "录像机设备编码必填"
+	}
+	if len(fields) > 0 {
+		return &ValidationError{Fields: fields}
+	}
+	return nil
+}
+
 func validateAreaLookup(input AreaLookup) (int, error) {
 	fields := map[string]string{}
 	if input.StoreID <= 0 {

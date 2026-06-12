@@ -136,6 +136,7 @@ function App() {
           store={activeStore}
           initialTab={activeTab}
           saving={saving}
+          accounts={accounts}
           onBack={() => {
             setActiveStore(null);
             void loadStores();

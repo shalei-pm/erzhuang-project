@@ -112,6 +112,11 @@ type RecorderInput struct {
 	DeviceCode     string `json:"device_code"`
 }
 
+type AddRecorderInput struct {
+	EzvizAccountID int64  `json:"ezviz_account_id,omitempty"`
+	DeviceCode     string `json:"device_code"`
+}
+
 type DuplicateCheckRequest struct {
 	Name           string `json:"name"`
 	ExcludeStoreID int64  `json:"exclude_store_id,omitempty"`
