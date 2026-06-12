@@ -10,6 +10,7 @@ import (
 
 	"github.com/shalei-pm/erzhuang-project/internal/app"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -25,7 +26,7 @@ func main() {
 		}
 		defer db.Close()
 
-		handler = app.NewHandlerWithStores(app.NewPostgresStore(db), designplan.NewPostgresStore(db))
+		handler = app.NewHandlerWithStores(app.NewPostgresStore(db), designplan.NewPostgresStore(db), storespace.NewPostgresStore(db))
 		log.Print("database store enabled: postgres")
 	} else {
 		log.Print("database store disabled: using memory store")
