@@ -1391,7 +1391,25 @@ git diff --check
   - 用户指出 2.x 前端细节不如早期 1.x，应提升验收标准。
   - 已将“前端发布前必须实际页面截图/视觉验收”写入 `AGENTS.md`。
   - 本轮本地 mock 视觉验收发现并修复：原生 `Choose File` 露出、详情顶部指标过度卡片化、通道映射操作列挤压换行、Tab 默认焦点框观感差。
-  - 2.2.0 当前为本地候选版本，发布前需再次确认是否推送上线。
+  - 2.2.0 已发布上线，线上 commit 为 `eb29e90`。
+
+## 2026-06-12 创建门店 validation failed 2.2.1 修复
+
+本次版本号从 `2.2.0` 升级到 `2.2.1`：
+
+- 用户反馈：创建门店弹窗信息完善后点击“创建门店”不能继续，机构列表出现 `validation failed`。
+- 根因：
+  - 前端 `storeSpaceApi` 的列表、详情、重复校验、删除仍复用旧 `design-plan` 接口，但创建门店走新的 `store-space` 接口。
+  - 因此创建前重复校验可能查旧表，真正创建时新表已存在同名门店，后端返回字段级校验错误。
+  - 前端 `ApiError` 没有保留后端返回的 `fields`，导致页面只能显示笼统的 `validation failed`。
+- 修复：
+  - `storeSpaceApi.listStores/getStore/checkDuplicate/deleteStore` 统一走 `/api/store-space`。
+  - `storeSpaceHttpAdapter` 增加新模块重复校验与删除接口。
+  - `ApiError` 增加 `fields`，`errorMessage` 优先展示字段级错误文案，例如“已存在同名门店”。
+- 验证：
+  - 前端 `npm run build` 通过。
+  - 后端 `CGO_ENABLED=0 ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
 
 ## 明日待办
 

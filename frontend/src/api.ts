@@ -255,6 +255,7 @@ type BackendDuplicateMatch = {
   beauty_count?: number;
   area_count?: number;
   status?: StoreStatus;
+  overall_status?: string;
   updated_at?: string;
 };
 
@@ -401,11 +402,13 @@ type DuplicateCheckResult = {
 
 export class ApiError extends Error {
   status: number;
+  fields: Record<string, string>;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, fields: Record<string, string> = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.fields = fields;
   }
 }
 
@@ -779,6 +782,24 @@ const storeSpaceHttpAdapter = {
     return mapStoreSpaceDetail(response);
   },
 
+  async checkDuplicate(name: string, excludeStoreId?: number): Promise<DuplicateCheckResult> {
+    const response = await requestJSON<{
+      exact_match: BackendDuplicateMatch | null;
+      similar_matches: BackendDuplicateMatch[] | null;
+    }>(`${STORE_SPACE_API_BASE}/stores/check-duplicate`, {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        exclude_store_id: excludeStoreId,
+      }),
+    });
+
+    return {
+      exactMatch: response.exact_match ? duplicateMatchToStoreSpaceSummary(response.exact_match) : null,
+      similarMatches: (response.similar_matches ?? []).map(duplicateMatchToStoreSpaceSummary),
+    };
+  },
+
   async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
     const search = new URLSearchParams({
       q: query,
@@ -832,6 +853,10 @@ const storeSpaceHttpAdapter = {
       body: JSON.stringify(toStoreSpaceChannelConfirmationPayload(patch)),
     });
     return mapStoreSpaceDetail(response);
+  },
+
+  async deleteStore(id: number): Promise<void> {
+    await requestJSON<void>(`${STORE_SPACE_API_BASE}/stores/${id}`, { method: "DELETE" });
   },
 };
 
@@ -888,11 +913,17 @@ export const storeSpaceApi = {
   },
 
   async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
-    return designPlanApi.listStores(query, page, pageSize);
+    if (API_MODE === "mock") {
+      return mockAdapter.listStores(query, page, pageSize);
+    }
+    return storeSpaceHttpAdapter.listStores(query, page, pageSize);
   },
 
   async getStore(id: number): Promise<StoreDetail> {
-    return designPlanApi.getStore(id);
+    if (API_MODE === "mock") {
+      return mockAdapter.getStore(id);
+    }
+    return storeSpaceHttpAdapter.getStore(id);
   },
 
   async uploadPdf(file: File | string = "mock-design-plan.pdf"): Promise<UploadResult> {
@@ -904,7 +935,10 @@ export const storeSpaceApi = {
   },
 
   async checkDuplicate(name: string, excludeStoreId?: number): Promise<DuplicateCheckResult> {
-    return designPlanApi.checkDuplicate(name, excludeStoreId);
+    if (API_MODE === "mock") {
+      return mockAdapter.checkDuplicate(name, excludeStoreId);
+    }
+    return storeSpaceHttpAdapter.checkDuplicate(name, excludeStoreId);
   },
 
   async saveStore(payload: SaveStorePayload): Promise<StoreDetail> {
@@ -919,7 +953,10 @@ export const storeSpaceApi = {
   },
 
   async deleteStore(id: number): Promise<void> {
-    return designPlanApi.deleteStore(id);
+    if (API_MODE === "mock") {
+      return mockAdapter.deleteStore(id);
+    }
+    return storeSpaceHttpAdapter.deleteStore(id);
   },
 
   async listEzvizAccounts(): Promise<EzvizAccount[]> {
@@ -1002,13 +1039,17 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
   const data = contentType.includes("application/json") ? await response.json() : await response.text();
 
   if (!response.ok) {
+    const fields =
+      typeof data === "object" && data && "fields" in data && isStringRecord(data.fields)
+        ? data.fields
+        : {};
     const message =
       typeof data === "object" && data && "message" in data
         ? String(data.message)
         : typeof data === "object" && data && "error" in data
           ? String(data.error)
           : `HTTP ${response.status}`;
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, fields);
   }
 
   return data as T;
@@ -1242,6 +1283,29 @@ function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
     status: match.status ?? "needs_review",
     updatedAt: match.updated_at ?? new Date().toISOString(),
   };
+}
+
+function duplicateMatchToStoreSpaceSummary(match: BackendDuplicateMatch): StoreSummary {
+  return {
+    id: match.id,
+    name: match.name,
+    externalOrgId: "",
+    thumbnailUrl: "",
+    designPlanStatus: "not_uploaded",
+    recorderCount: 0,
+    channelCount: 0,
+    treatmentCount: match.treatment_count ?? 0,
+    consultationCount: match.consultation_count ?? 0,
+    beautyCount: match.beauty_count ?? 0,
+    areaCount: match.area_count ?? 0,
+    status: mapStoreSpaceOverallStatus(match.overall_status ?? match.status),
+    updatedAt: match.updated_at ?? new Date().toISOString(),
+  };
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (!value || typeof value !== "object") return false;
+  return Object.values(value).every((item) => typeof item === "string");
 }
 
 function toBackendPayload(payload: SaveStorePayload): BackendStorePayload {

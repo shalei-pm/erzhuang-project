@@ -18,6 +18,10 @@ export function errorMessage(error: unknown, fallback: string) {
     if (error.status === 504) {
       return "AI 识别超时，请换一张更小或更清晰的 PDF，或稍后重试。";
     }
+    const fieldMessages = Object.values(error.fields).filter(Boolean);
+    if (fieldMessages.length > 0) {
+      return fieldMessages.join("；");
+    }
   }
   if (error instanceof Error && error.message.trim()) {
     return error.message;
