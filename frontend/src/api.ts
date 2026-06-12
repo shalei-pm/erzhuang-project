@@ -478,7 +478,7 @@ let mockEzvizAccounts: EzvizAccount[] = [
   { id: 1, accountName: "华北", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
   { id: 2, accountName: "华东", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
   { id: 3, accountName: "华南", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
-  { id: 4, accountName: "华西", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
+  { id: 4, accountName: "华中", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
 ];
 
 let mockStores: StoreDetail[] = [

@@ -1,6 +1,6 @@
 import type { EzvizAccount } from "../api";
 
-const REGION_NAMES = ["华北", "华东", "华南", "华西"] as const;
+const REGION_NAMES = ["华北", "华东", "华南", "华中"] as const;
 
 type RegionName = (typeof REGION_NAMES)[number];
 
