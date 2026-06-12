@@ -78,12 +78,15 @@ button:disabled {
 
 .visually-hidden {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
+  width: 1px !important;
+  min-width: 1px !important;
+  height: 1px !important;
+  min-height: 1px !important;
+  padding: 0 !important;
   overflow: hidden;
   border: 0;
   clip: rect(0 0 0 0);
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 
@@ -562,8 +565,7 @@ td:nth-child(10) {
 
 .modal-head,
 .modal-actions,
-.section-title-row,
-.channel-header {
+.section-title-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -571,8 +573,7 @@ td:nth-child(10) {
 }
 
 .modal-head strong,
-.section-title-row strong,
-.channel-header strong {
+.section-title-row strong {
   display: block;
   color: var(--text-strong);
   font-size: 16px;
@@ -580,9 +581,7 @@ td:nth-child(10) {
 
 .modal-head p,
 .section-title-row span,
-.channel-header span,
-.upload-row span,
-.recorder-card span {
+.upload-row span {
   display: block;
   margin-top: 4px;
   color: var(--text-muted);
@@ -606,7 +605,6 @@ td:nth-child(10) {
 
 .upload-row,
 .recorder-drafts,
-.channel-header,
 .recorder-panel,
 .channel-table-section {
   padding: 12px;
@@ -634,15 +632,6 @@ td:nth-child(10) {
   gap: 10px;
 }
 
-.account-create-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: end;
-  gap: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--border-subtle);
-}
-
 .recorder-empty-hint {
   margin: 0;
   color: var(--text-muted);
@@ -665,20 +654,39 @@ td:nth-child(10) {
   margin-bottom: 14px;
 }
 
-.detail-meta {
+.detail-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 0;
   margin-top: 10px;
   color: var(--text-muted);
   font-size: 13px;
 }
 
-.detail-meta span {
-  padding: 4px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--surface);
+.detail-metrics div {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-right: 18px;
+  margin-right: 18px;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.detail-metrics div:last-child {
+  padding-right: 0;
+  margin-right: 0;
+  border-right: 0;
+}
+
+.detail-metrics span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.detail-metrics strong {
+  color: var(--text-strong);
+  font-size: 15px;
+  line-height: 1.25;
 }
 
 .tabs {
@@ -695,6 +703,12 @@ td:nth-child(10) {
   border-radius: 0;
   background: transparent;
   color: var(--text-muted);
+}
+
+.tabs button:focus,
+.tabs button:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .tabs button.is-active {
@@ -722,66 +736,59 @@ td:nth-child(10) {
   gap: 14px;
 }
 
-.account-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.account-chip {
-  display: inline-flex;
-  min-height: 28px;
-  align-items: center;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: #e2e8f0;
-  color: var(--text-main);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.account-available {
-  background: #dcfce7;
-  color: var(--success);
-}
-
-.account-unavailable {
-  background: #fee2e2;
-  color: var(--danger);
-}
-
 .recorder-panel,
 .channel-table-section {
   display: grid;
   gap: 12px;
 }
 
-.recorder-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 10px;
-}
-
-.recorder-card {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
+.recorder-table {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
   background: var(--surface);
 }
 
-.recorder-card strong {
+.recorder-table th:nth-child(1),
+.recorder-table td:nth-child(1) {
+  width: 220px;
+}
+
+.recorder-table th:nth-child(2),
+.recorder-table td:nth-child(2),
+.recorder-table th:nth-child(3),
+.recorder-table td:nth-child(3),
+.recorder-table th:nth-child(4),
+.recorder-table td:nth-child(4) {
+  width: 130px;
+}
+
+.recorder-table th:nth-child(5),
+.recorder-table td:nth-child(5) {
+  width: 270px;
+}
+
+.recorder-table strong {
   color: var(--text-strong);
 }
 
+.recorder-actions {
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.recorder-actions button {
+  min-width: auto;
+  white-space: nowrap;
+}
+
 .recognition-progress {
-  min-height: 32px;
-  padding: 8px 10px;
-  border-radius: var(--radius-control);
-  background: #eff6ff;
-  color: #1d4ed8;
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .channel-table {
@@ -1333,11 +1340,11 @@ td:nth-child(10) {
 
 .area-card {
   --card-active-color: var(--area-unknown);
-  --card-active-bg: var(--area-unknown-bg);
   display: grid;
   gap: 8px;
   padding: 10px;
   border: 1px solid var(--border-subtle);
+  border-left: 3px solid transparent;
   border-radius: var(--radius-card);
   background: var(--surface);
   transition:
@@ -1351,38 +1358,34 @@ td:nth-child(10) {
 }
 
 .area-card.is-active {
-  border-color: var(--card-active-color);
-  background:
-    linear-gradient(0deg, var(--card-active-bg), var(--card-active-bg)),
-    var(--surface);
-  box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.12);
+  border-color: var(--border-strong);
+  border-left-color: var(--card-active-color);
+  background: var(--surface);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
 }
 
 .area-card-treatment {
   --card-active-color: var(--area-treatment);
-  --card-active-bg: var(--area-treatment-bg);
 }
 
 .area-card-treatment.is-active {
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
 }
 
 .area-card-consultation {
   --card-active-color: var(--area-consultation);
-  --card-active-bg: var(--area-consultation-bg);
 }
 
 .area-card-consultation.is-active {
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
 }
 
 .area-card-beauty {
   --card-active-color: var(--area-beauty);
-  --card-active-bg: var(--area-beauty-bg);
 }
 
 .area-card-beauty.is-active {
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
 }
 
 .area-card.has-error {

@@ -3,7 +3,6 @@ import {
   ApiError,
   storeSpaceApi,
   type AreaType,
-  type EzvizAccount,
   type NonBusinessSceneType,
   type StoreDetail,
   type VideoChannel,
@@ -27,13 +26,12 @@ const sceneLabels: Record<NonBusinessSceneType, string> = {
 
 type VideoChannelTabProps = {
   store: StoreDetail;
-  accounts: EzvizAccount[];
   onStoreUpdated: (store: StoreDetail) => void;
   onRecorderUpdated: (recorder: VideoRecorder) => void;
   onToast: (message: string) => void;
 };
 
-export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
+export function VideoChannelTab({ store, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
   const [editingChannels, setEditingChannels] = useState<Record<number, Partial<VideoChannel>>>({});
 
@@ -103,29 +101,12 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
 
   return (
     <section className="channel-shell">
-      <header className="channel-header">
-        <div>
-          <strong>萤石云账号</strong>
-          <span>前端仅展示账号名，密钥由后端保存，本阶段不接真实 API。</span>
-        </div>
-        <button onClick={() => onToast("账号配置入口已预留：真实密钥配置等待后端接口和安全方案。")}>账号配置</button>
-      </header>
-
-      <div className="account-strip">
-        {accounts.map((account) => (
-          <span className={`account-chip account-${account.status}`} key={account.id}>
-            {account.accountName}
-          </span>
-        ))}
-      </div>
-
       <section className="recorder-panel">
         <div className="section-title-row">
           <div>
             <strong>录像机列表</strong>
             <span>{store.recorders.length} / 3 台</span>
           </div>
-          <button onClick={() => onToast("新增录像机入口已在添加门店浮层中预留，详情页新增等待后端接口对接。")}>新增录像机</button>
         </div>
 
         {store.recorders.length === 0 ? (
@@ -134,37 +115,56 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
             <p>可以先在添加门店时录入设备编码，后续也会支持详情页补充。</p>
           </div>
         ) : (
-          <div className="recorder-grid">
-            {store.recorders.map((recorder) => (
-              <article className="recorder-card" key={recorder.id}>
-                <div>
-                  <strong>{recorder.deviceCode}</strong>
-                  <span>{recorder.accountName}</span>
-                </div>
-                <span className={`status-pill recorder-${recorder.status}`}>{recorder.status === "online" ? "在线" : "离线"}</span>
-                <span>有效通道 {recorder.effectiveChannelCount}</span>
-                <span>上次扫描 {formatDateTime(recorder.lastScannedAt)}</span>
-                <div className="row-actions">
-                  <button disabled={workingRecorderId === recorder.id} onClick={() => void scanRecorder(recorder)}>
-                    扫描该录像机
-                  </button>
-                  <button disabled={workingRecorderId === recorder.id} onClick={() => void recognizeRecorder(recorder)}>
-                    识别本录像机
-                  </button>
-                  <button className="danger-link" onClick={() => onToast("删除录像机需要后端级联删除接口，本阶段仅展示入口。")}>
-                    删除
-                  </button>
-                </div>
-                {workingRecorderId === recorder.id ? (
-                  <div className="recognition-progress">
-                    正在识别 1/{Math.max(1, recorder.effectiveChannelCount)}：录像机 {recorder.deviceCode}
-                  </div>
-                ) : recorder.recognitionProgress ? (
-                  <div className="recognition-progress">{recorder.recognitionProgress}</div>
-                ) : null}
-              </article>
-            ))}
-          </div>
+          <table className="recorder-table">
+            <thead>
+              <tr>
+                <th>录像机名称</th>
+                <th>状态</th>
+                <th>有效通道数</th>
+                <th>上次扫描时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {store.recorders.map((recorder) => {
+                const hasScanned = recorder.effectiveChannelCount > 0 || recorder.channels.length > 0 || Boolean(recorder.lastScannedAt);
+                return (
+                  <tr key={recorder.id}>
+                    <td>
+                      <strong>{recorder.deviceCode}</strong>
+                    </td>
+                    <td>
+                      <span className={`status-pill recorder-${recorder.status}`}>{recorder.status === "online" ? "在线" : "离线"}</span>
+                    </td>
+                    <td>{recorder.effectiveChannelCount}</td>
+                    <td>{formatDateTime(recorder.lastScannedAt)}</td>
+                    <td>
+                      <div className="row-actions recorder-actions">
+                        <button disabled={workingRecorderId === recorder.id} onClick={() => void scanRecorder(recorder)}>
+                          {hasScanned ? "再次扫描" : "扫描通道"}
+                        </button>
+                        {hasScanned ? (
+                          <button disabled={workingRecorderId === recorder.id} onClick={() => void recognizeRecorder(recorder)}>
+                            识别区域
+                          </button>
+                        ) : null}
+                        <button className="danger-link" onClick={() => onToast("删除录像机需要后端级联删除接口，本阶段仅展示入口。")}>
+                          删除
+                        </button>
+                      </div>
+                      {workingRecorderId === recorder.id ? (
+                        <div className="recognition-progress">
+                          正在处理：录像机 {recorder.deviceCode}
+                        </div>
+                      ) : recorder.recognitionProgress ? (
+                        <div className="recognition-progress">{recorder.recognitionProgress}</div>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </section>
 

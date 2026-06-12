@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { EzvizAccount, StoreDetail as StoreDetailType, VideoRecorder } from "../api";
+import type { StoreDetail as StoreDetailType, VideoRecorder } from "../api";
 import { DesignPlanTab } from "./DesignPlanTab";
 import { VideoChannelTab } from "./VideoChannelTab";
 
@@ -7,7 +7,6 @@ export type StoreDetailTab = "design-plan" | "channels";
 
 type StoreDetailProps = {
   store: StoreDetailType;
-  accounts: EzvizAccount[];
   initialTab: StoreDetailTab;
   saving: boolean;
   onBack: () => void;
@@ -15,7 +14,7 @@ type StoreDetailProps = {
   onToast: (message: string) => void;
 };
 
-export function StoreDetail({ store, accounts, initialTab, saving, onBack, onStoreUpdated, onToast }: StoreDetailProps) {
+export function StoreDetail({ store, initialTab, saving, onBack, onStoreUpdated, onToast }: StoreDetailProps) {
   const [activeTab, setActiveTab] = useState<StoreDetailTab>(initialTab);
 
   function updateRecorder(nextRecorder: VideoRecorder) {
@@ -40,11 +39,23 @@ export function StoreDetail({ store, accounts, initialTab, saving, onBack, onSto
           </button>
           <p className="eyebrow">门店详情</p>
           <h1>{store.name}</h1>
-          <div className="detail-meta">
-            <span>新氧机构 ID：{store.externalOrgId || "-"}</span>
-            <span>录像机 {store.recorderCount}</span>
-            <span>有效通道 {store.channelCount}</span>
-            <span>业务区域 {store.areaCount}</span>
+          <div className="detail-metrics" aria-label="门店资源概览">
+            <div>
+              <span>新氧机构 ID</span>
+              <strong>{store.externalOrgId || "-"}</strong>
+            </div>
+            <div>
+              <span>录像机</span>
+              <strong>{store.recorderCount}</strong>
+            </div>
+            <div>
+              <span>有效通道</span>
+              <strong>{store.channelCount}</strong>
+            </div>
+            <div>
+              <span>业务区域</span>
+              <strong>{store.areaCount}</strong>
+            </div>
           </div>
         </div>
       </header>
@@ -63,7 +74,6 @@ export function StoreDetail({ store, accounts, initialTab, saving, onBack, onSto
       ) : (
         <VideoChannelTab
           store={store}
-          accounts={accounts}
           onStoreUpdated={onStoreUpdated}
           onRecorderUpdated={updateRecorder}
           onToast={onToast}

@@ -9,20 +9,17 @@ type CreateStoreModalProps = {
   uploading: boolean;
   saving: boolean;
   onUploadPdf: (file: File) => Promise<UploadResult>;
-  onCreateEzvizAccount: (accountName: string) => Promise<EzvizAccount>;
   onClose: () => void;
   onSubmit: (payload: CreateStoreSpacePayload) => Promise<void>;
 };
 
-export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onCreateEzvizAccount, onClose, onSubmit }: CreateStoreModalProps) {
+export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onClose, onSubmit }: CreateStoreModalProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [name, setName] = useState("");
   const [externalOrgId, setExternalOrgId] = useState("");
   const [designPlan, setDesignPlan] = useState<UploadResult | null>(null);
   const [recorders, setRecorders] = useState<RecorderDraft[]>([]);
   const [message, setMessage] = useState("");
-  const [accountName, setAccountName] = useState("");
-  const [creatingAccount, setCreatingAccount] = useState(false);
 
   async function handlePdfSelected(fileList: FileList | null) {
     const file = fileList?.[0];
@@ -45,29 +42,6 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
 
   function updateRecorder(id: string, patch: Partial<RecorderDraft>) {
     setRecorders((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
-  }
-
-  async function createAccount() {
-    const cleanName = accountName.trim();
-    if (!cleanName) {
-      setMessage("请输入萤石云账号名称");
-      return;
-    }
-    setCreatingAccount(true);
-    try {
-      const account = await onCreateEzvizAccount(cleanName);
-      setAccountName("");
-      setMessage(`已新增萤石云账号：${account.accountName}`);
-      if (recorders.length === 0) {
-        setRecorders([createRecorderDraft(account.id)]);
-      } else {
-        setRecorders((items) => items.map((item) => (item.ezvizAccountId ? item : { ...item, ezvizAccountId: account.id })));
-      }
-    } catch {
-      setMessage("萤石云账号新增失败，请稍后重试");
-    } finally {
-      setCreatingAccount(false);
-    }
   }
 
   function validateAndSubmit() {
@@ -160,16 +134,6 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
                 title="增加录像机"
               >
                 <span aria-hidden="true">+</span>
-              </button>
-            </div>
-
-            <div className="account-create-row">
-              <label>
-                萤石云账号
-                <input value={accountName} onChange={(event) => setAccountName(event.target.value)} placeholder="例如 华南门店萤石云" />
-              </label>
-              <button disabled={creatingAccount} onClick={() => void createAccount()}>
-                {creatingAccount ? "新增中" : "新增账号"}
               </button>
             </div>
 
