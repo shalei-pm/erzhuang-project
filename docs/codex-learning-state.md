@@ -1273,6 +1273,50 @@ GOCACHE=/Users/sylar/.codex/worktrees/1e39/erzhuang-project/.cache/go-build /Use
 
 结果：均通过。`go test ./internal/storespace` 在本机仍命中已知 macOS `missing LC_UUID load command` 问题，最终完整测试需主会话在服务器 Linux 环境执行。
 
+## 2026-06-12 门店空间资源前后端专项合并
+
+主会话完成两条专项分支验收并合并到本地 `main`：
+
+- 后端分支：`codex/store-space-backend-foundation`
+- 前端分支：`codex/store-space-frontend-shell`
+- 后端合并提交：`cdd1d28 Merge store space backend foundation`
+- 前端合并提交：`61ba624 Merge store space frontend shell`
+
+已合入能力：
+
+- 新增 `internal/storespace` 后端基础模型、校验、repository、service、handler。
+- 新增 `/api/store-space/*` 基础接口：
+  - `GET /api/store-space/ezviz-accounts`
+  - `GET /api/store-space/stores`
+  - `GET /api/store-space/stores/{id}`
+  - `POST /api/store-space/stores`
+  - `DELETE /api/store-space/stores/{id}`
+  - `POST /api/store-space/stores/check-duplicate`
+  - 录像机扫描/识别接口先保留稳定 `501 not implemented` 合同。
+- 新增门店空间资源数据库 schema，并对所有新增 public 表启用 RLS + 显式 deny policy。
+- 前端从单文件 `App.tsx` 拆分为门店列表、添加门店浮层、门店详情、设计图标注 Tab、通道映射 Tab，以及对应 domain 工具。
+- 前端新增 store-space 后端 DTO/mapper；`createStore` 已走新后端 mapper。
+- 添加门店浮层不再默认选择第一个萤石云账号；填写录像机设备编码时必须由用户明确选择账号。
+
+合并后本地主线验证：
+
+```sh
+GOCACHE=/private/tmp/erzhuang-go-build-cache /Users/sylar/erzhuang-project/.tools/go/bin/go test -c -o /private/tmp/erzhuang-storespace-merged.test ./internal/storespace
+GOCACHE=/private/tmp/erzhuang-go-build-cache /Users/sylar/erzhuang-project/.tools/go/bin/go test -c -o /private/tmp/erzhuang-app-merged.test ./internal/app
+GOCACHE=/private/tmp/erzhuang-go-build-cache /Users/sylar/erzhuang-project/.tools/go/bin/go build ./...
+cd frontend && PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-darwin-arm64/bin:$PATH npm run build
+git diff --check
+```
+
+结果：均通过。
+
+当前边界：
+
+- 当前完成的是本地 `main` 合并，尚未推送 GitHub，尚未发布到 Lighthouse。
+- 前端 `storeSpaceApi.listStores/getStore` 当前阶段仍暂走旧 `designPlanApi`，用于保护现有设计图列表体验；真正完整切换门店空间资源列表/详情时，需要改为 `storeSpaceHttpAdapter.listStores/getStore`。
+- 通道扫描、抓图、识别、确认接口后端尚未接真实萤石云；当前只完成基础合同和前端 UI/mock 壳。
+- `ezviz_accounts` 目前只有只读安全字段列表接口，没有账号创建/编辑/密钥加密管理接口。
+
 ## 明日待办
 
 1. 开始前先运行：
