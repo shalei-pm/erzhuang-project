@@ -147,7 +147,7 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, imageURL string) (Resu
 	if err != nil {
 		return Result{}, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, r.baseURL+"/v1/responses", bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint(r.baseURL, "/v1/responses"), bytes.NewReader(body))
 	if err != nil {
 		return Result{}, err
 	}
@@ -317,6 +317,15 @@ func looksLikeResult(result Result) bool {
 		strings.TrimSpace(result.AreaType) != "" ||
 		strings.TrimSpace(result.AreaNumber) != "" ||
 		strings.TrimSpace(result.RawNotes) != ""
+}
+
+func endpoint(baseURL string, path string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	path = "/" + strings.TrimLeft(path, "/")
+	if strings.HasSuffix(baseURL, "/v1") && strings.HasPrefix(path, "/v1/") {
+		path = strings.TrimPrefix(path, "/v1")
+	}
+	return baseURL + path
 }
 
 func normalize(result Result) Result {

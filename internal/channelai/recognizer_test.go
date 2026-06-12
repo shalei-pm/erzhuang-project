@@ -1,6 +1,10 @@
 package channelai
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -91,4 +95,40 @@ func TestParseCommandRecognitionOutputAcceptsWrappedResult(t *testing.T) {
 	if result.SceneType != "machine_room" || result.AreaNumber != "机房" {
 		t.Fatalf("unexpected result %#v", result)
 	}
+}
+
+func TestOpenAIRecognizerDoesNotDuplicateV1Path(t *testing.T) {
+	var requestedPath string
+	recognizer := &OpenAIRecognizer{
+		apiKey:  "test-key",
+		baseURL: "https://example.test/v1",
+		model:   "MiniMax-M3",
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			requestedPath = r.URL.Path
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{
+			"output": [{
+				"content": [{
+					"type": "output_text",
+					"text": "{\"scene_type\":\"treatment\",\"area_type\":\"treatment\",\"area_number\":\"1\",\"card_text\":\"治疗室 1\",\"decision_source\":\"number_card\",\"confidence\":\"high\",\"needs_review\":false,\"raw_notes\":\"测试\"}"
+				}]
+			}]
+		}`)),
+			}, nil
+		})},
+	}
+	if _, err := recognizer.Recognize(context.Background(), "https://example.test/channel.jpg"); err != nil {
+		t.Fatalf("recognize: %v", err)
+	}
+	if strings.Count(requestedPath, "/v1") != 1 || requestedPath != "/v1/responses" {
+		t.Fatalf("expected /v1/responses without duplicate v1, got %q", requestedPath)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }

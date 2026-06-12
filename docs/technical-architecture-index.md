@@ -341,7 +341,7 @@ POST   /api/design-plan/uploads/{upload_id}/recognize
 
 - `internal/ezviz/client.go`：萤石云 token、通道列表、抓图 OpenAPI。
 - `internal/storespace/ezviz_scanner.go`：把萤石云能力适配到门店空间服务。
-- `internal/channelai/recognizer.go`：监控截图视觉识别，默认读取 `VISION_API_BASE_URL`、`VISION_API_KEY`、`VISION_MODEL`；也支持 `CHANNEL_AI_PROVIDER=minimax-script/external-command` 切换到外部图像理解脚本。
+- `internal/channelai/recognizer.go`：监控截图视觉识别，默认读取 `VISION_API_BASE_URL`、`VISION_API_KEY`、`VISION_MODEL`；支持 OpenAI-compatible Responses API。MiniMax Token Plan 可配置为 `VISION_API_BASE_URL=https://api.minimaxi.com/v1`、`VISION_MODEL=MiniMax-M3`；也支持 `CHANNEL_AI_PROVIDER=minimax-script/external-command` 切换到外部图像理解脚本。
 - `internal/storespace/channelai_adapter.go`：将通道 AI 结果映射为 store-space 识别结果。
 - `internal/storespace/service.go`：串行抓图、AI 预填、耗时统计、已确认通道保护。
 - `internal/storespace/store.go`：保存最近截图、识别结果、预填类型和编号。
