@@ -95,6 +95,17 @@ f819793 Document store space resource expansion
 - `CreateStoreModal` 仍保持“填写录像机设备编码必须选择萤石云账号”的前端校验；提交 payload 时只传有效数字 `ezviz_account_id`，不会把空值传成 `""`。
 - 注意：`storeSpaceApi.listStores()` 和 `storeSpaceApi.getStore()` 在当前 shell 阶段仍复用旧 `designPlanApi`，用于保护现有设计图列表体验。真正切换到门店空间资源列表/详情时，需要改为 `storeSpaceHttpAdapter.listStores()` / `storeSpaceHttpAdapter.getStore()` 并使用本次新增的 store-space list/get mapper。
 
+## 第三轮 Review 修复记录
+
+更新时间：2026-06-12
+
+主会话第三轮 review 后已修复：
+
+- 添加门店浮层的初始录像机行不再默认选中第一个萤石云账号，`ezvizAccountId` 初始值固定为空字符串。
+- 点击“增加录像机”新增的录像机行同样不再默认选中第一个萤石云账号。
+- 删除 `defaultAccountId()`，避免后续误用导致静默默认账号。
+- 保持现有校验：只要填写录像机设备编码但未选择账号，就提示“请选择萤石云账号”。
+
 ## 改动文件
 
 ```text

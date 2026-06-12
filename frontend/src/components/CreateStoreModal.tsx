@@ -18,7 +18,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
   const [name, setName] = useState("");
   const [externalOrgId, setExternalOrgId] = useState("");
   const [designPlan, setDesignPlan] = useState<UploadResult | null>(null);
-  const [recorders, setRecorders] = useState<RecorderDraft[]>([createRecorderDraft(defaultAccountId(accounts))]);
+  const [recorders, setRecorders] = useState<RecorderDraft[]>([createRecorderDraft()]);
   const [message, setMessage] = useState("");
 
   async function handlePdfSelected(fileList: FileList | null) {
@@ -128,7 +128,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
               </div>
               <button
                 disabled={recorders.length >= MAX_RECORDERS}
-                onClick={() => setRecorders((items) => [...items, createRecorderDraft(defaultAccountId(accounts))])}
+                onClick={() => setRecorders((items) => [...items, createRecorderDraft()])}
               >
                 增加录像机
               </button>
@@ -190,14 +190,10 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
   );
 }
 
-function createRecorderDraft(ezvizAccountId: number | ""): RecorderDraft {
+function createRecorderDraft(): RecorderDraft {
   return {
     id: `recorder-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    ezvizAccountId,
+    ezvizAccountId: "",
     deviceCode: "",
   };
-}
-
-function defaultAccountId(accounts: EzvizAccount[]) {
-  return accounts[0]?.id ?? "";
 }
