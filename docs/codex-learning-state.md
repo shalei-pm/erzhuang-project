@@ -1326,6 +1326,21 @@ git diff --check
 - 发布方式：主会话通过腾讯云 TAT 指定韩国实例 `ap-seoul / lhins-rjfpwj1u`，以 `lighthouse` 用户执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
 - 风险说明：发布会拉取 GitHub 最新 `main`、执行测试/构建、初始化新增数据库表和 RLS deny policy，并重启 `erzhuang-project.service`。
 
+首次发布结果：
+
+- GitHub 拉取成功。
+- 服务器 `go test ./...` 成功。
+- 服务器 Go build 成功。
+- 服务器前端 build 成功。
+- systemd restart 已执行。
+- 健康检查失败：`127.0.0.1:18081` 连接失败。
+
+定位结果：
+
+- 服务日志连续出现：`database setup failed: timeout: context deadline exceeded`。
+- 根因：本次大版本新增较多 PostgreSQL 表、索引和 RLS policy，启动时 schema 初始化超过原有 10 秒上下文超时。
+- 修复：版本号升级到 `2.0.1`，将数据库连接 Ping 超时保留 10 秒，将 schema 初始化超时单独放宽到 90 秒。
+
 ## 明日待办
 
 1. 开始前先运行：

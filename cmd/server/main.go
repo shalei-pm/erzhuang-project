@@ -53,14 +53,18 @@ func openDatabase(databaseURL string) (*sql.DB, error) {
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelPing()
 
-	if err := db.PingContext(ctx); err != nil {
+	if err := db.PingContext(pingCtx); err != nil {
 		db.Close()
 		return nil, err
 	}
-	if err := app.EnsurePostgresSchema(ctx, db); err != nil {
+
+	schemaCtx, cancelSchema := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancelSchema()
+
+	if err := app.EnsurePostgresSchema(schemaCtx, db); err != nil {
 		db.Close()
 		return nil, err
 	}
