@@ -26,6 +26,7 @@ go run ./cmd/server
 - `VISION_API_KEY`：监控截图识别的 OpenAI-compatible key；未设置时回退 `OPENAI_API_KEY`。
 - `VISION_API_BASE_URL`：可选，监控截图识别网关；未设置时回退 `OPENAI_BASE_URL`。
 - `VISION_MODEL`：可选，默认 `gpt-5.5`。
+- MiniMax Token Plan 可直接使用 OpenAI-compatible Responses API：`VISION_API_BASE_URL=https://api.minimaxi.com/v1`、`VISION_MODEL=MiniMax-M3`、`VISION_API_KEY=<Token Plan 订阅 Key>`。
 - `MINIMAX_UNDERSTAND_IMAGE_SCRIPT`：当 `CHANNEL_AI_PROVIDER=minimax-script` 时使用，默认 `/root/.openclaw/workspace/skills/minimax-understand-image/scripts/understand_image.py`。
 - `CHANNEL_AI_COMMAND_ARGS`：外部脚本参数模板，可用 `{image_url}` 和 `{prompt}` 占位；未设置时默认 `--image-url {image_url}`。
 
