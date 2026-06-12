@@ -55,6 +55,7 @@ type OpenAIRecognizer struct {
 	apiKey     string
 	baseURL    string
 	model      string
+	provider   string
 	httpClient *http.Client
 }
 
@@ -111,9 +112,10 @@ func NewOpenAIRecognizerFromEnv() (Recognizer, bool) {
 		model = defaultModel
 	}
 	return &OpenAIRecognizer{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		model:   model,
+		apiKey:   apiKey,
+		baseURL:  baseURL,
+		model:    model,
+		provider: openAIProviderName(baseURL, model),
 		httpClient: &http.Client{
 			Timeout: 75 * time.Second,
 		},
@@ -180,8 +182,28 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, imageURL string) (Resu
 		return Result{}, fmt.Errorf("parse channel recognition json: %w", err)
 	}
 	output.RawResult = json.RawMessage(responseBody)
-	output.Provider = "openai"
+	output.Provider = r.providerName()
 	return normalize(output), nil
+}
+
+func (r *OpenAIRecognizer) providerName() string {
+	if strings.TrimSpace(r.provider) != "" {
+		return strings.TrimSpace(r.provider)
+	}
+	return openAIProviderName(r.baseURL, r.model)
+}
+
+func openAIProviderName(baseURL string, model string) string {
+	configured := strings.TrimSpace(os.Getenv("VISION_PROVIDER"))
+	if configured != "" {
+		return configured
+	}
+	lowerBaseURL := strings.ToLower(strings.TrimSpace(baseURL))
+	lowerModel := strings.ToLower(strings.TrimSpace(model))
+	if strings.Contains(lowerBaseURL, "minimaxi.com") || strings.Contains(lowerModel, "minimax") {
+		return "minimax"
+	}
+	return "openai"
 }
 
 func (r *CommandRecognizer) Recognize(ctx context.Context, imageURL string) (Result, error) {

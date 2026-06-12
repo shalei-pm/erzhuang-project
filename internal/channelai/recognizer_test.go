@@ -150,6 +150,12 @@ func TestOpenAIRecognizerParsesMarkdownWrappedJSON(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderNameDetectsMiniMax(t *testing.T) {
+	if got := openAIProviderName("https://api.minimaxi.com/v1", "MiniMax-M3"); got != "minimax" {
+		t.Fatalf("expected minimax provider, got %q", got)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
