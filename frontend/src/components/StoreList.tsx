@@ -13,12 +13,12 @@ type StoreListProps = {
   loading: boolean;
   page: number;
   pageSize: number;
-  deletingStoreId: number | null;
+  deletingStoreIds: Set<number>;
   onOpenStore: (storeId: number) => void;
   onDeleteStore: (store: StoreSummary) => void;
 };
 
-export function StoreList({ stores, loading, page, pageSize, deletingStoreId, onOpenStore, onDeleteStore }: StoreListProps) {
+export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, onOpenStore, onDeleteStore }: StoreListProps) {
   return (
     <section className="table-frame" aria-label="门店列表">
       <table className="store-table">
@@ -60,42 +60,45 @@ export function StoreList({ stores, loading, page, pageSize, deletingStoreId, on
               </td>
             </tr>
           ) : (
-            stores.map((store, index) => (
-              <tr key={store.id}>
-                <td>{(page - 1) * pageSize + index + 1}</td>
-                <td>{store.city || "未设置"}</td>
-                <td className="store-name">{store.name}</td>
-                <td>{store.externalOrgId || "-"}</td>
-                <td>
-                  <span className={`status-pill design-status-${store.designPlanStatus}`}>
-                    {designPlanStatusLabels[store.designPlanStatus]}
-                  </span>
-                </td>
-                <td>{store.recorderCount}</td>
-                <td>{store.channelCount}</td>
-                <td>{store.consultationCount}</td>
-                <td>{store.treatmentCount}</td>
-                <td>{store.beautyCount}</td>
-                <td>{formatDateTime(store.updatedAt)}</td>
-                <td>
-                  <div className="row-actions">
-                    <button disabled={deletingStoreId === store.id} onClick={() => onOpenStore(store.id)}>
-                      进入详情
-                    </button>
-                    <button className="danger-link" disabled={deletingStoreId === store.id} onClick={() => onDeleteStore(store)}>
-                      {deletingStoreId === store.id ? (
-                        <>
-                          <span className="button-spinner" aria-hidden="true" />
-                          删除中
-                        </>
-                      ) : (
-                        "删除"
-                      )}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))
+            stores.map((store, index) => {
+              const isDeleting = deletingStoreIds.has(store.id);
+              return (
+                <tr key={store.id}>
+                  <td>{(page - 1) * pageSize + index + 1}</td>
+                  <td>{store.city || "未设置"}</td>
+                  <td className="store-name">{store.name}</td>
+                  <td>{store.externalOrgId || "-"}</td>
+                  <td>
+                    <span className={`status-pill design-status-${store.designPlanStatus}`}>
+                      {designPlanStatusLabels[store.designPlanStatus]}
+                    </span>
+                  </td>
+                  <td>{store.recorderCount}</td>
+                  <td>{store.channelCount}</td>
+                  <td>{store.consultationCount}</td>
+                  <td>{store.treatmentCount}</td>
+                  <td>{store.beautyCount}</td>
+                  <td>{formatDateTime(store.updatedAt)}</td>
+                  <td>
+                    <div className="row-actions">
+                      <button disabled={isDeleting} onClick={() => onOpenStore(store.id)}>
+                        进入详情
+                      </button>
+                      <button className="danger-link" disabled={isDeleting} onClick={() => onDeleteStore(store)}>
+                        {isDeleting ? (
+                          <>
+                            <span className="button-spinner" aria-hidden="true" />
+                            删除中
+                          </>
+                        ) : (
+                          "删除"
+                        )}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
           )}
         </tbody>
       </table>

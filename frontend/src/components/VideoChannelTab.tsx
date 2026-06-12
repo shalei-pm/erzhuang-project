@@ -51,8 +51,8 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [confirmingChannelId, setConfirmingChannelId] = useState<number | null>(null);
   const [channelError, setChannelError] = useState("");
   const [addingRecorder, setAddingRecorder] = useState(false);
-  const [deletingRecorderId, setDeletingRecorderId] = useState<number | null>(null);
-  const [deletingChannelId, setDeletingChannelId] = useState<number | null>(null);
+  const [deletingRecorderIds, setDeletingRecorderIds] = useState<Set<number>>(() => new Set());
+  const [deletingChannelIds, setDeletingChannelIds] = useState<Set<number>>(() => new Set());
   const [newRecorderCode, setNewRecorderCode] = useState("");
   const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
   const [channelTypeFilter, setChannelTypeFilter] = useState<ChannelTypeFilter>("all");
@@ -122,7 +122,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     const ok = window.confirm(`删除后将清除录像机 ${recorder.deviceCode} 及其通道映射，且无法恢复。是否确认删除？`);
     if (!ok) return;
     setWorkingRecorderId(recorder.id);
-    setDeletingRecorderId(recorder.id);
+    setDeletingRecorderIds((current) => addIdToSet(current, recorder.id));
     try {
       const updated = await storeSpaceApi.deleteRecorder(store.id, recorder.id);
       onStoreUpdated(updated);
@@ -131,7 +131,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onToast(channelErrorMessage(error, "删除录像机失败，请稍后重试。"));
     } finally {
       setWorkingRecorderId(null);
-      setDeletingRecorderId(null);
+      setDeletingRecorderIds((current) => removeIdFromSet(current, recorder.id));
     }
   }
 
@@ -212,7 +212,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     const ok = window.confirm(`删除后将移除录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo} 映射。再次扫描如仍有效，会作为未确认通道重新出现。是否确认删除？`);
     if (!ok) return;
     setChannelError("");
-    setDeletingChannelId(channel.id);
+    setDeletingChannelIds((current) => addIdToSet(current, channel.id));
     try {
       const updated = await storeSpaceApi.deleteChannel(store.id, channel.id);
       setEditingChannels((current) => {
@@ -227,7 +227,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       setChannelError(`通道 ${channel.channelNo} 删除失败：${message}`);
       onToast(message);
     } finally {
-      setDeletingChannelId(null);
+      setDeletingChannelIds((current) => removeIdFromSet(current, channel.id));
     }
   }
 
@@ -306,6 +306,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
             <tbody>
               {store.recorders.map((recorder) => {
                 const hasScanned = recorder.effectiveChannelCount > 0 || recorder.channels.length > 0 || Boolean(recorder.lastScannedAt);
+                const isDeleting = deletingRecorderIds.has(recorder.id);
                 return (
                   <tr key={recorder.id}>
                     <td>
@@ -318,11 +319,11 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     <td>{formatDateTime(recorder.lastScannedAt)}</td>
                     <td>
                       <div className="row-actions recorder-actions">
-                        <button disabled={workingRecorderId === recorder.id} onClick={() => void scanRecorder(recorder)}>
+                        <button disabled={workingRecorderId === recorder.id || isDeleting} onClick={() => void scanRecorder(recorder)}>
                           {hasScanned ? "再次扫描" : "扫描通道"}
                         </button>
                         {hasScanned ? (
-                          <button disabled={workingRecorderId === recorder.id} onClick={() => void recognizeRecorder(recorder)}>
+                          <button disabled={workingRecorderId === recorder.id || isDeleting} onClick={() => void recognizeRecorder(recorder)}>
                             {workingRecorderId === recorder.id ? (
                               <>
                                 <span className="button-spinner" aria-hidden="true" />
@@ -335,10 +336,10 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                         ) : null}
                         <button
                           className="danger-link"
-                          disabled={workingRecorderId === recorder.id}
+                          disabled={workingRecorderId === recorder.id || isDeleting}
                           onClick={() => void deleteRecorder(recorder)}
                         >
-                          {deletingRecorderId === recorder.id ? (
+                          {isDeleting ? (
                             <>
                               <span className="button-spinner" aria-hidden="true" />
                               删除中
@@ -428,7 +429,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                   Boolean(draft.status);
                 const recognitionMessage = channelRecognitionMessage(channel);
                 const isRecognizing = recognizingChannelIds.has(channel.id);
-                const isDeleting = deletingChannelId === channel.id;
+                const isDeleting = deletingChannelIds.has(channel.id);
                 const selectedAreaType = draft.areaType !== undefined ? draft.areaType : channel.areaType;
                 const selectedAreaNumber = draft.areaNumber ?? (selectedAreaType ? channel.areaNumber : channel.areaNote || channel.areaNumber);
                 return (
@@ -492,7 +493,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     <td>
                       <div className="row-actions">
                         {isEditable ? (
-                          <button disabled={confirmingChannelId === channel.id} onClick={() => void confirmChannel(channel)}>
+                          <button disabled={confirmingChannelId === channel.id || isDeleting} onClick={() => void confirmChannel(channel)}>
                             {confirmingChannelId === channel.id ? (
                               <>
                                 <span className="button-spinner" aria-hidden="true" />
@@ -503,10 +504,12 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                             )}
                           </button>
                         ) : (
-                          <button onClick={() => updateChannelDraft(channel.id, { status: "pending_confirmation" })}>编辑</button>
+                          <button disabled={isDeleting} onClick={() => updateChannelDraft(channel.id, { status: "pending_confirmation" })}>
+                            编辑
+                          </button>
                         )}
                         <button
-                          disabled={isRecognizing || workingRecorderId === recorder.id}
+                          disabled={isRecognizing || isDeleting || workingRecorderId === recorder.id}
                           onClick={() => void recognizeChannel(recorder, channel)}
                         >
                           {isRecognizing ? (
@@ -567,6 +570,16 @@ function channelMatchesTypeFilter(channel: VideoChannel, filter: ChannelTypeFilt
   if (filter === "all") return true;
   const areaType = draft?.areaType !== undefined ? draft.areaType : channel.areaType;
   return areaType === filter;
+}
+
+function addIdToSet(current: Set<number>, id: number) {
+  return new Set(current).add(id);
+}
+
+function removeIdFromSet(current: Set<number>, id: number) {
+  const next = new Set(current);
+  next.delete(id);
+  return next;
 }
 
 function channelRecognitionMessage(channel: VideoChannel) {
