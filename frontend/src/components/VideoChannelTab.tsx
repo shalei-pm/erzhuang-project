@@ -35,6 +35,7 @@ type VideoChannelTabProps = {
 
 export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
+  const [recognizingChannelId, setRecognizingChannelId] = useState<number | null>(null);
   const [addingRecorder, setAddingRecorder] = useState(false);
   const [newRecorderCode, setNewRecorderCode] = useState("");
   const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
@@ -60,7 +61,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onRecorderUpdated(nextRecorder);
       onToast(`已完成 ${recorder.deviceCode} 的通道识别。`);
     } catch (error) {
-      onToast(channelErrorMessage(error, "通道识别失败，请稍后重试。"));
+      onToast(channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。"));
     } finally {
       setWorkingRecorderId(null);
     }
@@ -142,6 +143,18 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     }));
   }
 
+  async function recognizeChannel(recorder: VideoRecorder, channel: VideoChannel) {
+    setRecognizingChannelId(channel.id);
+    try {
+      await storeSpaceApi.recognizeRecorder(store.id, recorder.id);
+      onToast(`通道 ${channel.channelNo} 的截图识别已触发。`);
+    } catch (error) {
+      onToast(channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。"));
+    } finally {
+      setRecognizingChannelId(null);
+    }
+  }
+
   return (
     <section className="channel-shell">
       <section className="recorder-panel">
@@ -211,7 +224,14 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                         </button>
                         {hasScanned ? (
                           <button disabled={workingRecorderId === recorder.id} onClick={() => void recognizeRecorder(recorder)}>
-                            识别区域
+                            {workingRecorderId === recorder.id ? (
+                              <>
+                                <span className="button-spinner" aria-hidden="true" />
+                                识别中
+                              </>
+                            ) : (
+                              "识别区域"
+                            )}
                           </button>
                         ) : null}
                         <button
@@ -224,6 +244,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                       </div>
                       {workingRecorderId === recorder.id ? (
                         <div className="recognition-progress">
+                          <span aria-hidden="true" />
                           正在处理：录像机 {recorder.deviceCode}
                         </div>
                       ) : recorder.recognitionProgress ? (
@@ -286,7 +307,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                             })
                           }
                         >
-                          <option value="">非业务画面</option>
+                          <option value="">其他区域</option>
                           <option value="treatment">治疗室</option>
                           <option value="consultation">面诊室</option>
                           <option value="beauty">生美</option>
@@ -317,7 +338,19 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                         ) : (
                           <button onClick={() => updateChannelDraft(channel.id, { status: "pending_confirmation" })}>编辑</button>
                         )}
-                        <button onClick={() => updateChannelDraft(channel.id, { status: "pending_confirmation" })}>重新识别</button>
+                        <button
+                          disabled={recognizingChannelId === channel.id || workingRecorderId === recorder.id}
+                          onClick={() => void recognizeChannel(recorder, channel)}
+                        >
+                          {recognizingChannelId === channel.id ? (
+                            <>
+                              <span className="button-spinner" aria-hidden="true" />
+                              识别中
+                            </>
+                          ) : (
+                            "重新识别"
+                          )}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -335,7 +368,7 @@ function nonBusinessLabel(sceneType: VideoChannel["sceneType"]) {
   if (sceneType === "treatment" || sceneType === "consultation" || sceneType === "beauty") {
     return areaTypeLabels[sceneType];
   }
-  return sceneLabels[sceneType] ?? "未知";
+  return sceneLabels[sceneType] ?? "其他区域";
 }
 
 function channelStatusLabel(status: VideoChannel["status"]) {
@@ -343,7 +376,7 @@ function channelStatusLabel(status: VideoChannel["status"]) {
     pending_recognition: "待识别",
     pending_confirmation: "待确认",
     confirmed_business: "已确认-业务",
-    confirmed_non_business: "已确认-非业务",
+    confirmed_non_business: "已确认-其他",
     recognition_failed: "识别失败",
     inactive: "已失效",
   };
@@ -353,6 +386,9 @@ function channelStatusLabel(status: VideoChannel["status"]) {
 function channelErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError && error.status === 404) {
     return "通道映射接口未就绪或资源不存在，请确认后端服务状态。";
+  }
+  if (error instanceof ApiError && error.status === 501) {
+    return "截图识别能力还在接入中，当前可以先完成真实通道扫描。";
   }
   if (error instanceof Error && error.message.trim()) {
     return error.message;
