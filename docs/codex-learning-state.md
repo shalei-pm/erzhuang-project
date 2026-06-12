@@ -155,6 +155,18 @@
   - `toDisplayImageUrl` 增加对 `uploads/{upload_id}/preview.png` 和 `uploads/{upload_id}/thumbnail.png` 的转换。
   - 新增 `scripts/check-design-plan-image-url.mjs`，用于防止保存后内部图片路径无法恢复为前端可访问 URL。
 
+## 2026-06-12 通道确认等待态 2.9.3 修复记录
+
+- 版本号：`2.9.3`。
+- 问题：
+  - 通道点击“确认”后会显示“确认中”，但如果再点击其他通道按钮，前一个确认按钮的等待态会消失。
+- 根因：
+  - 前端用单个 `confirmingChannelId` 记录确认中状态，多个确认请求并发时后一个会覆盖前一个。
+- 修复：
+  - 通道确认等待态改为 `Set<number>`，按通道 ID 独立管理。
+  - 每个通道从点击确认开始保持“确认中”，直到该通道确认请求结束或状态变化。
+  - 新增 `scripts/check-channel-confirming-state.mjs`，防止确认等待态退回单 ID 管理。
+
 当前新增产品需求讨论：
 
 - 项目方向：设计图标记与诊室区域管理。

@@ -49,7 +49,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [recorderProgress, setRecorderProgress] = useState<Record<number, { done: number; total: number }>>({});
   const [completedRecorderProgressId, setCompletedRecorderProgressId] = useState<number | null>(null);
   const [previewChannel, setPreviewChannel] = useState<VideoChannel | null>(null);
-  const [confirmingChannelId, setConfirmingChannelId] = useState<number | null>(null);
+  const [confirmingChannelIds, setConfirmingChannelIds] = useState<Set<number>>(() => new Set());
   const [channelError, setChannelError] = useState("");
   const [addingRecorder, setAddingRecorder] = useState(false);
   const [deletingRecorderIds, setDeletingRecorderIds] = useState<Set<number>>(() => new Set());
@@ -191,7 +191,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onToast("确认为业务区域时，编号必填。");
       return;
     }
-    setConfirmingChannelId(channel.id);
+    setConfirmingChannelIds((current) => addIdToSet(current, channel.id));
     setChannelError("");
     try {
       const updated = await storeSpaceApi.confirmChannel(store.id, channel.id, {
@@ -213,7 +213,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       setChannelError(`通道 ${channel.channelNo} 确认失败：${message}`);
       onToast(message);
     } finally {
-      setConfirmingChannelId(null);
+      setConfirmingChannelIds((current) => removeIdFromSet(current, channel.id));
     }
   }
 
@@ -440,6 +440,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                   Boolean(draft.status);
                 const recognitionMessage = channelRecognitionMessage(channel);
                 const isRecognizing = recognizingChannelIds.has(channel.id);
+                const isConfirming = confirmingChannelIds.has(channel.id);
                 const isDeleting = deletingChannelIds.has(channel.id);
                 const selectedAreaType = draft.areaType !== undefined ? draft.areaType : channel.areaType;
                 const selectedAreaNumber = draft.areaNumber ?? (selectedAreaType ? channel.areaNumber : channel.areaNote || channel.areaNumber);
@@ -504,8 +505,8 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     <td>
                       <div className="row-actions">
                         {isEditable ? (
-                          <button disabled={confirmingChannelId === channel.id || isDeleting} onClick={() => void confirmChannel(channel)}>
-                            {confirmingChannelId === channel.id ? (
+                          <button disabled={isConfirming || isDeleting} onClick={() => void confirmChannel(channel)}>
+                            {isConfirming ? (
                               <>
                                 <span className="button-spinner" aria-hidden="true" />
                                 确认中
@@ -534,7 +535,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                         </button>
                         <button
                           className="danger-link"
-                          disabled={isRecognizing || isDeleting || confirmingChannelId === channel.id || workingRecorderId === recorder.id}
+                          disabled={isRecognizing || isDeleting || isConfirming || workingRecorderId === recorder.id}
                           onClick={() => void deleteChannel(recorder, channel)}
                         >
                           {isDeleting ? (
