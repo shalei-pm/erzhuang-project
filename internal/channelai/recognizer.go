@@ -245,7 +245,7 @@ func prompt() string {
 1. 如果画面中有显著编号卡片，且卡片写有“治疗室 1”“面诊室 2”“生美 3”等业务类型和数字，则 area_type 和 area_number 必须以卡片文本为准，即使画面环境判断不同。
 2. 如果卡片只有数字，没有业务类型，则 area_number 填该数字，area_type 根据画面环境判断。
 3. 如果没有卡片，则根据画面判断 scene_type；能明确属于治疗室、面诊室、生美时，也可以填 area_type，但 area_number 为空。
-4. 如果不是三类业务区域，area_type 和 area_number 置空，scene_type 填对应非业务区域。
+4. 如果不是三类业务区域，area_type 置空，scene_type 填对应非业务区域，area_number 填非业务区域的中文实体名称，例如“机房”“药房”“前台”“走廊”“通道”“候诊区”“大厅”“门口”“库房”；无法判断时 area_number 置空。
 5. AI 结果只是预填，用户会人工确认；不确定时 confidence 用 low，needs_review 为 true。
 6. raw_notes 用中文简短说明判断依据。`)
 }

@@ -498,8 +498,12 @@ func (s *MemoryStore) SaveChannelSnapshot(ctx context.Context, channelID int64, 
 				}
 				if number := mustPositiveInt(input.AreaNumberText); number > 0 {
 					channel.AreaNumber = number
+					channel.AreaNote = ""
 				} else if input.Status == ChannelStatusPendingConfirmation {
 					channel.AreaNumber = 0
+				}
+				if input.AreaNote != "" || input.Status == ChannelStatusPendingConfirmation {
+					channel.AreaNote = strings.TrimSpace(input.AreaNote)
 				}
 				channel.RecognitionResult = strings.TrimSpace(input.RecognitionResult)
 				channel.RecognitionAttempts++
@@ -532,6 +536,7 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 				if input.AreaType == "" {
 					channel.AreaType = ""
 					channel.AreaNumber = 0
+					channel.AreaNote = strings.TrimSpace(input.AreaNote)
 					channel.AreaID = 0
 					channel.Status = ChannelStatusConfirmedNonBusiness
 					s.deleteUnusedVideoAreasLocked(store)
@@ -550,6 +555,7 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 				}
 				channel.AreaType = area.Type
 				channel.AreaNumber = area.Number
+				channel.AreaNote = ""
 				channel.AreaID = area.ID
 				channel.SceneType = SceneType(area.Type)
 				channel.Status = ChannelStatusConfirmedBusiness
@@ -1299,6 +1305,16 @@ func (s *PostgresStore) ReplaceRecorderChannels(ctx context.Context, recorderID 
 						when video_channels.status = $6 then null
 						else video_channels.confirmed_at
 					end,
+					area_note = case
+						when video_channels.status = $6 and (
+							video_channels.area_id is not null
+							or video_channels.area_type is not null
+							or video_channels.area_number is not null
+							or video_channels.confirmed_at is not null
+						) then video_channels.area_note
+						when video_channels.status = $6 then ''
+						else video_channels.area_note
+					end,
 					updated_at = now()
 			`, recorderID, channel.ChannelNo, strings.TrimSpace(channel.ChannelName), ChannelStatusPendingRecognition, SceneTypeUnknown, ChannelStatusInactive, ChannelStatusConfirmedBusiness, ChannelStatusConfirmedNonBusiness); err != nil {
 				return nil, err
@@ -1406,9 +1422,10 @@ func (s *PostgresStore) SaveChannelSnapshot(ctx context.Context, channelID int64
 			scene_type = case when nullif($4, '') is null then scene_type else $4 end,
 			area_type = case when nullif($3, '') is null then area_type else nullif($5, '') end,
 			area_number = case when nullif($3, '') is null then area_number else nullif($6, 0) end,
+			area_note = case when nullif($3, '') is null then area_note else $7 end,
 			updated_at = now()
 		where id = $2
-	`, input.RecognitionResult, channelID, input.Status, input.SceneType, input.AreaType, mustPositiveInt(input.AreaNumberText)); err != nil {
+	`, input.RecognitionResult, channelID, input.Status, input.SceneType, input.AreaType, mustPositiveInt(input.AreaNumberText), strings.TrimSpace(input.AreaNote)); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1458,11 +1475,12 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 				scene_type = $2,
 				area_type = null,
 				area_number = null,
+				area_note = $4,
 				area_id = null,
 				confirmed_at = now(),
 				updated_at = now()
 			where id = $3
-		`, ChannelStatusConfirmedNonBusiness, sceneType, channelID); err != nil {
+		`, ChannelStatusConfirmedNonBusiness, sceneType, channelID, strings.TrimSpace(input.AreaNote)); err != nil {
 			return nil, err
 		}
 		if err := deleteUnusedVideoAreas(ctx, tx, storeID); err != nil {
@@ -1492,6 +1510,7 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 				scene_type = $2,
 				area_type = $3,
 				area_number = $4,
+				area_note = '',
 				area_id = $5,
 				confirmed_at = now(),
 				updated_at = now()
@@ -1919,7 +1938,7 @@ func (s *PostgresStore) listChannels(ctx context.Context, recorderID int64) ([]C
 	rows, err := s.db.QueryContext(ctx, `
 		select id, recorder_id, channel_no, channel_name, status, is_active,
 			scene_type, coalesce(area_type, ''), coalesce(area_number, 0),
-			coalesce(area_id, 0), recognition_attempts, coalesce(recognition_result::text, ''),
+			coalesce(area_note, ''), coalesce(area_id, 0), recognition_attempts, coalesce(recognition_result::text, ''),
 			snapshot.thumbnail_path, snapshot.full_image_path, snapshot.full_image_expires_at,
 			confirmed_at, created_at, updated_at
 		from video_channels
@@ -1954,6 +1973,7 @@ func (s *PostgresStore) listChannels(ctx context.Context, recorderID int64) ([]C
 			&channel.SceneType,
 			&channel.AreaType,
 			&channel.AreaNumber,
+			&channel.AreaNote,
 			&channel.AreaID,
 			&channel.RecognitionAttempts,
 			&channel.RecognitionResult,

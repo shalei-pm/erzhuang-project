@@ -138,6 +138,7 @@ type ChannelSnapshotInput struct {
 	SceneType          SceneType
 	AreaType           AreaType
 	AreaNumberText     string
+	AreaNote           string
 }
 
 type ChannelRecognitionResult struct {
@@ -156,6 +157,7 @@ type ChannelConfirmationInput struct {
 	Kind       string    `json:"kind,omitempty"`
 	AreaType   AreaType  `json:"area_type,omitempty"`
 	AreaNumber string    `json:"area_number,omitempty"`
+	AreaNote   string    `json:"area_note,omitempty"`
 	SceneType  SceneType `json:"scene_type,omitempty"`
 }
 
@@ -300,6 +302,7 @@ type Channel struct {
 	SceneType           SceneType     `json:"scene_type"`
 	AreaType            AreaType      `json:"area_type,omitempty"`
 	AreaNumber          int           `json:"area_number,omitempty"`
+	AreaNote            string        `json:"area_note,omitempty"`
 	AreaID              int64         `json:"area_id,omitempty"`
 	RecognitionAttempts int           `json:"recognition_attempts"`
 	RecognitionResult   string        `json:"recognition_result,omitempty"`

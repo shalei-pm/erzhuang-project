@@ -134,6 +134,7 @@ func PostgresSchemaStatements() []string {
 			scene_type text not null default 'unknown',
 			area_type text,
 			area_number integer,
+			area_note text not null default '',
 			area_id bigint references store_areas(id),
 			recognition_attempts integer not null default 0,
 			recognition_result jsonb,
@@ -151,6 +152,7 @@ func PostgresSchemaStatements() []string {
 			constraint video_channels_recognition_attempts_check
 				check (recognition_attempts >= 0)
 		)`,
+		`alter table video_channels add column if not exists area_note text not null default ''`,
 		`create unique index if not exists video_channels_unique_channel
 			on video_channels (recorder_id, channel_no)`,
 		`create table if not exists channel_snapshots (

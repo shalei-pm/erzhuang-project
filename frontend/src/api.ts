@@ -116,6 +116,7 @@ export type VideoChannel = {
   sceneType: SceneType;
   areaType: AreaType | "";
   areaNumber: string;
+  areaNote: string;
   recognitionAttempts: number;
   recognitionResult?: unknown;
   confirmedAt?: string;
@@ -326,6 +327,8 @@ type BackendVideoChannel = {
   areaType?: AreaType | "";
   area_number?: number | string | null;
   areaNumber?: number | string | null;
+  area_note?: string;
+  areaNote?: string;
   recognition_attempts?: number;
   recognitionAttempts?: number;
   recognition_result?: unknown;
@@ -792,17 +795,18 @@ const mockAdapter = {
       { sceneType: "corridor" as SceneType, areaType: "" as const, areaNumber: "" },
     ];
     const preset = presets[index % presets.length];
-    const recognized: VideoChannel = {
-      ...channel,
-      ...preset,
-      status: channel.status === "confirmed_business" || channel.status === "confirmed_non_business" ? channel.status : "pending_confirmation",
-      thumbnailUrl: `https://picsum.photos/seed/${recorder.deviceCode}-${channel.channelNo}-${Date.now()}/240/160`,
+	  const recognized: VideoChannel = {
+	    ...channel,
+	    ...preset,
+	    status: channel.status === "confirmed_business" || channel.status === "confirmed_non_business" ? channel.status : "pending_confirmation",
+	    areaNote: preset.areaType ? "" : nonBusinessSceneLabel(preset.sceneType),
+	    thumbnailUrl: `https://picsum.photos/seed/${recorder.deviceCode}-${channel.channelNo}-${Date.now()}/240/160`,
       fullImageUrl: `https://picsum.photos/seed/${recorder.deviceCode}-${channel.channelNo}-${Date.now()}/960/640`,
       fullImageExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       recognitionResult: {
         status: "recognized",
         area_type: preset.areaType,
-        area_number: preset.areaNumber,
+	    area_number: preset.areaType ? preset.areaNumber : nonBusinessSceneLabel(preset.sceneType),
         confidence: "medium",
         capture_ms: 380,
         recognition_ms: 520,
@@ -831,13 +835,14 @@ const mockAdapter = {
         const isBusiness = Boolean(patch.areaType);
         const status: ChannelStatus = isBusiness ? "confirmed_business" : "confirmed_non_business";
         const sceneType: SceneType = patch.sceneType || (patch.areaType ? patch.areaType : "unknown");
-        return {
-          ...channel,
-          ...patch,
-          sceneType,
-          status,
-          confirmedAt: now,
-        };
+	    return {
+	      ...channel,
+	      ...patch,
+	      sceneType,
+	      areaNote: isBusiness ? "" : String(patch.areaNote ?? patch.areaNumber ?? ""),
+	      status,
+	      confirmedAt: now,
+	    };
       }),
     }));
     const nextStore = {
@@ -1490,6 +1495,7 @@ function mapBackendChannel(channel: BackendVideoChannel, recorderId: number, rec
     sceneType: channel.scene_type ?? channel.sceneType ?? "unknown",
     areaType: channel.area_type ?? channel.areaType ?? "",
     areaNumber: channel.area_number == null && channel.areaNumber == null ? "" : String(channel.area_number ?? channel.areaNumber),
+    areaNote: channel.area_note ?? channel.areaNote ?? "",
     recognitionAttempts: channel.recognition_attempts ?? channel.recognitionAttempts ?? 0,
     recognitionResult: channel.recognition_result ?? channel.recognitionResult,
     confirmedAt: channel.confirmed_at ?? channel.confirmedAt,
@@ -1621,6 +1627,7 @@ function toStoreSpaceChannelConfirmationPayload(patch: Partial<VideoChannel>) {
   return {
     kind: "non_business",
     scene_type: patch.sceneType ?? "unknown",
+    area_note: patch.areaNote ?? patch.areaNumber ?? "",
   };
 }
 
@@ -1782,10 +1789,10 @@ function createMockRecorder(storeId: number, deviceCode: string, ezvizAccountId:
 }
 
 function createMockChannels(recorderId: number, recorderCode: string): VideoChannel[] {
-  const scenes: Array<Pick<VideoChannel, "sceneType" | "areaType" | "areaNumber" | "status">> = [
-    { sceneType: "consultation", areaType: "consultation", areaNumber: "1", status: "pending_confirmation" },
-    { sceneType: "treatment", areaType: "treatment", areaNumber: "1", status: "confirmed_business" },
-    { sceneType: "front_desk", areaType: "", areaNumber: "", status: "confirmed_non_business" },
+  const scenes: Array<Pick<VideoChannel, "sceneType" | "areaType" | "areaNumber" | "areaNote" | "status">> = [
+    { sceneType: "consultation", areaType: "consultation", areaNumber: "1", areaNote: "", status: "pending_confirmation" },
+    { sceneType: "treatment", areaType: "treatment", areaNumber: "1", areaNote: "", status: "confirmed_business" },
+    { sceneType: "front_desk", areaType: "", areaNumber: "", areaNote: "前台", status: "confirmed_non_business" },
   ];
   return scenes.map((scene, index) => ({
     id: nextChannelId++,
@@ -1914,6 +1921,22 @@ function matchesStoreSearch(name: string, query: string) {
   }
   const normalizedQuery = normalizeStoreName(query);
   return Boolean(normalizedQuery) && normalizeStoreName(name).includes(normalizedQuery);
+}
+
+function nonBusinessSceneLabel(sceneType: SceneType) {
+  const labels: Partial<Record<SceneType, string>> = {
+    front_desk: "前台",
+    corridor: "走廊",
+    passage: "通道",
+    waiting_area: "候诊区",
+    hall: "大厅",
+    entrance: "门口",
+    storage: "库房",
+    pharmacy: "药房",
+    machine_room: "机房",
+    unknown: "",
+  };
+  return labels[sceneType] ?? "";
 }
 
 function trimTrailingSlash(value: string) {

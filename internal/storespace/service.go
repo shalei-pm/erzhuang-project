@@ -338,6 +338,8 @@ func applyChannelRecognition(snapshot *ChannelSnapshotInput, result ChannelRecog
 	snapshot.AreaType = areaType
 	if onlyDigits(number) {
 		snapshot.AreaNumberText = number
+	} else if areaType == "" {
+		snapshot.AreaNote = recognitionSceneNote(sceneType, number)
 	}
 	payload := map[string]any{
 		"status":          "recognized",
@@ -362,6 +364,35 @@ func applyChannelRecognition(snapshot *ChannelSnapshotInput, result ChannelRecog
 		return
 	}
 	snapshot.RecognitionResult = string(data)
+}
+
+func recognitionSceneNote(sceneType SceneType, recognizedNumber string) string {
+	note := strings.TrimSpace(recognizedNumber)
+	if note != "" && !onlyDigits(note) {
+		return note
+	}
+	switch sceneType {
+	case SceneTypeFrontDesk:
+		return "前台"
+	case SceneTypeCorridor:
+		return "走廊"
+	case SceneTypePassage:
+		return "通道"
+	case SceneTypeWaitingArea:
+		return "候诊区"
+	case SceneTypeHall:
+		return "大厅"
+	case SceneTypeEntrance:
+		return "门口"
+	case SceneTypeStorage:
+		return "库房"
+	case SceneTypePharmacy:
+		return "药房"
+	case SceneTypeMachineRoom:
+		return "机房"
+	default:
+		return ""
+	}
 }
 
 func normalizeRecognitionAreaType(value string) AreaType {

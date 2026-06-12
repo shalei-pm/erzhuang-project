@@ -690,6 +690,52 @@ func TestRecognizeChannelOnlyUpdatesOneChannel(t *testing.T) {
 	}
 }
 
+func TestRecognizeChannelStoresNonBusinessSceneAsNote(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	scanner := &countingFakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, scanner, fakeChannelRecognizer{
+		result: ChannelRecognitionResult{
+			SceneType:      string(SceneTypeMachineRoom),
+			AreaType:       "",
+			AreaNumber:     "机房",
+			DecisionSource: "scene",
+			Confidence:     "high",
+		},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	updatedChannel, err := service.RecognizeChannel(context.Background(), recorder.Channels[0].ID)
+	if err != nil {
+		t.Fatalf("recognize channel: %v", err)
+	}
+
+	if updatedChannel.AreaType != "" || updatedChannel.AreaNumber != 0 {
+		t.Fatalf("expected non-business channel without business area number, got %#v", updatedChannel)
+	}
+	if updatedChannel.SceneType != SceneTypeMachineRoom || updatedChannel.AreaNote != "机房" || updatedChannel.Status != ChannelStatusPendingConfirmation {
+		t.Fatalf("expected machine room note pending confirmation, got %#v", updatedChannel)
+	}
+}
+
 func TestConfirmChannelCreatesBusinessArea(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华南"})

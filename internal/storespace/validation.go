@@ -162,6 +162,9 @@ func validateChannelConfirmationInput(input ChannelConfirmationInput) (int, erro
 		if input.SceneType != "" && !validSceneType(input.SceneType) {
 			fields["scene_type"] = "场景类型不合法"
 		}
+		if len([]rune(strings.TrimSpace(input.AreaNote))) > 40 {
+			fields["area_note"] = "备注不能超过 40 个字"
+		}
 		if len(fields) > 0 {
 			return 0, &ValidationError{Fields: fields}
 		}

@@ -158,6 +158,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         ...patch,
         areaType,
         areaNumber,
+        areaNote: areaType ? "" : String(patch.areaNote ?? patch.areaNumber ?? channel.areaNote ?? ""),
         sceneType,
       });
       setEditingChannels((current) => {
@@ -350,7 +351,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                 <th>通道号</th>
                 <th>最近截图</th>
                 <th>业务区域类型</th>
-                <th>编号</th>
+                <th>编号/备注</th>
                 <th>确认状态</th>
                 <th>操作</th>
               </tr>
@@ -388,6 +389,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                           onChange={(event) =>
                             updateChannelDraft(channel.id, {
                               areaType: event.target.value as AreaType | "",
+                              areaNote: event.target.value ? "" : channel.areaNote || draft.areaNumber || "",
                               sceneType: event.target.value ? (event.target.value as AreaType) : "unknown",
                             })
                           }
@@ -404,13 +406,19 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     <td>
                       {isEditable ? (
                         <input
-                          value={draft.areaNumber ?? channel.areaNumber}
-                          inputMode="numeric"
-                          onChange={(event) => updateChannelDraft(channel.id, { areaNumber: event.target.value })}
+                          value={draft.areaNumber ?? (draft.areaType || channel.areaType ? channel.areaNumber : channel.areaNote || channel.areaNumber)}
+                          inputMode={draft.areaType || channel.areaType ? "numeric" : "text"}
+                          onChange={(event) => {
+                            if (draft.areaType || channel.areaType) {
+                              updateChannelDraft(channel.id, { areaNumber: event.target.value, areaNote: "" });
+                              return;
+                            }
+                            updateChannelDraft(channel.id, { areaNumber: event.target.value, areaNote: event.target.value });
+                          }}
                           placeholder={draft.areaType || channel.areaType ? "必填" : "-"}
                         />
                       ) : (
-                        channel.areaNumber || "-"
+                        channel.areaType ? channel.areaNumber || "-" : channel.areaNote || channel.areaNumber || "-"
                       )}
                     </td>
                     <td>
