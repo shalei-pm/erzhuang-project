@@ -60,6 +60,16 @@
   - 通道 `131` 真实识别成功，整体接口约 `10s`，后端记录 `capture_ms=1668`、`total_ms=6414`，识别为“弱电机房”。
   - 通道 `132` 真实识别成功，`provider=minimax`，整体接口约 `14s`，后端记录 `capture_ms=1029`、`recognition_ms=10297`、`total_ms=11327`。
 
+## 2026-06-12 视觉模型对比结论
+
+- 用户确认 MiniMax Token Plan 已跑通，但速度相比现有 GPT 链路没有优势。
+- 线上视觉识别已切回 GPT：
+  - `VISION_API_BASE_URL=https://vibe.soyoung.com`
+  - `VISION_MODEL=gpt-5.5`
+  - `VISION_API_KEY` 仅保存在服务器 systemd drop-in，不进入 Git。
+- 切回后服务健康检查通过，`erzhuang-project.service` 为 `active`。
+- 保留 MiniMax 兼容代码和 provider 记录能力，方便后续如果换更快 MiniMax 模型或其他视觉模型时复用。
+
 当前新增产品需求讨论：
 
 - 项目方向：设计图标记与诊室区域管理。
