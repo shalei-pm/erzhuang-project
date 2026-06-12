@@ -489,6 +489,10 @@ td:nth-child(10) {
 
 .row-actions button,
 .danger-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-width: 68px;
   min-height: 30px;
   padding: 0 10px;

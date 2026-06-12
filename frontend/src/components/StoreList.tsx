@@ -13,11 +13,12 @@ type StoreListProps = {
   loading: boolean;
   page: number;
   pageSize: number;
+  deletingStoreId: number | null;
   onOpenStore: (storeId: number) => void;
   onDeleteStore: (store: StoreSummary) => void;
 };
 
-export function StoreList({ stores, loading, page, pageSize, onOpenStore, onDeleteStore }: StoreListProps) {
+export function StoreList({ stores, loading, page, pageSize, deletingStoreId, onOpenStore, onDeleteStore }: StoreListProps) {
   return (
     <section className="table-frame" aria-label="门店列表">
       <table className="store-table">
@@ -78,9 +79,18 @@ export function StoreList({ stores, loading, page, pageSize, onOpenStore, onDele
                 <td>{formatDateTime(store.updatedAt)}</td>
                 <td>
                   <div className="row-actions">
-                    <button onClick={() => onOpenStore(store.id)}>进入详情</button>
-                    <button className="danger-link" onClick={() => onDeleteStore(store)}>
-                      删除
+                    <button disabled={deletingStoreId === store.id} onClick={() => onOpenStore(store.id)}>
+                      进入详情
+                    </button>
+                    <button className="danger-link" disabled={deletingStoreId === store.id} onClick={() => onDeleteStore(store)}>
+                      {deletingStoreId === store.id ? (
+                        <>
+                          <span className="button-spinner" aria-hidden="true" />
+                          删除中
+                        </>
+                      ) : (
+                        "删除"
+                      )}
                     </button>
                   </div>
                 </td>

@@ -41,6 +41,8 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [confirmingChannelId, setConfirmingChannelId] = useState<number | null>(null);
   const [channelError, setChannelError] = useState("");
   const [addingRecorder, setAddingRecorder] = useState(false);
+  const [deletingRecorderId, setDeletingRecorderId] = useState<number | null>(null);
+  const [deletingChannelId, setDeletingChannelId] = useState<number | null>(null);
   const [newRecorderCode, setNewRecorderCode] = useState("");
   const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
   const [editingChannels, setEditingChannels] = useState<Record<number, Partial<VideoChannel>>>({});
@@ -108,6 +110,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     const ok = window.confirm(`删除后将清除录像机 ${recorder.deviceCode} 及其通道映射，且无法恢复。是否确认删除？`);
     if (!ok) return;
     setWorkingRecorderId(recorder.id);
+    setDeletingRecorderId(recorder.id);
     try {
       const updated = await storeSpaceApi.deleteRecorder(store.id, recorder.id);
       onStoreUpdated(updated);
@@ -116,6 +119,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onToast(channelErrorMessage(error, "删除录像机失败，请稍后重试。"));
     } finally {
       setWorkingRecorderId(null);
+      setDeletingRecorderId(null);
     }
   }
 
@@ -191,6 +195,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     const ok = window.confirm(`删除后将移除录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo} 映射。再次扫描如仍有效，会作为未确认通道重新出现。是否确认删除？`);
     if (!ok) return;
     setChannelError("");
+    setDeletingChannelId(channel.id);
     try {
       const updated = await storeSpaceApi.deleteChannel(store.id, channel.id);
       setEditingChannels((current) => {
@@ -204,6 +209,8 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       const message = channelErrorMessage(error, "删除通道失败，请稍后重试。");
       setChannelError(`通道 ${channel.channelNo} 删除失败：${message}`);
       onToast(message);
+    } finally {
+      setDeletingChannelId(null);
     }
   }
 
@@ -313,7 +320,14 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                           disabled={workingRecorderId === recorder.id}
                           onClick={() => void deleteRecorder(recorder)}
                         >
-                          删除
+                          {deletingRecorderId === recorder.id ? (
+                            <>
+                              <span className="button-spinner" aria-hidden="true" />
+                              删除中
+                            </>
+                          ) : (
+                            "删除"
+                          )}
                         </button>
                       </div>
                       {workingRecorderId === recorder.id ? (
@@ -366,6 +380,9 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                   Boolean(draft.status);
                 const recognitionMessage = channelRecognitionMessage(channel);
                 const isRecognizing = recognizingChannelIds.has(channel.id);
+                const isDeleting = deletingChannelId === channel.id;
+                const selectedAreaType = draft.areaType !== undefined ? draft.areaType : channel.areaType;
+                const selectedAreaNumber = draft.areaNumber ?? (selectedAreaType ? channel.areaNumber : channel.areaNote || channel.areaNumber);
                 return (
                   <tr key={channel.id}>
                     <td>{recorder.deviceCode}</td>
@@ -385,7 +402,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     <td>
                       {isEditable ? (
                         <select
-                          value={draft.areaType ?? channel.areaType}
+                          value={selectedAreaType}
                           onChange={(event) =>
                             updateChannelDraft(channel.id, {
                               areaType: event.target.value as AreaType | "",
@@ -406,16 +423,16 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     <td>
                       {isEditable ? (
                         <input
-                          value={draft.areaNumber ?? (draft.areaType || channel.areaType ? channel.areaNumber : channel.areaNote || channel.areaNumber)}
-                          inputMode={draft.areaType || channel.areaType ? "numeric" : "text"}
+                          value={selectedAreaNumber}
+                          inputMode={selectedAreaType ? "numeric" : "text"}
                           onChange={(event) => {
-                            if (draft.areaType || channel.areaType) {
+                            if (selectedAreaType) {
                               updateChannelDraft(channel.id, { areaNumber: event.target.value, areaNote: "" });
                               return;
                             }
                             updateChannelDraft(channel.id, { areaNumber: event.target.value, areaNote: event.target.value });
                           }}
-                          placeholder={draft.areaType || channel.areaType ? "必填" : "-"}
+                          placeholder={selectedAreaType ? "必填" : "-"}
                         />
                       ) : (
                         channel.areaType ? channel.areaNumber || "-" : channel.areaNote || channel.areaNumber || "-"
@@ -455,10 +472,17 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                         </button>
                         <button
                           className="danger-link"
-                          disabled={isRecognizing || confirmingChannelId === channel.id || workingRecorderId === recorder.id}
+                          disabled={isRecognizing || isDeleting || confirmingChannelId === channel.id || workingRecorderId === recorder.id}
                           onClick={() => void deleteChannel(recorder, channel)}
                         >
-                          删除
+                          {isDeleting ? (
+                            <>
+                              <span className="button-spinner" aria-hidden="true" />
+                              删除中
+                            </>
+                          ) : (
+                            "删除"
+                          )}
                         </button>
                       </div>
                     </td>

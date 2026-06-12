@@ -21,6 +21,7 @@ function App() {
   const [toast, setToast] = useState("");
   const [activeStore, setActiveStore] = useState<StoreDetailType | null>(null);
   const [activeTab, setActiveTab] = useState<StoreDetailTab>("design-plan");
+  const [deletingStoreId, setDeletingStoreId] = useState<number | null>(null);
   const listRequestIdRef = useRef(0);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -111,6 +112,7 @@ function App() {
   async function deleteStore(store: StoreSummary) {
     const ok = window.confirm("删除后将清除该门店的设计图、区域、录像机、通道、截图和识别结果，且无法恢复。是否确认删除？");
     if (!ok) return;
+    setDeletingStoreId(store.id);
     try {
       await storeSpaceApi.deleteStore(store.id);
       setToast(`已删除：${store.name}`);
@@ -120,6 +122,8 @@ function App() {
       await loadStores();
     } catch (error) {
       setToast(errorMessage(error, "删除门店失败。"));
+    } finally {
+      setDeletingStoreId(null);
     }
   }
 
@@ -177,7 +181,15 @@ function App() {
 
       {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
 
-      <StoreList stores={stores} loading={loading} page={page} pageSize={PAGE_SIZE} onOpenStore={openStore} onDeleteStore={deleteStore} />
+      <StoreList
+        stores={stores}
+        loading={loading}
+        page={page}
+        pageSize={PAGE_SIZE}
+        deletingStoreId={deletingStoreId}
+        onOpenStore={openStore}
+        onDeleteStore={deleteStore}
+      />
 
       <nav className="pagination" aria-label="分页">
         <button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
