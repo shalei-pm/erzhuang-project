@@ -171,9 +171,12 @@ h1 {
 
 .plain-button {
   min-width: auto;
+  min-height: 26px;
+  padding: 0 6px;
   border-color: transparent;
   background: transparent;
   color: var(--text-muted);
+  font-size: var(--button-font-normal);
 }
 
 .plain-button:hover:not(:disabled) {
@@ -298,10 +301,13 @@ h1 {
 .store-table th:nth-child(4),
 .store-table td:nth-child(4),
 .store-table th:nth-child(10),
-.store-table td:nth-child(10),
+.store-table td:nth-child(10) {
+  width: 122px;
+}
+
 .store-table th:nth-child(11),
 .store-table td:nth-child(11) {
-  width: 122px;
+  width: 160px;
 }
 
 table {
@@ -471,9 +477,9 @@ td:nth-child(10) {
 
 .row-actions button,
 .danger-link {
-  min-width: 72px;
+  min-width: 68px;
   min-height: 30px;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 1px solid #c7d2fe;
   background: #eef2ff;
   color: var(--brand);
@@ -677,20 +683,25 @@ td:nth-child(10) {
 .detail-header {
   display: flex;
   justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 18px;
+  gap: 14px;
+  margin-bottom: 12px;
 }
 
 .detail-header > div {
   display: grid;
-  gap: 12px;
+  gap: 6px;
+}
+
+.detail-header .plain-button {
+  justify-self: start;
+  width: fit-content;
 }
 
 .detail-metrics {
   display: flex;
   flex-wrap: wrap;
   gap: 0;
-  margin-top: 10px;
+  margin-top: 4px;
   color: var(--text-muted);
   font-size: 13px;
 }
@@ -756,7 +767,7 @@ td:nth-child(10) {
 }
 
 .detail-editor-body {
-  min-height: calc(100vh - 250px);
+  min-height: clamp(520px, calc(100vh - 360px), 680px);
 }
 
 .area-box.is-pending {
@@ -1079,7 +1090,7 @@ td:nth-child(10) {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: calc(100vh - 140px);
+  min-height: clamp(420px, calc(100vh - 430px), 560px);
   overflow: auto;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
