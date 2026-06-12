@@ -120,7 +120,6 @@ export function VideoChannelTab({ store, onStoreUpdated, onRecorderUpdated, onTo
         <div className="section-title-row">
           <div>
             <strong>录像机列表</strong>
-            <span>{store.recorders.length} / 3 台</span>
           </div>
         </div>
 

@@ -1443,6 +1443,27 @@ git diff --check
   - 前端构建产物：`/erzhuang/assets/index-CcEoTbGK.js`
   - 现象：健康检查前 11 次连接失败，第 12 次成功；符合当前数据库 schema 初始化较慢但可恢复的已知模式。
 
+## 2026-06-12 旧设计图门店可见性 2.3.1 修复
+
+本次版本号从 `2.3.0` 升级到 `2.3.1`：
+
+- 用户反馈：门店列表里 1.x 版本创建的机构消失，担心历史数据被测试机构替换。
+- 排查结论：
+  - 历史数据没有被物理删除。
+  - 旧接口 `/erzhuang/api/design-plan/stores` 仍能查到 3 个历史机构。
+  - 新接口 `/erzhuang/api/store-space/stores` 只查到 2.x 新门店主数据。
+  - 根因是 2.2.1 为修复创建链路把前端列表切到新 `store-space` 表，但旧 `design_plan_*` 数据尚未迁移到新主数据模型，导致页面视图隐藏旧门店。
+- 修复：
+  - 在 `storespace.EnsurePostgresSchema` 中增加幂等 legacy migration。
+  - 将旧 `design_plan_stores` 复制到新 `stores`。
+  - 将旧设计图文件信息复制到 `store_design_plans`，使用 `legacy-<old_id>` 标识。
+  - 将旧标注区域复制到 `store_areas` 和 `design_plan_annotations`。
+  - 使用 `on conflict do nothing`，不覆盖、不删除旧表或新表已有数据。
+- UI 小修：
+  - 门店详情页移除“门店详情”冗余文案。
+  - 录像机列表标题下移除 `1 / 3 台`。
+  - 录像机操作改成圆角按钮样式。
+
 ## 明日待办
 
 1. 开始前先运行：

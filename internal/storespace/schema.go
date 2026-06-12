@@ -226,5 +226,172 @@ func PostgresSchemaStatements() []string {
 			for all to anon, authenticated
 			using (false)
 			with check (false)`,
+		`insert into stores (name, normalized_name, design_plan_status, overall_status, created_at, updated_at)
+		select
+			dps.name,
+			dps.normalized_name,
+			case
+				when dps.preview_image_path <> '' then 'completed'
+				else 'not_uploaded'
+			end,
+			case
+				when dps.status = 'completed' then 'completed'
+				when dps.status = 'incomplete' then 'incomplete'
+				else 'partial'
+			end,
+			dps.created_at,
+			dps.updated_at
+		from design_plan_stores dps
+		on conflict (normalized_name) do nothing`,
+		`insert into store_design_plans (
+			store_id, upload_id, pdf_file_name, original_pdf_path, preview_image_path,
+			thumbnail_path, page_count, recognition_status, recognition_result, created_at, updated_at
+		)
+		select
+			s.id,
+			'legacy-' || dps.id::text,
+			dps.pdf_file_name,
+			dps.original_pdf_path,
+			dps.preview_image_path,
+			dps.thumbnail_path,
+			dps.page_count,
+			case
+				when dps.status = 'completed' then 'completed'
+				else 'not_started'
+			end,
+			dps.recognition_result,
+			dps.created_at,
+			dps.updated_at
+		from design_plan_stores dps
+		join stores s on s.normalized_name = dps.normalized_name
+		where not exists (
+			select 1
+			from store_design_plans sdp
+			where sdp.store_id = s.id
+				and sdp.upload_id = 'legacy-' || dps.id::text
+		)`,
+		`with legacy_area_rows as (
+			select
+				s.id as store_id,
+				dps.id as legacy_store_id,
+				dpa.area_type,
+				dpa.area_number,
+				max(coalesce(nullif(dpa.area_number, 0), 0)) over (
+					partition by s.id, dpa.area_type
+				) as max_existing_area_number,
+				sum(case when dpa.area_number is null or dpa.area_number <= 0 then 1 else 0 end) over (
+					partition by s.id, dpa.area_type
+					order by dpa.display_order, dpa.id
+				) as missing_area_index,
+				dpa.name,
+				dpa.box_x,
+				dpa.box_y,
+				dpa.box_width,
+				dpa.box_height,
+				dpa.created_at,
+				dpa.updated_at
+			from design_plan_store_areas dpa
+			join design_plan_stores dps on dps.id = dpa.store_id
+			join stores s on s.normalized_name = dps.normalized_name
+			where dpa.area_type in ('treatment', 'consultation', 'beauty')
+		),
+		legacy_areas as (
+			select
+				store_id,
+				legacy_store_id,
+				area_type,
+				case
+					when area_number is not null and area_number > 0 then area_number
+					else max_existing_area_number + missing_area_index
+				end::integer as area_number,
+				name,
+				box_x,
+				box_y,
+				box_width,
+				box_height,
+				created_at,
+				updated_at
+			from legacy_area_rows
+		),
+		inserted_areas as (
+			insert into store_areas (store_id, area_type, area_number, display_name, source, status, created_at, updated_at)
+			select
+				store_id,
+				area_type,
+				area_number,
+				name,
+				'design_plan',
+				'confirmed',
+				created_at,
+				updated_at
+			from legacy_areas
+			on conflict (store_id, area_type, area_number) do nothing
+			returning id
+		)
+		select count(*) from inserted_areas`,
+		`with legacy_area_rows as (
+			select
+				s.id as store_id,
+				dps.id as legacy_store_id,
+				dpa.area_type,
+				dpa.area_number,
+				max(coalesce(nullif(dpa.area_number, 0), 0)) over (
+					partition by s.id, dpa.area_type
+				) as max_existing_area_number,
+				sum(case when dpa.area_number is null or dpa.area_number <= 0 then 1 else 0 end) over (
+					partition by s.id, dpa.area_type
+					order by dpa.display_order, dpa.id
+				) as missing_area_index,
+				dpa.name,
+				dpa.box_x,
+				dpa.box_y,
+				dpa.box_width,
+				dpa.box_height,
+				dpa.created_at,
+				dpa.updated_at
+			from design_plan_store_areas dpa
+			join design_plan_stores dps on dps.id = dpa.store_id
+			join stores s on s.normalized_name = dps.normalized_name
+			where dpa.area_type in ('treatment', 'consultation', 'beauty')
+		),
+		legacy_areas as (
+			select
+				store_id,
+				legacy_store_id,
+				area_type,
+				case
+					when area_number is not null and area_number > 0 then area_number
+					else max_existing_area_number + missing_area_index
+				end::integer as area_number,
+				box_x,
+				box_y,
+				box_width,
+				box_height,
+				created_at,
+				updated_at
+			from legacy_area_rows
+		)
+		insert into design_plan_annotations (
+			design_plan_id, area_id, box_x, box_y, box_width, box_height, status, created_at, updated_at
+		)
+		select
+			sdp.id,
+			sa.id,
+			la.box_x,
+			la.box_y,
+			la.box_width,
+			la.box_height,
+			'confirmed',
+			la.created_at,
+			la.updated_at
+		from legacy_areas la
+		join store_areas sa
+			on sa.store_id = la.store_id
+			and sa.area_type = la.area_type
+			and sa.area_number = la.area_number
+		join store_design_plans sdp
+			on sdp.store_id = la.store_id
+			and sdp.upload_id = 'legacy-' || la.legacy_store_id::text
+		on conflict (design_plan_id, area_id) do nothing`,
 	}
 }

@@ -36,3 +36,29 @@ func TestSchemaEnablesRLSAndRejectsClientAccessForPublicTables(t *testing.T) {
 		t.Fatal("schema policies must explicitly deny using/check")
 	}
 }
+
+func TestSchemaMigratesLegacyDesignPlanStores(t *testing.T) {
+	schema := strings.Join(PostgresSchemaStatements(), "\n")
+	required := []string{
+		"from design_plan_stores dps",
+		"insert into stores",
+		"insert into store_design_plans",
+		"insert into store_areas",
+		"insert into design_plan_annotations",
+		"legacy-",
+		"on conflict (normalized_name) do nothing",
+		"on conflict (store_id, area_type, area_number) do nothing",
+		"where not exists",
+		"and sdp.upload_id = 'legacy-' || dps.id::text",
+	}
+
+	for _, part := range required {
+		if !strings.Contains(schema, part) {
+			t.Fatalf("schema does not include legacy migration fragment %q", part)
+		}
+	}
+
+	if strings.Contains(schema, "from design_plan_stores dps\n\t\tjoin stores s on s.normalized_name = dps.normalized_name\n\t\ton conflict do nothing") {
+		t.Fatal("store_design_plans legacy migration must use not exists because it has no unique conflict target")
+	}
+}

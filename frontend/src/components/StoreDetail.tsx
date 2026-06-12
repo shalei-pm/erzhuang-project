@@ -37,7 +37,6 @@ export function StoreDetail({ store, initialTab, saving, onBack, onStoreUpdated,
           <button className="plain-button" onClick={onBack}>
             返回列表
           </button>
-          <p className="eyebrow">门店详情</p>
           <h1>{store.name}</h1>
           <div className="detail-metrics" aria-label="门店资源概览">
             <div>
