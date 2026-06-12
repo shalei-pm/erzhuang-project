@@ -1317,6 +1317,15 @@ git diff --check
 - 通道扫描、抓图、识别、确认接口后端尚未接真实萤石云；当前只完成基础合同和前端 UI/mock 壳。
 - `ezviz_accounts` 目前只有只读安全字段列表接口，没有账号创建/编辑/密钥加密管理接口。
 
+## 2026-06-12 准备发布门店空间资源 2.0.0
+
+版本号按项目规则从 `1.1.6` 升级到 `2.0.0`：
+
+- 原因：新增“门店空间资源管理/通道映射”完整业务模块，属于大版本升级。
+- 线上页脚预期：`2.0.0 (<commit>)`。
+- 发布方式：主会话通过腾讯云 TAT 指定韩国实例 `ap-seoul / lhins-rjfpwj1u`，以 `lighthouse` 用户执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
+- 风险说明：发布会拉取 GitHub 最新 `main`、执行测试/构建、初始化新增数据库表和 RLS deny policy，并重启 `erzhuang-project.service`。
+
 ## 明日待办
 
 1. 开始前先运行：
