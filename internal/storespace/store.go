@@ -1102,6 +1102,11 @@ func (s *PostgresStore) listRecorders(ctx context.Context, storeID int64) ([]Rec
 		if err := rows.Scan(&recorder.ID, &recorder.StoreID, &recorder.EzvizAccountID, &recorder.DeviceCode, &recorder.Status, &recorder.EffectiveChannelCount, &recorder.LastScannedAt, &recorder.CreatedAt, &recorder.UpdatedAt); err != nil {
 			return nil, err
 		}
+		channels, err := s.listChannels(ctx, recorder.ID)
+		if err != nil {
+			return nil, err
+		}
+		recorder.Channels = channels
 		recorders = append(recorders, recorder)
 	}
 	return recorders, rows.Err()

@@ -305,6 +305,17 @@ func TestScanRecorderChannelsStoresActiveChannelsOnly(t *testing.T) {
 	if recorder.Channels[0].ChannelNo != 1 || recorder.Channels[1].ChannelNo != 2 {
 		t.Fatalf("expected exact channel numbers 1 and 2, got %#v", recorder.Channels)
 	}
+
+	updatedStore, err := service.GetStore(context.Background(), store.ID)
+	if err != nil {
+		t.Fatalf("get store after scan: %v", err)
+	}
+	if len(updatedStore.Recorders) != 1 {
+		t.Fatalf("expected one recorder, got %#v", updatedStore.Recorders)
+	}
+	if len(updatedStore.Recorders[0].Channels) != 2 {
+		t.Fatalf("expected scanned channels in store detail, got %#v", updatedStore.Recorders[0].Channels)
+	}
 }
 
 type fakeChannelScanner struct {
