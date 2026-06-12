@@ -372,6 +372,61 @@ func TestConfirmChannelCreatesBusinessArea(t *testing.T) {
 	}
 }
 
+func TestConfirmChannelReplacingVideoOnlyAreaRemovesOldArea(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华南"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GQ2603603"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	first, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "1",
+	})
+	if err != nil {
+		t.Fatalf("confirm first channel: %v", err)
+	}
+	if len(first.Areas) != 1 || first.Areas[0].Number != 1 {
+		t.Fatalf("expected treatment 1 after first confirm, got %#v", first.Areas)
+	}
+
+	updated, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "2",
+	})
+	if err != nil {
+		t.Fatalf("confirm updated channel: %v", err)
+	}
+
+	if len(updated.Areas) != 1 {
+		t.Fatalf("expected stale video-only area to be removed, got %#v", updated.Areas)
+	}
+	if updated.Areas[0].Type != AreaTypeTreatment || updated.Areas[0].Number != 2 {
+		t.Fatalf("expected only treatment 2, got %#v", updated.Areas)
+	}
+	channel := updated.Recorders[0].Channels[0]
+	if channel.AreaID != updated.Areas[0].ID || channel.AreaNumber != 2 {
+		t.Fatalf("expected channel linked to treatment 2, got channel=%#v areas=%#v", channel, updated.Areas)
+	}
+}
+
 type fakeChannelScanner struct {
 	channels []ScannedChannel
 }
