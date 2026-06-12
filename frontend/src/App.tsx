@@ -12,6 +12,7 @@ function App() {
   const [stores, setStores] = useState<StoreSummary[]>([]);
   const [accounts, setAccounts] = useState<EzvizAccount[]>([]);
   const [query, setQuery] = useState("");
+  const [cityFilter, setCityFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -25,8 +26,11 @@ function App() {
   const listRequestIdRef = useRef(0);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const firstIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const lastIndex = Math.min(total, page * PAGE_SIZE);
+  const cityOptions = uniqueCities(stores);
+  const visibleStores = cityFilter === "all" ? stores : stores.filter((store) => storeCity(store) === cityFilter);
+  const visibleSummary = summarizeStores(visibleStores);
+  const visibleFirstIndex = visibleStores.length === 0 ? 0 : 1;
+  const visibleLastIndex = visibleStores.length;
 
   useEffect(() => {
     void loadStores(query, page);
@@ -62,6 +66,7 @@ function App() {
 
   function handleSearch(value: string) {
     setQuery(value);
+    setCityFilter("all");
     setPage(1);
   }
 
@@ -175,22 +180,46 @@ function App() {
       </header>
 
       <section className="toolbar" aria-label="门店筛选">
-        <label className="search-field">
-          <span aria-hidden="true">⌕</span>
-          <input value={query} onChange={(event) => handleSearch(event.target.value)} placeholder="搜索门店名称" aria-label="搜索门店名称" />
-        </label>
-        <div className="toolbar-meta">
-          共 {total} 家门店
-          {total > 0 ? `，当前 ${firstIndex}-${lastIndex}` : ""}
+        <div className="toolbar-main">
+          <label className="search-field">
+            <span aria-hidden="true">⌕</span>
+            <input value={query} onChange={(event) => handleSearch(event.target.value)} placeholder="搜索门店名称" aria-label="搜索门店名称" />
+          </label>
+          <div className="toolbar-meta">
+            <span>
+              共 {visibleSummary.storeCount} 家门店
+              {visibleSummary.storeCount > 0 ? `，当前 ${visibleFirstIndex}-${visibleLastIndex}` : ""}
+            </span>
+            <span>面诊室 {visibleSummary.consultationCount}</span>
+            <span>治疗室 {visibleSummary.treatmentCount}</span>
+            <span>生美 {visibleSummary.beautyCount}</span>
+          </div>
+        </div>
+        <div className="city-filter" role="radiogroup" aria-label="城市筛选">
+          <button type="button" role="radio" aria-checked={cityFilter === "all"} className={cityFilter === "all" ? "is-active" : ""} onClick={() => setCityFilter("all")}>
+            全部
+          </button>
+          {cityOptions.map((city) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={cityFilter === city}
+              className={cityFilter === city ? "is-active" : ""}
+              key={city}
+              onClick={() => setCityFilter(city)}
+            >
+              {city}
+            </button>
+          ))}
         </div>
       </section>
 
       {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
 
       <StoreList
-        stores={stores}
+        stores={visibleStores}
         loading={loading}
-        page={page}
+        page={cityFilter === "all" ? page : 1}
         pageSize={PAGE_SIZE}
         deletingStoreIds={deletingStoreIds}
         onOpenStore={openStore}
@@ -224,6 +253,26 @@ function App() {
         />
       ) : null}
     </main>
+  );
+}
+
+function storeCity(store: StoreSummary) {
+  return store.city || "未设置";
+}
+
+function uniqueCities(stores: StoreSummary[]) {
+  return Array.from(new Set(stores.map(storeCity))).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+}
+
+function summarizeStores(stores: StoreSummary[]) {
+  return stores.reduce(
+    (summary, store) => ({
+      storeCount: summary.storeCount + 1,
+      consultationCount: summary.consultationCount + store.consultationCount,
+      treatmentCount: summary.treatmentCount + store.treatmentCount,
+      beautyCount: summary.beautyCount + store.beautyCount,
+    }),
+    { storeCount: 0, consultationCount: 0, treatmentCount: 0, beautyCount: 0 },
   );
 }
 
