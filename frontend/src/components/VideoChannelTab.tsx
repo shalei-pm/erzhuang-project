@@ -519,24 +519,20 @@ function channelRecognitionMessageFromObject(value: unknown) {
   };
   const timing = recognitionTimingLabel(result);
   if (result.status === "capture_failed" || result.status === "recognition_failed") {
-    return [result.message || "识别失败", timing].filter(Boolean).join(" · ");
+    return ["失败", timing].filter(Boolean).join(" · ");
   }
   if (result.status === "recognized") {
-    const area = result.area_type ? `${areaTypeLabels[result.area_type]}${result.area_number ? ` ${result.area_number}` : ""}` : "其他区域";
     const confidence = result.confidence === "low" ? "低置信" : "";
-    return [area, confidence, timing].filter(Boolean).join(" · ");
+    return [confidence, timing].filter(Boolean).join(" · ");
   }
   if (result.status === "captured") {
-    return ["已抓图", timing].filter(Boolean).join(" · ");
+    return ["抓图", timing].filter(Boolean).join(" · ");
   }
   return result.message || timing;
 }
 
 function recognitionTimingLabel(result: { capture_ms?: number; recognition_ms?: number; total_ms?: number }) {
   const parts: string[] = [];
-  if (typeof result.capture_ms === "number" && result.capture_ms > 0) {
-    parts.push(`抓图 ${formatDuration(result.capture_ms)}`);
-  }
   if (typeof result.recognition_ms === "number" && result.recognition_ms > 0) {
     parts.push(`识别 ${formatDuration(result.recognition_ms)}`);
   }

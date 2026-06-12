@@ -1024,11 +1024,14 @@ td:nth-child(10) {
 }
 
 .channel-row-note {
-  max-width: 128px;
-  margin-top: 4px;
-  color: #b91c1c;
-  font-size: 12px;
-  line-height: 1.35;
+  max-width: 132px;
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .snapshot-preview-backdrop {
