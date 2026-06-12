@@ -197,6 +197,15 @@
   - 后端 `RecognizeChannel` 对已确认通道返回校验错误，要求先编辑解锁。
   - 新增 `scripts/check-confirmed-channel-recognition-lock.mjs` 和后端测试，防止该锁定规则回退。
 
+## 2026-06-12 删除按钮 hover 文字色 2.9.6 修复记录
+
+- 版本号：`2.9.6`。
+- 问题：
+  - 各处删除按钮鼠标 hover 时背景变为红色系，但文字仍可能呈现普通操作按钮的蓝色。
+- 修复：
+  - `.danger-link:hover` 明确设置文字色为 `var(--danger)`。
+  - 新增 `scripts/check-danger-link-hover-color.mjs`，防止危险按钮 hover 状态漏掉文字色。
+
 当前新增产品需求讨论：
 
 - 项目方向：设计图标记与诊室区域管理。
