@@ -139,13 +139,16 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   async function deleteRecorder(recorder: VideoRecorder) {
     const ok = window.confirm(`删除后将清除录像机 ${recorder.deviceCode} 及其通道映射，且无法恢复。是否确认删除？`);
     if (!ok) return;
+    const previousStore = store;
     setWorkingRecorderId(recorder.id);
     setDeletingRecorderIds((current) => addIdToSet(current, recorder.id));
+    onStoreUpdated((currentStore) => removeRecorderFromStore(currentStore, recorder.id));
     try {
       const updated = await storeSpaceApi.deleteRecorder(store.id, recorder.id);
       onStoreUpdated(updated);
       onToast(`已删除录像机 ${recorder.deviceCode}。`);
     } catch (error) {
+      onStoreUpdated(previousStore);
       onToast(channelErrorMessage(error, "删除录像机失败，请稍后重试。"));
     } finally {
       setWorkingRecorderId(null);
@@ -190,8 +193,16 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onToast("确认为业务区域时，编号必填。");
       return;
     }
+    const previousChannel = channel;
+    const optimisticChannel = confirmedChannelDraft(channel, areaType, areaNumber, patch.areaNote, sceneType);
     setConfirmingChannelIds((current) => addIdToSet(current, channel.id));
     setChannelError("");
+    setEditingChannels((current) => {
+      const next = { ...current };
+      delete next[channel.id];
+      return next;
+    });
+    onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, optimisticChannel));
     try {
       const updated = await storeSpaceApi.confirmChannel(store.id, channel.id, {
         ...patch,
@@ -200,14 +211,11 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         areaNote: areaType ? "" : String(patch.areaNote ?? patch.areaNumber ?? channel.areaNote ?? ""),
         sceneType,
       });
-      setEditingChannels((current) => {
-        const next = { ...current };
-        delete next[channel.id];
-        return next;
-      });
       onStoreUpdated(updated);
       onToast("通道确认已保存。");
     } catch (error) {
+      onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, previousChannel));
+      setEditingChannels((current) => ({ ...current, [channel.id]: patch }));
       const message = channelErrorMessage(error, "通道确认失败，请稍后重试。");
       setChannelError(`通道 ${channel.channelNo} 确认失败：${message}`);
       onToast(message);
@@ -227,22 +235,25 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   }
 
   async function unlockChannelForEdit(channel: VideoChannel) {
+    const previousChannel = channel;
+    const optimisticChannel = { ...channel, status: "pending_confirmation" as const, confirmedAt: undefined };
     setUnlockingChannelIds((current) => addIdToSet(current, channel.id));
     setChannelError("");
+    setEditingChannels((current) => ({
+      ...current,
+      [channel.id]: channelDraftFromChannel(channel),
+    }));
+    onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, optimisticChannel));
     try {
       const updatedChannel = await storeSpaceApi.unlockChannelForEdit(store.id, channel.id);
-      setEditingChannels((current) => ({
-        ...current,
-        [channel.id]: {
-          areaType: channel.areaType,
-          areaNumber: channel.areaType ? channel.areaNumber : channel.areaNote || channel.areaNumber,
-          areaNote: channel.areaNote,
-          sceneType: channel.sceneType,
-          status: "pending_confirmation",
-        },
-      }));
       onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
     } catch (error) {
+      onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, previousChannel));
+      setEditingChannels((current) => {
+        const next = { ...current };
+        delete next[channel.id];
+        return next;
+      });
       const message = channelErrorMessage(error, "通道编辑状态切换失败，请稍后重试。");
       setChannelError(`通道 ${channel.channelNo} 编辑失败：${message}`);
       onToast(message);
@@ -254,18 +265,21 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   async function deleteChannel(recorder: VideoRecorder, channel: VideoChannel) {
     const ok = window.confirm(`删除后将移除录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo} 映射。再次扫描如仍有效，会作为未确认通道重新出现。是否确认删除？`);
     if (!ok) return;
+    const previousStore = store;
     setChannelError("");
     setDeletingChannelIds((current) => addIdToSet(current, channel.id));
+    setEditingChannels((current) => {
+      const next = { ...current };
+      delete next[channel.id];
+      return next;
+    });
+    onStoreUpdated((currentStore) => removeChannelFromStore(currentStore, channel.id));
     try {
       const updated = await storeSpaceApi.deleteChannel(store.id, channel.id);
-      setEditingChannels((current) => {
-        const next = { ...current };
-        delete next[channel.id];
-        return next;
-      });
       onStoreUpdated(updated);
       onToast(`已删除通道 ${channel.channelNo}。`);
     } catch (error) {
+      onStoreUpdated(previousStore);
       const message = channelErrorMessage(error, "删除通道失败，请稍后重试。");
       setChannelError(`通道 ${channel.channelNo} 删除失败：${message}`);
       onToast(message);
@@ -699,6 +713,68 @@ function replaceChannelInStore(store: StoreDetail, updatedChannel: VideoChannel)
     recorders,
     channelCount: recorders.reduce((total, recorder) => total + recorder.channels.filter((channel) => channel.status !== "inactive").length, 0),
     updatedAt: new Date().toISOString(),
+  };
+}
+
+function removeRecorderFromStore(store: StoreDetail, recorderId: number): StoreDetail {
+  const recorders = store.recorders.filter((recorder) => recorder.id !== recorderId);
+  return recalculateStoreVideoMetrics({
+    ...store,
+    recorders,
+  });
+}
+
+function removeChannelFromStore(store: StoreDetail, channelId: number): StoreDetail {
+  const recorders = store.recorders.map((recorder) => {
+    const channels = recorder.channels.filter((channel) => channel.id !== channelId);
+    return {
+      ...recorder,
+      channels,
+      effectiveChannelCount: channels.filter((channel) => channel.status !== "inactive").length,
+      status: channels.some((channel) => channel.status !== "inactive") ? recorder.status : "offline",
+    };
+  });
+  return recalculateStoreVideoMetrics({
+    ...store,
+    recorders,
+  });
+}
+
+function recalculateStoreVideoMetrics(store: StoreDetail): StoreDetail {
+  return {
+    ...store,
+    recorderCount: store.recorders.length,
+    channelCount: store.recorders.reduce((total, recorder) => total + recorder.channels.filter((channel) => channel.status !== "inactive").length, 0),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function confirmedChannelDraft(
+  channel: VideoChannel,
+  areaType: AreaType | "",
+  areaNumber: string,
+  areaNote: unknown,
+  sceneType: VideoChannel["sceneType"],
+): VideoChannel {
+  const isBusiness = Boolean(areaType);
+  return {
+    ...channel,
+    areaType,
+    areaNumber: isBusiness ? String(areaNumber).trim() : "",
+    areaNote: isBusiness ? "" : String(areaNote ?? areaNumber ?? channel.areaNote ?? ""),
+    sceneType: isBusiness ? (areaType as AreaType) : sceneType,
+    status: isBusiness ? "confirmed_business" : "confirmed_non_business",
+    confirmedAt: new Date().toISOString(),
+  };
+}
+
+function channelDraftFromChannel(channel: VideoChannel): Partial<VideoChannel> {
+  return {
+    areaType: channel.areaType,
+    areaNumber: channel.areaType ? channel.areaNumber : channel.areaNote || channel.areaNumber,
+    areaNote: channel.areaNote,
+    sceneType: channel.sceneType,
+    status: "pending_confirmation",
   };
 }
 
