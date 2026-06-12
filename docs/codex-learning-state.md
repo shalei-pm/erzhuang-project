@@ -1503,6 +1503,46 @@ git diff --check
     - `/erzhuang/api/store-space/stores?page=1&page_size=50` 仍返回 `total=8`。
     - 抽查 `/erzhuang/api/store-space/stores/6`，11 个区域均已返回 `box` 坐标，可供前端恢复旧设计图矩形标注。
 
+## 2026-06-12 门店详情 UI 控件与图纸加载体验 2.3.3 修复
+
+本次版本号从 `2.3.2` 升级到 `2.3.3`：
+
+- 用户反馈：
+  - 通道 Tab 下“扫描通道 / 删除”按钮样式不统一。
+  - 未上传设计图的门店不应显示默认打底设计图。
+  - 上传新 PDF 后应显示加载状态，旧设计图不应继续展示；失败时再恢复旧图。
+  - “返回列表”和门店名称距离太近。
+  - “新增区域 / 保存标注”也应使用统一圆角按钮。
+- 修复：
+  - 空设计图路径不再映射到 mock 示例图，只在 `mock/*` 路径时显示示例图。
+  - 设计图上传流程增加 `pendingPreviewUrl`：新图加载成功后才切换预览；转换或图片加载失败时恢复旧图和旧区域。
+  - 上传/转换/新图加载增加状态文案和转圈提示。
+  - 未上传状态的图纸区域改为纯净空状态，不再显示网格底纹，避免误解为已有图纸。
+  - 统一按钮圆角、大小和 danger 样式；详情页标题区域增加间距。
+- 本地验证：
+  - `git diff --check` 通过。
+  - `npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - 本地浏览器验收：
+    - 无设计图门店 `imageCount=0`。
+    - 空状态背景 `backgroundImage=none`。
+    - `新增区域 / 保存标注` 圆角为 `999px`。
+    - 通道 Tab 未扫描录像机仅显示 `扫描通道 / 删除`。
+- 发布结果：
+  - 本地 commit：`7abcc23`
+  - 线上 commit：`7abcc23`
+  - 线上页面版本：`2.3.3 (7abcc23)`
+  - TAT InvocationId：`inv-r4ri2e0dh9`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：
+    - `/erzhuang/assets/index-CM-T6EwS.js`
+    - `/erzhuang/assets/index-C6Bw6lpq.css`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/` HTML 已引用新 JS/CSS。
+    - 线上 JS 中已确认包含 `2.3.3 (7abcc23)`。
+  - 备注：部署脚本健康检查前 11 次连接失败，第 12 次成功；服务最终健康，仍符合当前冷启动较慢的已知现象。
+
 ## 明日待办
 
 1. 开始前先运行：
