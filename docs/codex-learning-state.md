@@ -1703,6 +1703,27 @@ git diff --check
 
 ## 明日待办
 
+## 2026-06-12 非业务区域备注与缩略图 2.7.1 发布记录
+
+- 版本号：`2.7.1`。
+- Commit：`255d301`。
+- 目标：
+  - AI 识别到非业务区域时，允许把实体名称放到通道的“编号/备注”字段，例如“机房”“药房”“前台”。
+  - 通道列表列名由“编号”改为“编号/备注”：业务区域仍为数字编号，其他区域为文本备注。
+  - 缩略图按钮清除全局按钮 padding，固定缩略图尺寸并使用 `object-fit: cover` 铺满，避免挤压变形和异常留白。
+- 本地验证：
+  - 新增 `TestRecognizeChannelStoresNonBusinessSceneAsNote` 覆盖 `machine_room -> 机房` 备注链路。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 发布状态：
+  - TAT InvocationId：`inv-r4rt590tgw`。
+  - TAT 结果：`SUCCESS`。
+  - 服务器当前 commit：`255d301`。
+  - 线上 `/erzhuang/` HTML 已引用 `/erzhuang/assets/index-CQ5C75RW.js` 和 `/erzhuang/assets/index-CkGYQwCd.css`。
+  - 线上 JS 已确认包含 `2.7.1 (255d301)`、`编号/备注`、`area_note`、“机房”“药房”“前台”。
+  - 线上 CSS 已确认包含缩略图相关 `padding:0`、`overflow:hidden`、`object-fit:cover`。
+
 ## 2026-06-12 通道识别工作流 2.7.0 发布记录
 
 - 版本号：`2.7.0`。
