@@ -82,6 +82,22 @@ func (s *Service) CreateStore(ctx context.Context, input CreateStoreInput) (*Sto
 	return s.repo.CreateStore(ctx, input)
 }
 
+func (s *Service) SaveDesignPlan(ctx context.Context, storeID int64, input SaveDesignPlanInput) (*Store, error) {
+	input.UploadID = strings.TrimSpace(input.UploadID)
+	input.PDFFileName = strings.TrimSpace(input.PDFFileName)
+	input.OriginalPDFPath = strings.TrimSpace(input.OriginalPDFPath)
+	input.PreviewImagePath = strings.TrimSpace(input.PreviewImagePath)
+	input.ThumbnailPath = strings.TrimSpace(input.ThumbnailPath)
+	for index := range input.Areas {
+		input.Areas[index].DisplayName = strings.TrimSpace(input.Areas[index].DisplayName)
+		input.Areas[index].NumberText = strings.TrimSpace(input.Areas[index].NumberText)
+	}
+	if err := validateSaveDesignPlanInput(input); err != nil {
+		return nil, err
+	}
+	return s.repo.SaveDesignPlan(ctx, storeID, input)
+}
+
 func (s *Service) DeleteStore(ctx context.Context, id int64) error {
 	return s.repo.DeleteStore(ctx, id)
 }

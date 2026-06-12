@@ -21,6 +21,7 @@ type Repository interface {
 	ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error)
 	GetStore(ctx context.Context, id int64) (*Store, error)
 	CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error)
+	SaveDesignPlan(ctx context.Context, storeID int64, input SaveDesignPlanInput) (*Store, error)
 	AddRecorder(ctx context.Context, storeID int64, input AddRecorderInput) (*Store, error)
 	GetRecorder(ctx context.Context, recorderID int64) (*Recorder, error)
 	GetEzvizAccount(ctx context.Context, accountID int64) (*EzvizAccount, error)
@@ -204,6 +205,78 @@ func (s *MemoryStore) CreateStore(ctx context.Context, input CreateStoreInput) (
 
 	s.stores[store.ID] = &store
 	copy := cloneStore(store)
+	return &copy, nil
+}
+
+func (s *MemoryStore) SaveDesignPlan(ctx context.Context, storeID int64, input SaveDesignPlanInput) (*Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	store, ok := s.stores[storeID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	plan := DesignPlan{
+		ID:                s.nextPlanID,
+		StoreID:           storeID,
+		UploadID:          strings.TrimSpace(input.UploadID),
+		PDFFileName:       strings.TrimSpace(input.PDFFileName),
+		OriginalPDFPath:   strings.TrimSpace(input.OriginalPDFPath),
+		PreviewImagePath:  strings.TrimSpace(input.PreviewImagePath),
+		ThumbnailPath:     strings.TrimSpace(input.ThumbnailPath),
+		PageCount:         input.PageCount,
+		RecognitionStatus: RecognitionStatusCompleted,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	if len(store.DesignPlans) > 0 {
+		plan.ID = store.DesignPlans[0].ID
+		plan.CreatedAt = store.DesignPlans[0].CreatedAt
+	} else {
+		s.nextPlanID++
+	}
+	store.DesignPlans = []DesignPlan{plan}
+
+	for _, areaInput := range input.Areas {
+		number, _ := strconv.Atoi(strings.TrimSpace(areaInput.NumberText))
+		area := findAreaByID(store.Areas, areaInput.ID)
+		if area == nil {
+			area = findAreaByTypeNumber(store.Areas, areaInput.Type, number)
+		}
+		source := AreaSourceDesignPlan
+		if area != nil {
+			source = mergeAreaSource(area.Source, AreaSourceDesignPlan)
+			if area.Source != AreaSourceVideoChannel && area.Source != AreaSourceMultiple {
+				area.Type = areaInput.Type
+				area.Number = number
+				area.DisplayName = displayNameOrDefault(areaInput.DisplayName, areaInput.Type, number)
+			}
+			area.Source = source
+			area.Status = AreaStatusConfirmed
+			area.Box = areaInput.Box
+			area.UpdatedAt = now
+			continue
+		}
+		store.Areas = append(store.Areas, Area{
+			ID:          s.nextAreaID,
+			StoreID:     store.ID,
+			Type:        areaInput.Type,
+			Number:      number,
+			DisplayName: displayNameOrDefault(areaInput.DisplayName, areaInput.Type, number),
+			Source:      source,
+			Status:      AreaStatusConfirmed,
+			Box:         areaInput.Box,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		})
+		s.nextAreaID++
+	}
+
+	store.DesignPlanStatus = DesignPlanStatusCompleted
+	store.UpdatedAt = now
+	copy := cloneStore(*store)
 	return &copy, nil
 }
 
@@ -539,6 +612,35 @@ func findAreaByTypeNumber(areas []Area, areaType AreaType, areaNumber int) *Area
 	return nil
 }
 
+func findAreaByID(areas []Area, id int64) *Area {
+	if id == 0 {
+		return nil
+	}
+	for index := range areas {
+		if areas[index].ID == id {
+			return &areas[index]
+		}
+	}
+	return nil
+}
+
+func mergeAreaSource(existing AreaSource, incoming AreaSource) AreaSource {
+	if existing == "" {
+		return incoming
+	}
+	if incoming == "" || existing == incoming {
+		return existing
+	}
+	return AreaSourceMultiple
+}
+
+func displayNameOrDefault(name string, areaType AreaType, areaNumber int) string {
+	if strings.TrimSpace(name) != "" {
+		return strings.TrimSpace(name)
+	}
+	return areaDisplayName(areaType, areaNumber)
+}
+
 func (s *MemoryStore) deleteUnusedVideoAreasLocked(store *Store) {
 	referenced := map[int64]bool{}
 	for _, recorder := range store.Recorders {
@@ -798,6 +900,50 @@ func (s *PostgresStore) CreateStore(ctx context.Context, input CreateStoreInput)
 		return nil, err
 	}
 	return s.GetStore(ctx, id)
+}
+
+func (s *PostgresStore) SaveDesignPlan(ctx context.Context, storeID int64, input SaveDesignPlanInput) (*Store, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var existingStoreID int64
+	if err := tx.QueryRowContext(ctx, `select id from stores where id = $1`, storeID).Scan(&existingStoreID); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+
+	plan, err := upsertStoreDesignPlan(ctx, tx, storeID, input)
+	if err != nil {
+		return nil, err
+	}
+	for _, areaInput := range input.Areas {
+		area, err := upsertDesignArea(ctx, tx, storeID, areaInput)
+		if err != nil {
+			return nil, err
+		}
+		if err := upsertDesignAnnotation(ctx, tx, plan.ID, area.ID, areaInput.Box); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update stores
+		set design_plan_status = $1,
+			updated_at = now()
+		where id = $2
+	`, DesignPlanStatusCompleted, storeID); err != nil {
+		return nil, err
+	}
+	if err := insertOperationLog(ctx, tx, "save_design_plan", "store", storeID, storeID, "saved design plan annotations"); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, storeID)
 }
 
 func (s *PostgresStore) AddRecorder(ctx context.Context, storeID int64, input AddRecorderInput) (*Store, error) {
@@ -1427,6 +1573,207 @@ func queryArea(ctx context.Context, tx queryRunner, storeID int64, areaType Area
 		return nil, err
 	}
 	return &area, nil
+}
+
+func upsertStoreDesignPlan(ctx context.Context, tx queryRunner, storeID int64, input SaveDesignPlanInput) (*DesignPlan, error) {
+	var existingID int64
+	err := tx.QueryRowContext(ctx, `
+		select id
+		from store_design_plans
+		where store_id = $1
+		order by updated_at desc, id desc
+		limit 1
+	`, storeID).Scan(&existingID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	var plan DesignPlan
+	if existingID != 0 {
+		err = tx.QueryRowContext(ctx, `
+			update store_design_plans
+			set upload_id = $1,
+				pdf_file_name = $2,
+				original_pdf_path = $3,
+				preview_image_path = $4,
+				thumbnail_path = $5,
+				page_count = $6,
+				recognition_status = $7,
+				recognition_result = nullif($8, '')::jsonb,
+				updated_at = now()
+			where id = $9
+			returning id, store_id, upload_id, pdf_file_name, original_pdf_path, preview_image_path,
+				thumbnail_path, page_count, recognition_status, created_at, updated_at
+		`, input.UploadID, input.PDFFileName, input.OriginalPDFPath, input.PreviewImagePath, input.ThumbnailPath,
+			input.PageCount, RecognitionStatusCompleted, input.RecognitionResult, existingID).Scan(
+			&plan.ID,
+			&plan.StoreID,
+			&plan.UploadID,
+			&plan.PDFFileName,
+			&plan.OriginalPDFPath,
+			&plan.PreviewImagePath,
+			&plan.ThumbnailPath,
+			&plan.PageCount,
+			&plan.RecognitionStatus,
+			&plan.CreatedAt,
+			&plan.UpdatedAt,
+		)
+		return &plan, err
+	}
+
+	err = tx.QueryRowContext(ctx, `
+		insert into store_design_plans (
+			store_id, upload_id, pdf_file_name, original_pdf_path, preview_image_path,
+			thumbnail_path, page_count, recognition_status, recognition_result
+		)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, nullif($9, '')::jsonb)
+		returning id, store_id, upload_id, pdf_file_name, original_pdf_path, preview_image_path,
+			thumbnail_path, page_count, recognition_status, created_at, updated_at
+	`, storeID, input.UploadID, input.PDFFileName, input.OriginalPDFPath, input.PreviewImagePath,
+		input.ThumbnailPath, input.PageCount, RecognitionStatusCompleted, input.RecognitionResult).Scan(
+		&plan.ID,
+		&plan.StoreID,
+		&plan.UploadID,
+		&plan.PDFFileName,
+		&plan.OriginalPDFPath,
+		&plan.PreviewImagePath,
+		&plan.ThumbnailPath,
+		&plan.PageCount,
+		&plan.RecognitionStatus,
+		&plan.CreatedAt,
+		&plan.UpdatedAt,
+	)
+	return &plan, err
+}
+
+func upsertDesignArea(ctx context.Context, tx queryRunner, storeID int64, input DesignAreaInput) (*Area, error) {
+	number, _ := strconv.Atoi(strings.TrimSpace(input.NumberText))
+	if input.ID != 0 {
+		if area, err := updateDesignAreaByID(ctx, tx, storeID, input, number); err == nil {
+			return area, nil
+		} else if !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+	}
+
+	area, err := queryArea(ctx, tx, storeID, input.Type, number)
+	if err == nil {
+		return updateDesignAreaSource(ctx, tx, area, input, number)
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+
+	var created Area
+	err = tx.QueryRowContext(ctx, `
+		insert into store_areas (store_id, area_type, area_number, display_name, source, status)
+		values ($1, $2, $3, $4, $5, $6)
+		returning id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
+	`, storeID, input.Type, number, displayNameOrDefault(input.DisplayName, input.Type, number), AreaSourceDesignPlan, AreaStatusConfirmed).Scan(
+		&created.ID,
+		&created.StoreID,
+		&created.Type,
+		&created.Number,
+		&created.DisplayName,
+		&created.Source,
+		&created.Status,
+		&created.CreatedAt,
+		&created.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
+func updateDesignAreaByID(ctx context.Context, tx queryRunner, storeID int64, input DesignAreaInput, number int) (*Area, error) {
+	var area Area
+	err := tx.QueryRowContext(ctx, `
+		select id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
+		from store_areas
+		where id = $1 and store_id = $2
+	`, input.ID, storeID).Scan(
+		&area.ID,
+		&area.StoreID,
+		&area.Type,
+		&area.Number,
+		&area.DisplayName,
+		&area.Source,
+		&area.Status,
+		&area.CreatedAt,
+		&area.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if area.Source == AreaSourceVideoChannel || area.Source == AreaSourceMultiple {
+		nextSource := mergeAreaSource(area.Source, AreaSourceDesignPlan)
+		if area.Source != nextSource {
+			if _, err := tx.ExecContext(ctx, `
+				update store_areas
+				set source = $1, updated_at = now()
+				where id = $2
+			`, nextSource, area.ID); err != nil {
+				return nil, err
+			}
+			area.Source = nextSource
+		}
+		return &area, nil
+	}
+	return updateDesignAreaSource(ctx, tx, &area, input, number)
+}
+
+func updateDesignAreaSource(ctx context.Context, tx queryRunner, area *Area, input DesignAreaInput, number int) (*Area, error) {
+	nextSource := mergeAreaSource(area.Source, AreaSourceDesignPlan)
+	err := tx.QueryRowContext(ctx, `
+		update store_areas
+		set area_type = $1,
+			area_number = $2,
+			display_name = $3,
+			source = $4,
+			status = $5,
+			updated_at = now()
+		where id = $6
+		returning id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
+	`, input.Type, number, displayNameOrDefault(input.DisplayName, input.Type, number), nextSource, AreaStatusConfirmed, area.ID).Scan(
+		&area.ID,
+		&area.StoreID,
+		&area.Type,
+		&area.Number,
+		&area.DisplayName,
+		&area.Source,
+		&area.Status,
+		&area.CreatedAt,
+		&area.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return area, nil
+}
+
+func upsertDesignAnnotation(ctx context.Context, tx queryRunner, planID int64, areaID int64, box *AreaBox) error {
+	if box == nil {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+		insert into design_plan_annotations (
+			design_plan_id, area_id, box_x, box_y, box_width, box_height, status
+		)
+		values ($1, $2, $3, $4, $5, $6, $7)
+		on conflict (design_plan_id, area_id)
+		do update set
+			box_x = excluded.box_x,
+			box_y = excluded.box_y,
+			box_width = excluded.box_width,
+			box_height = excluded.box_height,
+			status = excluded.status,
+			updated_at = now()
+	`, planID, areaID, box.X, box.Y, box.Width, box.Height, "confirmed")
+	return err
 }
 
 func updateOrFindVideoArea(ctx context.Context, tx queryRunner, storeID int64, channelID int64, areaType AreaType, areaNumber int) (*Area, error) {

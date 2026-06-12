@@ -136,6 +136,27 @@ type ChannelConfirmationInput struct {
 	SceneType   SceneType `json:"scene_type,omitempty"`
 }
 
+type SaveDesignPlanInput struct {
+	UploadID          string            `json:"upload_id,omitempty"`
+	PDFFileName       string            `json:"pdf_file_name,omitempty"`
+	OriginalPDFPath   string            `json:"original_pdf_path,omitempty"`
+	PreviewImagePath  string            `json:"preview_image_path,omitempty"`
+	ThumbnailPath     string            `json:"thumbnail_path,omitempty"`
+	PageCount         int               `json:"page_count,omitempty"`
+	RecognitionResult string            `json:"recognition_result,omitempty"`
+	Areas             []DesignAreaInput `json:"areas"`
+}
+
+type DesignAreaInput struct {
+	ID          int64      `json:"id,omitempty"`
+	DisplayName string     `json:"display_name,omitempty"`
+	Type        AreaType   `json:"area_type"`
+	NumberText  string     `json:"area_number"`
+	Confidence  string     `json:"confidence,omitempty"`
+	NeedsReview bool       `json:"needs_review,omitempty"`
+	Box         *AreaBox   `json:"box,omitempty"`
+}
+
 type DuplicateCheckRequest struct {
 	Name           string `json:"name"`
 	ExcludeStoreID int64  `json:"exclude_store_id,omitempty"`

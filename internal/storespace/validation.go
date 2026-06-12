@@ -75,6 +75,45 @@ func validateAddRecorderInput(input AddRecorderInput) error {
 	return nil
 }
 
+func validateSaveDesignPlanInput(input SaveDesignPlanInput) error {
+	fields := map[string]string{}
+	if strings.TrimSpace(input.PreviewImagePath) == "" && strings.TrimSpace(input.UploadID) == "" {
+		fields["design_plan"] = "请先上传设计图"
+	}
+	if len(input.Areas) == 0 {
+		fields["areas"] = "至少需要维护 1 个业务区域"
+	}
+	seenNumbers := map[string]bool{}
+	for index, area := range input.Areas {
+		prefix := fmt.Sprintf("areas[%d]", index)
+		if !validAreaType(area.Type) {
+			fields[prefix+".area_type"] = "区域类型只能是 treatment、consultation、beauty"
+		}
+		number := mustPositiveInt(area.NumberText)
+		if strings.TrimSpace(area.NumberText) == "" {
+			fields[prefix+".area_number"] = "区域编号必填"
+		} else if !onlyDigits(area.NumberText) {
+			fields[prefix+".area_number"] = "区域编号只能是数字"
+		} else if number <= 0 {
+			fields[prefix+".area_number"] = "区域编号必须是正整数"
+		}
+		if area.Box == nil {
+			fields[prefix+".box"] = "高亮框不能为空"
+		}
+		if area.Type != "" && number > 0 {
+			key := string(area.Type) + ":" + strconv.Itoa(number)
+			if seenNumbers[key] {
+				fields[prefix+".area_number"] = "同类型下编号不能重复"
+			}
+			seenNumbers[key] = true
+		}
+	}
+	if len(fields) > 0 {
+		return &ValidationError{Fields: fields}
+	}
+	return nil
+}
+
 func validateAreaLookup(input AreaLookup) (int, error) {
 	fields := map[string]string{}
 	if input.StoreID <= 0 {
@@ -100,6 +139,14 @@ func validateAreaLookup(input AreaLookup) (int, error) {
 		return 0, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
 	}
 	return number, nil
+}
+
+func mustPositiveInt(value string) int {
+	number, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || number < 0 {
+		return 0
+	}
+	return number
 }
 
 func validateChannelConfirmationInput(input ChannelConfirmationInput) (int, error) {

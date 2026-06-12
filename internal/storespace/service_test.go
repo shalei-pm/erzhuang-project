@@ -491,6 +491,71 @@ func TestConfirmChannelUpdatesExistingVideoAreaWhenNumberChanges(t *testing.T) {
 	}
 }
 
+func TestSaveDesignPlanPreservesConfirmedChannelAreaSource(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华南"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GQ2603603"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+	confirmed, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "1",
+	})
+	if err != nil {
+		t.Fatalf("confirm channel: %v", err)
+	}
+
+	updated, err := service.SaveDesignPlan(context.Background(), store.ID, SaveDesignPlanInput{
+		UploadID:         "upload_123",
+		PDFFileName:      "shenzhen.pdf",
+		PreviewImagePath: "uploads/upload_123/preview.png",
+		ThumbnailPath:    "uploads/upload_123/thumbnail.png",
+		PageCount:        1,
+		Areas: []DesignAreaInput{
+			{
+				ID:          confirmed.Areas[0].ID,
+				DisplayName: "治疗室 2",
+				Type:        AreaTypeTreatment,
+				NumberText:  "2",
+				Box:         &AreaBox{X: 0.1, Y: 0.2, Width: 0.3, Height: 0.4},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("save design plan: %v", err)
+	}
+
+	if len(updated.Areas) != 1 {
+		t.Fatalf("expected one area, got %#v", updated.Areas)
+	}
+	if updated.Areas[0].Source != AreaSourceMultiple {
+		t.Fatalf("expected confirmed channel area source to stay lockable as multiple, got %#v", updated.Areas[0])
+	}
+	if updated.Areas[0].Type != AreaTypeTreatment || updated.Areas[0].Number != 1 {
+		t.Fatalf("expected design plan save not to change confirmed channel area identity, got %#v", updated.Areas[0])
+	}
+	if updated.Areas[0].Box == nil {
+		t.Fatalf("expected design annotation box on area, got %#v", updated.Areas[0])
+	}
+}
+
 type fakeChannelScanner struct {
 	channels []ScannedChannel
 }

@@ -407,6 +407,25 @@ type BackendStoreSpaceArea = {
   };
 };
 
+type BackendStoreSpaceDesignPlanPayload = {
+  upload_id?: string;
+  pdf_file_name?: string;
+  original_pdf_path?: string;
+  preview_image_path?: string;
+  thumbnail_path?: string;
+  page_count?: number;
+  recognition_result?: string;
+  areas: Array<{
+    id?: number;
+    display_name?: string;
+    area_type: AreaType;
+    area_number: string;
+    confidence?: Confidence;
+    needs_review?: boolean;
+    box?: AreaBox;
+  }>;
+};
+
 type BackendStoreSpaceRecorder = BackendVideoRecorder;
 
 type DuplicateCheckResult = {
@@ -872,6 +891,17 @@ const storeSpaceHttpAdapter = {
     return mapStoreSpaceDetail(response);
   },
 
+  async saveStore(payload: SaveStorePayload): Promise<StoreDetail> {
+    if (!payload.id) {
+      throw new ApiError(400, "保存设计图标注需要门店 ID");
+    }
+    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores/${payload.id}/design-plan`, {
+      method: "PUT",
+      body: JSON.stringify(toStoreSpaceDesignPlanPayload(payload)),
+    });
+    return mapStoreSpaceDetail(response);
+  },
+
   async listEzvizAccounts(): Promise<EzvizAccount[]> {
     const response = await requestJSON<BackendEzvizAccount[]>(`${STORE_SPACE_API_BASE}/ezviz-accounts`);
     return response.map(mapBackendEzvizAccount);
@@ -1009,7 +1039,10 @@ export const storeSpaceApi = {
   },
 
   async saveStore(payload: SaveStorePayload): Promise<StoreDetail> {
-    return designPlanApi.saveStore(payload);
+    if (API_MODE === "mock") {
+      return mockAdapter.saveStore(payload);
+    }
+    return storeSpaceHttpAdapter.saveStore(payload);
   },
 
   async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
@@ -1440,6 +1473,27 @@ function toStoreSpaceCreatePayload(payload: CreateStoreSpacePayload) {
         ezviz_account_id: Number(recorder.ezvizAccountId),
         device_code: recorder.deviceCode.trim(),
       })),
+  };
+}
+
+function toStoreSpaceDesignPlanPayload(payload: SaveStorePayload): BackendStoreSpaceDesignPlanPayload {
+  return {
+    upload_id: payload.uploadId ?? "",
+    pdf_file_name: normalizePlanFileName(payload.fileName, payload.name),
+    original_pdf_path: payload.originalPath || payload.fileName || MOCK_ORIGINAL_PDF_PATH,
+    preview_image_path: payload.previewPath || toStoredPath(payload.previewUrl, MOCK_PREVIEW_IMAGE_PATH),
+    thumbnail_path: payload.thumbnailPath || toStoredPath(payload.thumbnailUrl, MOCK_THUMBNAIL_PATH),
+    page_count: payload.pageCount || 1,
+    recognition_result: JSON.stringify(payload.recognitionResult ?? null),
+    areas: payload.areas.map((areaItem) => ({
+      id: numericId(areaItem.id),
+      display_name: areaItem.name,
+      area_type: areaItem.type as AreaType,
+      area_number: areaItem.number,
+      confidence: areaItem.confidence || "high",
+      needs_review: areaItem.needsReview || areaItem.confidence === "low",
+      box: areaItem.box ?? undefined,
+    })),
   };
 }
 
