@@ -230,7 +230,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     setUnlockingChannelIds((current) => addIdToSet(current, channel.id));
     setChannelError("");
     try {
-      const updated = await storeSpaceApi.unlockChannelForEdit(store.id, channel.id);
+      const updatedChannel = await storeSpaceApi.unlockChannelForEdit(store.id, channel.id);
       setEditingChannels((current) => ({
         ...current,
         [channel.id]: {
@@ -241,7 +241,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
           status: "pending_confirmation",
         },
       }));
-      onStoreUpdated(updated);
+      onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
     } catch (error) {
       const message = channelErrorMessage(error, "通道编辑状态切换失败，请稍后重试。");
       setChannelError(`通道 ${channel.channelNo} 编辑失败：${message}`);

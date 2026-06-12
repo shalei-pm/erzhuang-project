@@ -28,7 +28,7 @@ type Repository interface {
 	GetEzvizAccount(ctx context.Context, accountID int64) (*EzvizAccount, error)
 	ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error)
 	SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error)
-	UnlockChannelForEdit(ctx context.Context, channelID int64) (*Store, error)
+	UnlockChannelForEdit(ctx context.Context, channelID int64) (*Channel, error)
 	ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error)
 	DeleteStore(ctx context.Context, id int64) error
 	DeleteRecorder(ctx context.Context, recorderID int64) error
@@ -570,7 +570,7 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 	return nil, ErrNotFound
 }
 
-func (s *MemoryStore) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Store, error) {
+func (s *MemoryStore) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Channel, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -590,7 +590,7 @@ func (s *MemoryStore) UnlockChannelForEdit(ctx context.Context, channelID int64)
 				channel.ConfirmedAt = nil
 				channel.UpdatedAt = now
 				store.UpdatedAt = now
-				copy := cloneStore(*store)
+				copy := *channel
 				return &copy, nil
 			}
 		}
@@ -1243,6 +1243,33 @@ func (s *PostgresStore) GetChannelContext(ctx context.Context, channelID int64) 
 	return &channelCopy, recorder, account, nil
 }
 
+func (s *PostgresStore) GetChannel(ctx context.Context, channelID int64) (*Channel, error) {
+	row := s.db.QueryRowContext(ctx, `
+		select id, recorder_id, channel_no, channel_name, status, is_active,
+			scene_type, coalesce(area_type, ''), coalesce(area_number, 0),
+			coalesce(area_note, ''), coalesce(area_id, 0), recognition_attempts, coalesce(recognition_result::text, ''),
+			snapshot.thumbnail_path, snapshot.full_image_path, snapshot.full_image_expires_at,
+			confirmed_at, created_at, updated_at
+		from video_channels
+		left join lateral (
+			select thumbnail_path, full_image_path, full_image_expires_at
+			from channel_snapshots
+			where channel_id = video_channels.id
+			order by created_at desc, id desc
+			limit 1
+		) snapshot on true
+		where id = $1
+	`, channelID)
+	channel, err := scanChannel(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return channel, nil
+}
+
 func (s *PostgresStore) ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1564,7 +1591,7 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 	return s.GetStore(ctx, storeID)
 }
 
-func (s *PostgresStore) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Store, error) {
+func (s *PostgresStore) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Channel, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -1608,7 +1635,7 @@ func (s *PostgresStore) UnlockChannelForEdit(ctx context.Context, channelID int6
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return s.GetStore(ctx, storeID)
+	return s.GetChannel(ctx, channelID)
 }
 
 func (s *PostgresStore) DeleteStore(ctx context.Context, id int64) error {
@@ -1968,19 +1995,30 @@ func (s *PostgresStore) listRecorders(ctx context.Context, storeID int64) ([]Rec
 	defer rows.Close()
 
 	recorders := []Recorder{}
+	recorderIndexes := map[int64]int{}
 	for rows.Next() {
 		var recorder Recorder
 		if err := rows.Scan(&recorder.ID, &recorder.StoreID, &recorder.EzvizAccountID, &recorder.DeviceCode, &recorder.Status, &recorder.EffectiveChannelCount, &recorder.LastScannedAt, &recorder.CreatedAt, &recorder.UpdatedAt); err != nil {
 			return nil, err
 		}
-		channels, err := s.listChannels(ctx, recorder.ID)
-		if err != nil {
-			return nil, err
-		}
-		recorder.Channels = channels
+		recorderIndexes[recorder.ID] = len(recorders)
 		recorders = append(recorders, recorder)
 	}
-	return recorders, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	channels, err := s.listChannelsForStore(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	for _, channel := range channels {
+		index, ok := recorderIndexes[channel.RecorderID]
+		if !ok {
+			continue
+		}
+		recorders[index].Channels = append(recorders[index].Channels, channel)
+	}
+	return recorders, nil
 }
 
 func (s *PostgresStore) queryRecorder(ctx context.Context, runner queryRunner, recorderID int64) (*Recorder, error) {
@@ -2035,41 +2073,88 @@ func (s *PostgresStore) listChannels(ctx context.Context, recorderID int64) ([]C
 
 	channels := []Channel{}
 	for rows.Next() {
-		var channel Channel
-		var thumbnailPath sql.NullString
-		var fullImagePath sql.NullString
-		var fullImageExpiresAt sql.NullTime
-		if err := rows.Scan(
-			&channel.ID,
-			&channel.RecorderID,
-			&channel.ChannelNo,
-			&channel.ChannelName,
-			&channel.Status,
-			&channel.IsActive,
-			&channel.SceneType,
-			&channel.AreaType,
-			&channel.AreaNumber,
-			&channel.AreaNote,
-			&channel.AreaID,
-			&channel.RecognitionAttempts,
-			&channel.RecognitionResult,
-			&thumbnailPath,
-			&fullImagePath,
-			&fullImageExpiresAt,
-			&channel.ConfirmedAt,
-			&channel.CreatedAt,
-			&channel.UpdatedAt,
-		); err != nil {
+		channel, err := scanChannel(rows)
+		if err != nil {
 			return nil, err
 		}
-		channel.ThumbnailURL = thumbnailPath.String
-		channel.FullImageURL = fullImagePath.String
-		if fullImageExpiresAt.Valid {
-			channel.FullImageExpiresAt = &fullImageExpiresAt.Time
-		}
-		channels = append(channels, channel)
+		channels = append(channels, *channel)
 	}
 	return channels, rows.Err()
+}
+
+func (s *PostgresStore) listChannelsForStore(ctx context.Context, storeID int64) ([]Channel, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select c.id, c.recorder_id, c.channel_no, c.channel_name, c.status, c.is_active,
+			c.scene_type, coalesce(c.area_type, ''), coalesce(c.area_number, 0),
+			coalesce(c.area_note, ''), coalesce(c.area_id, 0), c.recognition_attempts, coalesce(c.recognition_result::text, ''),
+			snapshot.thumbnail_path, snapshot.full_image_path, snapshot.full_image_expires_at,
+			c.confirmed_at, c.created_at, c.updated_at
+		from video_channels c
+		join video_recorders r on r.id = c.recorder_id
+		left join lateral (
+			select thumbnail_path, full_image_path, full_image_expires_at
+			from channel_snapshots
+			where channel_id = c.id
+			order by created_at desc, id desc
+			limit 1
+		) snapshot on true
+		where r.store_id = $1
+		order by c.recorder_id, c.channel_no
+	`, storeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	channels := []Channel{}
+	for rows.Next() {
+		channel, err := scanChannel(rows)
+		if err != nil {
+			return nil, err
+		}
+		channels = append(channels, *channel)
+	}
+	return channels, rows.Err()
+}
+
+type channelScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanChannel(scanner channelScanner) (*Channel, error) {
+	var channel Channel
+	var thumbnailPath sql.NullString
+	var fullImagePath sql.NullString
+	var fullImageExpiresAt sql.NullTime
+	if err := scanner.Scan(
+		&channel.ID,
+		&channel.RecorderID,
+		&channel.ChannelNo,
+		&channel.ChannelName,
+		&channel.Status,
+		&channel.IsActive,
+		&channel.SceneType,
+		&channel.AreaType,
+		&channel.AreaNumber,
+		&channel.AreaNote,
+		&channel.AreaID,
+		&channel.RecognitionAttempts,
+		&channel.RecognitionResult,
+		&thumbnailPath,
+		&fullImagePath,
+		&fullImageExpiresAt,
+		&channel.ConfirmedAt,
+		&channel.CreatedAt,
+		&channel.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	channel.ThumbnailURL = thumbnailPath.String
+	channel.FullImageURL = fullImagePath.String
+	if fullImageExpiresAt.Valid {
+		channel.FullImageExpiresAt = &fullImageExpiresAt.Time
+	}
+	return &channel, nil
 }
 
 type queryRunner interface {

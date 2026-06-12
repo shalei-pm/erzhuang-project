@@ -11,12 +11,16 @@ const checks = [
     ok: /async function unlockChannelForEdit\(channel:\s*VideoChannel\)[\s\S]*storeSpaceApi\.unlockChannelForEdit\(store\.id,\s*channel\.id\)/.test(source),
   },
   {
+    label: "frontend merges unlocked channel locally",
+    ok: /onStoreUpdated\(\(currentStore\) => replaceChannelInStore\(currentStore,\s*updatedChannel\)\)/.test(source),
+  },
+  {
     label: "edit button uses unlock handler instead of local-only draft update",
     ok: /onClick=\{\(\) => void unlockChannelForEdit\(channel\)\}/.test(source),
   },
   {
-    label: "api exposes unlock channel method",
-    ok: /unlockChannelForEdit\(storeId:\s*number,\s*channelId:\s*number\)[\s\S]*storeSpaceHttpAdapter\.unlockChannelForEdit\(channelId\)/.test(apiSource),
+    label: "api exposes unlock channel method returning channel",
+    ok: /unlockChannelForEdit\(storeId:\s*number,\s*channelId:\s*number\):\s*Promise<VideoChannel>[\s\S]*storeSpaceHttpAdapter\.unlockChannelForEdit\(channelId\)/.test(apiSource),
   },
   {
     label: "backend exposes unlock route",

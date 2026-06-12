@@ -739,15 +739,14 @@ func TestUnlockChannelForEditAllowsRecognitionAgain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unlock channel: %v", err)
 	}
-	channel := unlocked.Recorders[0].Channels[0]
-	if channel.Status != ChannelStatusPendingConfirmation {
-		t.Fatalf("expected pending confirmation after unlock, got %#v", channel)
+	if unlocked.Status != ChannelStatusPendingConfirmation {
+		t.Fatalf("expected pending confirmation after unlock, got %#v", unlocked)
 	}
-	if channel.ConfirmedAt != nil {
-		t.Fatalf("expected confirmed timestamp cleared, got %#v", channel.ConfirmedAt)
+	if unlocked.ConfirmedAt != nil {
+		t.Fatalf("expected confirmed timestamp cleared, got %#v", unlocked.ConfirmedAt)
 	}
-	if channel.AreaType != AreaTypeTreatment || channel.AreaNumber != 1 {
-		t.Fatalf("expected mapping draft to be preserved, got %#v", channel)
+	if unlocked.AreaType != AreaTypeTreatment || unlocked.AreaNumber != 1 {
+		t.Fatalf("expected mapping draft to be preserved, got %#v", unlocked)
 	}
 
 	recognized, err := service.RecognizeChannel(context.Background(), recorder.Channels[0].ID)

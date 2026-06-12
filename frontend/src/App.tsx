@@ -23,6 +23,7 @@ function App() {
   const [activeStore, setActiveStore] = useState<StoreDetailType | null>(null);
   const [activeTab, setActiveTab] = useState<StoreDetailTab>("design-plan");
   const [deletingStoreIds, setDeletingStoreIds] = useState<Set<number>>(() => new Set());
+  const [openingStoreIds, setOpeningStoreIds] = useState<Set<number>>(() => new Set());
   const listRequestIdRef = useRef(0);
   const activeStoreRef = useRef<StoreDetailType | null>(null);
 
@@ -76,12 +77,16 @@ function App() {
   }
 
   async function openStore(storeId: number, tab?: StoreDetailTab) {
+    if (openingStoreIds.has(storeId)) return;
+    setOpeningStoreIds((current) => new Set(current).add(storeId));
     try {
       const detail = await storeSpaceApi.getStore(storeId);
       setActiveStore(detail);
       setActiveTab(tab ?? defaultStoreDetailTab(detail));
     } catch (error) {
       setToast(errorMessage(error, "门店详情加载失败。"));
+    } finally {
+      setOpeningStoreIds((current) => removeIdFromSet(current, storeId));
     }
   }
 
@@ -231,6 +236,7 @@ function App() {
         page={cityFilter === "all" ? page : 1}
         pageSize={PAGE_SIZE}
         deletingStoreIds={deletingStoreIds}
+        openingStoreIds={openingStoreIds}
         onOpenStore={openStore}
         onDeleteStore={deleteStore}
       />

@@ -217,7 +217,7 @@ func (s *Service) ConfirmChannel(ctx context.Context, channelID int64, input Cha
 	return s.repo.ConfirmChannel(ctx, channelID, input)
 }
 
-func (s *Service) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Store, error) {
+func (s *Service) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Channel, error) {
 	return s.repo.UnlockChannelForEdit(ctx, channelID)
 }
 

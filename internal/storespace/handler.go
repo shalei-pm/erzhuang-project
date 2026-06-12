@@ -225,12 +225,12 @@ func (h *Handler) unlockChannelForEdit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	store, err := h.service.UnlockChannelForEdit(r.Context(), channelID)
+	channel, err := h.service.UnlockChannelForEdit(r.Context(), channelID)
 	if err != nil {
 		handleServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, store)
+	writeJSON(w, http.StatusOK, channel)
 }
 
 func (h *Handler) confirmChannel(w http.ResponseWriter, r *http.Request) {

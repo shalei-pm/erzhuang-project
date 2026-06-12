@@ -862,7 +862,7 @@ const mockAdapter = {
     return clone(nextStore);
   },
 
-  async unlockChannelForEdit(storeId: number, channelId: number): Promise<StoreDetail> {
+  async unlockChannelForEdit(storeId: number, channelId: number): Promise<VideoChannel> {
     await delay(160);
     const store = mockStores.find((item) => item.id === storeId);
     if (!store) throw new Error("门店不存在");
@@ -878,13 +878,21 @@ const mockAdapter = {
           : channel,
       ),
     }));
+    let unlockedChannel: VideoChannel | null = null;
     const nextStore = {
       ...store,
-      recorders: nextRecorders,
+      recorders: nextRecorders.map((recorder) => ({
+        ...recorder,
+        channels: recorder.channels.map((channel) => {
+          if (channel.id === channelId) unlockedChannel = channel;
+          return channel;
+        }),
+      })),
       updatedAt: new Date().toISOString(),
     };
     mockStores = mockStores.map((item) => (item.id === storeId ? nextStore : item));
-    return clone(nextStore);
+    if (!unlockedChannel) throw new Error("通道不存在");
+    return clone(unlockedChannel);
   },
 };
 
@@ -1058,11 +1066,11 @@ const storeSpaceHttpAdapter = {
     return mapStoreSpaceDetail(response);
   },
 
-  async unlockChannelForEdit(channelId: number): Promise<StoreDetail> {
-    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/unlock`, {
+  async unlockChannelForEdit(channelId: number): Promise<VideoChannel> {
+    const response = await requestJSON<BackendVideoChannel>(`${STORE_SPACE_API_BASE}/channels/${channelId}/unlock`, {
       method: "POST",
     });
-    return mapStoreSpaceDetail(response);
+    return mapBackendChannel(response, 0, "");
   },
 
   async deleteStore(id: number): Promise<void> {
@@ -1243,7 +1251,7 @@ export const storeSpaceApi = {
     return storeSpaceHttpAdapter.confirmChannel(channelId, patch);
   },
 
-  async unlockChannelForEdit(storeId: number, channelId: number): Promise<StoreDetail> {
+  async unlockChannelForEdit(storeId: number, channelId: number): Promise<VideoChannel> {
     if (API_MODE === "mock") {
       return mockAdapter.unlockChannelForEdit(storeId, channelId);
     }

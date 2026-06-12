@@ -14,11 +14,12 @@ type StoreListProps = {
   page: number;
   pageSize: number;
   deletingStoreIds: Set<number>;
+  openingStoreIds: Set<number>;
   onOpenStore: (storeId: number) => void;
   onDeleteStore: (store: StoreSummary) => void;
 };
 
-export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, onOpenStore, onDeleteStore }: StoreListProps) {
+export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, openingStoreIds, onOpenStore, onDeleteStore }: StoreListProps) {
   return (
     <section className="table-frame" aria-label="门店列表">
       <table className="store-table">
@@ -62,6 +63,7 @@ export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, o
           ) : (
             stores.map((store, index) => {
               const isDeleting = deletingStoreIds.has(store.id);
+              const isOpening = openingStoreIds.has(store.id);
               return (
                 <tr key={store.id}>
                   <td>{(page - 1) * pageSize + index + 1}</td>
@@ -81,10 +83,17 @@ export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, o
                   <td>{formatDateTime(store.updatedAt)}</td>
                   <td>
                     <div className="row-actions">
-                      <button disabled={isDeleting} onClick={() => onOpenStore(store.id)}>
-                        进入详情
+                      <button disabled={isDeleting || isOpening} onClick={() => onOpenStore(store.id)}>
+                        {isOpening ? (
+                          <>
+                            <span className="button-spinner" aria-hidden="true" />
+                            进入中
+                          </>
+                        ) : (
+                          "进入详情"
+                        )}
                       </button>
-                      <button className="danger-link" disabled={isDeleting} onClick={() => onDeleteStore(store)}>
+                      <button className="danger-link" disabled={isDeleting || isOpening} onClick={() => onDeleteStore(store)}>
                         {isDeleting ? (
                           <>
                             <span className="button-spinner" aria-hidden="true" />
