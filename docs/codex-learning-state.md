@@ -1427,6 +1427,21 @@ git diff --check
   - 删除前二次确认，删除后刷新门店详情和顶部统计。
 - 验证：
   - 后端新增 handler/service 测试覆盖删除录像机和设备编码复用。
+  - 本地 `CGO_ENABLED=0 ./.tools/go/bin/go test ./...` 通过。
+  - 本地前端 `npm run build` 通过。
+  - 服务器 `go test ./...` 通过。
+  - 服务器 Go build 通过。
+  - 服务器前端 build 通过。
+  - systemd restart 成功。
+  - 内网健康检查成功，返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 公网 `/erzhuang/health` 验证成功。
+- 发布结果：
+  - 线上 commit：`2563351`
+  - 线上版本：`2.3.0`
+  - TAT InvocationId：`inv-t4rgda09gn`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：`/erzhuang/assets/index-CcEoTbGK.js`
+  - 现象：健康检查前 11 次连接失败，第 12 次成功；符合当前数据库 schema 初始化较慢但可恢复的已知模式。
 
 ## 明日待办
 
