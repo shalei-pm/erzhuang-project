@@ -21,6 +21,7 @@
   --button-font-large: 14px;
   --button-font-normal: 13px;
   --button-font-special: 12px;
+  --button-radius: 999px;
   --area-treatment: #dc2626;
   --area-treatment-bg: rgba(220, 38, 38, 0.13);
   --area-consultation: #16a34a;
@@ -56,9 +57,14 @@ select {
 }
 
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 32px;
+  padding: 0 12px;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
+  border-radius: var(--button-radius);
   background: var(--surface);
   color: var(--text-main);
   cursor: pointer;
@@ -147,11 +153,10 @@ h1 {
 }
 
 .primary-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   gap: 8px;
-  min-width: 96px;
+  min-width: 104px;
+  min-height: 38px;
+  padding: 0 18px;
   border-color: var(--brand);
   background: var(--brand);
   color: #ffffff;
@@ -165,13 +170,19 @@ h1 {
 }
 
 .plain-button {
+  min-width: auto;
+  border-color: transparent;
+  background: transparent;
   color: var(--text-muted);
 }
 
+.plain-button:hover:not(:disabled) {
+  border-color: var(--border-subtle);
+  background: var(--surface-subtle);
+  color: var(--text-main);
+}
+
 .icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 32px;
   min-width: 32px;
   height: 32px;
@@ -460,15 +471,31 @@ td:nth-child(10) {
 
 .row-actions button,
 .danger-link {
-  border: 0;
-  background: transparent;
+  min-width: 72px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
   color: var(--brand);
-  padding: 0;
   font-size: var(--button-font-normal);
+  white-space: nowrap;
 }
 
 .danger-link {
+  border-color: #fecaca;
+  background: #fff7f7;
   color: #b91c1c;
+}
+
+.row-actions button:hover:not(:disabled) {
+  border-color: #a5b4fc;
+  background: #e0e7ff;
+}
+
+.row-actions .danger-link:hover:not(:disabled),
+.danger-link:hover:not(:disabled) {
+  border-color: #fca5a5;
+  background: #fee2e2;
 }
 
 .empty-cell {
@@ -651,7 +678,12 @@ td:nth-child(10) {
   display: flex;
   justify-content: space-between;
   gap: 18px;
-  margin-bottom: 14px;
+  margin-bottom: 18px;
+}
+
+.detail-header > div {
+  display: grid;
+  gap: 12px;
 }
 
 .detail-metrics {
@@ -777,18 +809,11 @@ td:nth-child(10) {
 }
 
 .recorder-actions button {
-  min-width: 72px;
-  min-height: 30px;
-  padding: 6px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: var(--surface);
-  white-space: nowrap;
+  min-width: 78px;
 }
 
 .recorder-actions .danger-link {
-  border-color: #fecaca;
-  background: #fff7f7;
+  min-width: 64px;
 }
 
 .recognition-progress {
@@ -1047,7 +1072,6 @@ td:nth-child(10) {
 
 .view-actions button {
   min-width: 34px;
-  padding: 0 10px;
   font-size: var(--button-font-special);
 }
 
@@ -1059,6 +1083,10 @@ td:nth-child(10) {
   overflow: auto;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
+  background: #f8fafc;
+}
+
+.plan-canvas:has(.plan-image-wrap) {
   background:
     linear-gradient(90deg, rgba(148, 163, 184, 0.1) 1px, transparent 1px),
     linear-gradient(rgba(148, 163, 184, 0.1) 1px, transparent 1px),
@@ -1088,7 +1116,8 @@ td:nth-child(10) {
 
 .upload-placeholder,
 .manual-panel,
-.recognizing-panel {
+.recognizing-panel,
+.plan-loading-state {
   display: grid;
   justify-items: center;
   gap: 10px;
@@ -1098,17 +1127,54 @@ td:nth-child(10) {
 }
 
 .upload-placeholder strong,
-.manual-panel strong {
+.manual-panel strong,
+.plan-loading-state strong {
   color: var(--text-strong);
   font-size: 16px;
 }
 
 .upload-placeholder p,
 .manual-panel p,
-.recognizing-panel p {
+.recognizing-panel p,
+.plan-loading-state p {
   margin: 0;
   max-width: 360px;
   line-height: 1.7;
+}
+
+.plan-loading-state span,
+.plan-loading-overlay span {
+  width: 26px;
+  height: 26px;
+  border: 3px solid #dbeafe;
+  border-top-color: var(--brand);
+  border-radius: 999px;
+  animation: spin 0.8s linear infinite;
+}
+
+.plan-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  background: rgba(248, 250, 252, 0.86);
+  color: var(--text-main);
+  font-size: 13px;
+  text-align: center;
+}
+
+.plan-loading-overlay strong {
+  padding: 4px 8px;
+  border-radius: var(--button-radius);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .area-box {
@@ -1303,7 +1369,6 @@ td:nth-child(10) {
 }
 
 .area-pane-header button {
-  padding: 0 12px;
   font-size: var(--button-font-normal);
 }
 

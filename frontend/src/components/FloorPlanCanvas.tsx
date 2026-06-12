@@ -4,6 +4,7 @@ import type { DragState, ResizeHandle, UploadStage } from "../domain/designPlan"
 
 type FloorPlanCanvasProps = {
   previewUrl: string;
+  pendingPreviewUrl?: string;
   uploadStage: UploadStage;
   areas: StoreArea[];
   selectedAreaId: string | null;
@@ -12,10 +13,13 @@ type FloorPlanCanvasProps = {
   onRequestUpload: () => void;
   onSelectArea: (areaId: string) => void;
   onStartDrag: (drag: DragState) => void;
+  onPendingPreviewLoaded?: () => void;
+  onPendingPreviewError?: () => void;
 };
 
 export function FloorPlanCanvas({
   previewUrl,
+  pendingPreviewUrl = "",
   uploadStage,
   areas,
   selectedAreaId,
@@ -24,12 +28,37 @@ export function FloorPlanCanvas({
   onRequestUpload,
   onSelectArea,
   onStartDrag,
+  onPendingPreviewLoaded,
+  onPendingPreviewError,
 }: FloorPlanCanvasProps) {
+  const visiblePreviewUrl = pendingPreviewUrl || previewUrl;
+  const isLoadingPreview = uploadStage === "converting" && !pendingPreviewUrl;
+
   return (
     <div className={`plan-canvas stage-${uploadStage}`}>
-      {previewUrl ? (
+      {isLoadingPreview ? (
+        <div className="plan-loading-state" role="status" aria-live="polite">
+          <span aria-hidden="true" />
+          <strong>正在解析设计图</strong>
+          <p>PDF 正在转换为可标注图片，请稍候。</p>
+        </div>
+      ) : visiblePreviewUrl ? (
         <div className="plan-image-wrap" ref={planRef} style={{ width: `min(${92 * planZoom}%, ${980 * planZoom}px)` }}>
-          <img src={previewUrl} alt="设计图预览" draggable={false} />
+          <img
+            src={visiblePreviewUrl}
+            alt="设计图预览"
+            draggable={false}
+            onLoad={() => {
+              if (pendingPreviewUrl) {
+                onPendingPreviewLoaded?.();
+              }
+            }}
+            onError={() => {
+              if (pendingPreviewUrl) {
+                onPendingPreviewError?.();
+              }
+            }}
+          />
           {areas.map((areaItem) =>
             areaItem.box ? (
               <div
@@ -83,6 +112,12 @@ export function FloorPlanCanvas({
             ) : null,
           )}
           {uploadStage === "recognizing" ? <div className="scan-line" aria-hidden="true" /> : null}
+          {pendingPreviewUrl ? (
+            <div className="plan-loading-overlay" role="status" aria-live="polite">
+              <span aria-hidden="true" />
+              <strong>正在加载新图纸</strong>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="upload-placeholder">

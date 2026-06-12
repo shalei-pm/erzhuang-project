@@ -30,6 +30,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
   const [thumbnailPath, setThumbnailPath] = useState(store.thumbnailPath);
   const [pageCount, setPageCount] = useState(store.pageCount);
   const [previewUrl, setPreviewUrl] = useState(store.previewUrl);
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState("");
   const [thumbnailUrl, setThumbnailUrl] = useState(store.thumbnailUrl);
   const [recognitionResult, setRecognitionResult] = useState<unknown>(store.recognitionResult);
   const [uploadStage, setUploadStage] = useState<UploadStage>(store.previewUrl ? "ready" : "initial");
@@ -42,6 +43,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const planRef = useRef<HTMLDivElement | null>(null);
   const areaCardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const previousPreviewRef = useRef<{ previewUrl: string; areas: StoreArea[] } | null>(null);
 
   const validationAreaErrorCount = Object.keys(validation.areaErrors).length;
   const designStatus = useMemo(() => {
@@ -58,6 +60,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
     setThumbnailPath(store.thumbnailPath);
     setPageCount(store.pageCount);
     setPreviewUrl(store.previewUrl);
+    setPendingPreviewUrl("");
     setThumbnailUrl(store.thumbnailUrl);
     setRecognitionResult(store.recognitionResult);
     setUploadStage(store.previewUrl ? "ready" : "initial");
@@ -108,6 +111,29 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
     fileInputRef.current?.click();
   }
 
+  function commitPendingPreview() {
+    if (!pendingPreviewUrl) return;
+    setPreviewUrl(pendingPreviewUrl);
+    setPendingPreviewUrl("");
+    previousPreviewRef.current = null;
+    setUploadMessage("图纸预览已生成，请手动点击识别或直接维护区域。");
+  }
+
+  function rollbackPendingPreview() {
+    const previous = previousPreviewRef.current;
+    if (previous) {
+      setPreviewUrl(previous.previewUrl);
+      setAreas(previous.areas);
+      setSelectedAreaId(previous.areas[0]?.id ?? null);
+    }
+    previousPreviewRef.current = null;
+    setPendingPreviewUrl("");
+    setUploadStage(previous?.previewUrl ? "ready" : "failed");
+    const message = "新图纸加载失败，已恢复原设计图。";
+    setUploadMessage(message);
+    onToast(message);
+  }
+
   async function handlePdfSelected(fileList: FileList | null) {
     const file = fileList?.[0];
     if (!file) return;
@@ -122,6 +148,12 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
     setValidation(emptyValidation);
     setUploadStage("converting");
     setUploadMessage("正在解析 PDF 并生成图纸预览。");
+    const previousPreviewUrl = previewUrl;
+    const previousAreas = areas;
+    previousPreviewRef.current = { previewUrl: previousPreviewUrl, areas: previousAreas };
+    setPendingPreviewUrl("");
+    setAreas([]);
+    setSelectedAreaId(null);
     try {
       const upload = await storeSpaceApi.uploadPdf(file);
       setUploadId(upload.uploadId);
@@ -130,12 +162,17 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
       setPreviewPath(upload.previewPath);
       setThumbnailPath(upload.thumbnailPath);
       setPageCount(upload.pageCount);
-      setPreviewUrl(upload.previewUrl);
       setThumbnailUrl(upload.thumbnailUrl);
+      setPendingPreviewUrl(upload.previewUrl);
       setUploadStage("ready");
-      setUploadMessage("图纸预览已生成，请手动点击识别或直接维护区域。");
+      setUploadMessage("图纸预览已生成，正在加载新图纸。");
     } catch (error) {
       const message = errorMessage(error, "设计图解析失败，请重新上传 PDF。");
+      setPreviewUrl(previousPreviewUrl);
+      setPendingPreviewUrl("");
+      setAreas(previousAreas);
+      setSelectedAreaId(previousAreas[0]?.id ?? null);
+      previousPreviewRef.current = null;
       setUploadStage("failed");
       setUploadMessage(message);
       onToast(message);
@@ -253,8 +290,10 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
                 accept="application/pdf"
                 onChange={(event) => void handlePdfSelected(event.target.files)}
               />
-              <button onClick={requestPdfUpload}>{previewUrl ? "更换 PDF" : "上传 PDF"}</button>
-              <button disabled={!previewUrl || uploadStage === "recognizing"} onClick={() => void recognizeDesignPlan()}>
+              <button onClick={requestPdfUpload} disabled={uploadStage === "converting"}>
+                {previewUrl || pendingPreviewUrl ? "更换 PDF" : "上传 PDF"}
+              </button>
+              <button disabled={(!previewUrl && !pendingPreviewUrl) || uploadStage === "recognizing" || uploadStage === "converting"} onClick={() => void recognizeDesignPlan()}>
                 识别图纸区域
               </button>
               <button onClick={() => setPlanZoom((value) => Math.max(0.7, Number((value - 0.15).toFixed(2))))}>-</button>
@@ -265,6 +304,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
 
           <FloorPlanCanvas
             previewUrl={previewUrl}
+            pendingPreviewUrl={pendingPreviewUrl}
             uploadStage={uploadStage}
             areas={areas}
             selectedAreaId={selectedAreaId}
@@ -273,6 +313,8 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
             onRequestUpload={requestPdfUpload}
             onSelectArea={setSelectedAreaId}
             onStartDrag={setDragState}
+            onPendingPreviewLoaded={commitPendingPreview}
+            onPendingPreviewError={rollbackPendingPreview}
           />
         </div>
 
@@ -284,7 +326,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
             </div>
             <div className="row-actions">
               <button onClick={addArea}>新增区域</button>
-              <button className="primary-button" disabled={saving || uploadStage === "recognizing"} onClick={() => void saveAnnotations()}>
+              <button disabled={saving || uploadStage === "recognizing"} onClick={() => void saveAnnotations()}>
                 保存标注
               </button>
             </div>

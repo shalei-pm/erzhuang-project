@@ -32,6 +32,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
       setMessage("文件过大，请上传 5MB 以内的 PDF。");
       return;
     }
+    setMessage("正在解析设计图，请稍候。");
     const upload = await onUploadPdf(file);
     setDesignPlan(upload);
     setMessage(`已选择设计图：${upload.fileName}`);

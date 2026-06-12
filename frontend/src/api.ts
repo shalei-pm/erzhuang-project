@@ -1387,7 +1387,10 @@ function toStoreSpaceChannelConfirmationPayload(patch: Partial<VideoChannel>) {
 }
 
 function toDisplayImageUrl(value?: string) {
-  if (!value || value.startsWith("mock/")) {
+  if (!value) {
+    return "";
+  }
+  if (value.startsWith("mock/")) {
     return MOCK_PLAN_IMAGE;
   }
   if (/^\/api\/design-plan\/uploads\/[^/]+\/(preview|thumbnail)$/.test(value)) {
