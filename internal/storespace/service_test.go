@@ -586,18 +586,16 @@ func TestRecognizeRecorderChannelsPrefillsAIResultAndKeepsPendingConfirmation(t 
 	}
 }
 
-func TestRecognizeRecorderChannelsDoesNotOverwriteConfirmedChannel(t *testing.T) {
+func TestRecognizeRecorderChannelsSkipsConfirmedChannel(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
 	if err != nil {
 		t.Fatalf("create account: %v", err)
 	}
-	service := NewServiceWithScannerAndRecognizer(repo, fakeChannelScanner{
+	scanner := &countingFakeChannelScanner{
 		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
-		snapshots: map[int]string{
-			1: "https://example.test/channel-1.jpg",
-		},
-	}, fakeChannelRecognizer{
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, scanner, fakeChannelRecognizer{
 		result: ChannelRecognitionResult{
 			SceneType:      string(SceneTypeConsultation),
 			AreaType:       string(AreaTypeConsultation),
@@ -640,8 +638,57 @@ func TestRecognizeRecorderChannelsDoesNotOverwriteConfirmedChannel(t *testing.T)
 	if channel.AreaType != AreaTypeTreatment || channel.AreaNumber != 1 {
 		t.Fatalf("expected confirmed business mapping to stay unchanged, got %#v", channel)
 	}
-	if channel.ThumbnailURL == "" {
-		t.Fatalf("expected snapshot to still refresh, got %#v", channel)
+	if scanner.captureCount != 0 {
+		t.Fatalf("expected confirmed channel to be skipped, got capture count %d", scanner.captureCount)
+	}
+}
+
+func TestRecognizeChannelRejectsConfirmedChannel(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	scanner := &countingFakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, scanner, fakeChannelRecognizer{
+		result: ChannelRecognitionResult{
+			SceneType:      string(SceneTypeConsultation),
+			AreaType:       string(AreaTypeConsultation),
+			AreaNumber:     "9",
+			DecisionSource: "number_card",
+			Confidence:     "high",
+		},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "1",
+	}); err != nil {
+		t.Fatalf("confirm channel: %v", err)
+	}
+
+	_, err = service.RecognizeChannel(context.Background(), recorder.Channels[0].ID)
+	var validationError *ValidationError
+	if !errors.As(err, &validationError) || validationError.Fields["channel"] == "" {
+		t.Fatalf("expected confirmed channel validation error, got %v", err)
+	}
+	if scanner.captureCount != 0 {
+		t.Fatalf("expected confirmed channel not to be captured, got count %d", scanner.captureCount)
 	}
 }
 

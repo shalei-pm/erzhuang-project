@@ -86,9 +86,9 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   }
 
   async function recognizeRecorder(recorder: VideoRecorder) {
-    const targetChannels = recorder.channels.filter((channel) => channel.status !== "inactive");
+    const targetChannels = recorder.channels.filter((channel) => channel.status !== "inactive" && !isConfirmedChannel(channel));
     if (targetChannels.length === 0) {
-      onToast("暂无有效通道，请先扫描录像机。");
+      onToast("暂无可识别通道，已确认通道需先点击编辑后再重新识别。");
       return;
     }
     setWorkingRecorderId(recorder.id);
@@ -439,6 +439,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                 const isRecognizing = recognizingChannelIds.has(channel.id);
                 const isConfirming = confirmingChannelIds.has(channel.id);
                 const isDeleting = deletingChannelIds.has(channel.id);
+                const isConfirmed = isConfirmedChannel(channel);
                 const selectedAreaType = draft.areaType !== undefined ? draft.areaType : channel.areaType;
                 const selectedAreaNumber = draft.areaNumber ?? (selectedAreaType ? channel.areaNumber : channel.areaNote || channel.areaNumber);
                 return (
@@ -518,7 +519,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                           </button>
                         )}
                         <button
-                          disabled={isRecognizing || isDeleting || workingRecorderId === recorder.id}
+                          disabled={isRecognizing || isDeleting || isConfirmed || workingRecorderId === recorder.id}
                           onClick={() => void recognizeChannel(recorder, channel)}
                         >
                           {isRecognizing ? (
@@ -665,6 +666,10 @@ function replaceChannelInStore(store: StoreDetail, updatedChannel: VideoChannel)
     channelCount: recorders.reduce((total, recorder) => total + recorder.channels.filter((channel) => channel.status !== "inactive").length, 0),
     updatedAt: new Date().toISOString(),
   };
+}
+
+function isConfirmedChannel(channel: VideoChannel) {
+  return channel.status === "confirmed_business" || channel.status === "confirmed_non_business";
 }
 
 function recognitionProgressLabel(progress?: { done: number; total: number }) {

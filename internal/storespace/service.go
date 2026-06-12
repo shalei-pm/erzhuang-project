@@ -237,7 +237,7 @@ func (s *Service) RecognizeRecorderChannels(ctx context.Context, recorderID int6
 	}
 	channels := make([]Channel, 0, len(recorder.Channels))
 	for _, channel := range recorder.Channels {
-		if !channel.IsActive || channel.Status == ChannelStatusInactive {
+		if !channel.IsActive || channel.Status == ChannelStatusInactive || isConfirmedChannelStatus(channel.Status) {
 			continue
 		}
 		channels = append(channels, channel)
@@ -266,6 +266,9 @@ func (s *Service) RecognizeChannel(ctx context.Context, channelID int64) (*Chann
 	}
 	if !channel.IsActive || channel.Status == ChannelStatusInactive {
 		return nil, &ValidationError{Fields: map[string]string{"channel": "通道已失效，无法识别"}}
+	}
+	if isConfirmedChannelStatus(channel.Status) {
+		return nil, &ValidationError{Fields: map[string]string{"channel": "通道已确认，如需重新识别请先点击编辑"}}
 	}
 	return s.recognizeChannel(ctx, *account, *recorder, *channel)
 }
