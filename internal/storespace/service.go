@@ -15,6 +15,10 @@ func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
+func (s *Service) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error) {
+	return s.repo.ListEzvizAccounts(ctx)
+}
+
 func (s *Service) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {
 	return s.repo.ListStores(ctx, filters)
 }

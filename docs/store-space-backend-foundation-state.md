@@ -12,6 +12,7 @@
   - memory repository，便于本地无数据库练习。
   - postgres repository，覆盖门店列表、详情、创建、删除、重复检查、录像机编码唯一检查、区域查找或创建。
 - 新增 `/api/store-space/*` 基础 API：
+  - `GET /api/store-space/ezviz-accounts`
   - `GET /api/store-space/stores`
   - `GET /api/store-space/stores/{id}`
   - `POST /api/store-space/stores`
@@ -20,6 +21,10 @@
   - `POST /api/store-space/recorders/{recorder_id}/scan-channels`
   - `POST /api/store-space/recorders/{recorder_id}/recognize-channels`
 - 录像机扫描和识别暂不接真实萤石云/API，返回稳定 `501 not implemented` 合同。
+- 萤石云账号第一阶段仅提供只读列表接口：
+  - memory store 返回空数组。
+  - Postgres store 仅读取 `id`、`account_name`、`status`、`last_verified_at`、`created_at`、`updated_at`。
+  - 不返回 `app_key`、`app_secret_ciphertext`、`access_token_ciphertext`。
 - 新增 PostgreSQL schema 初始化：
   - `stores`
   - `store_areas`
@@ -94,7 +99,7 @@ GOCACHE=/Users/sylar/.codex/worktrees/1e39/erzhuang-project/.cache/go-build /Use
 
 - 本阶段只完成基础模型/API，不接真实萤石云，也不做 AI 识别。
 - `design_plan_upload_id` 目前仅作为新 `store_design_plans.upload_id` 记录，尚未和现有 `internal/designplan` 上传文件元数据做适配迁移。
-- `ezviz_accounts` schema 已预留密文字段，但本阶段没有账号管理 API，也没有加密组件。
+- `ezviz_accounts` schema 已预留密文字段，但本阶段没有账号创建/编辑 API，也没有加密组件；只读列表接口不会返回密钥字段。
 - 旧 `design_plan_*` 表未迁移，新表与旧设计图模块并行存在；后续需要专门做设计图适配阶段。
 - Postgres schema 使用 `create table if not exists` 和增量式索引/policy，尚未引入正式迁移工具。
 

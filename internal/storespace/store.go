@@ -14,6 +14,7 @@ import (
 var ErrNotFound = errors.New("store space resource not found")
 
 type Repository interface {
+	ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error)
 	ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error)
 	GetStore(ctx context.Context, id int64) (*Store, error)
 	CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error)
@@ -42,6 +43,10 @@ func NewMemoryStore() *MemoryStore {
 		stores:         map[int64]*Store{},
 		deviceCodes:    map[string]int64{},
 	}
+}
+
+func (s *MemoryStore) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error) {
+	return []EzvizAccount{}, nil
 }
 
 func (s *MemoryStore) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {
@@ -250,6 +255,35 @@ type PostgresStore struct {
 
 func NewPostgresStore(db *sql.DB) *PostgresStore {
 	return &PostgresStore{db: db}
+}
+
+func (s *PostgresStore) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select id, account_name, status, last_verified_at, created_at, updated_at
+		from ezviz_accounts
+		order by account_name, id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	accounts := []EzvizAccount{}
+	for rows.Next() {
+		var account EzvizAccount
+		if err := rows.Scan(
+			&account.ID,
+			&account.AccountName,
+			&account.Status,
+			&account.LastVerifiedAt,
+			&account.CreatedAt,
+			&account.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, account)
+	}
+	return accounts, rows.Err()
 }
 
 func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {

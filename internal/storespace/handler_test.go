@@ -5,8 +5,34 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func TestListEzvizAccountsEndpointReturnsSafeFieldsOnly(t *testing.T) {
+	handler := newTestHandler()
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/ezviz-accounts", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	body := recorder.Body.String()
+	for _, forbidden := range []string{"app_key", "app_secret_ciphertext", "access_token_ciphertext", "access_token", "app_secret"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("response leaks forbidden field %q: %s", forbidden, body)
+		}
+	}
+	var accounts []EzvizAccount
+	if err := json.Unmarshal([]byte(body), &accounts); err != nil {
+		t.Fatalf("decode accounts: %v", err)
+	}
+	if len(accounts) != 0 {
+		t.Fatalf("expected empty account list from memory store, got %d", len(accounts))
+	}
+}
 
 func TestCreateStoreEndpointReturnsValidationFields(t *testing.T) {
 	handler := newTestHandler()
