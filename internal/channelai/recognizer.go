@@ -176,7 +176,7 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, imageURL string) (Resu
 		return Result{}, errors.New("vision recognition returned empty output")
 	}
 	var output Result
-	if err := json.Unmarshal([]byte(text), &output); err != nil {
+	if err := json.Unmarshal([]byte(extractJSONText(text)), &output); err != nil {
 		return Result{}, fmt.Errorf("parse channel recognition json: %w", err)
 	}
 	output.RawResult = json.RawMessage(responseBody)
@@ -312,6 +312,31 @@ func parseCommandRecognitionOutput(output []byte) (Result, error) {
 	return Result{}, errors.New("channel ai command output did not contain recognition result")
 }
 
+func extractJSONText(value string) string {
+	text := strings.TrimSpace(value)
+	if !strings.HasPrefix(text, "```") {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) < 3 {
+		return text
+	}
+	if !strings.HasPrefix(strings.TrimSpace(lines[0]), "```") {
+		return text
+	}
+	end := len(lines)
+	for index := len(lines) - 1; index > 0; index-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[index]), "```") {
+			end = index
+			break
+		}
+	}
+	if end <= 1 {
+		return text
+	}
+	return strings.TrimSpace(strings.Join(lines[1:end], "\n"))
+}
+
 func looksLikeResult(result Result) bool {
 	return strings.TrimSpace(result.SceneType) != "" ||
 		strings.TrimSpace(result.AreaType) != "" ||
@@ -431,6 +456,8 @@ func (r responsesResponse) firstOutputText() string {
 
 func prompt() string {
 	return strings.TrimSpace(`你是医疗门店监控画面识别助手。请判断这张摄像头截图对应的区域类型，并提取画面中编号卡片的信息。
+
+请只输出一个 JSON 对象，不要输出 Markdown，不要使用代码块，不要解释。
 
 业务区域只允许三类：
 - treatment：治疗室，指医美治疗室。

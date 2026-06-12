@@ -127,6 +127,29 @@ func TestOpenAIRecognizerDoesNotDuplicateV1Path(t *testing.T) {
 	}
 }
 
+func TestOpenAIRecognizerParsesMarkdownWrappedJSON(t *testing.T) {
+	recognizer := &OpenAIRecognizer{
+		apiKey:  "test-key",
+		baseURL: "https://example.test/v1",
+		model:   "MiniMax-M3",
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader("{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"```json\\n{\\\"scene_type\\\":\\\"machine_room\\\",\\\"area_type\\\":\\\"\\\",\\\"area_number\\\":\\\"机房\\\",\\\"card_text\\\":\\\"\\\",\\\"decision_source\\\":\\\"scene\\\",\\\"confidence\\\":\\\"high\\\",\\\"needs_review\\\":false,\\\"raw_notes\\\":\\\"画面是机房\\\"}\\n```\"}]}]}")),
+			}, nil
+		})},
+	}
+
+	result, err := recognizer.Recognize(context.Background(), "https://example.test/channel.jpg")
+	if err != nil {
+		t.Fatalf("recognize: %v", err)
+	}
+	if result.SceneType != "machine_room" || result.AreaNumber != "机房" {
+		t.Fatalf("unexpected result %#v", result)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
