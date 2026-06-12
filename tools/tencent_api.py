@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import datetime
-import getpass
 import hashlib
 import hmac
 import json
@@ -9,6 +8,8 @@ import sys
 import time
 import urllib.error
 import urllib.request
+
+from tencent_credentials import read_tencent_credentials
 
 
 def sign(key, msg):
@@ -90,8 +91,7 @@ def main():
     parser.add_argument("--payload", required=True)
     args = parser.parse_args()
 
-    secret_id = getpass.getpass("SecretId: ")
-    secret_key = getpass.getpass("SecretKey: ")
+    secret_id, secret_key = read_tencent_credentials()
     status, text = request(
         secret_id=secret_id,
         secret_key=secret_key,

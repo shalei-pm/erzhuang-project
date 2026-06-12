@@ -41,7 +41,12 @@ cd /opt/apps/erzhuang-project
 - Username: `lighthouse`
 - Server command: `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`
 
-在 Codex 中执行时，必须使用交互式 PTY，因为 `tools/tat_run.py` 会用 `getpass` 提示输入腾讯云 `SecretId` 和 `SecretKey`。不要把密钥拼进命令。
+在 Codex 中执行时，优先使用本机环境变量读取腾讯云密钥：
+
+- `TENCENTCLOUD_SECRET_ID`
+- `TENCENTCLOUD_SECRET_KEY`
+
+如果本机环境变量不存在，`tools/tat_run.py` 会用 `getpass` 提示输入腾讯云 `SecretId` 和 `SecretKey`。不要把密钥拼进命令，不要提交到 Git；项目 `.gitignore` 已忽略 `.env` 和 `.env.*`。
 
 命令：
 
