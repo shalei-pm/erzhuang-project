@@ -923,21 +923,23 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 		}
 		area, err := queryArea(ctx, tx, storeID, input.AreaType, number)
 		if errors.Is(err, ErrNotFound) {
+			createdArea := Area{}
 			err = tx.QueryRowContext(ctx, `
 				insert into store_areas (store_id, area_type, area_number, display_name, source, status)
 				values ($1, $2, $3, $4, $5, $6)
 				returning id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
 			`, storeID, input.AreaType, number, areaDisplayName(input.AreaType, number), AreaSourceVideoChannel, AreaStatusConfirmed).Scan(
-				&area.ID,
-				&area.StoreID,
-				&area.Type,
-				&area.Number,
-				&area.DisplayName,
-				&area.Source,
-				&area.Status,
-				&area.CreatedAt,
-				&area.UpdatedAt,
+				&createdArea.ID,
+				&createdArea.StoreID,
+				&createdArea.Type,
+				&createdArea.Number,
+				&createdArea.DisplayName,
+				&createdArea.Source,
+				&createdArea.Status,
+				&createdArea.CreatedAt,
+				&createdArea.UpdatedAt,
 			)
+			area = &createdArea
 		}
 		if err != nil {
 			return nil, err
