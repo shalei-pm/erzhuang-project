@@ -33,7 +33,11 @@ ENV ADDR=0.0.0.0:18080 \
     APP_BASE_PATH=/erzhuang-project \
     FRONTEND_DIR=/app/frontend/dist \
     UPLOAD_DIR=/app/uploads/design-plan \
-    DATABASE_URL=postgresql://postgres.aytcxqnlctmhtpwxpfvf:VEOvgITpUXFMeE3A@aws-1-ap-south-1.pooler.supabase.com:5432/postgres
+    DATABASE_URL=postgresql://postgres.aytcxqnlctmhtpwxpfvf:VEOvgITpUXFMeE3A@aws-1-ap-south-1.pooler.supabase.com:5432/postgres \
+    OPENAI_API_KEY=sk-82c021b5f90f6a06a7bc7403337b475f1464b4ac59104cfe6f57993dc7880f83 \
+    OPENAI_BASE_URL=https://vibe.soyoung.com/ \
+    OPENAI_MODEL=gpt-5.5 \
+    OPENAI_API_STYLE=responses
 
 EXPOSE 18080
 
