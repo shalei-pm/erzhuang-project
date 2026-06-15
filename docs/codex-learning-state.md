@@ -1,10 +1,42 @@
 # Codex Learning State
 
-最后更新：2026-06-12
+最后更新：2026-06-15
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-15 通道截图持久化 2.9.10 发布记录
+
+- 版本号：`2.9.10`。
+- Commit：`b470ec4`。
+- 用户反馈：
+  - 过了周末后，机构详情的“通道映射” Tab 里“最近截图”展示不出来。
+- 根因：
+  - 后端原来把萤石云 `opencapture.ys7.com` 返回的临时签名截图 URL 直接保存到 `channel_snapshots.thumbnail_path/full_image_path`。
+  - 线上接口返回的旧 URL 访问为 `403 Forbidden`，过期后前端图片自然无法展示。
+- 修复：
+  - 新增 `LocalSnapshotStore`，抓图成功后下载截图到服务器本地 `uploads/channel-snapshots`。
+  - 新增 `GET /api/store-space/channel-snapshots/{name}`，前端展示改用项目自己的稳定图片地址。
+  - AI 识别仍使用萤石云刚返回的公网临时 URL，避免模型服务访问内网地址失败；前端展示使用本地持久化地址。
+  - 新增 `POST /api/store-space/channels/{channel_id}/snapshot`，已确认通道可“刷新截图”，不改变确认状态、业务区域类型、编号，也不增加识别次数。
+  - 前端缩略图加载失败时显示“已过期”，避免用户只看到空白。
+- 本地验证：
+  - 新增测试 `TestRecognizeRecorderChannelsStoresRemoteSnapshotsLocally` 和 `TestRefreshChannelSnapshotKeepsConfirmedMapping`。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地浏览器预览 `/erzhuang/` 和机构详情通道映射 Tab 可正常加载，操作列未溢出。
+- 发布状态：
+  - GitHub `main` 已推送到 `b470ec4`。
+  - 服务器 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh` 执行成功。
+  - 服务器当前 commit：`b470ec4`。
+  - 服务器当前版本：`2.9.10`。
+  - `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`，`erzhuang-project.service` 为 `active`。
+  - 线上 `/erzhuang/` HTML 已引用 `/erzhuang/assets/index-BBai7Js_.js` 和 `/erzhuang/assets/index-AdczDtmt.css`。
+- 已知影响：
+  - 历史已经过期的萤石云 URL 无法凭空恢复；用户需要对已确认通道点击“刷新截图”，或对未确认通道执行“重新识别/识别区域”，新截图才会落到本地持久化存储。
+  - `uploads/channel-snapshots` 目录会在第一次刷新/识别截图时自动创建。
 
 ## 2026-06-12 通道视觉模型切换 2.7.2 开发记录
 
