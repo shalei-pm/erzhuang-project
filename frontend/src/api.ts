@@ -195,6 +195,7 @@ export class ApiError extends Error {
 
 const DEFAULT_API_BASE = "/erzhuang-project/api/design-plan";
 const API_BASE = trimTrailingSlash(import.meta.env.VITE_DESIGN_PLAN_API_BASE || DEFAULT_API_BASE);
+const APP_BASE_PATH = "/erzhuang-project";
 const API_MODE = normalizeApiMode(import.meta.env.VITE_DESIGN_PLAN_API_MODE);
 const MOCK_PLAN_IMAGE = sampleStoreFloorPlanUrl;
 const MOCK_ORIGINAL_PDF_PATH = "mock/uploads/sample-store-floor-plan.pdf";
@@ -643,13 +644,13 @@ function toDisplayImageUrl(value?: string) {
     return MOCK_PLAN_IMAGE;
   }
   if (/^\/api\/design-plan\/uploads\/[^/]+\/(preview|thumbnail)$/.test(value)) {
-    return `/erzhuang${value}`;
+    return `${APP_BASE_PATH}${value}`;
   }
   if (/^\/api\/design-plan\/stores\/\d+\/(preview|thumbnail)$/.test(value)) {
-    return `/erzhuang${value}`;
+    return `${APP_BASE_PATH}${value}`;
   }
   if (value.startsWith("/api/")) {
-    return `/erzhuang${value}`;
+    return `${APP_BASE_PATH}${value}`;
   }
   return value;
 }
@@ -658,12 +659,17 @@ function toStoredPath(value: string, fallback: string) {
   if (!value || value === MOCK_PLAN_IMAGE || value.startsWith("data:") || value.startsWith("blob:")) {
     return fallback;
   }
-  const uploadMatch = value.match(/^\/(?:erzhuang\/)?api\/design-plan\/uploads\/([^/]+)\/(preview|thumbnail)$/);
+  const uploadMatch = value.match(/^\/(?:erzhuang-project\/|erzhuang\/)?api\/design-plan\/uploads\/([^/]+)\/(preview|thumbnail)$/);
   if (uploadMatch) {
     return `uploads/${uploadMatch[1]}/${uploadMatch[2] === "preview" ? "preview.png" : "thumbnail.png"}`;
   }
   return value;
 }
+
+export const __testing = {
+  toDisplayImageUrl,
+  toStoredPath,
+};
 
 function displayFileName(value: string) {
   const parts = value.split(/[\\/]/);
