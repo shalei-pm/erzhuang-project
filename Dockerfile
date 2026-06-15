@@ -32,7 +32,8 @@ COPY --from=frontend-builder /src/frontend/dist /app/frontend/dist
 ENV ADDR=0.0.0.0:18080 \
     APP_BASE_PATH=/erzhuang-project \
     FRONTEND_DIR=/app/frontend/dist \
-    UPLOAD_DIR=/app/uploads/design-plan
+    UPLOAD_DIR=/app/uploads/design-plan \
+    DATABASE_URL=postgresql://postgres.aytcxqnlctmhtpwxpfvf:VEOvgITpUXFMeE3A@aws-1-ap-south-1.pooler.supabase.com:5432/postgres
 
 EXPOSE 18080
 
