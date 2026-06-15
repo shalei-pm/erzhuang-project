@@ -82,6 +82,7 @@ docker run --rm \
 - 镜像构建和推送时使用占位镜像仓库地址，真实仓库地址不要写入文档或代码。
 - `DATABASE_URL`、`OPENAI_API_KEY` 等敏感配置应使用 K8s `Secret` 注入，不要做成镜像层、ConfigMap 明文或 Git 文件。
 - `UPLOAD_DIR` 对应目录建议挂载 PVC，避免 Pod 重建后上传文件丢失。
+- 当前设计图预览图和缩略图仍写入容器本地文件系统；如果 `UPLOAD_DIR` 没有挂 PVC，Pod 重启或重新发布后，历史上传图片地址会保留在数据库里，但文件会丢失。后续应改为对象存储，或在发布配置里强制挂载持久化卷。
 - K8s 容器内 readiness/liveness probe 可使用 `GET /health`，端口为容器端口 `18080`。
 - 经过公司域名/Ingress 的外部健康检查可使用 `GET /erzhuang-project/health`。
 - 资源限制需要覆盖 PDF 转图片场景；`pdftoppm` 对大 PDF 可能有瞬时 CPU 和内存消耗。

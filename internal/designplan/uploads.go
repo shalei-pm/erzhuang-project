@@ -20,6 +20,11 @@ import (
 )
 
 const (
+	// TODO(container): the current upload manager stores generated PDFs/images on
+	// the container local filesystem. In Kubernetes this data is lost when a Pod
+	// is recreated unless UPLOAD_DIR is backed by a PVC. Prefer moving design-plan
+	// assets to object storage, or at minimum require a persistent volume mount,
+	// before treating uploaded previews as durable production data.
 	defaultUploadDir = "uploads/design-plan"
 	maxPDFBytes      = 5 << 20
 	maxPDFPages      = 5
