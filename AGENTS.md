@@ -106,6 +106,76 @@
   6. PR 合并后由主会话发布到 Lighthouse，并验证 `/health` 和页面版本号。
 - 当前仓库暂未配置 GitHub Actions；后续如增加 CI，PR 合并前必须检查 CI 结果。
 
+## 前端验收门禁
+
+前端改动不能只以 `npm run build` 通过作为完成标准。涉及页面布局、弹窗、表格、按钮、颜色、交互状态时，发布前必须做实际页面验收：
+
+前端改动开始前必须先读取：
+
+- `docs/ui-standards.md`
+- `docs/frontend-review-checklist.md`
+
+1. 本地启动前端预览，必要时使用 mock 数据覆盖列表、详情、弹窗、空态和有数据态。
+2. 用浏览器实际打开页面，检查截图或可视页面，不只看 DOM 和类型检查。
+3. 至少检查桌面常用宽度下的：
+   - 页面顶部信息密度和对齐。
+   - 弹窗尺寸、关闭按钮、主次按钮层级。
+   - 表格列宽、操作按钮是否换行挤压。
+   - 表单控件是否只出现在可编辑信息上，只读信息应陈列展示。
+   - 焦点态、hover 态、空态、加载态、错误提示。
+4. 如果视觉质量明显不如早期已认可版本，主会话应先打回或本地返工，不进入发布。
+5. 前端验收结果应在最终回复里说明，重要页面可附截图结论。
+
+## Codex 发布操作能力
+
+本项目发布链路是固定基础能力，不应临场重新摸索。任何会话在执行“发布、上线、部署、回滚、线上验证”前必须先读取：
+
+- `docs/deploy-runbook.md`
+- `docs/codex-learning-state.md` 最近一次发布记录
+- `scripts/deploy.sh`
+- `scripts/rollback.sh`，仅在需要回滚时读取
+
+标准链路：
+
+1. 本地开发和验证。
+2. 提交到 Git。
+3. 推送 GitHub `main`。
+4. 通过腾讯云 TAT 指定韩国 Lighthouse 实例 `ap-seoul / lhins-rjfpwj1u`。
+5. 以 `lighthouse` 用户在服务器执行：
+   `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`
+6. 服务器从 GitHub 拉取最新 `main`。
+7. 服务器执行 `go test ./...`。
+8. 服务器执行 Go build。
+9. 服务器执行前端 `npm install` 和 `VITE_APP_VERSION="<VERSION> (<commit>)" npm run build`。
+10. 服务器重启 `erzhuang-project.service`。
+11. 服务器验证 `curl http://127.0.0.1:18081/health`。
+12. 主会话验证公网入口和页面版本号。
+13. 将发布结果、版本、commit、验证结果和故障处理记录到 `docs/codex-learning-state.md`。
+
+TAT 执行注意：
+
+- `tools/tat_run.py` 使用 `getpass` 读取腾讯云 `SecretId` / `SecretKey`。
+- 在 Codex 中执行时必须使用交互式 PTY：`tty=true`。
+- 不要把 SecretId / SecretKey 直接拼进 shell 命令、脚本、文档或 Git。
+- 只允许指定韩国实例 `lhins-rjfpwj1u`；不要操作日本实例。
+- TAT 命令示例：
+
+```sh
+python3 tools/tat_run.py --region ap-seoul --instance-id lhins-rjfpwj1u --timeout 900 --username lighthouse "cd /opt/apps/erzhuang-project && ./scripts/deploy.sh"
+```
+
+发布失败处理：
+
+- 不要先猜测或重复部署。
+- 先通过 TAT 只读检查：
+  - 当前服务器 commit 和 `VERSION`
+  - `systemctl status erzhuang-project.service --no-pager`
+  - `journalctl -u erzhuang-project.service -n 80 --no-pager`
+  - `ss -ltnp | grep -E '18081|18080'`
+  - `curl -sv http://127.0.0.1:18081/health`
+- 如果服务不可用，先恢复可用状态；必要时使用 `scripts/rollback.sh <commit-or-tag>`。
+- 定位到根因后，只做最小修复，升级版本号，推送 GitHub，再重新发布。
+
 ## 版本号规则
 
 项目采用三段式版本号：`大版本.中版本.小版本`，例如 `1.2.3`。

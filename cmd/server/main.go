@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/app"
+	"github.com/shalei-pm/erzhuang-project/internal/channelai"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -25,7 +27,24 @@ func main() {
 		}
 		defer db.Close()
 
-		handler = app.NewHandlerWithStores(app.NewPostgresStore(db), designplan.NewPostgresStore(db))
+		storeSpaceRepo := storespace.NewPostgresStore(db)
+		storeSpaceService := storespace.NewService(storeSpaceRepo)
+		storeSpaceService.UseSnapshotStore(storespace.NewLocalSnapshotStoreFromEnv())
+		var channelRecognizer storespace.ChannelRecognizer
+		if recognizer, enabled, err := channelai.NewRecognizerFromEnv(); err != nil {
+			log.Printf("channel ai recognizer disabled: %v", err)
+		} else if enabled {
+			channelRecognizer = storespace.NewChannelAIAdapter(recognizer)
+			log.Print("channel ai recognizer enabled")
+		}
+		if scanner, enabled, err := storespace.NewEzvizScannerFromEnv(); err != nil {
+			log.Fatalf("ezviz scanner setup failed: %v", err)
+		} else if enabled {
+			storeSpaceService = storespace.NewServiceWithScannerAndRecognizer(storeSpaceRepo, scanner, channelRecognizer)
+			storeSpaceService.UseSnapshotStore(storespace.NewLocalSnapshotStoreFromEnv())
+			log.Print("ezviz scanner enabled")
+		}
+		handler = app.NewHandlerWithServices(app.NewPostgresStore(db), designplan.NewService(designplan.NewPostgresStore(db)), storeSpaceService)
 		log.Print("database store enabled: postgres")
 	} else {
 		log.Print("database store disabled: using memory store")
@@ -52,14 +71,18 @@ func openDatabase(databaseURL string) (*sql.DB, error) {
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelPing()
 
-	if err := db.PingContext(ctx); err != nil {
+	if err := db.PingContext(pingCtx); err != nil {
 		db.Close()
 		return nil, err
 	}
-	if err := app.EnsurePostgresSchema(ctx, db); err != nil {
+
+	schemaCtx, cancelSchema := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancelSchema()
+
+	if err := app.EnsurePostgresSchema(schemaCtx, db); err != nil {
 		db.Close()
 		return nil, err
 	}

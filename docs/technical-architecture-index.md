@@ -140,6 +140,14 @@ Supabase PostgreSQL       设计图门店、区域、操作日志数据
   - 主操作按钮：`--button-font-large`，用于添加门店、保存、上传等最高优先级操作。
   - 普通操作按钮：`--button-font-normal`，用于编辑、删除、上移、下移、新增区域等常规操作。
   - 特殊紧凑按钮：`--button-font-special`，用于图纸查看工具、关闭 toast 等空间很小的辅助操作。
+- 图标按钮规范：
+  - 使用 `.icon-button` 固定为 32px 正方形，用于关闭、增加、收起等轻操作。
+  - 图标按钮必须有 `aria-label`，可补 `title`，页面上不展示解释性长文案。
+  - 模态框关闭按钮使用 `.modal-close-button`，不直接用普通文本 `x`，避免不同字体下视觉变形。
+- 当前后台风格：
+  - 定位为轻量企业后台 / SaaS admin，参考 Ant Design、Arco Design、Semi Design 的克制信息密度和控件层级。
+  - 项目没有直接引入这些组件库，而是用 tokenized CSS 自建基础样式，方便快速迭代和后续统一换色。
+  - 页面以白色内容面、浅灰背景、细边框、轻阴影为主；卡片半径控制在 8px 内，避免营销化装饰。
 - 重点样式区：
   - 列表表格和缩略图。
   - lightbox 弹窗。
@@ -326,6 +334,25 @@ POST   /api/design-plan/uploads/{upload_id}/recognize
 - systemd 环境变量：`OPENAI_API_KEY`、`OPENAI_MODEL`
 - `frontend/src/api.ts`
 - `frontend/src/App.tsx`
+
+### 通道截图和监控画面 AI 识别
+
+主改：
+
+- `internal/ezviz/client.go`：萤石云 token、通道列表、抓图 OpenAPI。
+- `internal/storespace/ezviz_scanner.go`：把萤石云能力适配到门店空间服务。
+- `internal/channelai/recognizer.go`：监控截图视觉识别，默认读取 `VISION_API_BASE_URL`、`VISION_API_KEY`、`VISION_MODEL`；支持 OpenAI-compatible Responses API。MiniMax Token Plan 可配置为 `VISION_API_BASE_URL=https://api.minimaxi.com/v1`、`VISION_MODEL=MiniMax-M3`；也支持 `CHANNEL_AI_PROVIDER=minimax-script/external-command` 切换到外部图像理解脚本。
+- `internal/storespace/channelai_adapter.go`：将通道 AI 结果映射为 store-space 识别结果。
+- `internal/storespace/service.go`：串行抓图、AI 预填、耗时统计、已确认通道保护。
+- `internal/storespace/store.go`：保存最近截图、识别结果、预填类型和编号。
+- `frontend/src/components/VideoChannelTab.tsx`：缩略图预览、识别失败/耗时展示、AI 结果展示。
+
+关键规则：
+
+- AI 只做预填，用户点击“确认”后才锁定为正式通道映射。
+- 编号卡片如果明确写了“治疗室 1 / 面诊室 2 / 生美 3”，优先于画面环境判断。
+- 已确认通道再次识别时只刷新截图和耗时，不自动覆盖用户确认过的类型和编号。
+- `recognition_result` 内记录 `provider`、`capture_ms`、`recognition_ms`、`total_ms`，用于评估模型速度和区分当前识别模型。
 
 ### 图纸框四角拉伸
 

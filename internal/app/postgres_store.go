@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
 
 type PostgresStore struct {
@@ -76,5 +77,8 @@ func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
-	return designplan.EnsurePostgresSchema(ctx, db)
+	if err := designplan.EnsurePostgresSchema(ctx, db); err != nil {
+		return err
+	}
+	return storespace.EnsurePostgresSchema(ctx, db)
 }

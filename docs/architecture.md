@@ -155,3 +155,51 @@ Planned specialist threads:
   - worktree: `/Users/sylar/.codex/worktrees/34e2/erzhuang-project`
   - status: completed and merged to `main`; active again for API adapter follow-up
   - mock fixture: `testdata/design-plans/generated/sample-store-floor-plan.png`
+
+## Store Space Resource Expansion
+
+The store space resource expansion upgrades the project from a design-plan marker into a store space resource management system.
+
+Architecture principle:
+
+- Store and business area master data are the core.
+- Design plans and video channels are both sources and verification paths for the same business areas.
+- Design-plan work should be reused and adapted, not rewritten from scratch.
+- First release must be usable with real Ezviz API integration and real AI recognition, though lower layers may be developed behind stable contracts in phases.
+
+Relevant documents:
+
+- `docs/store-space-resource-prd.md`
+- `docs/store-space-resource-tech-plan.md`
+- `docs/store-space-resource-implementation-plan.md`
+- `docs/ezviz-openapi-notes.md`
+
+Planned specialist threads:
+
+- Backend foundation:
+  - scope: `internal/storespace`, database schema, store/area/recorder/channel base APIs, validation, RLS policies, backend tests
+  - branch: `codex/store-space-backend-foundation`
+  - pending worktree: `local:a0a856fb-7341-48b6-88b0-c34d1c0e7a30`
+  - status: created, pending worktree initialization
+- Frontend shell:
+  - scope: component split, store list update, add-store modal, store detail with design-plan and video-channel tabs, mock channel-mapping UI
+  - branch: `codex/store-space-frontend-shell`
+  - pending worktree: `local:f9f1a550-cdd1-43af-b68f-6b22cfcaad93`
+  - status: created, pending worktree initialization
+
+Deferred specialist threads:
+
+- Ezviz integration:
+  - scope: real Ezviz account management, recorder scan, effective channel sync, API failure handling
+  - start after backend foundation API contracts are reviewed
+- Video recognition:
+  - scope: channel snapshot capture, AI prompt/schema, queued recognition, retry and confirmation workflow
+  - start after channel data model and frontend shell are stable
+
+Main-thread review order:
+
+1. Review backend foundation contracts and schema before merging.
+2. Review frontend shell usability against PRD; it may use mock data until backend contracts are ready.
+3. Merge backend foundation before frontend real API wiring.
+4. Start Ezviz integration only after the user provides test account credentials and a test recorder device code.
+5. Start AI channel-recognition integration only after the user provides the dedicated model key.

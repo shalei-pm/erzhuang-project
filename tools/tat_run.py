@@ -2,7 +2,6 @@
 import argparse
 import base64
 import datetime
-import getpass
 import hashlib
 import hmac
 import json
@@ -10,6 +9,8 @@ import sys
 import time
 import urllib.error
 import urllib.request
+
+from tencent_credentials import read_tencent_credentials
 
 
 def hmac_sha256(key, msg):
@@ -82,8 +83,7 @@ def main():
     parser.add_argument("command")
     args = parser.parse_args()
 
-    secret_id = getpass.getpass("SecretId: ")
-    secret_key = getpass.getpass("SecretKey: ")
+    secret_id, secret_key = read_tencent_credentials()
 
     payload = {
         "Content": base64.b64encode(args.command.encode("utf-8")).decode("ascii"),

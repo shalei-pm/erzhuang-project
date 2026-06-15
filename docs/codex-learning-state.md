@@ -1,10 +1,289 @@
 # Codex Learning State
 
-最后更新：2026-06-11
+最后更新：2026-06-15
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-15 通道截图持久化 2.9.10 发布记录
+
+- 版本号：`2.9.10`。
+- Commit：`b470ec4`。
+- 用户反馈：
+  - 过了周末后，机构详情的“通道映射” Tab 里“最近截图”展示不出来。
+- 根因：
+  - 后端原来把萤石云 `opencapture.ys7.com` 返回的临时签名截图 URL 直接保存到 `channel_snapshots.thumbnail_path/full_image_path`。
+  - 线上接口返回的旧 URL 访问为 `403 Forbidden`，过期后前端图片自然无法展示。
+- 修复：
+  - 新增 `LocalSnapshotStore`，抓图成功后下载截图到服务器本地 `uploads/channel-snapshots`。
+  - 新增 `GET /api/store-space/channel-snapshots/{name}`，前端展示改用项目自己的稳定图片地址。
+  - AI 识别仍使用萤石云刚返回的公网临时 URL，避免模型服务访问内网地址失败；前端展示使用本地持久化地址。
+  - 新增 `POST /api/store-space/channels/{channel_id}/snapshot`，已确认通道可“刷新截图”，不改变确认状态、业务区域类型、编号，也不增加识别次数。
+  - 前端缩略图加载失败时显示“已过期”，避免用户只看到空白。
+- 本地验证：
+  - 新增测试 `TestRecognizeRecorderChannelsStoresRemoteSnapshotsLocally` 和 `TestRefreshChannelSnapshotKeepsConfirmedMapping`。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地浏览器预览 `/erzhuang/` 和机构详情通道映射 Tab 可正常加载，操作列未溢出。
+- 发布状态：
+  - GitHub `main` 已推送到 `b470ec4`。
+  - 服务器 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh` 执行成功。
+  - 服务器当前 commit：`b470ec4`。
+  - 服务器当前版本：`2.9.10`。
+  - `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`，`erzhuang-project.service` 为 `active`。
+  - 线上 `/erzhuang/` HTML 已引用 `/erzhuang/assets/index-BBai7Js_.js` 和 `/erzhuang/assets/index-AdczDtmt.css`。
+- 已知影响：
+  - 历史已经过期的萤石云 URL 无法凭空恢复；用户需要对已确认通道点击“刷新截图”，或对未确认通道执行“重新识别/识别区域”，新截图才会落到本地持久化存储。
+  - `uploads/channel-snapshots` 目录会在第一次刷新/识别截图时自动创建。
+
+## 2026-06-12 通道视觉模型切换 2.7.2 开发记录
+
+- 版本号：`2.7.2`。
+- 目标：
+  - 给监控截图 AI 识别增加 provider 切换入口，便于对比当前 OpenAI-compatible 模型和 MiniMax/OpenClaw 图像理解脚本的速度。
+  - 默认行为保持不变：未配置 `CHANNEL_AI_PROVIDER` 时继续走 `VISION_API_KEY` / `VISION_API_BASE_URL` / `VISION_MODEL`。
+  - 新增 `CHANNEL_AI_PROVIDER=minimax-script` 和 `CHANNEL_AI_PROVIDER=external-command`，通过外部命令调用图像理解脚本；MiniMax 脚本默认路径为 `/root/.openclaw/workspace/skills/minimax-understand-image/scripts/understand_image.py`。
+  - `recognition_result` 增加 `provider` 字段，和 `recognition_ms` 一起用于线上速度对比。
+- 安全约定：
+  - MiniMax key 不写入代码、文档或 Git，只通过服务器环境变量 `MINIMAX_API_KEY` 注入。
+  - 当前代码只接 provider 切换和外部脚本适配；真正切到 MiniMax 前，需要先确认服务器上脚本存在并确认脚本参数格式。
+- 本地验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 发布状态：
+  - PR：`https://github.com/shalei-pm/erzhuang-project/pull/1`，已合并。
+  - Commit：`a786887`。
+  - 线上部署：SSH 执行 `/opt/apps/erzhuang-project/scripts/deploy.sh` 成功。
+  - 服务器当前 commit：`a786887`。
+  - 服务器当前版本：`2.7.2`。
+  - `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`，`erzhuang-project.service` 为 `active`。
+  - 线上前端 JS 已确认包含 `2.7.2 (a786887)`。
+- MiniMax 试跑状态：
+  - 韩国服务器未发现 `/root/.openclaw/workspace/skills/minimax-understand-image/scripts/understand_image.py`。
+  - 韩国服务器未发现 `/root/.openclaw/config/minimax.json`。
+  - 当前线上仍使用默认 `VISION_API_BASE_URL=https://vibe.soyoung.com`、`VISION_MODEL=gpt-5.5`，未切换到 MiniMax。
+
+## 2026-06-12 MiniMax Token Plan 线上识别 2.7.3 发布记录
+
+- 版本号：`2.7.3`。
+- Commit：`4ac3fb0`。
+- 目标：
+  - 确认用户提供的是 MiniMax Token Plan 订阅 Key，不是普通按量计费 API Key。
+  - 根据 MiniMax 官方文档，Token Plan 可走 OpenAI-compatible Responses API：`https://api.minimaxi.com/v1`，模型 `MiniMax-M3`。
+  - 修复 `VISION_API_BASE_URL` 已包含 `/v1` 时 endpoint 被拼成 `/v1/v1/responses` 的问题。
+  - 兼容 MiniMax 可能返回 Markdown fenced JSON 的情况，并收紧 prompt 要求只输出 JSON。
+  - `recognition_result.provider` 能正确记录为 `minimax`，避免速度对比时混淆。
+- 本地验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 线上配置：
+  - `/etc/systemd/system/erzhuang-project.service.d/20-vision-ai.conf`
+  - `VISION_API_BASE_URL=https://api.minimaxi.com/v1`
+  - `VISION_MODEL=MiniMax-M3`
+  - `VISION_API_KEY` 使用 MiniMax Token Plan 订阅 Key，仅保存在服务器 systemd drop-in，不进入 Git。
+- 线上验证：
+  - 服务器部署脚本执行成功，`erzhuang-project.service` 为 `active`。
+  - `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 直接调用 MiniMax Responses API 返回 HTTP 200，耗时约 `12429ms`。
+  - 通道 `131` 真实识别成功，整体接口约 `10s`，后端记录 `capture_ms=1668`、`total_ms=6414`，识别为“弱电机房”。
+  - 通道 `132` 真实识别成功，`provider=minimax`，整体接口约 `14s`，后端记录 `capture_ms=1029`、`recognition_ms=10297`、`total_ms=11327`。
+
+## 2026-06-12 视觉模型对比结论
+
+- 用户确认 MiniMax Token Plan 已跑通，但速度相比现有 GPT 链路没有优势。
+- 线上视觉识别已切回 GPT：
+  - `VISION_API_BASE_URL=https://vibe.soyoung.com`
+  - `VISION_MODEL=gpt-5.5`
+  - `VISION_API_KEY` 仅保存在服务器 systemd drop-in，不进入 Git。
+- 切回后服务健康检查通过，`erzhuang-project.service` 为 `active`。
+- 保留 MiniMax 兼容代码和 provider 记录能力，方便后续如果换更快 MiniMax 模型或其他视觉模型时复用。
+
+## 2026-06-12 通道识别反馈弱化 2.7.4 开发记录
+
+- 版本号：`2.7.4`。
+- 目标：
+  - 将通道缩略图下方的识别反馈数据弱化为灰色小字，避免抢占主要操作注意力。
+  - 成功识别时只展示低置信标记和耗时，不重复展示区域类型。
+  - 耗时信息压缩为一行，超出后省略。
+- 本地验证：
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-12 删除操作等待态 2.7.5 开发记录
+
+- 版本号：`2.7.5`。
+- 目标：
+  - 门店删除、录像机删除、通道删除涉及数据库写操作，点击后按钮进入禁用态并显示 spinner + “删除中”。
+  - 统一 row action 按钮内容为 inline-flex，保证“确认中 / 识别中 / 删除中”图标和文字对齐。
+  - 修复通道区域类型从业务区域切回“其他区域”时，编号/备注输入框仍显示“必填”的问题。
+- 本地验证：
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-12 机构详情默认 Tab 2.7.6 开发记录
+
+- 版本号：`2.7.6`。
+- 目标：
+  - 进入机构详情时，只要该门店已填写录像机，默认展示“通道映射”。
+  - 如果没有录像机但有设计图，则默认展示“设计图标注”。
+  - 新建门店后也按同一规则定位默认 tab。
+  - 通道映射页增加业务区域类型单选筛选：全部、面诊室、治疗室、生美；默认全部。
+  - 添加录像机入口统一把“选择账号”改为“选择区域”；该版本曾误写为华西，已在 `2.9.1` 修正为华中。
+- 本地验证：
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-12 删除等待态并发修复 2.7.7 开发记录
+
+- 版本号：`2.7.7`。
+- 目标：
+  - 修复连续点击多个删除时，前一个删除按钮动效被后一个删除状态覆盖的问题。
+  - 门店、录像机、通道删除等待态均改为多 ID 集合，直到对应接口返回或行消失前保持“删除中”。
+
+## 2026-06-12 录像机识别动效优化 2.8.0 开发记录
+
+- 版本号：`2.8.0`。
+- 目标：
+  - 录像机级“识别区域”按钮不再在按钮内展示转圈动效，按钮保持稳定。
+  - 识别提示文案移动到操作区右侧，以灰色小字展示，并增加类似 Codex 思考态的高光扫过动画。
+  - 进度展示改为录像机表格底部 3px 细进度线，从左到右推进，到 100% 后淡出。
+- 本地预览：
+  - 使用 mock 模式在本地预览，用户确认“还可以，可以发布”。
+
+## 2026-06-12 机构列表城市筛选与汇总 2.9.0 开发记录
+
+- 版本号：`2.9.0`。
+- 目标：
+  - 机构列表搜索框下方增加城市单选筛选，默认“全部”。
+  - 城市选项只展示当前列表中实际存在的城市，避免出现无结果筛选项。
+  - 右侧列表汇总增加面诊室、治疗室、生美数量，并随城市筛选联动。
+  - 城市筛选后，门店数量和当前展示区间按筛选后的可见列表计算。
+
+## 2026-06-12 萤石云区域选项修复 2.9.1 开发记录
+
+- 版本号：`2.9.1`。
+- 问题：
+  - 录像机“选择区域”白名单误用了华西，漏掉华中。
+  - 这是前端展示白名单问题，不是线上萤石云账号数据被删除。
+- 修复：
+  - 可选区域调整为华北、华东、华南、华中。
+  - mock 账号补充华中，方便本地无后端时也能覆盖该选项。
+  - 增加 `scripts/check-region-options.mjs`，用于检查大区白名单必须包含四个区域。
+
+## 2026-06-12 设计图详情图片恢复 2.9.2 修复记录
+
+- 版本号：`2.9.2`。
+- 问题：
+  - 用户保存设计图标注后，从机构列表重新进入机构详情，设计图图片加载不出来。
+- 根因：
+  - 保存后的设计图详情接口返回内部存储路径，例如 `uploads/{upload_id}/preview.png`。
+  - 前端重新进入详情时没有把该内部路径转换为可访问的图片接口 `/api/design-plan/uploads/{upload_id}/preview`。
+  - 服务器文件实际存在，详情接口也返回 200，问题位于前端图片 URL 映射层。
+- 修复：
+  - `toDisplayImageUrl` 增加对 `uploads/{upload_id}/preview.png` 和 `uploads/{upload_id}/thumbnail.png` 的转换。
+  - 新增 `scripts/check-design-plan-image-url.mjs`，用于防止保存后内部图片路径无法恢复为前端可访问 URL。
+
+## 2026-06-12 通道确认等待态 2.9.3 修复记录
+
+- 版本号：`2.9.3`。
+- 问题：
+  - 通道点击“确认”后会显示“确认中”，但如果再点击其他通道按钮，前一个确认按钮的等待态会消失。
+- 根因：
+  - 前端用单个 `confirmingChannelId` 记录确认中状态，多个确认请求并发时后一个会覆盖前一个。
+- 修复：
+  - 通道确认等待态改为 `Set<number>`，按通道 ID 独立管理。
+  - 每个通道从点击确认开始保持“确认中”，直到该通道确认请求结束或状态变化。
+  - 新增 `scripts/check-channel-confirming-state.mjs`，防止确认等待态退回单 ID 管理。
+
+## 2026-06-12 单通道识别缩略图状态 2.9.4 修复记录
+
+- 版本号：`2.9.4`。
+- 问题：
+  - 单独点击某个通道识别后，缩略图已经出现；再识别其他通道后，之前通道的缩略图会在页面上消失。
+  - 刷新页面后缩略图又恢复，说明数据库和文件没有丢，问题在前端页面状态合并。
+- 根因：
+  - 单通道识别完成后，前端用发起请求时的旧 `store` 快照合并 `updatedChannel`。
+  - 多个识别请求前后完成时，后返回的请求会用旧快照覆盖前一个请求已经写入页面状态的缩略图。
+- 修复：
+  - `onStoreUpdated` 支持函数式更新，异步结果回写时基于最新门店状态合并。
+  - 单通道识别和整台录像机队列识别均改为通过最新状态执行 `replaceChannelInStore`。
+  - 录像机局部更新同样改为函数式更新，降低异步操作互相覆盖的风险。
+  - 新增 `scripts/check-channel-recognition-merge-state.mjs`，防止单通道识别退回旧 `store` 快照合并。
+
+## 2026-06-12 已确认通道识别锁定 2.9.5 修复记录
+
+- 版本号：`2.9.5`。
+- 产品规则：
+  - 通道点击确认后，视为人工锁定。
+  - 已确认通道的“重新识别”按钮置灰不可点击。
+  - 点击录像机“识别区域”时，跳过已确认通道，不再自动重新识别。
+  - 已确认通道点击“编辑”后，状态回到待确认，可重新修改区域类型/编号，也可重新识别。
+- 修复：
+  - 前端整台录像机识别队列过滤已确认通道。
+  - 前端单通道“重新识别”按钮在已确认状态下禁用。
+  - 后端 `RecognizeRecorderChannels` 跳过已确认通道，避免抓图和 AI 识别覆盖人工确认。
+  - 后端 `RecognizeChannel` 对已确认通道返回校验错误，要求先编辑解锁。
+  - 新增 `scripts/check-confirmed-channel-recognition-lock.mjs` 和后端测试，防止该锁定规则回退。
+
+## 2026-06-12 删除按钮 hover 文字色 2.9.6 修复记录
+
+- 版本号：`2.9.6`。
+- 问题：
+  - 各处删除按钮鼠标 hover 时背景变为红色系，但文字仍可能呈现普通操作按钮的蓝色。
+- 修复：
+  - `.danger-link:hover` 明确设置文字色为 `var(--danger)`。
+  - 新增 `scripts/check-danger-link-hover-color.mjs`，防止危险按钮 hover 状态漏掉文字色。
+
+## 2026-06-12 通道编辑解锁 2.9.7 修复记录
+
+- 版本号：`2.9.7`。
+- 问题：
+  - 已确认通道点击“编辑”后，页面状态仍显示已确认，“重新识别”按钮仍不可点击。
+- 根因：
+  - 前端之前只写入本地草稿状态，后端真实通道状态仍为已确认。
+  - 已确认通道识别接口已被后端锁定，所以仅前端放开按钮也无法真正重新识别。
+- 修复：
+  - 新增后端 `UnlockChannelForEdit` 能力和 `/api/store-space/channels/{channel_id}/unlock` 接口。
+  - 点击“编辑”时调用后端解锁，将通道状态改为待确认，清空确认时间，保留当前区域类型/编号作为编辑草稿。
+  - 解锁后“重新识别”恢复可点击；后端允许待确认通道重新抓图和 AI 识别。
+  - 新增 `scripts/check-channel-edit-unlocks-state.mjs`，并更新 `scripts/check-confirmed-channel-recognition-lock.mjs`。
+
+## 2026-06-12 进入详情加载反馈 2.9.8 修复记录
+
+- 版本号：`2.9.8`。
+- 问题：
+  - 机构列表点击“进入详情”后，用户反馈半天没反应，需要点很多次才跳转。
+- 排查：
+  - 线上列表接口实测约 `0.27s-0.42s`。
+  - 线上详情接口实测约 `0.5s-1.3s`，不算完全阻塞，但足以让无反馈按钮显得像没点上。
+  - 前端此前没有行级详情加载态，重复点击会触发多个详情请求。
+  - 基础接口 `/health` 和账号列表约 `0.137s`，说明 Supabase/网络往返是主要底噪。
+  - 门店详情原实现会串行查询 areas、design plans、recorders，并对每台录像机单独查询 channels，存在 N+1 查询。
+- 修复：
+  - 机构列表增加行级 `openingStoreIds` 状态。
+  - 点击“进入详情”后按钮显示“进入中”并带 spinner。
+  - 正在进入详情时禁用该行进入/删除按钮，并忽略重复点击。
+  - 门店详情内录像机通道查询由“每台录像机一次查询”改为“按门店一次批量查询”，减少远程数据库往返。
+  - 通道“编辑解锁”接口由返回整份门店详情改为仅返回当前通道，前端用局部替换更新当前行。
+  - 新增 `scripts/check-store-open-loading-state.mjs`，防止入口加载反馈回退。
+
+## 2026-06-12 通道操作即时反馈 2.9.9 修复记录
+
+- 版本号：`2.9.9`。
+- 问题：
+  - 用户反馈详情页内点击确认、编辑、删除都需要大量等待。
+- 排查：
+  - 这类操作不是浏览器到后端之间“没连上”，而是写接口需要等待远程数据库更新。
+  - 其中确认、删除通道、删除录像机等路径还会返回或重新拉取较重的门店详情数据，导致按钮操作手感被详情接口耗时拖慢。
+- 修复：
+  - 通道确认增加乐观更新：点击确认后前端立即把当前行切到确认状态，后端返回后再校准；失败时回滚并提示。
+  - 通道编辑解锁保持单通道轻量返回，并在点击后立即切到待确认编辑态。
+  - 删除通道和删除录像机增加乐观更新：点击删除后先从页面移除，后端失败时恢复原门店状态。
+  - 新增 `scripts/check-channel-actions-optimistic-state.mjs`，防止通道操作退回“等接口返回后才更新页面”的交互。
 
 ## 2026-06-11 单镜像容器化分支
 
@@ -1286,7 +1565,520 @@ RLS policy 验证：
 - `tasks rowsecurity=true policies=tasks_no_client_access`
 - `RLS_POLICY_CHECK=PASS`
 
+## 2026-06-11 门店空间资源后端基础分支
+
+后端专项分支：
+
+- 分支：`codex/store-space-backend-foundation`
+- 基线：`f819793`
+- 范围：新增 `internal/storespace`，接入 `/api/store-space/*` 基础 API，新增门店空间资源 PostgreSQL schema 和 RLS deny policy。
+- 边界：未操作腾讯云、nginx、systemd、Supabase 控制台、部署脚本、云密钥、萤石云密钥或 AI key；未改现有 `internal/designplan` 业务实现。
+- 状态文档：`docs/store-space-backend-foundation-state.md`
+
+本地验证：
+
+```sh
+GOCACHE=/Users/sylar/.codex/worktrees/1e39/erzhuang-project/.cache/go-build /Users/sylar/erzhuang-project/.tools/go/bin/go test -c ./internal/storespace
+GOCACHE=/Users/sylar/.codex/worktrees/1e39/erzhuang-project/.cache/go-build /Users/sylar/erzhuang-project/.tools/go/bin/go test -c ./internal/app
+GOCACHE=/Users/sylar/.codex/worktrees/1e39/erzhuang-project/.cache/go-build /Users/sylar/erzhuang-project/.tools/go/bin/go build ./...
+```
+
+结果：均通过。`go test ./internal/storespace` 在本机仍命中已知 macOS `missing LC_UUID load command` 问题，最终完整测试需主会话在服务器 Linux 环境执行。
+
+## 2026-06-12 门店空间资源前后端专项合并
+
+主会话完成两条专项分支验收并合并到本地 `main`：
+
+- 后端分支：`codex/store-space-backend-foundation`
+- 前端分支：`codex/store-space-frontend-shell`
+- 后端合并提交：`cdd1d28 Merge store space backend foundation`
+- 前端合并提交：`61ba624 Merge store space frontend shell`
+
+已合入能力：
+
+- 新增 `internal/storespace` 后端基础模型、校验、repository、service、handler。
+- 新增 `/api/store-space/*` 基础接口：
+  - `GET /api/store-space/ezviz-accounts`
+  - `GET /api/store-space/stores`
+  - `GET /api/store-space/stores/{id}`
+  - `POST /api/store-space/stores`
+  - `DELETE /api/store-space/stores/{id}`
+  - `POST /api/store-space/stores/check-duplicate`
+  - 录像机扫描/识别接口先保留稳定 `501 not implemented` 合同。
+- 新增门店空间资源数据库 schema，并对所有新增 public 表启用 RLS + 显式 deny policy。
+- 前端从单文件 `App.tsx` 拆分为门店列表、添加门店浮层、门店详情、设计图标注 Tab、通道映射 Tab，以及对应 domain 工具。
+- 前端新增 store-space 后端 DTO/mapper；`createStore` 已走新后端 mapper。
+- 添加门店浮层不再默认选择第一个萤石云账号；填写录像机设备编码时必须由用户明确选择账号。
+
+合并后本地主线验证：
+
+```sh
+GOCACHE=/private/tmp/erzhuang-go-build-cache /Users/sylar/erzhuang-project/.tools/go/bin/go test -c -o /private/tmp/erzhuang-storespace-merged.test ./internal/storespace
+GOCACHE=/private/tmp/erzhuang-go-build-cache /Users/sylar/erzhuang-project/.tools/go/bin/go test -c -o /private/tmp/erzhuang-app-merged.test ./internal/app
+GOCACHE=/private/tmp/erzhuang-go-build-cache /Users/sylar/erzhuang-project/.tools/go/bin/go build ./...
+cd frontend && PATH=/Applications/WorkBuddy.app/Contents/Resources/vendor/node/node-v22.22.2-darwin-arm64/bin:$PATH npm run build
+git diff --check
+```
+
+结果：均通过。
+
+当前边界：
+
+- 当前完成的是本地 `main` 合并，尚未推送 GitHub，尚未发布到 Lighthouse。
+- 前端 `storeSpaceApi.listStores/getStore` 当前阶段仍暂走旧 `designPlanApi`，用于保护现有设计图列表体验；真正完整切换门店空间资源列表/详情时，需要改为 `storeSpaceHttpAdapter.listStores/getStore`。
+- 通道扫描、抓图、识别、确认接口后端尚未接真实萤石云；当前只完成基础合同和前端 UI/mock 壳。
+- `ezviz_accounts` 已有只读安全字段列表接口，并补充了仅保存账号名的轻量创建接口；真实 `appKey/appSecret/accessToken` 仍不通过前端表单维护，后续由后端受控配置/加密方案承接。
+
+## 2026-06-12 准备发布门店空间资源 2.0.0
+
+版本号按项目规则从 `1.1.6` 升级到 `2.0.0`：
+
+- 原因：新增“门店空间资源管理/通道映射”完整业务模块，属于大版本升级。
+- 线上页脚预期：`2.0.0 (<commit>)`。
+- 发布方式：主会话通过腾讯云 TAT 指定韩国实例 `ap-seoul / lhins-rjfpwj1u`，以 `lighthouse` 用户执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
+- 风险说明：发布会拉取 GitHub 最新 `main`、执行测试/构建、初始化新增数据库表和 RLS deny policy，并重启 `erzhuang-project.service`。
+
+首次发布结果：
+
+- GitHub 拉取成功。
+- 服务器 `go test ./...` 成功。
+- 服务器 Go build 成功。
+- 服务器前端 build 成功。
+- systemd restart 已执行。
+- 健康检查失败：`127.0.0.1:18081` 连接失败。
+
+定位结果：
+
+- 服务日志连续出现：`database setup failed: timeout: context deadline exceeded`。
+- 根因：本次大版本新增较多 PostgreSQL 表、索引和 RLS policy，启动时 schema 初始化超过原有 10 秒上下文超时。
+- 修复：版本号升级到 `2.0.1`，将数据库连接 Ping 超时保留 10 秒，将 schema 初始化超时单独放宽到 90 秒。
+
+第二次发布结果：
+
+- 修复提交：`b79aad1 Extend database schema setup timeout`
+- 线上版本：`2.0.1`
+- TAT InvocationId：`inv-r4ranigidm`
+- TAT 结果：`SUCCESS`
+- 服务器 commit：`b79aad1`
+- 服务器 `go test ./...`：通过
+- 服务器 Go build：通过
+- 服务器前端 build：通过
+- systemd restart：成功
+- 内网健康检查：成功，返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`
+- 现象：因为 schema 初始化仍需数秒，健康检查前 11 次连接失败，第 12 次成功；deploy 脚本重试机制生效。
+
+流程复盘：
+
+- 发布链路没有变：本地开发 -> GitHub `main` -> TAT -> 服务器拉取 GitHub -> 测试/构建 -> systemd -> health。
+- 本次问题在于主会话一开始没有优先读取既有 runbook 和历史发布记录，导致先撞了一次非交互 `getpass`。
+- 已把 TAT 发布方式、必须使用交互式 PTY、失败诊断步骤写入 `AGENTS.md` 和 `docs/deploy-runbook.md`，作为之后本项目的固定发布能力。
+
+## 2026-06-12 创建门店浮层 2.1.0 小迭代
+
+本次版本号从 `2.0.1` 升级到 `2.1.0`：
+
+- 原因：已有“门店空间资源管理”模块内的创建门店浮层交互和样式迭代，并补齐萤石云账号轻量创建入口，让录像机配置链路可继续测试。
+- 创建门店浮层默认不再塞入一个删不掉的录像机行；录像机为选填资源，点击加号后再新增设备编码行。
+- “增加录像机”改为 32px 图标按钮，符合轻操作定位。
+- 右上角关闭按钮改为稳定的 `.modal-close-button`，不再直接使用文本 `x`，避免形状变形。
+- 浮层内新增“萤石云账号名称”轻量创建入口；创建后刷新账号列表并自动选中未配置账号的录像机行。
+- 后端新增 `POST /api/store-space/ezviz-accounts`，只接收 `account_name`，返回安全字段，不返回也不接收密钥字段。
+- 后台风格规范补充到 `docs/technical-architecture-index.md`：当前采用轻量企业后台 / SaaS admin 风格，自建 tokenized CSS，参考 Ant Design、Arco Design、Semi Design 的克制控件层级。
+
+## 2026-06-12 门店详情与通道映射 2.2.0 小迭代
+
+本次版本号从 `2.1.0` 升级到 `2.2.0`：
+
+- 原因：已有“门店空间资源管理”模块内的信息架构和交互迭代。
+- 创建门店浮层移除“新增萤石云账号”入口；账号维护不属于创建门店主流程，后续由配置侧或后端受控接口维护。
+- 创建门店浮层仍支持选择已有萤石云账号并填写录像机设备编码；如果没有账号，页面展示“暂无可选账号”。
+- 门店详情顶部的新氧机构 ID、录像机数、有效通道数、业务区域数改为只读指标陈列，不再呈现类似输入框的样式。
+- 门店详情不再展示萤石云账号配置区。
+- 通道映射 Tab 的录像机列表改为横向表格：
+  - 表头：录像机名称、状态、有效通道数、上次扫描时间、操作。
+  - 未扫描录像机只显示“扫描通道”。
+  - 已扫描录像机显示“再次扫描”和“识别区域”。
+  - 删除入口保留，但后端级联删除接口尚未实现，当前仍提示入口待接。
+- 前端验收复盘：
+  - 用户指出 2.x 前端细节不如早期 1.x，应提升验收标准。
+  - 已将“前端发布前必须实际页面截图/视觉验收”写入 `AGENTS.md`。
+  - 本轮本地 mock 视觉验收发现并修复：原生 `Choose File` 露出、详情顶部指标过度卡片化、通道映射操作列挤压换行、Tab 默认焦点框观感差。
+  - 2.2.0 已发布上线，线上 commit 为 `eb29e90`。
+
+## 2026-06-12 创建门店 validation failed 2.2.1 修复
+
+本次版本号从 `2.2.0` 升级到 `2.2.1`：
+
+- 用户反馈：创建门店弹窗信息完善后点击“创建门店”不能继续，机构列表出现 `validation failed`。
+- 根因：
+  - 前端 `storeSpaceApi` 的列表、详情、重复校验、删除仍复用旧 `design-plan` 接口，但创建门店走新的 `store-space` 接口。
+  - 因此创建前重复校验可能查旧表，真正创建时新表已存在同名门店，后端返回字段级校验错误。
+  - 前端 `ApiError` 没有保留后端返回的 `fields`，导致页面只能显示笼统的 `validation failed`。
+- 修复：
+  - `storeSpaceApi.listStores/getStore/checkDuplicate/deleteStore` 统一走 `/api/store-space`。
+  - `storeSpaceHttpAdapter` 增加新模块重复校验与删除接口。
+  - `ApiError` 增加 `fields`，`errorMessage` 优先展示字段级错误文案，例如“已存在同名门店”。
+- 验证：
+  - 前端 `npm run build` 通过。
+  - 后端 `CGO_ENABLED=0 ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-12 通道映射删除录像机 2.3.0 小迭代
+
+本次版本号从 `2.2.1` 升级到 `2.3.0`：
+
+- 原因：通道映射 Tab 中“删除录像机”此前只是占位提示，用户继续测试门店详情时无法清理误填录像机。
+- 后端新增：
+  - `DELETE /api/store-space/recorders/{recorder_id}`。
+  - 删除录像机时依赖数据库外键级联删除其通道。
+  - 删除后更新门店 `updated_at`，并写入操作日志。
+  - 内存仓储同步支持删除，并释放设备编码，便于本地 mock 和测试复用。
+- 前端新增：
+  - `storeSpaceApi.deleteRecorder(storeId, recorderId)`。
+  - 通道映射 Tab 删除按钮改为真实操作。
+  - 删除前二次确认，删除后刷新门店详情和顶部统计。
+- 验证：
+  - 后端新增 handler/service 测试覆盖删除录像机和设备编码复用。
+  - 本地 `CGO_ENABLED=0 ./.tools/go/bin/go test ./...` 通过。
+  - 本地前端 `npm run build` 通过。
+  - 服务器 `go test ./...` 通过。
+  - 服务器 Go build 通过。
+  - 服务器前端 build 通过。
+  - systemd restart 成功。
+  - 内网健康检查成功，返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 公网 `/erzhuang/health` 验证成功。
+- 发布结果：
+  - 线上 commit：`2563351`
+  - 线上版本：`2.3.0`
+  - TAT InvocationId：`inv-t4rgda09gn`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：`/erzhuang/assets/index-CcEoTbGK.js`
+  - 现象：健康检查前 11 次连接失败，第 12 次成功；符合当前数据库 schema 初始化较慢但可恢复的已知模式。
+
+## 2026-06-12 旧设计图门店可见性 2.3.1 修复
+
+本次版本号从 `2.3.0` 升级到 `2.3.1`：
+
+- 用户反馈：门店列表里 1.x 版本创建的机构消失，担心历史数据被测试机构替换。
+- 排查结论：
+  - 历史数据没有被物理删除。
+  - 旧接口 `/erzhuang/api/design-plan/stores` 仍能查到 3 个历史机构。
+  - 新接口 `/erzhuang/api/store-space/stores` 只查到 2.x 新门店主数据。
+  - 根因是 2.2.1 为修复创建链路把前端列表切到新 `store-space` 表，但旧 `design_plan_*` 数据尚未迁移到新主数据模型，导致页面视图隐藏旧门店。
+- 修复：
+  - 在 `storespace.EnsurePostgresSchema` 中增加幂等 legacy migration。
+  - 将旧 `design_plan_stores` 复制到新 `stores`。
+  - 将旧设计图文件信息复制到 `store_design_plans`，使用 `legacy-<old_id>` 标识。
+  - 将旧标注区域复制到 `store_areas` 和 `design_plan_annotations`。
+  - 使用 `on conflict do nothing`，不覆盖、不删除旧表或新表已有数据。
+- UI 小修：
+  - 门店详情页移除“门店详情”冗余文案。
+  - 录像机列表标题下移除 `1 / 3 台`。
+  - 录像机操作改成圆角按钮样式。
+- 发布结果：
+  - 本地 commit：`191e4ee`
+  - 线上 commit：`191e4ee`
+  - 线上页面版本：`2.3.1 (191e4ee)`
+  - TAT InvocationId：`inv-s4rh2w0iqb`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：`/erzhuang/assets/index-DYHlvXR0.js`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/api/store-space/stores?page=1&page_size=50` 返回 `total=8`。
+    - 新列表已同时包含 5 个 2.x 测试门店和 3 个 1.x 历史设计图门店：
+      - `新氧青春诊所 深圳龙岗坂田万科项目`
+      - `新氧青春广州塔门店`
+      - `新氧青春诊所 深圳壹方城项目`
+    - 抽查 `/erzhuang/api/store-space/stores/6` 可读取 `深圳壹方城项目` 的设计图和 11 个区域。
+
+## 2026-06-12 旧门店标注框坐标 2.3.2 修复
+
+本次版本号从 `2.3.1` 升级到 `2.3.2`：
+
+- 发布后补充验收发现：
+  - 旧门店已经恢复到新列表和新详情接口。
+  - 但 `store-space` 详情接口只返回区域主数据，没有返回 `design_plan_annotations` 中的矩形框坐标。
+  - 前端已经支持读取 `area.box`，因此需要后端补齐该字段，避免历史门店进入设计图 Tab 后缺少左侧标注框。
+- 修复：
+  - `store-space` 的 `Area` 增加 `box` 返回字段。
+  - `PostgresStore.listAreas` 左连接最新一条 `design_plan_annotations`，把 `box_x/y/width/height` 转为前端使用的 `box`。
+  - 新增 `parseAreaBox` 单元测试，覆盖坐标解析和缺失坐标不返回 box 的情况。
+- 发布结果：
+  - 本地 commit：`fac00f7`
+  - 线上 commit：`fac00f7`
+  - 线上页面版本：`2.3.2 (fac00f7)`
+  - TAT InvocationId：`inv-s4rhar0q7h`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：`/erzhuang/assets/index-Bn7UK7y3.js`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/api/store-space/stores?page=1&page_size=50` 仍返回 `total=8`。
+    - 抽查 `/erzhuang/api/store-space/stores/6`，11 个区域均已返回 `box` 坐标，可供前端恢复旧设计图矩形标注。
+
+## 2026-06-12 门店详情 UI 控件与图纸加载体验 2.3.3 修复
+
+本次版本号从 `2.3.2` 升级到 `2.3.3`：
+
+- 用户反馈：
+  - 通道 Tab 下“扫描通道 / 删除”按钮样式不统一。
+  - 未上传设计图的门店不应显示默认打底设计图。
+  - 上传新 PDF 后应显示加载状态，旧设计图不应继续展示；失败时再恢复旧图。
+  - “返回列表”和门店名称距离太近。
+  - “新增区域 / 保存标注”也应使用统一圆角按钮。
+- 修复：
+  - 空设计图路径不再映射到 mock 示例图，只在 `mock/*` 路径时显示示例图。
+  - 设计图上传流程增加 `pendingPreviewUrl`：新图加载成功后才切换预览；转换或图片加载失败时恢复旧图和旧区域。
+  - 上传/转换/新图加载增加状态文案和转圈提示。
+  - 未上传状态的图纸区域改为纯净空状态，不再显示网格底纹，避免误解为已有图纸。
+  - 统一按钮圆角、大小和 danger 样式；详情页标题区域增加间距。
+- 本地验证：
+  - `git diff --check` 通过。
+  - `npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - 本地浏览器验收：
+    - 无设计图门店 `imageCount=0`。
+    - 空状态背景 `backgroundImage=none`。
+    - `新增区域 / 保存标注` 圆角为 `999px`。
+    - 通道 Tab 未扫描录像机仅显示 `扫描通道 / 删除`。
+- 发布结果：
+  - 本地 commit：`7abcc23`
+  - 线上 commit：`7abcc23`
+  - 线上页面版本：`2.3.3 (7abcc23)`
+  - TAT InvocationId：`inv-r4ri2e0dh9`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：
+    - `/erzhuang/assets/index-CM-T6EwS.js`
+    - `/erzhuang/assets/index-C6Bw6lpq.css`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/` HTML 已引用新 JS/CSS。
+    - 线上 JS 中已确认包含 `2.3.3 (7abcc23)`。
+  - 备注：部署脚本健康检查前 11 次连接失败，第 12 次成功；服务最终健康，仍符合当前冷启动较慢的已知现象。
+
+## 2026-06-12 门店列表与详情布局 2.3.4 修复
+
+本次版本号从 `2.3.3` 升级到 `2.3.4`：
+
+- 用户反馈：
+  - 机构详情页“返回列表”按钮过大。
+  - 机构详情页首屏高度偏高，希望默认适配 1080 分辨率。
+  - 机构列表页操作按钮出现溢出列表的情况。
+- 根因：
+  - 2.3.3 统一全局按钮后，`.plain-button` 继承了普通按钮高度、padding，并在详情 header 的 grid 布局中被拉伸为整行宽度。
+  - 列表操作按钮统一为 72px 后，最后一列宽度仍为 122px，两个按钮加间距后容易溢出。
+  - 设计图画布使用 `calc(100vh - 140px)`，对 1080 高度的后台页面偏高。
+- 修复：
+  - `.plain-button` 调整为 26px 高轻量文字按钮，详情页返回按钮限制为内容宽度。
+  - 列表操作列增宽到 160px，行内操作按钮收敛为 68px。
+  - 详情页 header 间距收紧，设计图编辑区域和画布高度改为 `clamp`，适配 1080 首屏。
+- 本地验证：
+  - `git diff --check` 通过。
+  - `npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - 1440x1080 浏览器复验：
+    - 返回按钮尺寸为 66x26。
+    - 详情页无需纵向滚动，主内容底部约 829px。
+    - 列表操作按钮组 136px，操作列 160px，表格无横向溢出。
+- 发布结果：
+  - 本地 commit：`5dd89c6`
+  - 线上 commit：`5dd89c6`
+  - 线上页面版本：`2.3.4 (5dd89c6)`
+  - TAT InvocationId：`inv-t4rigm075g`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：
+    - `/erzhuang/assets/index-B9o-QAd9.js`
+    - `/erzhuang/assets/index-CHPZUwoD.css`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/` HTML 已引用新 JS/CSS。
+    - 线上 JS 中已确认包含 `2.3.4 (5dd89c6)`。
+
+## 2026-06-12 城市字段与门店列表 2.4.0 迭代
+
+本次版本号从 `2.3.4` 升级到 `2.4.0`：
+
+- 用户反馈：
+  - “添加门店”弹窗没有看到城市字段。
+  - 机构列表需要在门店名称前展示城市列，旧数据无城市时展示“未设置”。
+  - 机构列表操作按钮虽然已进入列表内，但距离右侧边缘过近。
+- 产品规则：
+  - 新建门店必须选择城市。
+  - 城市先内置一线/新一线城市下拉。
+  - 列表列顺序调整为：序号 / 城市 / 门店名称 / 新氧机构 ID / 设计图状态 / 录像机 / 通道 / 面诊室 / 治疗室 / 生美 / 更新时间 / 操作。
+- 后端修复：
+  - `stores` 表新增 `city text not null default ''`，schema 初始化和迁移都覆盖。
+  - 创建门店接口新增 `city` 校验，缺失时返回“城市必填”。
+  - MemoryStore 和 PostgresStore 的创建、列表、详情均返回 city。
+  - 旧设计图迁移到 stores 时 city 为空，前端统一显示“未设置”。
+- 前端修复：
+  - 创建门店弹窗新增城市下拉。
+  - 创建门店请求体传入 `city`。
+  - StoreSummary/StoreDetail 和 store-space API 映射补齐 city。
+  - 门店列表新增城市列，空值显示“未设置”。
+  - 操作列宽度和右侧 padding 调整，避免按钮贴边。
+- 本地验证：
+  - `git diff --check` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - 本地浏览器检查：
+    - 列表表头顺序包含城市列，且位于门店名称前。
+    - 旧数据城市显示“未设置”。
+    - 添加门店弹窗展示城市下拉，包含北京、上海、广州、深圳等城市。
+    - 操作列按钮右侧留白约 56px。
+- 发布状态：
+  - 本地功能 commit：`eb6261c`
+  - 线上 commit：`eb6261c`
+  - 线上页面版本：`2.4.0 (eb6261c)`
+  - TAT InvocationId：`inv-t4rjdb0w91`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：
+    - `/erzhuang/assets/index-PKhj2K0q.js`
+    - `/erzhuang/assets/index-DvSqg6-J.css`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/` HTML 已引用新 JS/CSS。
+    - 线上 JS 中已确认包含 `2.4.0 (eb6261c)`、“城市”和“未设置”。
+
+## 2026-06-12 详情页流程体验 2.4.1 修复
+
+本次版本号从 `2.4.0` 升级到 `2.4.1`：
+
+- 用户反馈：
+  - 设计图区域较多时，点击左侧矩形框会让页面整体滚动去找右侧卡片，导致左侧图纸跑出视野。
+  - 门店只有一台录像机时，删除后没有再次添加录像机的入口。
+- 根因：
+  - 区域卡片定位直接使用 `scrollIntoView`，浏览器会滚动页面级祖先容器。
+  - 右侧 `area-pane` 未固定高度，区域多时会撑高整个详情页，无法形成内部滚动。
+  - 通道映射页只支持删除录像机，缺少已有门店补录录像机的接口和表单。
+- 修复：
+  - 设计图编辑区固定桌面高度，右侧区域面板独立滚动。
+  - 点击左侧矩形框或新增区域后，只滚动右侧区域面板，并把对应卡片定位到面板可视区中部。
+  - 新增 `POST /api/store-space/stores/{id}/recorders`，支持已有门店补录录像机。
+  - 通道映射 Tab 增加“添加录像机”表单，删除到 0 台后仍可补录。
+- 本地验证：
+  - `git diff --check` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - 本地 mock 浏览器复验：
+    - 16 个区域卡片时，右侧面板高度 680、内容高度 2465，形成内部滚动。
+    - 点击靠后区域矩形后，`windowScrollY` 保持 0，右侧 `area-pane.scrollTop` 变化到 1785，选中卡片位于右侧面板可视范围内。
+    - 删除唯一录像机后，通道映射页仍展示“添加录像机”表单。
+    - 填写 `DNEW12345` 后可重新添加录像机，列表恢复为 1 台。
+- 发布状态：
+  - 线上 commit：`edb5f9c`
+  - 线上页面版本：`2.4.1 (edb5f9c)`
+  - TAT InvocationId：`inv-t4rk6ggmb6`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：
+    - `/erzhuang/assets/index-7ssrpJ7q.js`
+    - `/erzhuang/assets/index-CXbT8UIV.css`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/` HTML 已引用新 JS/CSS。
+    - 线上 JS 中已确认包含 `2.4.1`、`edb5f9c`、“添加录像机”、“返回列表”、“区域卡片”。
+
+## 2026-06-12 详情页返回按钮 2.4.2 修复
+
+本次版本号从 `2.4.1` 升级到 `2.4.2`：
+
+- 用户反馈：
+  - 机构详情页左上角“返回列表”按钮颜色不醒目，几次被忽略。
+- 根因：
+  - 按钮仍沿用普通弱操作按钮的视觉层级，虽然是浅蓝，但高度只有 26px，缺少方向图标和明确的导航权重。
+- 修复：
+  - `StoreDetail` 中为返回按钮增加独立 `detail-back-button` 类名和左箭头。
+  - 详情页返回按钮改成蓝底白字的专用导航按钮，高度 34px，保留紧凑尺寸但提高第一眼识别度。
+  - TAT 工具补充 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` 环境变量读取能力，避免非交互环境无法发布；密钥仍不写入仓库。
+- 本地验证：
+  - `git diff --check` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `PYTHONPYCACHEPREFIX=/Users/sylar/erzhuang-project/.cache/pycache python3 -m py_compile tools/tat_run.py tools/tencent_api.py tools/tencent_credentials.py` 通过。
+  - 本地 mock 浏览器复验：
+    - `.detail-back-button` 位于详情页左上角，尺寸约 101 x 34。
+    - 背景色为 `rgb(37, 99, 235)`，文字为白色，标题区域未被异常撑高。
+- 发布状态：
+  - 按钮修复 commit：`e549029`
+  - 部署工具 commit：`3d84d4f`
+  - 线上 commit：`3d84d4f`
+  - 线上页面版本：`2.4.2 (3d84d4f)`
+  - TAT InvocationId：`inv-r4rkfw0f56`
+  - TAT 结果：`SUCCESS`
+  - 前端构建产物：
+    - `/erzhuang/assets/index-DBJ1sfb3.js`
+    - `/erzhuang/assets/index-Cx20omGX.css`
+  - 发布后验证：
+    - `/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+    - `/erzhuang/` HTML 已引用新 JS/CSS。
+    - 线上 JS 中已确认包含 `2.4.2 (3d84d4f)`、`detail-back-button` 和“返回列表”。
+    - 线上 CSS 中已确认包含 `detail-back-button`、`#2563eb` 和 `box-shadow`。
+
 ## 明日待办
+
+## 2026-06-12 非业务区域备注与缩略图 2.7.1 发布记录
+
+- 版本号：`2.7.1`。
+- Commit：`255d301`。
+- 目标：
+  - AI 识别到非业务区域时，允许把实体名称放到通道的“编号/备注”字段，例如“机房”“药房”“前台”。
+  - 通道列表列名由“编号”改为“编号/备注”：业务区域仍为数字编号，其他区域为文本备注。
+  - 缩略图按钮清除全局按钮 padding，固定缩略图尺寸并使用 `object-fit: cover` 铺满，避免挤压变形和异常留白。
+- 本地验证：
+  - 新增 `TestRecognizeChannelStoresNonBusinessSceneAsNote` 覆盖 `machine_room -> 机房` 备注链路。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 发布状态：
+  - TAT InvocationId：`inv-r4rt590tgw`。
+  - TAT 结果：`SUCCESS`。
+  - 服务器当前 commit：`255d301`。
+  - 线上 `/erzhuang/` HTML 已引用 `/erzhuang/assets/index-CQ5C75RW.js` 和 `/erzhuang/assets/index-CkGYQwCd.css`。
+  - 线上 JS 已确认包含 `2.7.1 (255d301)`、`编号/备注`、`area_note`、“机房”“药房”“前台”。
+  - 线上 CSS 已确认包含缩略图相关 `padding:0`、`overflow:hidden`、`object-fit:cover`。
+
+## 2026-06-12 通道识别工作流 2.7.0 发布记录
+
+- 版本号：`2.7.0`。
+- Commit：`4a94700`。
+- 目标：
+  - 修复单通道“重新识别”误触发整台录像机识别的问题。
+  - 录像机级“识别区域”改为前端按通道队列执行，显示进度百分比，每完成一条立即更新截图和识别结果。
+  - “再次扫描”改为增量同步通道有效性，不清空已确认通道的业务区域映射。
+  - 通道行增加删除能力；删除后再次扫描如通道仍有效，会作为新的未确认通道出现。
+  - 门店列表缩略图改为等比铺满缩略图框，避免挤压变形和两侧留白。
+- 本地验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 发布状态：
+  - TAT InvocationId：`inv-s4rsm8giq7`。
+  - TAT 结果：`SUCCESS`。
+  - 服务器当前 commit：`4a94700`。
+  - 服务器发布脚本测试、Go build、前端 build 均通过。
+  - `erzhuang-project.service` 重启后为 active running。
+  - `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 线上 `/erzhuang/` HTML 已引用 `/erzhuang/assets/index-CZDG6jnt.js`。
+  - 线上 JS 已确认包含 `2.7.0 (4a94700)`、“重新识别”、“识别进度”、“删除后将移除”。
+
+## 2026-06-12 通道截图与 AI 预识别 2.6.0 开发记录
+
+- 版本号：`2.6.0`。
+- 目标：
+  - 萤石云通道真实抓图。
+  - 通道最近截图保存和前端预览。
+  - 接入可选监控画面 AI 识别，按截图预填业务区域类型和编号。
+  - 记录单通道抓图、识别、总耗时，便于后续判断是否需要换更快模型。
+- 关键产品规则：
+  - AI 识别只预填，用户点击确认后才进入锁定确认状态。
+  - 编号卡片写明“治疗室 1 / 面诊室 2 / 生美 3”时，以卡片文字为准。
+  - 已确认通道再次识别时不覆盖已确认的业务区域类型和编号。
+- 本地验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 安全约定：
+  - 视觉模型 key 不写入仓库，只通过服务器环境变量 `VISION_API_BASE_URL`、`VISION_API_KEY`、`VISION_MODEL` 配置。
+  - 本次密钥扫描未发现真实 key 进入项目文件。
 
 1. 开始前先运行：
 
