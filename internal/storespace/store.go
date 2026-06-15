@@ -506,8 +506,12 @@ func (s *MemoryStore) SaveChannelSnapshot(ctx context.Context, channelID int64, 
 				if input.AreaNote != "" || input.Status == ChannelStatusPendingConfirmation {
 					channel.AreaNote = strings.TrimSpace(input.AreaNote)
 				}
-				channel.RecognitionResult = strings.TrimSpace(input.RecognitionResult)
-				channel.RecognitionAttempts++
+				if strings.TrimSpace(input.RecognitionResult) != "" || input.CountAttempt {
+					channel.RecognitionResult = strings.TrimSpace(input.RecognitionResult)
+				}
+				if input.CountAttempt {
+					channel.RecognitionAttempts++
+				}
 				channel.UpdatedAt = now
 				copy := *channel
 				return &copy, nil
@@ -1472,8 +1476,8 @@ func (s *PostgresStore) SaveChannelSnapshot(ctx context.Context, channelID int64
 	}
 	if _, err := tx.ExecContext(ctx, `
 		update video_channels
-		set recognition_attempts = recognition_attempts + 1,
-			recognition_result = nullif($1, '')::jsonb,
+		set recognition_attempts = recognition_attempts + case when $8 then 1 else 0 end,
+			recognition_result = case when $8 or nullif($1, '') is not null then nullif($1, '')::jsonb else recognition_result end,
 			status = case when nullif($3, '') is null then status else $3 end,
 			scene_type = case when nullif($4, '') is null then scene_type else $4 end,
 			area_type = case when nullif($3, '') is null then area_type else nullif($5, '') end,
@@ -1481,7 +1485,7 @@ func (s *PostgresStore) SaveChannelSnapshot(ctx context.Context, channelID int64
 			area_note = case when nullif($3, '') is null then area_note else $7 end,
 			updated_at = now()
 		where id = $2
-	`, input.RecognitionResult, channelID, input.Status, input.SceneType, input.AreaType, mustPositiveInt(input.AreaNumberText), strings.TrimSpace(input.AreaNote)); err != nil {
+	`, input.RecognitionResult, channelID, input.Status, input.SceneType, input.AreaType, mustPositiveInt(input.AreaNumberText), strings.TrimSpace(input.AreaNote), input.CountAttempt); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {

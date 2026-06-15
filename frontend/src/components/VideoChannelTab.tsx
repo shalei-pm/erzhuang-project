@@ -58,6 +58,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [newRecorderCode, setNewRecorderCode] = useState("");
   const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
   const [channelTypeFilter, setChannelTypeFilter] = useState<ChannelTypeFilter>("all");
+  const [expiredSnapshotIds, setExpiredSnapshotIds] = useState<Set<number>>(() => new Set());
   const [editingChannels, setEditingChannels] = useState<Record<number, Partial<VideoChannel>>>({});
   const completionTimerRef = useRef<number | null>(null);
   const regionAccounts = selectableRegionAccounts(accounts);
@@ -106,6 +107,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         const channel = targetChannels[index];
         const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
         onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
+        setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
         setRecognizingChannelIds((current) => {
           const next = new Set(current);
           next.delete(channel.id);
@@ -294,10 +296,32 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     try {
       const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
       onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
+      setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
       onToast(`已重新识别录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo}。`);
     } catch (error) {
       const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
       setChannelError(`通道 ${channel.channelNo} 识别失败：${message}`);
+      onToast(message);
+    } finally {
+      setRecognizingChannelIds((current) => {
+        const next = new Set(current);
+        next.delete(channel.id);
+        return next;
+      });
+    }
+  }
+
+  async function refreshChannelSnapshot(recorder: VideoRecorder, channel: VideoChannel) {
+    setRecognizingChannelIds((current) => new Set(current).add(channel.id));
+    setChannelError("");
+    try {
+      const updatedChannel = await storeSpaceApi.refreshChannelSnapshot(store.id, channel.id);
+      onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
+      setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
+      onToast(`已刷新录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo} 截图。`);
+    } catch (error) {
+      const message = channelErrorMessage(error, "刷新截图失败，请稍后重试。");
+      setChannelError(`通道 ${channel.channelNo} 刷新截图失败：${message}`);
       onToast(message);
     } finally {
       setRecognizingChannelIds((current) => {
@@ -489,13 +513,25 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     <td>{channel.channelNo}</td>
                     <td>
                       <button
-                        className={`channel-thumb ${channel.thumbnailUrl ? "has-image" : ""}`}
+                        className={`channel-thumb ${channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) ? "has-image" : ""}`}
                         type="button"
-                        disabled={!channel.fullImageUrl && !channel.thumbnailUrl}
-                        aria-label={channel.thumbnailUrl ? `查看通道 ${channel.channelNo} 截图` : "暂无截图"}
+                        disabled={expiredSnapshotIds.has(channel.id) || (!channel.fullImageUrl && !channel.thumbnailUrl)}
+                        aria-label={channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) ? `查看通道 ${channel.channelNo} 截图` : "暂无截图"}
                         onClick={() => setPreviewChannel(channel)}
                       >
-                        {channel.thumbnailUrl ? <img src={channel.thumbnailUrl} alt={`通道 ${channel.channelNo} 截图`} /> : <span />}
+                        {channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) ? (
+                          <img
+                            src={channel.thumbnailUrl}
+                            alt={`通道 ${channel.channelNo} 截图`}
+                            onError={() => {
+                              setExpiredSnapshotIds((current) => new Set(current).add(channel.id));
+                            }}
+                          />
+                        ) : expiredSnapshotIds.has(channel.id) ? (
+                          <span className="channel-thumb-expired">已过期</span>
+                        ) : (
+                          <span />
+                        )}
                       </button>
                       {recognitionMessage ? <div className="channel-row-note">{recognitionMessage}</div> : null}
                     </td>
@@ -567,16 +603,16 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                           </button>
                         )}
                         <button
-                          disabled={isRecognizing || isDeleting || isConfirmed || workingRecorderId === recorder.id}
-                          onClick={() => void recognizeChannel(recorder, channel)}
+                          disabled={isRecognizing || isDeleting || workingRecorderId === recorder.id}
+                          onClick={() => void (isConfirmed ? refreshChannelSnapshot(recorder, channel) : recognizeChannel(recorder, channel))}
                         >
                           {isRecognizing ? (
                             <>
                               <span className="button-spinner" aria-hidden="true" />
-                              识别中
+                              {isConfirmed ? "刷新中" : "识别中"}
                             </>
                           ) : (
-                            "重新识别"
+                            isConfirmed ? "刷新截图" : "重新识别"
                           )}
                         </button>
                         <button

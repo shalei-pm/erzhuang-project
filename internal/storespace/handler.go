@@ -30,8 +30,10 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	mux.HandleFunc("DELETE /api/store-space/recorders/{recorder_id}", handler.deleteRecorder)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/scan-channels", handler.scanRecorderChannels)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/recognize-channels", handler.recognizeRecorderChannels)
+	mux.HandleFunc("GET /api/store-space/channel-snapshots/{name}", handler.getChannelSnapshot)
 	mux.HandleFunc("DELETE /api/store-space/channels/{channel_id}", handler.deleteChannel)
 	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/recognize", handler.recognizeChannel)
+	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/snapshot", handler.refreshChannelSnapshot)
 	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/unlock", handler.unlockChannelForEdit)
 	mux.HandleFunc("PUT /api/store-space/channels/{channel_id}/confirmation", handler.confirmChannel)
 }
@@ -218,6 +220,28 @@ func (h *Handler) recognizeChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, channel)
+}
+
+func (h *Handler) refreshChannelSnapshot(w http.ResponseWriter, r *http.Request) {
+	channelID, ok := parseID(w, r, "channel_id")
+	if !ok {
+		return
+	}
+	channel, err := h.service.RefreshChannelSnapshot(r.Context(), channelID)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, channel)
+}
+
+func (h *Handler) getChannelSnapshot(w http.ResponseWriter, r *http.Request) {
+	path, err := h.service.ChannelSnapshotPath(r.PathValue("name"))
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	http.ServeFile(w, r, path)
 }
 
 func (h *Handler) unlockChannelForEdit(w http.ResponseWriter, r *http.Request) {

@@ -1122,6 +1122,14 @@ td:nth-child(10) {
   border-radius: 3px;
 }
 
+.channel-thumb .channel-thumb-expired {
+  width: auto;
+  height: auto;
+  border: 0;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
 .channel-thumb img {
   display: block;
   width: 100%;

@@ -11,9 +11,10 @@ import (
 )
 
 type Service struct {
-	repo       Repository
-	scanner    ChannelScanner
-	recognizer ChannelRecognizer
+	repo          Repository
+	scanner       ChannelScanner
+	recognizer    ChannelRecognizer
+	snapshotStore SnapshotStore
 }
 
 func NewService(repo Repository) *Service {
@@ -26,6 +27,17 @@ func NewServiceWithScanner(repo Repository, scanner ChannelScanner) *Service {
 
 func NewServiceWithScannerAndRecognizer(repo Repository, scanner ChannelScanner, recognizer ChannelRecognizer) *Service {
 	return &Service{repo: repo, scanner: scanner, recognizer: recognizer}
+}
+
+func (s *Service) UseSnapshotStore(store SnapshotStore) {
+	s.snapshotStore = store
+}
+
+func (s *Service) ChannelSnapshotPath(name string) (string, error) {
+	if s.snapshotStore == nil {
+		return "", ErrNotFound
+	}
+	return s.snapshotStore.FilePath(name)
 }
 
 type ChannelScanner interface {
@@ -285,12 +297,27 @@ func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, re
 	if err != nil {
 		return s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
 			RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
+			CountAttempt:      true,
 		})
 	}
+	recognitionImageURL := firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath)
+	if s.snapshotStore != nil && strings.TrimSpace(recognitionImageURL) != "" {
+		localURL, err := s.snapshotStore.SaveRemote(ctx, recognitionImageURL)
+		if err != nil {
+			return s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
+				RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
+				CountAttempt:      true,
+			})
+		}
+		snapshot.ThumbnailPath = localURL
+		snapshot.FullImagePath = localURL
+		snapshot.FullImageExpiresAt = nil
+	}
+	snapshot.CountAttempt = true
 	snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
 	if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
 		recognitionStarted := time.Now()
-		result, err := s.recognizer.RecognizeChannel(ctx, firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath))
+		result, err := s.recognizer.RecognizeChannel(ctx, recognitionImageURL)
 		recognitionMS := elapsedMilliseconds(recognitionStarted)
 		if err != nil {
 			snapshot.Status = ChannelStatusRecognitionFailed
@@ -299,6 +326,44 @@ func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, re
 			applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
 		}
 	}
+	return s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
+}
+
+func (s *Service) RefreshChannelSnapshot(ctx context.Context, channelID int64) (*Channel, error) {
+	if s.scanner == nil {
+		return nil, ErrNotImplemented
+	}
+	channel, recorder, account, err := s.repo.GetChannelContext(ctx, channelID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if !channel.IsActive || channel.Status == ChannelStatusInactive {
+		return nil, &ValidationError{Fields: map[string]string{"channel": "通道已失效，无法刷新截图"}}
+	}
+	snapshot, err := s.scanner.CaptureChannel(ctx, *account, *recorder, *channel)
+	if err != nil {
+		return nil, err
+	}
+	imageURL := firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath)
+	if s.snapshotStore != nil && strings.TrimSpace(imageURL) != "" {
+		localURL, err := s.snapshotStore.SaveRemote(ctx, imageURL)
+		if err != nil {
+			return nil, err
+		}
+		snapshot.ThumbnailPath = localURL
+		snapshot.FullImagePath = localURL
+		snapshot.FullImageExpiresAt = nil
+	}
+	snapshot.Status = ""
+	snapshot.SceneType = ""
+	snapshot.AreaType = ""
+	snapshot.AreaNumberText = ""
+	snapshot.AreaNote = ""
+	snapshot.RecognitionResult = ""
+	snapshot.CountAttempt = false
 	return s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
 }
 

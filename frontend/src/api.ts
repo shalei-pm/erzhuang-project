@@ -825,6 +825,10 @@ const mockAdapter = {
     return clone(recognized);
   },
 
+  async refreshChannelSnapshot(storeId: number, channelId: number): Promise<VideoChannel> {
+    return this.recognizeChannel(storeId, channelId);
+  },
+
   async confirmChannel(storeId: number, channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
     await delay(180);
     const store = mockStores.find((item) => item.id === storeId);
@@ -1058,6 +1062,13 @@ const storeSpaceHttpAdapter = {
     return mapBackendChannel(response, 0, "");
   },
 
+  async refreshChannelSnapshot(channelId: number): Promise<VideoChannel> {
+    const response = await requestJSON<BackendVideoChannel>(`${STORE_SPACE_API_BASE}/channels/${channelId}/snapshot`, {
+      method: "POST",
+    });
+    return mapBackendChannel(response, 0, "");
+  },
+
   async confirmChannel(channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/confirmation`, {
       method: "PUT",
@@ -1242,6 +1253,13 @@ export const storeSpaceApi = {
       return mockAdapter.recognizeChannel(storeId, channelId);
     }
     return storeSpaceHttpAdapter.recognizeChannel(channelId);
+  },
+
+  async refreshChannelSnapshot(storeId: number, channelId: number): Promise<VideoChannel> {
+    if (API_MODE === "mock") {
+      return mockAdapter.refreshChannelSnapshot(storeId, channelId);
+    }
+    return storeSpaceHttpAdapter.refreshChannelSnapshot(channelId);
   },
 
   async confirmChannel(storeId: number, channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {

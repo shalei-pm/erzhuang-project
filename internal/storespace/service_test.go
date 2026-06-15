@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -522,6 +524,119 @@ func TestRecognizeRecorderChannelsCapturesSnapshots(t *testing.T) {
 	}
 	if updated.Channels[0].RecognitionAttempts != 1 {
 		t.Fatalf("expected one recognition attempt, got %#v", updated.Channels[0])
+	}
+}
+
+func TestRecognizeRecorderChannelsStoresRemoteSnapshotsLocally(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+		snapshots: map[int]string{
+			1: "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
+		},
+	})
+	snapshotStore := NewLocalSnapshotStore(t.TempDir())
+	snapshotStore.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"image/jpeg"}},
+			Body:       io.NopCloser(strings.NewReader("fake-jpeg-data")),
+			Request:    request,
+		}, nil
+	})}
+	service.snapshotStore = snapshotStore
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	updated, err := service.RecognizeRecorderChannels(context.Background(), recorder.ID)
+	if err != nil {
+		t.Fatalf("recognize recorder channels: %v", err)
+	}
+
+	if len(updated.Channels) != 1 {
+		t.Fatalf("expected one channel, got %#v", updated.Channels)
+	}
+	if !strings.HasPrefix(updated.Channels[0].ThumbnailURL, "/api/store-space/channel-snapshots/") {
+		t.Fatalf("expected locally served thumbnail URL, got %#v", updated.Channels[0])
+	}
+	if strings.Contains(updated.Channels[0].ThumbnailURL, "Expires=") {
+		t.Fatalf("expected thumbnail URL not to expose expiring remote query, got %q", updated.Channels[0].ThumbnailURL)
+	}
+}
+
+func TestRefreshChannelSnapshotKeepsConfirmedMapping(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+		snapshots: map[int]string{
+			1: "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
+		},
+	})
+	snapshotStore := NewLocalSnapshotStore(t.TempDir())
+	snapshotStore.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"image/jpeg"}},
+			Body:       io.NopCloser(strings.NewReader("fake-jpeg-data")),
+			Request:    request,
+		}, nil
+	})}
+	service.snapshotStore = snapshotStore
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+	confirmed, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "2",
+	})
+	if err != nil {
+		t.Fatalf("confirm channel: %v", err)
+	}
+
+	updated, err := service.RefreshChannelSnapshot(context.Background(), confirmed.Recorders[0].Channels[0].ID)
+	if err != nil {
+		t.Fatalf("refresh snapshot: %v", err)
+	}
+
+	if updated.Status != ChannelStatusConfirmedBusiness || updated.AreaType != AreaTypeTreatment || updated.AreaNumber != 2 {
+		t.Fatalf("expected confirmed mapping to stay unchanged, got %#v", updated)
+	}
+	if updated.RecognitionAttempts != 0 {
+		t.Fatalf("expected refresh not to count as recognition attempt, got %#v", updated)
+	}
+	if !strings.HasPrefix(updated.ThumbnailURL, "/api/store-space/channel-snapshots/") {
+		t.Fatalf("expected local snapshot URL, got %#v", updated)
 	}
 }
 
@@ -1159,6 +1274,12 @@ func (f *countingFakeChannelScanner) CaptureChannel(ctx context.Context, account
 		FullImagePath:      url,
 		FullImageExpiresAt: &expiresAt,
 	}, nil
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 type fakeChannelRecognizer struct {

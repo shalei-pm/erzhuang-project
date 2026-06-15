@@ -29,6 +29,7 @@ func main() {
 
 		storeSpaceRepo := storespace.NewPostgresStore(db)
 		storeSpaceService := storespace.NewService(storeSpaceRepo)
+		storeSpaceService.UseSnapshotStore(storespace.NewLocalSnapshotStoreFromEnv())
 		var channelRecognizer storespace.ChannelRecognizer
 		if recognizer, enabled, err := channelai.NewRecognizerFromEnv(); err != nil {
 			log.Printf("channel ai recognizer disabled: %v", err)
@@ -40,6 +41,7 @@ func main() {
 			log.Fatalf("ezviz scanner setup failed: %v", err)
 		} else if enabled {
 			storeSpaceService = storespace.NewServiceWithScannerAndRecognizer(storeSpaceRepo, scanner, channelRecognizer)
+			storeSpaceService.UseSnapshotStore(storespace.NewLocalSnapshotStoreFromEnv())
 			log.Print("ezviz scanner enabled")
 		}
 		handler = app.NewHandlerWithServices(app.NewPostgresStore(db), designplan.NewService(designplan.NewPostgresStore(db)), storeSpaceService)

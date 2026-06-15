@@ -139,6 +139,7 @@ type ChannelSnapshotInput struct {
 	AreaType           AreaType
 	AreaNumberText     string
 	AreaNote           string
+	CountAttempt       bool
 }
 
 type ChannelRecognitionResult struct {
