@@ -1708,7 +1708,7 @@ function toDisplayImageUrl(value?: string) {
   }
   const storedUploadMatch = value.match(/^uploads\/([^/]+)\/(preview|thumbnail)\.png$/);
   if (storedUploadMatch) {
-    return `/api/design-plan/uploads/${storedUploadMatch[1]}/${storedUploadMatch[2]}`;
+    return `${APP_BASE_PATH}/api/design-plan/uploads/${storedUploadMatch[1]}/${storedUploadMatch[2]}`;
   }
   if (/^\/api\/design-plan\/uploads\/[^/]+\/(preview|thumbnail)$/.test(value)) {
     return `${APP_BASE_PATH}${value}`;

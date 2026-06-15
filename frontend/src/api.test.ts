@@ -9,6 +9,12 @@ describe("design plan API path helpers", () => {
     );
   });
 
+  it("adds the project base path to stored upload image paths", () => {
+    expect(__testing.toDisplayImageUrl("uploads/upload-1/preview.png")).toBe(
+      "/erzhuang-project/api/design-plan/uploads/upload-1/preview",
+    );
+  });
+
   it("stores upload image paths from the current project base path", () => {
     expect(
       __testing.toStoredPath(
