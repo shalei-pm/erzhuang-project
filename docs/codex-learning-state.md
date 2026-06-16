@@ -28,7 +28,16 @@
   - `docs/technical-architecture-index.md` 补充 `internal/assets`、设计图上传、通道截图的代码索引。
   - `docs/superpowers/plans/2026-06-16-asset-store-storage.md` 记录本次实施计划和后续维护要点。
 - 发布状态：
-  - 当前仅完成本地开发验证，尚未部署到个人服务器或公司环境。
+  - 代码 commit：`dfc4845`。
+  - GitHub `main` 已推送到 `dfc4845`。
+  - TAT InvocationId：`inv-p4x3r8g8ad`。
+  - 服务器发布脚本执行成功，服务器已拉取 `dfc4845`。
+  - 服务器 `go test ./...` 通过。
+  - 服务器 Go build 通过。
+  - 服务器前端 build 通过，产物包含 `/erzhuang/assets/index-CPQG6Jsb.js`。
+  - `erzhuang-project.service` 重启成功。
+  - 服务器本机 `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 服务器 `npm install` 仍提示 2 个 high severity vulnerabilities，未在本次存储改造中处理，后续可单独做前端依赖安全升级评估。
 
 ## 2026-06-15 通道截图持久化 2.9.10 发布记录
 
