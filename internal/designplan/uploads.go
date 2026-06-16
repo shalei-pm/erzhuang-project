@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/assets"
 )
 
 const (
@@ -44,6 +46,7 @@ type UploadInput struct {
 
 type UploadManager struct {
 	rootDir string
+	store   assets.Store
 }
 
 func NewUploadManagerFromEnv() *UploadManager {
@@ -51,10 +54,26 @@ func NewUploadManagerFromEnv() *UploadManager {
 	if rootDir == "" {
 		rootDir = defaultUploadDir
 	}
-	return &UploadManager{rootDir: rootDir}
+	store, err := assets.NewStoreFromEnv()
+	if err != nil {
+		store = assets.NewLocalStore(rootDir)
+	}
+	return NewUploadManager(rootDir, store)
+}
+
+func NewUploadManager(rootDir string, store assets.Store) *UploadManager {
+	rootDir = strings.TrimSpace(rootDir)
+	if rootDir == "" {
+		rootDir = defaultUploadDir
+	}
+	if store == nil {
+		store = assets.NewLocalStore(rootDir)
+	}
+	return &UploadManager{rootDir: rootDir, store: store}
 }
 
 func (m *UploadManager) Save(ctx context.Context, input UploadInput) (*UploadResult, error) {
+	m.ensureStore()
 	if input.File == nil {
 		return nil, &ValidationError{Fields: map[string]string{"file": "PDF 文件不能为空"}}
 	}
@@ -109,6 +128,15 @@ func (m *UploadManager) Save(ctx context.Context, input UploadInput) (*UploadRes
 	relativeOriginal := storedPath(uploadID, "original.pdf")
 	relativePreview := storedPath(uploadID, "preview.png")
 	relativeThumbnail := storedPath(uploadID, "thumbnail.png")
+	if err := m.saveFile(ctx, relativeOriginal, originalPath, "application/pdf"); err != nil {
+		return nil, err
+	}
+	if err := m.saveFile(ctx, relativePreview, previewPath, "image/png"); err != nil {
+		return nil, err
+	}
+	if err := m.saveFile(ctx, relativeThumbnail, thumbnailPath, "image/png"); err != nil {
+		return nil, err
+	}
 
 	return &UploadResult{
 		UploadID:      uploadID,
@@ -123,16 +151,19 @@ func (m *UploadManager) Save(ctx context.Context, input UploadInput) (*UploadRes
 }
 
 func (m *UploadManager) Find(uploadID string) (*UploadResult, error) {
+	m.ensureStore()
 	if !validUploadID(uploadID) {
 		return nil, ErrNotFound
 	}
-	dir := filepath.Join(m.rootDir, uploadID)
-	if _, err := os.Stat(filepath.Join(dir, "preview.png")); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+	previewKey := storedPath(uploadID, "preview.png")
+	reader, _, err := m.store.Open(context.Background(), previewKey)
+	if err != nil {
+		if errors.Is(err, assets.ErrNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
+	_ = reader.Close()
 	return &UploadResult{
 		UploadID:      uploadID,
 		FileName:      "original.pdf",
@@ -170,6 +201,24 @@ func (m *UploadManager) FilePath(uploadID string, kind UploadAssetKind) (string,
 	return path, nil
 }
 
+func (m *UploadManager) Open(uploadID string, kind UploadAssetKind) (io.ReadCloser, string, error) {
+	if !validUploadID(uploadID) {
+		return nil, "", ErrNotFound
+	}
+	name := "preview.png"
+	switch kind {
+	case UploadAssetOriginal:
+		name = "original.pdf"
+	case UploadAssetPreview:
+		name = "preview.png"
+	case UploadAssetThumbnail:
+		name = "thumbnail.png"
+	default:
+		return nil, "", ErrNotFound
+	}
+	return m.OpenStored(storedPath(uploadID, name))
+}
+
 func (m *UploadManager) StoredFilePath(value string) (string, error) {
 	uploadID, name, ok := parseStoredPath(value)
 	if !ok {
@@ -188,7 +237,24 @@ func (m *UploadManager) StoredFilePath(value string) (string, error) {
 	return path, nil
 }
 
+func (m *UploadManager) OpenStored(value string) (io.ReadCloser, string, error) {
+	m.ensureStore()
+	uploadID, name, ok := parseStoredPath(value)
+	if !ok {
+		return nil, "", ErrNotFound
+	}
+	if !validUploadID(uploadID) {
+		return nil, "", ErrNotFound
+	}
+	reader, contentType, err := m.store.Open(context.Background(), storedPath(uploadID, name))
+	if errors.Is(err, assets.ErrNotFound) {
+		return nil, "", ErrNotFound
+	}
+	return reader, contentType, err
+}
+
 func (m *UploadManager) DeleteStoredFiles(values ...string) error {
+	m.ensureStore()
 	seen := map[string]struct{}{}
 	for _, value := range values {
 		uploadID, _, ok := parseStoredPath(value)
@@ -199,6 +265,10 @@ func (m *UploadManager) DeleteStoredFiles(values ...string) error {
 			continue
 		}
 		seen[uploadID] = struct{}{}
+		prefix := filepath.ToSlash(filepath.Join("uploads", uploadID)) + "/"
+		if err := m.store.DeletePrefix(context.Background(), prefix); err != nil {
+			return err
+		}
 		dir := filepath.Join(m.rootDir, uploadID)
 		cleanRoot, err := filepath.Abs(m.rootDir)
 		if err != nil {
@@ -216,6 +286,22 @@ func (m *UploadManager) DeleteStoredFiles(values ...string) error {
 		}
 	}
 	return nil
+}
+
+func (m *UploadManager) saveFile(ctx context.Context, key string, path string, contentType string) error {
+	m.ensureStore()
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return m.store.Save(ctx, key, file, contentType)
+}
+
+func (m *UploadManager) ensureStore() {
+	if m.store == nil {
+		m.store = assets.NewLocalStore(m.rootDir)
+	}
 }
 
 func writeUploadedFile(path string, header []byte, file multipart.File, limit int64) error {

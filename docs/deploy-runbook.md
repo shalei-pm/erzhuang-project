@@ -92,6 +92,7 @@ sudo apt-get install -y poppler-utils
 systemd 环境文件 `/etc/erzhuang-project.env` 需要包含：
 
 ```text
+ASSET_STORE=local
 UPLOAD_DIR=/opt/apps/erzhuang-project/uploads
 OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-4o
@@ -102,7 +103,27 @@ OPENAI_API_STYLE=responses
 注意：
 
 - `OPENAI_API_KEY` 只放服务器环境文件，不提交到 GitHub。
-- `uploads` 目录需要允许运行服务的 `lighthouse` 用户写入。
+- 本地文件模式下，`uploads` 目录需要允许运行服务的 `lighthouse` 用户写入，并建议做持久化备份。
+- 本地模式会兼容历史数据库路径：数据库里保存 `uploads/tmp_xxx/preview.png`，实际磁盘路径是 `UPLOAD_DIR/tmp_xxx/preview.png`。
+
+公司 K8s 环境建议使用 Supabase Storage 存放设计图和通道截图：
+
+```text
+ASSET_STORE=supabase
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_STORAGE_BUCKET=design-plan-assets
+UPLOAD_DIR=/tmp/erzhuang-work
+```
+
+注意：
+
+- `SUPABASE_SERVICE_ROLE_KEY` 只能放后端 K8s Secret，不允许进入仓库、镜像或前端 `VITE_*` 变量。
+- `UPLOAD_DIR` 在 Supabase Storage 模式下只作为 PDF 渲染临时工作目录，最终 `original.pdf`、`preview.png`、`thumbnail.png` 和通道截图会通过后端写入 Supabase Storage。
+- Supabase bucket 推荐设为 private，由 Go 后端统一读取和转发，不让前端直连 Storage。
+- Supabase Storage 对象 key 约定：
+  - 设计图：`uploads/{upload_id}/original.pdf`、`uploads/{upload_id}/preview.png`、`uploads/{upload_id}/thumbnail.png`。
+  - 通道截图：`channel-snapshots/{snapshot_name}.jpg`。
 
 ## 前端发布方向
 

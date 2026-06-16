@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -33,11 +34,11 @@ func (s *Service) UseSnapshotStore(store SnapshotStore) {
 	s.snapshotStore = store
 }
 
-func (s *Service) ChannelSnapshotPath(name string) (string, error) {
+func (s *Service) OpenChannelSnapshot(ctx context.Context, name string) (io.ReadCloser, string, error) {
 	if s.snapshotStore == nil {
-		return "", ErrNotFound
+		return nil, "", ErrNotFound
 	}
-	return s.snapshotStore.FilePath(name)
+	return s.snapshotStore.Open(ctx, name)
 }
 
 type ChannelScanner interface {

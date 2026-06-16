@@ -2,8 +2,11 @@ package designplan
 
 import (
 	"context"
+	"io"
 	"log"
 	"strings"
+
+	"github.com/shalei-pm/erzhuang-project/internal/assets"
 )
 
 type Service struct {
@@ -13,10 +16,21 @@ type Service struct {
 }
 
 func NewService(repo Repository) *Service {
+	uploads := NewUploadManagerFromEnv()
 	return &Service{
 		repo:       repo,
-		uploads:    NewUploadManagerFromEnv(),
-		recognizer: NewOpenAIRecognizerFromEnv(),
+		uploads:    uploads,
+		recognizer: NewOpenAIRecognizerFromEnvWithAssetReader(uploads.OpenStored),
+	}
+}
+
+func NewServiceWithAssetStore(repo Repository, assetStore assets.Store) *Service {
+	rootDir := strings.TrimSpace(getenv("UPLOAD_DIR", defaultUploadDir))
+	uploads := NewUploadManager(rootDir, assetStore)
+	return &Service{
+		repo:       repo,
+		uploads:    uploads,
+		recognizer: NewOpenAIRecognizerFromEnvWithAssetReader(uploads.OpenStored),
 	}
 }
 
@@ -97,8 +111,16 @@ func (s *Service) UploadFilePath(uploadID string, kind UploadAssetKind) (string,
 	return s.uploads.FilePath(uploadID, kind)
 }
 
+func (s *Service) OpenUploadAsset(uploadID string, kind UploadAssetKind) (io.ReadCloser, string, error) {
+	return s.uploads.Open(uploadID, kind)
+}
+
 func (s *Service) StoredFilePath(value string) (string, error) {
 	return s.uploads.StoredFilePath(value)
+}
+
+func (s *Service) OpenStoredAsset(value string) (io.ReadCloser, string, error) {
+	return s.uploads.OpenStored(value)
 }
 
 func (s *Service) ensureNoExactDuplicate(ctx context.Context, name string, excludeStoreID int64) error {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/app"
+	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/channelai"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
@@ -26,10 +27,14 @@ func main() {
 			log.Fatalf("database setup failed: %v", err)
 		}
 		defer db.Close()
+		assetStore, err := assets.NewStoreFromEnv()
+		if err != nil {
+			log.Fatalf("asset store setup failed: %v", err)
+		}
 
 		storeSpaceRepo := storespace.NewPostgresStore(db)
 		storeSpaceService := storespace.NewService(storeSpaceRepo)
-		storeSpaceService.UseSnapshotStore(storespace.NewLocalSnapshotStoreFromEnv())
+		storeSpaceService.UseSnapshotStore(storespace.NewAssetSnapshotStore(assetStore))
 		var channelRecognizer storespace.ChannelRecognizer
 		if recognizer, enabled, err := channelai.NewRecognizerFromEnv(); err != nil {
 			log.Printf("channel ai recognizer disabled: %v", err)
@@ -41,10 +46,10 @@ func main() {
 			log.Fatalf("ezviz scanner setup failed: %v", err)
 		} else if enabled {
 			storeSpaceService = storespace.NewServiceWithScannerAndRecognizer(storeSpaceRepo, scanner, channelRecognizer)
-			storeSpaceService.UseSnapshotStore(storespace.NewLocalSnapshotStoreFromEnv())
+			storeSpaceService.UseSnapshotStore(storespace.NewAssetSnapshotStore(assetStore))
 			log.Print("ezviz scanner enabled")
 		}
-		handler = app.NewHandlerWithServices(app.NewPostgresStore(db), designplan.NewService(designplan.NewPostgresStore(db)), storeSpaceService)
+		handler = app.NewHandlerWithServices(app.NewPostgresStore(db), designplan.NewServiceWithAssetStore(designplan.NewPostgresStore(db), assetStore), storeSpaceService)
 		log.Print("database store enabled: postgres")
 	} else {
 		log.Print("database store disabled: using memory store")
