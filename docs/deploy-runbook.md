@@ -31,7 +31,8 @@
 - 健康检查：`http://127.0.0.1:18081/health`
 - 公网入口：`https://43.155.237.46/erzhuang/`
 - GitHub 访问方式：服务器 read-only Deploy Key
-- Deploy Key 路径：`~/.ssh/erzhuang_project_deploy_key`
+- 本机 SSH 登录服务器 key：`~/.ssh/erzhuang_lighthouse`
+- 服务器内部拉取 GitHub deploy key：`~/.ssh/erzhuang_project_deploy_key`
 
 ## 发布当前 main
 
