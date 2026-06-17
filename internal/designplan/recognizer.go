@@ -21,15 +21,22 @@ type Recognizer interface {
 	Recognize(ctx context.Context, upload *UploadResult) (*RecognitionResult, error)
 }
 
+type AssetReader func(value string) (io.ReadCloser, string, error)
+
 type OpenAIRecognizer struct {
 	apiKey     string
 	baseURL    string
 	apiStyle   string
 	model      string
 	httpClient *http.Client
+	readAsset  AssetReader
 }
 
 func NewOpenAIRecognizerFromEnv() Recognizer {
+	return NewOpenAIRecognizerFromEnvWithAssetReader(nil)
+}
+
+func NewOpenAIRecognizerFromEnvWithAssetReader(readAsset AssetReader) Recognizer {
 	return &OpenAIRecognizer{
 		apiKey: strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
 		baseURL: strings.TrimRight(
@@ -41,6 +48,7 @@ func NewOpenAIRecognizerFromEnv() Recognizer {
 		httpClient: &http.Client{
 			Timeout: 75 * time.Second,
 		},
+		readAsset: readAsset,
 	}
 }
 
@@ -52,7 +60,7 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, upload *UploadResult) 
 		return nil, &ValidationError{Fields: map[string]string{"upload_id": "上传文件不存在"}}
 	}
 
-	imageBytes, err := os.ReadFile(filepathFromStoredUpload(upload.PreviewPath))
+	imageBytes, err := r.readImageBytes(upload.PreviewPath)
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +79,18 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, upload *UploadResult) 
 	result := output.toRecognitionResult()
 	result.RawResult = raw
 	return result, nil
+}
+
+func (r *OpenAIRecognizer) readImageBytes(value string) ([]byte, error) {
+	if r.readAsset != nil {
+		reader, _, err := r.readAsset(value)
+		if err != nil {
+			return nil, err
+		}
+		defer reader.Close()
+		return io.ReadAll(reader)
+	}
+	return os.ReadFile(filepathFromStoredUpload(value))
 }
 
 func (r *OpenAIRecognizer) callResponsesAPI(ctx context.Context, imageBytes []byte) (recognizerOutput, json.RawMessage, error) {

@@ -3,6 +3,8 @@ package storespace
 import (
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -236,12 +238,18 @@ func (h *Handler) refreshChannelSnapshot(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) getChannelSnapshot(w http.ResponseWriter, r *http.Request) {
-	path, err := h.service.ChannelSnapshotPath(r.PathValue("name"))
+	reader, contentType, err := h.service.OpenChannelSnapshot(r.Context(), r.PathValue("name"))
 	if err != nil {
 		handleServiceError(w, err)
 		return
 	}
-	http.ServeFile(w, r, path)
+	defer reader.Close()
+	if strings.TrimSpace(contentType) != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	if _, err := io.Copy(w, reader); err != nil {
+		log.Printf("storespace: serve channel snapshot failed: %v", err)
+	}
 }
 
 func (h *Handler) unlockChannelForEdit(w http.ResponseWriter, r *http.Request) {

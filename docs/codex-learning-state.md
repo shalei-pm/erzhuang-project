@@ -1,10 +1,43 @@
 # Codex Learning State
 
-最后更新：2026-06-15
+最后更新：2026-06-16
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-16 资产存储抽象 2.10.0 开发记录
+
+- 版本号：`2.10.0`。
+- 背景：
+  - 公司研发反馈：如果设计图、预览图、缩略图和监控截图只存在容器本地目录，K8s 容器重启或重新调度后可能丢失。
+  - 建议把这些文件放到 Supabase Storage，并保留数据库字段记录对象路径。
+- 本次改进：
+  - 新增 `internal/assets` 统一资产存储层。
+  - 支持 `ASSET_STORE=local` 和 `ASSET_STORE=supabase` 两种实现。
+  - 设计图上传仍在本地临时目录完成 PDF 转 PNG，然后把 `original.pdf`、`preview.png`、`thumbnail.png` 保存到 AssetStore。
+  - 通道截图从萤石云临时 URL 下载后，也改为保存到 AssetStore。
+  - 图片接口继续由 Go 后端读取并转发，前端不直连 Supabase Storage。
+  - 兼容旧本地路径：数据库仍保存 `uploads/{upload_id}/preview.png`，Supabase 使用该逻辑 key；本地模式会映射回 `UPLOAD_DIR/{upload_id}/preview.png`，避免个人服务器旧图打不开。
+- 环境变量约定：
+  - 本地/个人服务器：`ASSET_STORE=local`，`UPLOAD_DIR=/opt/apps/erzhuang-project/uploads`。
+  - 公司 K8s：`ASSET_STORE=supabase`，`SUPABASE_URL=...`，`SUPABASE_SERVICE_ROLE_KEY=...`，`SUPABASE_STORAGE_BUCKET=design-plan-assets`，`UPLOAD_DIR=/tmp/erzhuang-work`。
+  - `SUPABASE_SERVICE_ROLE_KEY` 只允许放服务端环境变量或 K8s Secret，不进入仓库、镜像和前端 `VITE_*` 配置。
+- 文档同步：
+  - `docs/deploy-runbook.md` 补充 Supabase Storage 部署配置。
+  - `docs/technical-architecture-index.md` 补充 `internal/assets`、设计图上传、通道截图的代码索引。
+  - `docs/superpowers/plans/2026-06-16-asset-store-storage.md` 记录本次实施计划和后续维护要点。
+- 发布状态：
+  - 代码 commit：`dfc4845`。
+  - GitHub `main` 已推送到 `dfc4845`。
+  - TAT InvocationId：`inv-p4x3r8g8ad`。
+  - 服务器发布脚本执行成功，服务器已拉取 `dfc4845`。
+  - 服务器 `go test ./...` 通过。
+  - 服务器 Go build 通过。
+  - 服务器前端 build 通过，产物包含 `/erzhuang/assets/index-CPQG6Jsb.js`。
+  - `erzhuang-project.service` 重启成功。
+  - 服务器本机 `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 服务器 `npm install` 仍提示 2 个 high severity vulnerabilities，未在本次存储改造中处理，后续可单独做前端依赖安全升级评估。
 
 ## 2026-06-15 通道截图持久化 2.9.10 发布记录
 

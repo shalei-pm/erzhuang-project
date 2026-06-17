@@ -18,7 +18,9 @@ go run ./cmd/server
 - `OPENAI_MODEL`：可选，默认 `gpt-4o`。
 - `OPENAI_BASE_URL`：可选，默认 `https://api.openai.com`；自定义兼容网关可覆盖。
 - `OPENAI_API_STYLE`：可选，默认 `responses`；兼容网关可设置为 `openai-completions`。
+- `ASSET_STORE`：可选，默认 `local`。公司 K8s 可设置为 `supabase`。
 - `UPLOAD_DIR`：可选，默认 `uploads/design-plan`。
+- `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`SUPABASE_STORAGE_BUCKET`：当 `ASSET_STORE=supabase` 时必填。service role key 只放服务端环境变量，不提交到仓库，也不放前端 `VITE_*` 配置。
 
 监控截图区域识别依赖：
 

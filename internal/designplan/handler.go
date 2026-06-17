@@ -95,12 +95,13 @@ func (h *Handler) getUploadAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "asset not found", nil)
 		return
 	}
-	path, err := h.service.UploadFilePath(uploadID, asset)
+	reader, contentType, err := h.service.OpenUploadAsset(uploadID, asset)
 	if err != nil {
 		handleServiceError(w, err)
 		return
 	}
-	http.ServeFile(w, r, path)
+	defer reader.Close()
+	serveAsset(w, reader, contentType)
 }
 
 func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {
@@ -162,12 +163,22 @@ func (h *Handler) serveStoreImage(w http.ResponseWriter, r *http.Request, kind U
 	if kind == UploadAssetThumbnail {
 		value = store.ThumbnailPath
 	}
-	path, err := h.service.StoredFilePath(value)
+	reader, contentType, err := h.service.OpenStoredAsset(value)
 	if err != nil {
 		handleServiceError(w, err)
 		return
 	}
-	http.ServeFile(w, r, path)
+	defer reader.Close()
+	serveAsset(w, reader, contentType)
+}
+
+func serveAsset(w http.ResponseWriter, reader io.Reader, contentType string) {
+	if strings.TrimSpace(contentType) != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	if _, err := io.Copy(w, reader); err != nil {
+		log.Printf("designplan: serve asset failed: %v", err)
+	}
 }
 
 func (h *Handler) createStore(w http.ResponseWriter, r *http.Request) {

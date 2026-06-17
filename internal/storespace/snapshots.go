@@ -1,6 +1,7 @@
 package storespace
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -14,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/assets"
 )
 
 const (
@@ -23,12 +26,12 @@ const (
 
 type SnapshotStore interface {
 	SaveRemote(ctx context.Context, imageURL string) (string, error)
-	FilePath(name string) (string, error)
+	Open(ctx context.Context, name string) (io.ReadCloser, string, error)
 }
 
 type LocalSnapshotStore struct {
-	rootDir string
-	client  *http.Client
+	store  assets.Store
+	client *http.Client
 }
 
 func NewLocalSnapshotStore(rootDir string) *LocalSnapshotStore {
@@ -36,10 +39,7 @@ func NewLocalSnapshotStore(rootDir string) *LocalSnapshotStore {
 	if rootDir == "" {
 		rootDir = defaultSnapshotDir
 	}
-	return &LocalSnapshotStore{
-		rootDir: rootDir,
-		client:  &http.Client{Timeout: 30 * time.Second},
-	}
+	return NewAssetSnapshotStore(assets.NewLocalStore(rootDir))
 }
 
 func NewLocalSnapshotStoreFromEnv() *LocalSnapshotStore {
@@ -48,6 +48,16 @@ func NewLocalSnapshotStoreFromEnv() *LocalSnapshotStore {
 		rootDir = defaultSnapshotDir
 	}
 	return NewLocalSnapshotStore(rootDir)
+}
+
+func NewAssetSnapshotStore(store assets.Store) *LocalSnapshotStore {
+	if store == nil {
+		store = assets.NewLocalStore(defaultSnapshotDir)
+	}
+	return &LocalSnapshotStore{
+		store:  store,
+		client: &http.Client{Timeout: 30 * time.Second},
+	}
 }
 
 func (s *LocalSnapshotStore) SaveRemote(ctx context.Context, imageURL string) (string, error) {
@@ -76,59 +86,29 @@ func (s *LocalSnapshotStore) SaveRemote(ctx context.Context, imageURL string) (s
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(s.rootDir, 0o755); err != nil {
-		return "", err
-	}
-	targetPath := filepath.Join(s.rootDir, name)
-	tempPath := targetPath + ".tmp"
-	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	body := io.LimitReader(response.Body, maxSnapshotBytes+1)
+	limited, err := io.ReadAll(body)
 	if err != nil {
 		return "", err
 	}
-	written, copyErr := io.Copy(file, io.LimitReader(response.Body, maxSnapshotBytes+1))
-	closeErr := file.Close()
-	if copyErr != nil {
-		_ = os.Remove(tempPath)
-		return "", copyErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(tempPath)
-		return "", closeErr
-	}
-	if written > maxSnapshotBytes {
-		_ = os.Remove(tempPath)
+	if len(limited) > maxSnapshotBytes {
 		return "", fmt.Errorf("snapshot image exceeds %d bytes", maxSnapshotBytes)
 	}
-	if err := os.Rename(tempPath, targetPath); err != nil {
-		_ = os.Remove(tempPath)
+	if err := s.store.Save(ctx, snapshotKey(name), bytes.NewReader(limited), contentTypeOrDefault(response.Header.Get("Content-Type"), extension)); err != nil {
 		return "", err
 	}
 	return "/api/store-space/channel-snapshots/" + name, nil
 }
 
-func (s *LocalSnapshotStore) FilePath(name string) (string, error) {
+func (s *LocalSnapshotStore) Open(ctx context.Context, name string) (io.ReadCloser, string, error) {
 	if s == nil || !validSnapshotName(name) {
-		return "", ErrNotFound
+		return nil, "", ErrNotFound
 	}
-	path := filepath.Join(s.rootDir, name)
-	cleanRoot, err := filepath.Abs(s.rootDir)
-	if err != nil {
-		return "", err
+	reader, contentType, err := s.store.Open(ctx, snapshotKey(name))
+	if errors.Is(err, assets.ErrNotFound) {
+		return nil, "", ErrNotFound
 	}
-	cleanPath, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	if !strings.HasPrefix(cleanPath, cleanRoot+string(os.PathSeparator)) {
-		return "", ErrNotFound
-	}
-	if _, err := os.Stat(cleanPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", ErrNotFound
-		}
-		return "", err
-	}
-	return cleanPath, nil
+	return reader, contentType, err
 }
 
 func snapshotExtension(contentType string, path string) string {
@@ -179,4 +159,23 @@ func validSnapshotName(name string) bool {
 		}
 	}
 	return true
+}
+
+func snapshotKey(name string) string {
+	return filepath.ToSlash(filepath.Join("channel-snapshots", name))
+}
+
+func contentTypeOrDefault(contentType string, extension string) string {
+	contentType = strings.TrimSpace(contentType)
+	if contentType != "" {
+		return contentType
+	}
+	switch extension {
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
 }
