@@ -29,6 +29,21 @@
 - `AGENTS.md`
 - `docs/deploy-runbook.md`
 
+## 2026-06-17 萤石云账号区域自动同步
+
+- 版本号：`2.10.1`。
+- 公司环境添加录像机时“选择区域”为空，根因是公司新数据库 `ezviz_accounts` 没有 `华北/华东/华南/华中` 等展示记录。
+- 当前决策：
+  - 公司内网环境可临时把完整 `EZVIZ_ACCOUNTS_JSON` 写入内网 GitLab Dockerfile 或容器环境变量，后续再迁移到 K8s Secret。
+  - 代码不把 `app_key/app_secret/access_token` 写入数据库。
+  - 服务启动时从 `EZVIZ_ACCOUNTS_JSON` 读取账号 `name/account_name`，自动 upsert 到 `ezviz_accounts`，状态设为 `available`。
+  - 前端继续从 `GET /api/store-space/ezviz-accounts` 获取可选区域。
+  - 扫描、抓图时后端仍使用运行时 env 中的完整密钥。
+- 验证重点：
+  - 公司环境启动日志应出现 `ezviz scanner enabled, synced N account(s)`。
+  - `GET /api/store-space/ezviz-accounts` 应返回 `华北/华东/华南/华中`。
+  - 添加门店/添加录像机时“选择区域”下拉应出现对应大区。
+
 ## 2026-06-16 资产存储抽象 2.10.0 开发记录
 
 - 版本号：`2.10.0`。

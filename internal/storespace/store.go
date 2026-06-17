@@ -18,6 +18,7 @@ type Repository interface {
 	ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error)
 	CreateEzvizAccount(ctx context.Context, input CreateEzvizAccountInput) (*EzvizAccount, error)
 	EzvizAccountNameExists(ctx context.Context, accountName string) (bool, error)
+	UpsertEzvizAccountName(ctx context.Context, accountName string) error
 	ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error)
 	GetStore(ctx context.Context, id int64) (*Store, error)
 	CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error)
@@ -109,6 +110,34 @@ func (s *MemoryStore) EzvizAccountNameExists(ctx context.Context, accountName st
 		}
 	}
 	return false, nil
+}
+
+func (s *MemoryStore) UpsertEzvizAccountName(ctx context.Context, accountName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cleanName := strings.TrimSpace(accountName)
+	if cleanName == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	for _, account := range s.accounts {
+		if account.AccountName == cleanName {
+			account.Status = "available"
+			account.UpdatedAt = now
+			return nil
+		}
+	}
+	account := EzvizAccount{
+		ID:          s.nextAccountID,
+		AccountName: cleanName,
+		Status:      "available",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	s.nextAccountID++
+	s.accounts[account.ID] = &account
+	return nil
 }
 
 func (s *MemoryStore) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {
@@ -924,6 +953,21 @@ func (s *PostgresStore) EzvizAccountNameExists(ctx context.Context, accountName 
 		return false, nil
 	}
 	return err == nil, err
+}
+
+func (s *PostgresStore) UpsertEzvizAccountName(ctx context.Context, accountName string) error {
+	cleanName := strings.TrimSpace(accountName)
+	if cleanName == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+		insert into ezviz_accounts (account_name, status)
+		values ($1, 'available')
+		on conflict (account_name) do update set
+			status = 'available',
+			updated_at = now()
+	`, cleanName)
+	return err
 }
 
 func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {

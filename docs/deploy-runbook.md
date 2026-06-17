@@ -124,6 +124,19 @@ OPENAI_BASE_URL=https://api.openai.com
 OPENAI_API_STYLE=responses
 ```
 
+萤石云录像机扫描需要配置：
+
+```text
+EZVIZ_ACCOUNTS_JSON=[{"name":"华北","app_key":"...","app_secret":"...","access_token":"..."},{"name":"华东","app_key":"...","app_secret":"..."},{"name":"华南","app_key":"...","app_secret":"..."},{"name":"华中","app_key":"...","app_secret":"..."}]
+```
+
+运行规则：
+
+- `name` 必须使用前端需要展示的区域名，例如 `华北`、`华东`、`华南`、`华中`。
+- 服务启动时会读取 `EZVIZ_ACCOUNTS_JSON`，自动把这些 `name` 同步到数据库 `ezviz_accounts`，状态设为 `available`。
+- 数据库只保存区域账号展示记录；扫描、抓图仍使用运行时环境变量里的 `app_key` / `app_secret` / `access_token`。
+- 公司内网环境当前允许把该变量临时写入内网 GitLab Dockerfile 做验证；长期建议迁移到 K8s Secret 或受保护 CI/CD Variables。
+
 注意：
 
 - `OPENAI_API_KEY` 只放服务器环境文件，不提交到 GitHub。
