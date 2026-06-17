@@ -352,7 +352,7 @@ h1 {
 
 .store-table th:nth-child(12),
 .store-table td:nth-child(12) {
-  width: 184px;
+  width: 212px;
   padding-right: 18px;
 }
 
@@ -534,7 +534,7 @@ td:nth-child(10) {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-width: 68px;
+  min-width: 56px;
   min-height: 30px;
   padding: 0 10px;
   border: 1px solid #c7d2fe;

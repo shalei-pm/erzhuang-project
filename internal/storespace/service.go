@@ -148,6 +148,19 @@ func (s *Service) CreateStore(ctx context.Context, input CreateStoreInput) (*Sto
 	return s.repo.CreateStore(ctx, input)
 }
 
+func (s *Service) UpdateStoreBasicInfo(ctx context.Context, id int64, input UpdateStoreBasicInfoInput) (*Store, error) {
+	if err := validateUpdateStoreBasicInfoInput(input); err != nil {
+		return nil, err
+	}
+	input.City = strings.TrimSpace(input.City)
+	input.Name = strings.TrimSpace(input.Name)
+	input.ExternalOrgID = strings.TrimSpace(input.ExternalOrgID)
+	if err := s.ensureNoExactDuplicate(ctx, input.Name, id); err != nil {
+		return nil, err
+	}
+	return s.repo.UpdateStoreBasicInfo(ctx, id, input)
+}
+
 func (s *Service) SaveDesignPlan(ctx context.Context, storeID int64, input SaveDesignPlanInput) (*Store, error) {
 	input.UploadID = strings.TrimSpace(input.UploadID)
 	input.PDFFileName = strings.TrimSpace(input.PDFFileName)

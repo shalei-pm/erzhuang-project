@@ -175,6 +175,13 @@ export type CreateStoreSpacePayload = {
   recorders: RecorderDraft[];
 };
 
+export type UpdateStoreBasicInfoPayload = {
+  id: number;
+  city: string;
+  name: string;
+  externalOrgId: string;
+};
+
 export type AddRecorderPayload = {
   ezvizAccountId: number | "";
   deviceCode: string;
@@ -727,6 +734,21 @@ const mockAdapter = {
     return clone(detail);
   },
 
+  async updateStoreBasicInfo(payload: UpdateStoreBasicInfoPayload): Promise<StoreDetail> {
+    await delay(180);
+    const existing = mockStores.find((item) => item.id === payload.id);
+    if (!existing) throw new Error("门店不存在");
+    const nextStore = {
+      ...existing,
+      city: payload.city.trim(),
+      name: payload.name.trim(),
+      externalOrgId: payload.externalOrgId.trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    mockStores = mockStores.map((item) => (item.id === payload.id ? nextStore : item));
+    return clone(nextStore);
+  },
+
   async scanRecorder(storeId: number, recorderId: number): Promise<VideoRecorder> {
     await delay(360);
     const store = mockStores.find((item) => item.id === storeId);
@@ -980,6 +1002,14 @@ const storeSpaceHttpAdapter = {
     return mapStoreSpaceDetail(response);
   },
 
+  async updateStoreBasicInfo(payload: UpdateStoreBasicInfoPayload): Promise<StoreDetail> {
+    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores/${payload.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(toStoreSpaceBasicInfoPayload(payload)),
+    });
+    return mapStoreSpaceDetail(response);
+  },
+
   async checkDuplicate(name: string, excludeStoreId?: number): Promise<DuplicateCheckResult> {
     const response = await requestJSON<{
       exact_match: BackendDuplicateMatch | null;
@@ -1209,6 +1239,13 @@ export const storeSpaceApi = {
       return mockAdapter.createStoreSpace(payload);
     }
     return storeSpaceHttpAdapter.createStore(payload);
+  },
+
+  async updateStoreBasicInfo(payload: UpdateStoreBasicInfoPayload): Promise<StoreDetail> {
+    if (API_MODE === "mock") {
+      return mockAdapter.updateStoreBasicInfo(payload);
+    }
+    return storeSpaceHttpAdapter.updateStoreBasicInfo(payload);
   },
 
   async deleteStore(id: number): Promise<void> {
@@ -1716,6 +1753,14 @@ function toStoreSpaceCreatePayload(payload: CreateStoreSpacePayload) {
         ezviz_account_id: Number(recorder.ezvizAccountId),
         device_code: recorder.deviceCode.trim(),
       })),
+  };
+}
+
+function toStoreSpaceBasicInfoPayload(payload: UpdateStoreBasicInfoPayload) {
+  return {
+    city: payload.city,
+    name: payload.name,
+    external_org_id: payload.externalOrgId,
   };
 }
 

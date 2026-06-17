@@ -6,6 +6,32 @@
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
 
+## 2026-06-17 机构基础信息编辑 2.12.0 开发记录
+
+- 版本号：`2.12.0`。
+- 用户反馈：
+  - 添加门店后，城市和新氧机构 ID 无法再修改。
+  - 机构列表操作区希望改为 `详情 / 编辑 / 删除`。
+- 产品决策：
+  - 列表页新增“编辑”只维护基础信息：城市、门店名称、新氧机构 ID。
+  - 设计图、录像机、通道映射仍在详情页对应 Tab 维护，不放进基础信息编辑弹窗，避免入口重复和校验混乱。
+- 后端代码索引：
+  - `PATCH /api/store-space/stores/{id}`：更新机构基础信息。
+  - `internal/storespace/models.go`：`UpdateStoreBasicInfoInput`。
+  - `internal/storespace/service.go`：`UpdateStoreBasicInfo`，复用同名门店校验并排除当前门店。
+  - `internal/storespace/store.go`：Memory/Postgres 更新 `city/name/normalized_name/external_org_id/updated_at`。
+  - `internal/storespace/handler.go`：`updateStoreBasicInfo`。
+- 前端代码索引：
+  - `frontend/src/components/StoreList.tsx`：操作区改为 `详情 / 编辑 / 删除`。
+  - `frontend/src/components/EditStoreModal.tsx`：基础信息编辑弹窗。
+  - `frontend/src/App.tsx`：编辑弹窗状态、保存、重复门店确认和列表刷新。
+  - `frontend/src/api.ts`：`UpdateStoreBasicInfoPayload`、`storeSpaceApi.updateStoreBasicInfo`。
+  - `frontend/src/components/CreateStoreModal.tsx`：导出 `CITY_OPTIONS` 供编辑弹窗复用。
+- 验证状态：
+  - 已补 service 与 handler 测试。
+  - `cd frontend && npm run build` 通过。
+  - 本机 Go 测试仍受 `.tools/go` / macOS 动态加载 `missing LC_UUID load command` 影响，待在服务器或可用 Go 环境验证。
+
 ## 2026-06-17 图片访问前缀修复 2.11.1 开发记录
 
 - 版本号：`2.11.1`。

@@ -27,6 +27,7 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	mux.HandleFunc("POST /api/store-space/stores", handler.createStore)
 	mux.HandleFunc("POST /api/store-space/stores/check-duplicate", handler.checkDuplicate)
 	mux.HandleFunc("GET /api/store-space/stores/{id}", handler.getStore)
+	mux.HandleFunc("PATCH /api/store-space/stores/{id}", handler.updateStoreBasicInfo)
 	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-mappings/export.xlsx", handler.exportChannelMappings)
 	mux.HandleFunc("PUT /api/store-space/stores/{id}/design-plan", handler.saveDesignPlan)
 	mux.HandleFunc("POST /api/store-space/stores/{id}/recorders", handler.addRecorder)
@@ -101,6 +102,23 @@ func (h *Handler) createStore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, store)
+}
+
+func (h *Handler) updateStoreBasicInfo(w http.ResponseWriter, r *http.Request) {
+	storeID, ok := parseID(w, r, "id")
+	if !ok {
+		return
+	}
+	var input UpdateStoreBasicInfoInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	store, err := h.service.UpdateStoreBasicInfo(r.Context(), storeID, input)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, store)
 }
 
 func (h *Handler) saveDesignPlan(w http.ResponseWriter, r *http.Request) {

@@ -4,7 +4,7 @@ import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz"
 
 const MAX_PDF_BYTES = 5 * 1024 * 1024;
 const MAX_RECORDERS = 3;
-const CITY_OPTIONS = [
+export const CITY_OPTIONS = [
   "北京",
   "上海",
   "广州",

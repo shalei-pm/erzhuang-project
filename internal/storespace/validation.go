@@ -18,12 +18,7 @@ func (e *ValidationError) Error() string {
 func validateCreateStoreInput(input CreateStoreInput) error {
 	fields := map[string]string{}
 
-	if strings.TrimSpace(input.Name) == "" {
-		fields["name"] = "门店名称必填"
-	}
-	if strings.TrimSpace(input.City) == "" {
-		fields["city"] = "城市必填"
-	}
+	validateStoreBasicFields(input.City, input.Name, fields)
 
 	hasDesignPlan := strings.TrimSpace(input.DesignPlanUploadID) != ""
 	hasRecorder := false
@@ -51,6 +46,24 @@ func validateCreateStoreInput(input CreateStoreInput) error {
 		return &ValidationError{Fields: fields}
 	}
 	return nil
+}
+
+func validateUpdateStoreBasicInfoInput(input UpdateStoreBasicInfoInput) error {
+	fields := map[string]string{}
+	validateStoreBasicFields(input.City, input.Name, fields)
+	if len(fields) > 0 {
+		return &ValidationError{Fields: fields}
+	}
+	return nil
+}
+
+func validateStoreBasicFields(city string, name string, fields map[string]string) {
+	if strings.TrimSpace(name) == "" {
+		fields["name"] = "门店名称必填"
+	}
+	if strings.TrimSpace(city) == "" {
+		fields["city"] = "城市必填"
+	}
 }
 
 func validateCreateEzvizAccountInput(input CreateEzvizAccountInput) error {
