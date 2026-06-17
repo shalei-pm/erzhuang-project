@@ -3,12 +3,18 @@
 FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:23.11.1-alpine AS frontend-builder
 WORKDIR /src/frontend
 
+ARG GIT_VERSION=container
+ARG VITE_APP_VERSION=
+
 COPY frontend/package*.json ./
 RUN npm ci
 
+COPY VERSION /src/VERSION
 COPY testdata/ /src/testdata/
 COPY frontend/ ./
-RUN npm run build
+RUN PRODUCT_VERSION="$(cat /src/VERSION)" \
+    && APP_VERSION="${VITE_APP_VERSION:-${PRODUCT_VERSION} (${GIT_VERSION})}" \
+    && VITE_APP_VERSION="${APP_VERSION}" npm run build
 
 FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye AS go-builder
 WORKDIR /src

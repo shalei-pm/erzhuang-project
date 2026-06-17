@@ -14,6 +14,7 @@
   - 默认上传目录：`/app/uploads/design-plan`
 - Go 服务会读取 `APP_BASE_PATH` 和 `FRONTEND_DIR`，默认把前端产物挂到 `/erzhuang-project`，并兼容 `/erzhuang-project/api/...` 到后端 `/api/...`、`/erzhuang-project/health` 到后端 `/health` 的转发前缀。
 - Dockerfile 中构建阶段基础镜像使用公司内网镜像地址：`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-node:23.11.1-alpine`、`soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye`。
+- 前端页脚版本号由 Dockerfile 在构建前端时注入 `VITE_APP_VERSION`。发布系统建议通过 build arg 传入 `GIT_VERSION=<commit-short-sha>`；如果未传入，则显示 `VERSION` 文件内容加 `(container)`，避免出现 `local-dev`。
 - 运行阶段暂用公司 Debian 镜像，不在 Kaniko 构建时访问 Debian apt 源安装 `poppler-utils`。
 - 已尝试 Docker Hub 镜像 `minidocks/poppler:latest` 的 DaoCloud 大陆代理地址 `m.daocloud.io/docker.io/minidocks/poppler:latest`，但 DaoCloud 返回 `this image is not in the allowlist`，需等运维同步到公司内网镜像或配置可用白名单后再切换。
 
@@ -132,7 +133,7 @@ steps:
     template: kaniko-executor
     values:
       dockerfile: Dockerfile
-      build-args: "[]"
+      build-args: "[\"GIT_VERSION=${COMMIT_SHORT_SHA}\"]"
       destinations: []
 ```
 
@@ -140,6 +141,7 @@ steps:
 
 - 使用仓库根目录的 `Dockerfile`，不要生成 nginx 静态站点 Dockerfile。
 - `kaniko-executor` 的构建上下文应为仓库根目录。
+- 如发布系统的提交短 SHA 变量名不是 `COMMIT_SHORT_SHA`，需要按公司流水线实际变量调整 `GIT_VERSION` build arg。
 - 镜像运行端口为 `18080`，不是纯前端 nginx 常见的 `80`。
 - K8s Service/Ingress 应转发到容器端口 `18080`。
 - 容器内健康检查使用 `GET /health`；域名外部健康检查使用 `GET /erzhuang-project/health`。
