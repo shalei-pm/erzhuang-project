@@ -132,6 +132,24 @@
   - `https://lite.sy.soyoung.com/erzhuang-project/health` 是否健康。
   - 关键页面是否能打开，静态资源和 API 路径是否仍走 `/erzhuang-project/` 前缀。
 
+## 发布术语约定
+
+用户说“发布到公司”时，固定含义是：
+
+1. 将当前已确认代码 merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
+2. 推送到 remote `gitlab`。
+3. 等待公司 GitLab / K8s 自动发布，不操作韩国 Lighthouse。
+4. 保留公司环境配置，禁止 force push，禁止用个人服务器配置覆盖公司运行配置。
+
+用户说“发布到韩国服务器”时，固定含义是：
+
+1. 将当前已确认代码推送到 GitHub `origin/main`。
+2. 通过腾讯云 TAT 让韩国 Lighthouse 服务器拉取 GitHub 最新 `main`。
+3. 服务器执行 `scripts/deploy.sh` 自动测试、构建、重启 `erzhuang-project.service`。
+4. 验证 `http://127.0.0.1:18081/health` 和公网 `/erzhuang/` 入口。
+
+如果用户同时要求两个环境，先确认代码已在同一 commit 或明确记录两个环境对应的 commit，避免线上版本对不齐。
+
 ## 前端验收门禁
 
 前端改动不能只以 `npm run build` 通过作为完成标准。涉及页面布局、弹窗、表格、按钮、颜色、交互状态时，发布前必须做实际页面验收：

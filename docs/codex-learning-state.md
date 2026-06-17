@@ -1,10 +1,48 @@
 # Codex Learning State
 
-最后更新：2026-06-16
+最后更新：2026-06-17
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-17 发布术语规范
+
+用户已明确两套发布口径，后续跨会话按固定语义执行：
+
+- “发布到公司”：
+  - merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
+  - 推送 remote `gitlab`。
+  - 由公司 GitLab / K8s 自动发布，通常约 5 分钟。
+  - 不操作韩国 Lighthouse，不 force push，不覆盖公司 Docker/K8s/运行时环境配置。
+  - 验证 `https://lite.sy.soyoung.com/erzhuang-project/health` 和页面版本号。
+- “发布到韩国服务器”：
+  - 推送 GitHub `origin/main`。
+  - 通过腾讯云 TAT 指定韩国 Lighthouse `ap-seoul / lhins-rjfpwj1u`。
+  - 以 `lighthouse` 用户执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
+  - 服务器从 GitHub 拉取最新 `main`，自动执行测试、构建、重启和健康检查。
+  - 验证 `http://127.0.0.1:18081/health` 和公网 `/erzhuang/`。
+- 如果用户同时要求两个环境，需要记录两个环境最终 commit，避免页面版本号和问题反馈对不齐。
+
+同步文档：
+
+- `AGENTS.md`
+- `docs/deploy-runbook.md`
+
+## 2026-06-17 萤石云账号区域自动同步
+
+- 版本号：`2.10.1`。
+- 公司环境添加录像机时“选择区域”为空，根因是公司新数据库 `ezviz_accounts` 没有 `华北/华东/华南/华中` 等展示记录。
+- 当前决策：
+  - 公司内网环境可临时把完整 `EZVIZ_ACCOUNTS_JSON` 写入内网 GitLab Dockerfile 或容器环境变量，后续再迁移到 K8s Secret。
+  - 代码不把 `app_key/app_secret/access_token` 写入数据库。
+  - 服务启动时从 `EZVIZ_ACCOUNTS_JSON` 读取账号 `name/account_name`，自动 upsert 到 `ezviz_accounts`，状态设为 `available`。
+  - 前端继续从 `GET /api/store-space/ezviz-accounts` 获取可选区域。
+  - 扫描、抓图时后端仍使用运行时 env 中的完整密钥。
+- 验证重点：
+  - 公司环境启动日志应出现 `ezviz scanner enabled, synced N account(s)`。
+  - `GET /api/store-space/ezviz-accounts` 应返回 `华北/华东/华南/华中`。
+  - 添加门店/添加录像机时“选择区域”下拉应出现对应大区。
 
 ## 2026-06-16 资产存储抽象 2.10.0 开发记录
 

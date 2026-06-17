@@ -323,6 +323,61 @@ func TestScanRecorderChannelsStoresActiveChannelsOnly(t *testing.T) {
 	}
 }
 
+func TestSyncEzvizAccountNamesCreatesPublicRegionAccounts(t *testing.T) {
+	repo := NewMemoryStore()
+	service := NewService(repo)
+
+	if err := service.SyncEzvizAccountNames(context.Background(), []string{"华北", "华东", "华北", " "}); err != nil {
+		t.Fatalf("sync account names: %v", err)
+	}
+
+	accounts, err := service.ListEzvizAccounts(context.Background())
+	if err != nil {
+		t.Fatalf("list accounts: %v", err)
+	}
+	if len(accounts) != 2 {
+		t.Fatalf("expected 2 accounts, got %#v", accounts)
+	}
+	if accounts[0].AccountName != "华东" || accounts[1].AccountName != "华北" {
+		t.Fatalf("unexpected accounts: %#v", accounts)
+	}
+	for _, account := range accounts {
+		if account.Status != "available" {
+			t.Fatalf("expected synced account to be available, got %#v", account)
+		}
+	}
+
+	if err := service.SyncEzvizAccountNames(context.Background(), []string{"华南"}); err != nil {
+		t.Fatalf("sync second account names: %v", err)
+	}
+	accounts, err = service.ListEzvizAccounts(context.Background())
+	if err != nil {
+		t.Fatalf("list accounts after second sync: %v", err)
+	}
+	if len(accounts) != 3 {
+		t.Fatalf("expected sync to append missing account only, got %#v", accounts)
+	}
+}
+
+func TestEzvizAccountsFromEnvExtractsAccountNames(t *testing.T) {
+	t.Setenv("EZVIZ_ACCOUNTS_JSON", `[
+		{"name":"华北","app_key":"north-key","app_secret":"north-secret","access_token":"north-token"},
+		{"account_name":"华南","app_key":"south-key","app_secret":"south-secret"}
+	]`)
+
+	accounts, enabled, err := EzvizAccountsFromEnv()
+	if err != nil {
+		t.Fatalf("parse env accounts: %v", err)
+	}
+	if !enabled {
+		t.Fatal("expected ezviz accounts env to be enabled")
+	}
+	names := EzvizAccountNames(accounts)
+	if len(names) != 2 || names[0] != "华北" || names[1] != "华南" {
+		t.Fatalf("unexpected names: %#v", names)
+	}
+}
+
 func TestScanRecorderChannelsPreservesConfirmedChannelMappings(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})

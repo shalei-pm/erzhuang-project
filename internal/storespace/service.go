@@ -54,6 +54,24 @@ func (s *Service) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error)
 	return s.repo.ListEzvizAccounts(ctx)
 }
 
+func (s *Service) SyncEzvizAccountNames(ctx context.Context, accountNames []string) error {
+	seen := map[string]struct{}{}
+	for _, accountName := range accountNames {
+		cleanName := strings.TrimSpace(accountName)
+		if cleanName == "" {
+			continue
+		}
+		if _, ok := seen[cleanName]; ok {
+			continue
+		}
+		seen[cleanName] = struct{}{}
+		if err := s.repo.UpsertEzvizAccountName(ctx, cleanName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Service) CreateEzvizAccount(ctx context.Context, input CreateEzvizAccountInput) (*EzvizAccount, error) {
 	if err := validateCreateEzvizAccountInput(input); err != nil {
 		return nil, err

@@ -42,12 +42,16 @@ func main() {
 			channelRecognizer = storespace.NewChannelAIAdapter(recognizer)
 			log.Print("channel ai recognizer enabled")
 		}
-		if scanner, enabled, err := storespace.NewEzvizScannerFromEnv(); err != nil {
+		if ezvizAccounts, enabled, err := storespace.EzvizAccountsFromEnv(); err != nil {
 			log.Fatalf("ezviz scanner setup failed: %v", err)
 		} else if enabled {
+			if err := storeSpaceService.SyncEzvizAccountNames(context.Background(), storespace.EzvizAccountNames(ezvizAccounts)); err != nil {
+				log.Fatalf("ezviz account sync failed: %v", err)
+			}
+			scanner := storespace.NewEzvizScannerFromAccounts(ezvizAccounts)
 			storeSpaceService = storespace.NewServiceWithScannerAndRecognizer(storeSpaceRepo, scanner, channelRecognizer)
 			storeSpaceService.UseSnapshotStore(storespace.NewAssetSnapshotStore(assetStore))
-			log.Print("ezviz scanner enabled")
+			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
 		handler = app.NewHandlerWithServices(app.NewPostgresStore(db), designplan.NewServiceWithAssetStore(designplan.NewPostgresStore(db), assetStore), storeSpaceService)
 		log.Print("database store enabled: postgres")

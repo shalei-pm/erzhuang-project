@@ -41,7 +41,29 @@ git push gitlab codex/containerize-single-image
 4. 构建缓存或镜像缓存是否导致旧静态资源未更新。
 5. 页面静态资源和 API 请求路径是否仍使用 `/erzhuang-project/` 前缀。
 
----
+## 发布术语速查
+
+用户说“发布到公司”时，固定执行公司 GitLab 自动发布链路：
+
+1. 将当前已确认代码 merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
+2. 推送到 remote `gitlab`。
+3. 等待公司 GitLab / K8s 自动发布，通常约 5 分钟。
+4. 验证 `https://lite.sy.soyoung.com/erzhuang-project/health` 和页面版本号。
+
+注意：
+
+- 不操作韩国 Lighthouse。
+- 不 force push 公司受保护分支。
+- 公司分支如包含 Dockerfile、K8s 环境变量、数据库连接等运维调整，应保留公司配置，只合入业务代码和必要文档。
+
+用户说“发布到韩国服务器”时，固定执行 GitHub + 韩国 Lighthouse 链路：
+
+1. 将当前已确认代码推送到 GitHub `origin/main`。
+2. 通过腾讯云 TAT 触发韩国 Lighthouse 服务器执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
+3. 服务器从 GitHub 拉取最新 `main`，执行测试、构建、重启服务。
+4. 验证 `http://127.0.0.1:18081/health` 和公网 `/erzhuang/` 入口。
+
+如果用户同时要求“公司”和“韩国服务器”，需要记录两个环境最终 commit，避免用户用页面版本号反馈问题时对不上。
 
 本项目的服务器发布目标是个人腾讯云 Lighthouse：
 
@@ -142,6 +164,19 @@ OPENAI_MODEL=gpt-4o
 OPENAI_BASE_URL=https://api.openai.com
 OPENAI_API_STYLE=responses
 ```
+
+萤石云录像机扫描需要配置：
+
+```text
+EZVIZ_ACCOUNTS_JSON=[{"name":"华北","app_key":"...","app_secret":"...","access_token":"..."},{"name":"华东","app_key":"...","app_secret":"..."},{"name":"华南","app_key":"...","app_secret":"..."},{"name":"华中","app_key":"...","app_secret":"..."}]
+```
+
+运行规则：
+
+- `name` 必须使用前端需要展示的区域名，例如 `华北`、`华东`、`华南`、`华中`。
+- 服务启动时会读取 `EZVIZ_ACCOUNTS_JSON`，自动把这些 `name` 同步到数据库 `ezviz_accounts`，状态设为 `available`。
+- 数据库只保存区域账号展示记录；扫描、抓图仍使用运行时环境变量里的 `app_key` / `app_secret` / `access_token`。
+- 公司内网环境当前允许把该变量临时写入内网 GitLab Dockerfile 做验证；长期建议迁移到 K8s Secret 或受保护 CI/CD Variables。
 
 注意：
 

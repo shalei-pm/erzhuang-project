@@ -35,7 +35,19 @@ func NewEzvizScanner(client *ezviz.Client, accounts []ezviz.Account) *EzvizScann
 	return &EzvizScanner{client: client, accounts: accountMap}
 }
 
+func NewEzvizScannerFromAccounts(accounts []ezviz.Account) *EzvizScanner {
+	return NewEzvizScanner(ezviz.NewClient(ezviz.ClientOptions{}), accounts)
+}
+
 func NewEzvizScannerFromEnv() (*EzvizScanner, bool, error) {
+	accounts, enabled, err := EzvizAccountsFromEnv()
+	if err != nil || !enabled {
+		return nil, enabled, err
+	}
+	return NewEzvizScannerFromAccounts(accounts), true, nil
+}
+
+func EzvizAccountsFromEnv() ([]ezviz.Account, bool, error) {
 	raw := strings.TrimSpace(os.Getenv("EZVIZ_ACCOUNTS_JSON"))
 	if raw == "" {
 		return nil, false, nil
@@ -57,7 +69,17 @@ func NewEzvizScannerFromEnv() (*EzvizScanner, bool, error) {
 			AccessToken: strings.TrimSpace(credential.AccessToken),
 		})
 	}
-	return NewEzvizScanner(ezviz.NewClient(ezviz.ClientOptions{}), accounts), true, nil
+	return accounts, true, nil
+}
+
+func EzvizAccountNames(accounts []ezviz.Account) []string {
+	names := make([]string, 0, len(accounts))
+	for _, account := range accounts {
+		if name := strings.TrimSpace(account.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func (s *EzvizScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
