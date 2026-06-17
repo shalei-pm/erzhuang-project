@@ -148,7 +148,7 @@ func TestUpdateStoreBasicInfoRejectsDuplicateName(t *testing.T) {
 	if !errors.As(err, &validationError) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
-	if validationError.Fields["name"] != "同名门店已存在" {
+	if validationError.Fields["name"] != "已存在同名门店" {
 		t.Fatalf("unexpected fields: %#v", validationError.Fields)
 	}
 }
