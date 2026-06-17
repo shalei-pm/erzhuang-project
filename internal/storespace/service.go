@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -93,6 +95,26 @@ func (s *Service) ListStores(ctx context.Context, filters StoreFilters) (StoreLi
 
 func (s *Service) GetStore(ctx context.Context, id int64) (*Store, error) {
 	return s.repo.GetStore(ctx, id)
+}
+
+func (s *Service) ExportChannelMappingExcel(ctx context.Context, storeID int64) (*ChannelMappingExport, error) {
+	store, err := s.repo.GetStore(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	rows := channelMappingExportRows(*store)
+	if len(rows) == 0 {
+		return nil, &ValidationError{Fields: map[string]string{"channels": "当前门店暂无可导出的有效通道"}}
+	}
+	content, err := buildChannelMappingExcel(ctx, rows, s.snapshotStore)
+	if err != nil {
+		return nil, err
+	}
+	return &ChannelMappingExport{
+		FileName:    exportFileName(store.Name, time.Now()),
+		Content:     content,
+		ContentType: channelMappingExcelContentType,
+	}, nil
 }
 
 func (s *Service) CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error) {
@@ -548,6 +570,124 @@ func firstNonEmpty(values ...string) string {
 
 func isConfirmedChannelStatus(status ChannelStatus) bool {
 	return status == ChannelStatusConfirmedBusiness || status == ChannelStatusConfirmedNonBusiness
+}
+
+func channelMappingExportRows(store Store) []ChannelMappingExportRow {
+	rows := []ChannelMappingExportRow{}
+	for _, recorder := range store.Recorders {
+		if recorder.Status == RecorderStatusOffline {
+			continue
+		}
+		for _, channel := range recorder.Channels {
+			if !channel.IsActive || channel.Status == ChannelStatusInactive {
+				continue
+			}
+			rows = append(rows, ChannelMappingExportRow{
+				City:          store.City,
+				StoreName:     store.Name,
+				ExternalOrgID: store.ExternalOrgID,
+				RecorderCode:  recorder.DeviceCode,
+				ChannelNo:     channel.ChannelNo,
+				SnapshotPath:  firstNonEmpty(channel.FullImageURL, channel.ThumbnailURL),
+				AreaTypeLabel: channelAreaTypeLabel(channel),
+				NumberOrNote:  channelNumberOrNote(channel),
+			})
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		left, right := rows[i], rows[j]
+		if channelExportTypeRank(left.AreaTypeLabel) != channelExportTypeRank(right.AreaTypeLabel) {
+			return channelExportTypeRank(left.AreaTypeLabel) < channelExportTypeRank(right.AreaTypeLabel)
+		}
+		if compareNumberOrText(left.NumberOrNote, right.NumberOrNote) != 0 {
+			return compareNumberOrText(left.NumberOrNote, right.NumberOrNote) < 0
+		}
+		if left.RecorderCode != right.RecorderCode {
+			return left.RecorderCode < right.RecorderCode
+		}
+		return left.ChannelNo < right.ChannelNo
+	})
+	for index := range rows {
+		rows[index].Index = index + 1
+	}
+	return rows
+}
+
+func channelAreaTypeLabel(channel Channel) string {
+	switch channel.AreaType {
+	case AreaTypeConsultation:
+		return "面诊室"
+	case AreaTypeTreatment:
+		return "治疗室"
+	case AreaTypeBeauty:
+		return "生美"
+	default:
+		return "其他区域"
+	}
+}
+
+func channelNumberOrNote(channel Channel) string {
+	if channel.AreaType != "" && channel.AreaNumber > 0 {
+		return strconv.Itoa(channel.AreaNumber)
+	}
+	if strings.TrimSpace(channel.AreaNote) != "" {
+		return strings.TrimSpace(channel.AreaNote)
+	}
+	return "-"
+}
+
+func channelExportTypeRank(label string) int {
+	switch label {
+	case "面诊室":
+		return 0
+	case "治疗室":
+		return 1
+	case "生美":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func compareNumberOrText(left string, right string) int {
+	leftNumber, leftOK := parseLeadingInt(left)
+	rightNumber, rightOK := parseLeadingInt(right)
+	if leftOK && rightOK && leftNumber != rightNumber {
+		if leftNumber < rightNumber {
+			return -1
+		}
+		return 1
+	}
+	if left < right {
+		return -1
+	}
+	if left > right {
+		return 1
+	}
+	return 0
+}
+
+func parseLeadingInt(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	match := regexp.MustCompile(`^\d+`).FindString(value)
+	if match == "" {
+		return 0, false
+	}
+	number, err := strconv.Atoi(match)
+	return number, err == nil
+}
+
+func exportFileName(storeName string, now time.Time) string {
+	name := strings.TrimSpace(storeName)
+	if name == "" {
+		name = "门店"
+	}
+	replacer := strings.NewReplacer("/", "-", `\`, "-", ":", "-", "*", "-", "?", "-", `"`, "'", "<", "-", ">", "-", "|", "-")
+	name = replacer.Replace(name)
+	return fmt.Sprintf("%s-通道映射确认表-%s.xlsx", name, now.Format("20060102-1504"))
 }
 
 func (s *Service) ensureNoExactDuplicate(ctx context.Context, name string, excludeStoreID int64) error {

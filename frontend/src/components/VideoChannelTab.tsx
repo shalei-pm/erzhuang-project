@@ -58,6 +58,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [newRecorderCode, setNewRecorderCode] = useState("");
   const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
   const [channelTypeFilter, setChannelTypeFilter] = useState<ChannelTypeFilter>("all");
+  const [exportingChannels, setExportingChannels] = useState(false);
   const [expiredSnapshotIds, setExpiredSnapshotIds] = useState<Set<number>>(() => new Set());
   const [editingChannels, setEditingChannels] = useState<Record<number, Partial<VideoChannel>>>({});
   const completionTimerRef = useRef<number | null>(null);
@@ -332,6 +333,21 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     }
   }
 
+  async function exportChannelMappings() {
+    setExportingChannels(true);
+    setChannelError("");
+    try {
+      await storeSpaceApi.exportChannelMappings(store.id);
+      onToast("通道映射表已开始下载。");
+    } catch (error) {
+      const message = channelErrorMessage(error, "导出失败，请稍后重试。");
+      setChannelError(message);
+      onToast(message);
+    } finally {
+      setExportingChannels(false);
+    }
+  }
+
   return (
     <section className="channel-shell">
       <section className="recorder-panel">
@@ -446,19 +462,31 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
           <strong>通道列表</strong>
           <span>按业务区域类型筛选当前通道映射。</span>
         </div>
-        <div className="segmented-control" role="radiogroup" aria-label="业务区域类型筛选">
-          {channelTypeFilters.map((filter) => (
-            <button
-              key={filter.value}
-              type="button"
-              role="radio"
-              aria-checked={channelTypeFilter === filter.value}
-              className={channelTypeFilter === filter.value ? "is-active" : ""}
-              onClick={() => setChannelTypeFilter(filter.value)}
-            >
-              {filter.label}
-            </button>
-          ))}
+        <div className="channel-filter-actions">
+          <button className="secondary-action-button" type="button" disabled={exportingChannels} onClick={() => void exportChannelMappings()}>
+            {exportingChannels ? (
+              <>
+                <span className="button-spinner" aria-hidden="true" />
+                导出中
+              </>
+            ) : (
+              "导出 Excel"
+            )}
+          </button>
+          <div className="segmented-control" role="radiogroup" aria-label="业务区域类型筛选">
+            {channelTypeFilters.map((filter) => (
+              <button
+                key={filter.value}
+                type="button"
+                role="radio"
+                aria-checked={channelTypeFilter === filter.value}
+                className={channelTypeFilter === filter.value ? "is-active" : ""}
+                onClick={() => setChannelTypeFilter(filter.value)}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 

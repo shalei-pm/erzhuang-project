@@ -1110,6 +1110,10 @@ const storeSpaceHttpAdapter = {
     });
     return mapStoreSpaceDetail(response);
   },
+
+  async exportChannelMappings(storeId: number): Promise<void> {
+    await downloadFile(`${STORE_SPACE_API_BASE}/stores/${storeId}/channel-mappings/export.xlsx`);
+  },
 };
 
 export const designPlanApi = {
@@ -1298,6 +1302,16 @@ export const storeSpaceApi = {
     }
     return storeSpaceHttpAdapter.addRecorder(storeId, payload);
   },
+
+  async exportChannelMappings(storeId: number): Promise<void> {
+    if (API_MODE === "mock") {
+      const store = mockStores.find((item) => item.id === storeId);
+      const fileName = `${store?.name ?? "门店"}-通道映射确认表-mock.xlsx`;
+      triggerDownload(new Blob(["mock channel mapping export"], { type: channelMappingExcelMime }), fileName);
+      return;
+    }
+    return storeSpaceHttpAdapter.exportChannelMappings(storeId);
+  },
 };
 
 async function withFallback<T>(httpCall: () => Promise<T>, mockCall: () => Promise<T>): Promise<T> {
@@ -1351,6 +1365,48 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
   }
 
   return data as T;
+}
+
+const channelMappingExcelMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+async function downloadFile(url: string): Promise<void> {
+  const response = await fetch(url, { headers: { Accept: channelMappingExcelMime } });
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      const fields = data && typeof data === "object" && "fields" in data && isStringRecord(data.fields) ? data.fields : {};
+      const message = data && typeof data === "object" && "error" in data ? String(data.error) : `HTTP ${response.status}`;
+      throw new ApiError(response.status, message, fields);
+    }
+    throw new ApiError(response.status, `HTTP ${response.status}`);
+  }
+  const blob = await response.blob();
+  triggerDownload(blob, fileNameFromDisposition(response.headers.get("content-disposition")) ?? "通道映射确认表.xlsx");
+}
+
+function triggerDownload(blob: Blob, fileName: string) {
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(href);
+}
+
+function fileNameFromDisposition(value: string | null): string | null {
+  if (!value) return null;
+  const encoded = value.match(/filename\\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded;
+    }
+  }
+  return value.match(/filename=\"?([^\";]+)\"?/i)?.[1] ?? null;
 }
 
 function mapBackendSummary(item: BackendStoreSummary): StoreSummary {
