@@ -1,5 +1,29 @@
 # Deploy Runbook
 
+## 发布术语速查
+
+用户说“发布到公司”时，固定执行公司 GitLab 自动发布链路：
+
+1. 将当前已确认代码 merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
+2. 推送到 remote `gitlab`。
+3. 等待公司 GitLab / K8s 自动发布，通常约 5 分钟。
+4. 验证 `https://lite.sy.soyoung.com/erzhuang-project/health` 和页面版本号。
+
+注意：
+
+- 不操作韩国 Lighthouse。
+- 不 force push 公司受保护分支。
+- 公司分支如包含 Dockerfile、K8s 环境变量、数据库连接等运维调整，应保留公司配置，只合入业务代码和必要文档。
+
+用户说“发布到韩国服务器”时，固定执行 GitHub + 韩国 Lighthouse 链路：
+
+1. 将当前已确认代码推送到 GitHub `origin/main`。
+2. 通过腾讯云 TAT 触发韩国 Lighthouse 服务器执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
+3. 服务器从 GitHub 拉取最新 `main`，执行测试、构建、重启服务。
+4. 验证 `http://127.0.0.1:18081/health` 和公网 `/erzhuang/` 入口。
+
+如果用户同时要求“公司”和“韩国服务器”，需要记录两个环境最终 commit，避免用户用页面版本号反馈问题时对不上。
+
 本项目的服务器发布目标是个人腾讯云 Lighthouse：
 
 - 部署目录：`/opt/apps/erzhuang-project`

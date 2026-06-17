@@ -1,10 +1,33 @@
 # Codex Learning State
 
-最后更新：2026-06-16
+最后更新：2026-06-17
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-17 发布术语规范
+
+用户已明确两套发布口径，后续跨会话按固定语义执行：
+
+- “发布到公司”：
+  - merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
+  - 推送 remote `gitlab`。
+  - 由公司 GitLab / K8s 自动发布，通常约 5 分钟。
+  - 不操作韩国 Lighthouse，不 force push，不覆盖公司 Docker/K8s/运行时环境配置。
+  - 验证 `https://lite.sy.soyoung.com/erzhuang-project/health` 和页面版本号。
+- “发布到韩国服务器”：
+  - 推送 GitHub `origin/main`。
+  - 通过腾讯云 TAT 指定韩国 Lighthouse `ap-seoul / lhins-rjfpwj1u`。
+  - 以 `lighthouse` 用户执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
+  - 服务器从 GitHub 拉取最新 `main`，自动执行测试、构建、重启和健康检查。
+  - 验证 `http://127.0.0.1:18081/health` 和公网 `/erzhuang/`。
+- 如果用户同时要求两个环境，需要记录两个环境最终 commit，避免页面版本号和问题反馈对不齐。
+
+同步文档：
+
+- `AGENTS.md`
+- `docs/deploy-runbook.md`
 
 ## 2026-06-16 资产存储抽象 2.10.0 开发记录
 
