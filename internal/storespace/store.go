@@ -22,6 +22,7 @@ type Repository interface {
 	ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error)
 	GetStore(ctx context.Context, id int64) (*Store, error)
 	CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error)
+	UpdateStoreBasicInfo(ctx context.Context, id int64, input UpdateStoreBasicInfoInput) (*Store, error)
 	SaveDesignPlan(ctx context.Context, storeID int64, input SaveDesignPlanInput) (*Store, error)
 	AddRecorder(ctx context.Context, storeID int64, input AddRecorderInput) (*Store, error)
 	GetRecorder(ctx context.Context, recorderID int64) (*Recorder, error)
@@ -238,6 +239,23 @@ func (s *MemoryStore) CreateStore(ctx context.Context, input CreateStoreInput) (
 
 	s.stores[store.ID] = &store
 	copy := cloneStore(store)
+	return &copy, nil
+}
+
+func (s *MemoryStore) UpdateStoreBasicInfo(ctx context.Context, id int64, input UpdateStoreBasicInfoInput) (*Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	store, ok := s.stores[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	store.City = strings.TrimSpace(input.City)
+	store.Name = strings.TrimSpace(input.Name)
+	store.NormalizedName = NormalizeStoreName(input.Name)
+	store.ExternalOrgID = strings.TrimSpace(input.ExternalOrgID)
+	store.UpdatedAt = time.Now().UTC()
+	copy := cloneStore(*store)
 	return &copy, nil
 }
 
@@ -1133,6 +1151,41 @@ func (s *PostgresStore) CreateStore(ctx context.Context, input CreateStoreInput)
 	}
 
 	if err := insertOperationLog(ctx, tx, "create", "store", id, id, fmt.Sprintf("created store %s", strings.TrimSpace(input.Name))); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, id)
+}
+
+func (s *PostgresStore) UpdateStoreBasicInfo(ctx context.Context, id int64, input UpdateStoreBasicInfoInput) (*Store, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
+		update stores
+		set city = $2,
+			name = $3,
+			normalized_name = $4,
+			external_org_id = $5,
+			updated_at = now()
+		where id = $1
+	`, id, strings.TrimSpace(input.City), strings.TrimSpace(input.Name), NormalizeStoreName(input.Name), strings.TrimSpace(input.ExternalOrgID))
+	if err != nil {
+		return nil, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, ErrNotFound
+	}
+	if err := insertOperationLog(ctx, tx, "update", "store", id, id, fmt.Sprintf("updated store basic info %s", strings.TrimSpace(input.Name))); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {

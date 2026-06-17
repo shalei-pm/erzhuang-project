@@ -84,6 +84,75 @@ func TestListStoresIncludesCity(t *testing.T) {
 	}
 }
 
+func TestUpdateStoreBasicInfoUpdatesEditableFields(t *testing.T) {
+	service := NewService(NewMemoryStore())
+
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{DeviceCode: "D12345678"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	updated, err := service.UpdateStoreBasicInfo(context.Background(), store.ID, UpdateStoreBasicInfoInput{
+		City:          "广州",
+		Name:          "广州天河店",
+		ExternalOrgID: "888001",
+	})
+	if err != nil {
+		t.Fatalf("update store basic info: %v", err)
+	}
+
+	if updated.City != "广州" || updated.Name != "广州天河店" || updated.ExternalOrgID != "888001" {
+		t.Fatalf("unexpected updated store: %#v", updated)
+	}
+	if len(updated.Recorders) != 1 || updated.Recorders[0].DeviceCode != "D12345678" {
+		t.Fatalf("expected existing recorders to remain unchanged, got %#v", updated.Recorders)
+	}
+}
+
+func TestUpdateStoreBasicInfoRejectsDuplicateName(t *testing.T) {
+	service := NewService(NewMemoryStore())
+
+	first, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{DeviceCode: "D12345678"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create first store: %v", err)
+	}
+	_, err = service.CreateStore(context.Background(), CreateStoreInput{
+		City: "广州",
+		Name: "广州天河店",
+		Recorders: []RecorderInput{
+			{DeviceCode: "D87654321"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create second store: %v", err)
+	}
+
+	_, err = service.UpdateStoreBasicInfo(context.Background(), first.ID, UpdateStoreBasicInfoInput{
+		City: "深圳",
+		Name: "广州天河店",
+	})
+
+	var validationError *ValidationError
+	if !errors.As(err, &validationError) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if validationError.Fields["name"] != "同名门店已存在" {
+		t.Fatalf("unexpected fields: %#v", validationError.Fields)
+	}
+}
+
 func TestCreateStoreAcceptsRecordersOnlyAndRejectsDuplicateCodes(t *testing.T) {
 	service := NewService(NewMemoryStore())
 

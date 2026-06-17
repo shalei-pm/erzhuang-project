@@ -131,6 +131,41 @@ func TestCreateStoreEndpointCreatesRecorderOnlyStore(t *testing.T) {
 	}
 }
 
+func TestUpdateStoreBasicInfoEndpoint(t *testing.T) {
+	handler := newTestHandler()
+	createBody := `{"city":"深圳","name":"深圳壹方城","recorders":[{"device_code":"D12345678"}]}`
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/store-space/stores", bytes.NewBufferString(createBody))
+	createRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(createRecorder, createRequest)
+	if createRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusCreated, createRecorder.Code, createRecorder.Body.String())
+	}
+	var created Store
+	if err := json.NewDecoder(createRecorder.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created store: %v", err)
+	}
+
+	updateBody := `{"city":"广州","name":"广州天河店","external_org_id":"888001"}`
+	updateRequest := httptest.NewRequest(http.MethodPatch, "/api/store-space/stores/"+strconv.FormatInt(created.ID, 10), bytes.NewBufferString(updateBody))
+	updateRecorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(updateRecorder, updateRequest)
+
+	if updateRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, updateRecorder.Code, updateRecorder.Body.String())
+	}
+	var updated Store
+	if err := json.NewDecoder(updateRecorder.Body).Decode(&updated); err != nil {
+		t.Fatalf("decode updated store: %v", err)
+	}
+	if updated.City != "广州" || updated.Name != "广州天河店" || updated.ExternalOrgID != "888001" {
+		t.Fatalf("unexpected updated store: %#v", updated)
+	}
+	if len(updated.Recorders) != 1 || updated.Recorders[0].DeviceCode != "D12345678" {
+		t.Fatalf("expected existing recorder to remain unchanged, got %#v", updated.Recorders)
+	}
+}
+
 func TestDeleteRecorderEndpointRemovesRecorder(t *testing.T) {
 	handler := newTestHandler()
 	createBody := `{"city":"深圳","name":"深圳壹方城","recorders":[{"device_code":"D12345678"},{"device_code":"D87654321"}]}`

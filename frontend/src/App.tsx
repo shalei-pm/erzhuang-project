@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { storeSpaceApi, type CreateStoreSpacePayload, type EzvizAccount, type StoreDetail as StoreDetailType, type StoreSummary } from "./api";
+import {
+  storeSpaceApi,
+  type CreateStoreSpacePayload,
+  type EzvizAccount,
+  type StoreDetail as StoreDetailType,
+  type StoreSummary,
+  type UpdateStoreBasicInfoPayload,
+} from "./api";
 import { CreateStoreModal } from "./components/CreateStoreModal";
+import { EditStoreModal } from "./components/EditStoreModal";
 import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
 import { StoreList } from "./components/StoreList";
 import { errorMessage } from "./domain/format";
@@ -17,6 +25,7 @@ function App() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingStore, setEditingStore] = useState<StoreSummary | null>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
@@ -110,6 +119,33 @@ function App() {
       await loadStores();
     } catch (error) {
       setToast(errorMessage(error, "创建门店失败。"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateStoreBasicInfo(payload: UpdateStoreBasicInfoPayload) {
+    setSaving(true);
+    try {
+      const duplicate = await storeSpaceApi.checkDuplicate(payload.name, payload.id);
+      if (duplicate.exactMatch) {
+        setToast("同名门店已存在，请修改门店名称。");
+        return;
+      }
+      if (duplicate.similarMatches.length > 0) {
+        const ok = window.confirm(`发现 ${duplicate.similarMatches.length} 个疑似同名门店，是否继续保存？`);
+        if (!ok) return;
+      }
+      const detail = await storeSpaceApi.updateStoreBasicInfo(payload);
+      setEditingStore(null);
+      setStores((items) => items.map((item) => (item.id === detail.id ? detail : item)));
+      if (activeStore?.id === detail.id) {
+        setActiveStore(detail);
+      }
+      setToast("机构信息已更新。");
+      await loadStores();
+    } catch (error) {
+      setToast(errorMessage(error, "更新机构信息失败。"));
     } finally {
       setSaving(false);
     }
@@ -238,6 +274,7 @@ function App() {
         deletingStoreIds={deletingStoreIds}
         openingStoreIds={openingStoreIds}
         onOpenStore={openStore}
+        onEditStore={setEditingStore}
         onDeleteStore={deleteStore}
       />
 
@@ -265,6 +302,14 @@ function App() {
           onUploadPdf={uploadPdf}
           onClose={() => setCreateOpen(false)}
           onSubmit={createStore}
+        />
+      ) : null}
+      {editingStore ? (
+        <EditStoreModal
+          store={editingStore}
+          saving={saving}
+          onClose={() => setEditingStore(null)}
+          onSubmit={updateStoreBasicInfo}
         />
       ) : null}
     </main>

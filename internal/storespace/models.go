@@ -103,6 +103,12 @@ type CreateStoreInput struct {
 	Recorders          []RecorderInput `json:"recorders,omitempty"`
 }
 
+type UpdateStoreBasicInfoInput struct {
+	City          string `json:"city"`
+	Name          string `json:"name"`
+	ExternalOrgID string `json:"external_org_id,omitempty"`
+}
+
 type CreateEzvizAccountInput struct {
 	AccountName string `json:"account_name"`
 }
