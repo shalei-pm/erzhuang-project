@@ -6,6 +6,29 @@
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
 
+## 2026-06-17 图片访问前缀修复 2.11.1 开发记录
+
+- 版本号：`2.11.1`。
+- 用户反馈：
+  - 公司 GitLab 环境识别区域后，通道列表“最近截图”显示“已过期”。
+  - 设计图图纸也无法加载图片。
+- 根因判断：
+  - 后端已把萤石云临时截图下载并保存到系统资产存储，通道截图路径保存在 `channel_snapshots.thumbnail_path/full_image_path`。
+  - 设计图路径保存在门店设计图记录的 `preview_image_path/thumbnail_path`。
+  - 前端旧逻辑把所有后端返回的 `/api/...` 图片地址硬编码补成 `/erzhuang/api/...`。
+  - 公司环境实际前缀是 `/erzhuang-project/`，所以图片请求被改到错误路径，浏览器加载失败后被前端误显示为“已过期”。
+- 修复：
+  - 新增 `frontend/src/url-utils.ts`，集中处理 API base、图片展示 URL、存储路径反解。
+  - 默认 API base 改为根据当前页面路径和 Vite `BASE_URL` 推导，兼容个人 `/erzhuang/` 与公司 `/erzhuang-project/`。
+  - 设计图、门店缩略图、通道截图统一按对应 API base 转换，不再写死 `/erzhuang`。
+  - 图片加载失败文案由“已过期”改为“加载失败”；截图预览说明改为“已保存到系统截图库”。
+- 验证：
+  - `frontend/src/url-utils.test.ts` 覆盖 `/erzhuang-project/api/...`、`/erzhuang/api/...`、历史 `uploads/...` 路径转换。
+  - `cd frontend && npm run build` 通过。
+  - `go test ./...` 本机未完成：系统 PATH 无 `go`，改用项目 `.tools/go` 后 macOS 动态加载报 `missing LC_UUID load command`，本次未改后端代码。
+- 待发布：
+  - 本地修复已提交，等待本轮同步到公司 GitLab 分支和韩国服务器后补充验证结果。
+
 ## 2026-06-17 通道映射 Excel 导出 2.11.0 开发记录
 
 - 版本号：`2.11.0`。

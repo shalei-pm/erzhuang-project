@@ -1,4 +1,5 @@
 import sampleStoreFloorPlanUrl from "../../testdata/design-plans/generated/sample-store-floor-plan.png";
+import { defaultApiBase, displayImageUrl, storedImagePath, trimTrailingSlash } from "./url-utils";
 
 export type AreaType = "treatment" | "consultation" | "beauty";
 
@@ -457,9 +458,9 @@ export class ApiError extends Error {
   }
 }
 
-const DEFAULT_API_BASE = "/erzhuang/api/design-plan";
+const DEFAULT_API_BASE = defaultApiBase("design-plan", import.meta.env.BASE_URL);
 const API_BASE = trimTrailingSlash(import.meta.env.VITE_DESIGN_PLAN_API_BASE || DEFAULT_API_BASE);
-const DEFAULT_STORE_SPACE_API_BASE = "/erzhuang/api/store-space";
+const DEFAULT_STORE_SPACE_API_BASE = defaultApiBase("store-space", import.meta.env.BASE_URL);
 const STORE_SPACE_API_BASE = trimTrailingSlash(import.meta.env.VITE_STORE_SPACE_API_BASE || DEFAULT_STORE_SPACE_API_BASE);
 const API_MODE = normalizeApiMode(import.meta.env.VITE_DESIGN_PLAN_API_MODE);
 const MOCK_PLAN_IMAGE = sampleStoreFloorPlanUrl;
@@ -1755,37 +1756,15 @@ function toStoreSpaceChannelConfirmationPayload(patch: Partial<VideoChannel>) {
 }
 
 function toDisplayImageUrl(value?: string) {
-  if (!value) {
-    return "";
-  }
-  if (value.startsWith("mock/")) {
-    return MOCK_PLAN_IMAGE;
-  }
-  const storedUploadMatch = value.match(/^uploads\/([^/]+)\/(preview|thumbnail)\.png$/);
-  if (storedUploadMatch) {
-    return `/api/design-plan/uploads/${storedUploadMatch[1]}/${storedUploadMatch[2]}`;
-  }
-  if (/^\/api\/design-plan\/uploads\/[^/]+\/(preview|thumbnail)$/.test(value)) {
-    return `/erzhuang${value}`;
-  }
-  if (/^\/api\/design-plan\/stores\/\d+\/(preview|thumbnail)$/.test(value)) {
-    return `/erzhuang${value}`;
-  }
-  if (value.startsWith("/api/")) {
-    return `/erzhuang${value}`;
-  }
-  return value;
+  const apiBase = value?.startsWith("/api/store-space/") ? STORE_SPACE_API_BASE : API_BASE;
+  return displayImageUrl(value, { apiBase, mockPlanImage: MOCK_PLAN_IMAGE });
 }
 
 function toStoredPath(value: string, fallback: string) {
-  if (!value || value === MOCK_PLAN_IMAGE || value.startsWith("data:") || value.startsWith("blob:")) {
+  if (value === MOCK_PLAN_IMAGE) {
     return fallback;
   }
-  const uploadMatch = value.match(/^\/(?:erzhuang\/)?api\/design-plan\/uploads\/([^/]+)\/(preview|thumbnail)$/);
-  if (uploadMatch) {
-    return `uploads/${uploadMatch[1]}/${uploadMatch[2] === "preview" ? "preview.png" : "thumbnail.png"}`;
-  }
-  return value;
+  return storedImagePath(value, fallback);
 }
 
 function displayFileName(value: string) {
@@ -2064,10 +2043,6 @@ function nonBusinessSceneLabel(sceneType: SceneType) {
     unknown: "",
   };
   return labels[sceneType] ?? "";
-}
-
-function trimTrailingSlash(value: string) {
-  return value.replace(/\/+$/, "");
 }
 
 function clone<T>(value: T): T {

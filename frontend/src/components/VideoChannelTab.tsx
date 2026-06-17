@@ -556,7 +556,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                             }}
                           />
                         ) : expiredSnapshotIds.has(channel.id) ? (
-                          <span className="channel-thumb-expired">已过期</span>
+                          <span className="channel-thumb-expired">加载失败</span>
                         ) : (
                           <span />
                         )}
@@ -674,7 +674,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
             <div className="snapshot-preview-head">
               <div>
                 <strong>通道 {previewChannel.channelNo} 最近截图</strong>
-                <span>{previewChannel.fullImageExpiresAt ? `大图有效期至 ${formatDateTime(previewChannel.fullImageExpiresAt)}` : "来自萤石云抓图"}</span>
+                <span>{previewChannel.fullImageExpiresAt ? `原始抓图有效期至 ${formatDateTime(previewChannel.fullImageExpiresAt)}` : "已保存到系统截图库"}</span>
               </div>
               <button type="button" onClick={() => setPreviewChannel(null)} aria-label="关闭截图预览">
                 ×
