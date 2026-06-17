@@ -26,8 +26,16 @@
   - `frontend/src/url-utils.test.ts` 覆盖 `/erzhuang-project/api/...`、`/erzhuang/api/...`、历史 `uploads/...` 路径转换。
   - `cd frontend && npm run build` 通过。
   - `go test ./...` 本机未完成：系统 PATH 无 `go`，改用项目 `.tools/go` 后 macOS 动态加载报 `missing LC_UUID load command`，本次未改后端代码。
-- 待发布：
-  - 本地修复已提交，等待本轮同步到公司 GitLab 分支和韩国服务器后补充验证结果。
+- 发布状态：
+  - GitHub `main` 已推送：`2a443c2 Fix image URL base path handling`。
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已推送：`c5b0d22 Merge branch 'main' into codex/containerize-single-image`。
+  - 公司环境由 GitLab/K8s 自动发布；当前本机无法解析 `lite.sy.soyoung.com`，需要用户在公司内网侧确认页面版本和图片加载。
+  - 韩国服务器已通过 SSH 执行 `/opt/apps/erzhuang-project/scripts/deploy.sh`，服务器当前 commit：`2a443c2`，版本：`2.11.1`。
+  - 韩国服务器 `go test ./...`、Go build、前端 build、服务重启均成功。
+  - 韩国服务器本机 `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 韩国服务器 nginx 与 `erzhuang-project.service` 均为 active，监听 `0.0.0.0:443` 与 `127.0.0.1:18081`。
+  - 本机直连 `https://43.155.237.46/erzhuang/health` 暂时连接失败，但 SSH 到服务器本机检查服务和端口均正常。
+  - 本次发现本机 SSH 登录韩国服务器的 key 是 `~/.ssh/erzhuang_lighthouse`，不是文档里原先容易混淆的服务器内部 GitHub deploy key。
 
 ## 2026-06-17 通道映射 Excel 导出 2.11.0 开发记录
 
