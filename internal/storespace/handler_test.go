@@ -2,6 +2,7 @@ package storespace
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -225,8 +226,56 @@ func TestScanRecorderEndpointReturnsStableNotImplemented(t *testing.T) {
 	}
 }
 
+func TestExportChannelMappingsEndpointDownloadsExcel(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}}})
+	handler := newTestHandlerWithService(service)
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{AreaType: AreaTypeConsultation, AreaNumber: "1"}); err != nil {
+		t.Fatalf("confirm channel: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores/"+strconv.FormatInt(store.ID, 10)+"/channel-mappings/export.xlsx", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, response.Code, response.Body.String())
+	}
+	if response.Header().Get("Content-Type") != channelMappingExcelContentType {
+		t.Fatalf("unexpected content type: %s", response.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(response.Header().Get("Content-Disposition"), "xlsx") {
+		t.Fatalf("unexpected content disposition: %s", response.Header().Get("Content-Disposition"))
+	}
+	if !bytes.HasPrefix(response.Body.Bytes(), []byte("PK")) {
+		t.Fatalf("expected xlsx zip payload, got %q", response.Body.String())
+	}
+}
+
 func newTestHandler() http.Handler {
+	return newTestHandlerWithService(NewService(NewMemoryStore()))
+}
+
+func newTestHandlerWithService(service *Service) http.Handler {
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, NewService(NewMemoryStore()))
+	RegisterRoutes(mux, service)
 	return mux
 }

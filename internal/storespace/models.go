@@ -316,6 +316,24 @@ type Channel struct {
 	UpdatedAt           time.Time     `json:"updated_at"`
 }
 
+type ChannelMappingExport struct {
+	FileName    string
+	Content     []byte
+	ContentType string
+}
+
+type ChannelMappingExportRow struct {
+	Index         int
+	City          string
+	StoreName     string
+	ExternalOrgID string
+	RecorderCode  string
+	ChannelNo     int
+	SnapshotPath  string
+	AreaTypeLabel string
+	NumberOrNote  string
+}
+
 type EzvizAccount struct {
 	ID             int64      `json:"id"`
 	AccountName    string     `json:"account_name"`

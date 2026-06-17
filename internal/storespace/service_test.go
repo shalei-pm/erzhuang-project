@@ -1,12 +1,15 @@
 package storespace
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -1023,6 +1026,87 @@ func TestRecognizeChannelStoresNonBusinessSceneAsNote(t *testing.T) {
 	}
 }
 
+func TestExportChannelMappingExcelExportsActiveChannelsInBusinessOrder(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{
+			{ChannelNo: 1, ChannelName: "治疗", Active: true},
+			{ChannelNo: 2, ChannelName: "面诊", Active: true},
+			{ChannelNo: 3, ChannelName: "生美", Active: true},
+			{ChannelNo: 4, ChannelName: "机房", Active: true},
+			{ChannelNo: 5, ChannelName: "失效", Active: true},
+		},
+	})
+	service.UseSnapshotStore(memorySnapshotStore{
+		files: map[string][]byte{"00000000000000000000000000000001.jpg": []byte("fake-jpeg")},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City:          "深圳",
+		Name:          "深圳壹方城",
+		ExternalOrgID: "10001",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+	if _, err := repo.SaveChannelSnapshot(context.Background(), recorder.Channels[0].ID, ChannelSnapshotInput{ThumbnailPath: "/api/store-space/channel-snapshots/00000000000000000000000000000001.jpg", FullImagePath: "/api/store-space/channel-snapshots/00000000000000000000000000000001.jpg"}); err != nil {
+		t.Fatalf("save snapshot: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{AreaType: AreaTypeTreatment, AreaNumber: "2"}); err != nil {
+		t.Fatalf("confirm treatment: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[1].ID, ChannelConfirmationInput{AreaType: AreaTypeConsultation, AreaNumber: "1"}); err != nil {
+		t.Fatalf("confirm consultation: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[2].ID, ChannelConfirmationInput{AreaType: AreaTypeBeauty, AreaNumber: "3"}); err != nil {
+		t.Fatalf("confirm beauty: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[3].ID, ChannelConfirmationInput{SceneType: SceneTypeMachineRoom, AreaNote: "机房"}); err != nil {
+		t.Fatalf("confirm machine room: %v", err)
+	}
+	if _, err := service.DeleteChannel(context.Background(), recorder.Channels[4].ID); err != nil {
+		t.Fatalf("delete channel: %v", err)
+	}
+
+	exported, err := service.ExportChannelMappingExcel(context.Background(), store.ID)
+	if err != nil {
+		t.Fatalf("export excel: %v", err)
+	}
+
+	if exported.ContentType != channelMappingExcelContentType {
+		t.Fatalf("unexpected content type: %s", exported.ContentType)
+	}
+	if !strings.HasPrefix(exported.FileName, "深圳壹方城-通道映射确认表-") || !strings.HasSuffix(exported.FileName, ".xlsx") {
+		t.Fatalf("unexpected filename: %s", exported.FileName)
+	}
+	files := unzipExcelFiles(t, exported.Content)
+	sheet := files["xl/worksheets/sheet1.xml"]
+	for _, want := range []string{"面诊室", "治疗室", "生美", "其他区域", "10001", "GN0941203", "机房"} {
+		if !strings.Contains(sheet, want) {
+			t.Fatalf("sheet missing %q: %s", want, sheet)
+		}
+	}
+	if strings.Contains(sheet, ">5<") {
+		t.Fatalf("inactive/deleted channel should not be exported: %s", sheet)
+	}
+	if strings.Index(sheet, "面诊室") > strings.Index(sheet, "治疗室") {
+		t.Fatalf("expected consultation before treatment: %s", sheet)
+	}
+	if _, ok := files["xl/media/image1.jpg"]; !ok {
+		t.Fatalf("expected embedded image, files=%v", mapKeys(files))
+	}
+}
+
 func TestConfirmChannelCreatesBusinessArea(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华南"})
@@ -1281,6 +1365,55 @@ func (f fakeChannelScanner) CaptureChannel(ctx context.Context, account EzvizAcc
 		FullImagePath:      url,
 		FullImageExpiresAt: &expiresAt,
 	}, nil
+}
+
+type memorySnapshotStore struct {
+	files map[string][]byte
+}
+
+func (s memorySnapshotStore) SaveRemote(ctx context.Context, imageURL string) (string, error) {
+	return imageURL, nil
+}
+
+func (s memorySnapshotStore) Open(ctx context.Context, name string) (io.ReadCloser, string, error) {
+	data, ok := s.files[name]
+	if !ok {
+		return nil, "", ErrNotFound
+	}
+	return io.NopCloser(bytes.NewReader(data)), "image/jpeg", nil
+}
+
+func unzipExcelFiles(t *testing.T, payload []byte) map[string]string {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
+	if err != nil {
+		t.Fatalf("open xlsx zip: %v", err)
+	}
+	files := map[string]string{}
+	for _, file := range reader.File {
+		handle, err := file.Open()
+		if err != nil {
+			t.Fatalf("open zip file %s: %v", file.Name, err)
+		}
+		data, err := io.ReadAll(handle)
+		if closeErr := handle.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			t.Fatalf("read zip file %s: %v", file.Name, err)
+		}
+		files[file.Name] = string(data)
+	}
+	return files
+}
+
+func mapKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 type mutableFakeChannelScanner struct {

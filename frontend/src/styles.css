@@ -886,6 +886,33 @@ td:nth-child(10) {
   font-size: 12px;
 }
 
+.channel-filter-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.secondary-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid #c7d2fe;
+  border-radius: var(--button-radius);
+  background: #eef2ff;
+  color: var(--brand);
+  font-size: var(--button-font-normal);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.secondary-action-button:hover:not(:disabled) {
+  border-color: #a5b4fc;
+  background: #e0e7ff;
+}
+
 .segmented-control {
   display: inline-flex;
   align-items: center;
