@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本项目是个人练习项目，用来学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证和回滚流程。
+本项目最初是个人练习项目，用来学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证和回滚流程。当前已经新增公司 GitLab + K8s 自动发布链路；后续涉及公司环境发布时，以公司 GitLab 分支流程为准。
 
 ## 用户背景
 
@@ -22,7 +22,7 @@
 
 ## 项目目标
 
-形成一条可重复的真实研发练习链路：
+形成一条可重复的真实研发链路：
 
 1. 本地 Codex 开发 Go 项目。
 2. 使用 Git 管理代码版本。
@@ -35,6 +35,8 @@
 9. 支持回滚。
 
 长期目标是：用户可以对 Codex 说“开发并发版”，Codex 能通过 GitHub + SSH 或受控部署脚本完成发布，而不需要用户手动转述每一步给 Hermes。
+
+公司环境当前目标是：本地 Codex 在同一个仓库目录开发，确认后推送到公司 GitLab 固定分支，由公司流水线自动构建和发布，Codex 负责版本、分支、验证和文档记录。
 
 ## 当前服务器背景
 
@@ -105,6 +107,30 @@
   5. 主会话 review PR，必要时打回专项会话修改。
   6. PR 合并后由主会话发布到 Lighthouse，并验证 `/health` 和页面版本号。
 - 当前仓库暂未配置 GitHub Actions；后续如增加 CI，PR 合并前必须检查 CI 结果。
+
+## 公司 GitLab 与自动发布流程
+
+公司环境发布链路已经接入公司 GitLab 和 K8s 自动发布。本项目后续涉及公司线上环境时，默认使用该流程：
+
+- 公司 GitLab 仓库：`https://gitlab.sy.soyoung.com/pm/shalei-pm/erzhuang-project.git`。
+- 本地 remote 名称：`gitlab`。
+- 固定公司发布分支：`codex/containerize-single-image`。
+- 公司 GitLab 分支约每 5 分钟自动发布一次。
+- 本地当前目录 `/Users/sylar/erzhuang-project` 同时保留 GitHub 与 GitLab remote，不另开目录，避免上下文和代码状态分裂。
+- 公司发布分支是受保护分支，不允许 force push；需要使用正常 commit、merge、push。
+- 从个人 `main` 或其他开发分支同步到公司分支时，优先：
+  1. `git fetch gitlab`
+  2. `git switch codex/containerize-single-image`
+  3. `git merge main`
+  4. 本地验证
+  5. `git push gitlab codex/containerize-single-image`
+- 如果公司分支已有运维调整，例如 Dockerfile、K8s 环境变量、数据库连接方式，不要用本地个人配置覆盖。合并冲突时以公司运行配置为准，再把业务代码和必要文档合进去。
+- 公司环境数据库和密钥必须通过运行时环境变量或 K8s Secret 注入。不要把 Supabase、OpenAI、萤石云、MiniMax 等密钥写入仓库、Dockerfile、前端 `VITE_*` 变量或文档。
+- 公司环境前端版本号由容器构建时注入 `VITE_APP_VERSION`。Dockerfile 需要从 `VERSION` 和构建参数 `GIT_VERSION` 生成页面底部版本号，避免线上展示 `local-dev`。
+- 推送后需要等待自动发布完成，再检查：
+  - 页面底部版本号是否为 `VERSION (commit)` 或 `VERSION (container)`。
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 是否健康。
+  - 关键页面是否能打开，静态资源和 API 路径是否仍走 `/erzhuang-project/` 前缀。
 
 ## 前端验收门禁
 

@@ -1,5 +1,48 @@
 # Deploy Runbook
 
+## 公司 GitLab 自动发布
+
+公司环境已经接入 GitLab + K8s 自动发布。后续涉及公司线上环境时，以本节为默认发布流程；个人 Lighthouse 流程只作为练习、排查或备用验证路径。
+
+固定信息：
+
+- GitLab remote：`gitlab`
+- GitLab 仓库：`https://gitlab.sy.soyoung.com/pm/shalei-pm/erzhuang-project.git`
+- 发布分支：`codex/containerize-single-image`
+- 自动发布：GitLab 分支推送后约每 5 分钟自动构建和发布
+- 公司公网入口：`https://lite.sy.soyoung.com/erzhuang-project/`
+- 公司健康检查：`https://lite.sy.soyoung.com/erzhuang-project/health`
+
+标准流程：
+
+```sh
+git fetch gitlab
+git switch codex/containerize-single-image
+git merge main
+go test ./...
+cd frontend && npm run build && npm test
+git push gitlab codex/containerize-single-image
+```
+
+注意：
+
+- `codex/containerize-single-image` 是公司受保护分支，不要 force push。
+- 合并时保留公司分支上的 Dockerfile、数据库、K8s 运行配置和路径前缀设置；不要用个人 Lighthouse 配置覆盖公司配置。
+- 公司运行时密钥必须通过 K8s Secret 或运行时环境变量注入，不要提交到仓库、Dockerfile、文档或前端 `VITE_*`。
+- 公司数据库当前应保持为运维配置的 Supabase PostgreSQL。发布后 `/health` 应返回 `database:"postgres"`。
+- 公司容器构建需要注入前端版本号。Dockerfile 应从 `VERSION` 和 `GIT_VERSION` 生成 `VITE_APP_VERSION`；线上页面不应显示 `local-dev`。
+- 推送后等待自动发布，再检查页面底部版本号。若构建系统传入 commit，预期为 `2.x.x (<short-sha>)`；若未传入，至少应显示 `2.x.x (container)`。
+
+公司发布失败或版本未更新时，优先排查：
+
+1. GitLab 分支是否已经是最新 commit。
+2. 公司流水线是否从 `codex/containerize-single-image` 构建。
+3. 流水线是否使用仓库 Dockerfile，而不是另一个外部构建脚本。
+4. 构建缓存或镜像缓存是否导致旧静态资源未更新。
+5. 页面静态资源和 API 请求路径是否仍使用 `/erzhuang-project/` 前缀。
+
+---
+
 本项目的服务器发布目标是个人腾讯云 Lighthouse：
 
 - 部署目录：`/opt/apps/erzhuang-project`

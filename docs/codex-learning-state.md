@@ -1972,6 +1972,32 @@ git diff --check
     - `/erzhuang/` HTML 已引用新 JS/CSS。
     - 线上 JS 中已确认包含 `2.4.0 (eb6261c)`、“城市”和“未设置”。
 
+## 2026-06-17 公司 GitLab 自动发布流程固化
+
+- 用户确认：后续本项目公司环境使用公司 GitLab 固定分支自动发布流程。
+- 本地仓库仍使用 `/Users/sylar/erzhuang-project`，不另开目录，避免上下文分裂。
+- 公司 GitLab remote：`gitlab`。
+- 公司仓库：`https://gitlab.sy.soyoung.com/pm/shalei-pm/erzhuang-project.git`。
+- 公司固定发布分支：`codex/containerize-single-image`。
+- 自动发布节奏：GitLab 分支推送后约每 5 分钟发布一次。
+- 当前公司分支最新已推送 commit：`53996d7 Inject frontend version in container build`。
+- 当前公司分支 `VERSION`：`2.10.0`。
+- 关键流程：
+  - 公司环境修改默认在 `codex/containerize-single-image` 分支上完成并推送到 GitLab。
+  - 如需同步个人 `main` 的能力，使用正常 `git merge main` 合入公司分支。
+  - 公司分支受保护，不 force push。
+  - 合并时保留公司 Dockerfile、K8s、数据库和路径配置，不用个人 Lighthouse 配置覆盖。
+- 版本号问题复盘：
+  - 线上曾显示 `local-dev`，根因是前端使用 `import.meta.env.VITE_APP_VERSION || "local-dev"`，而公司 Dockerfile 原来直接 `npm run build`，未注入 `VITE_APP_VERSION`。
+  - 已在 Dockerfile 中加入从 `VERSION` 和 `GIT_VERSION` 生成 `VITE_APP_VERSION` 的构建逻辑。
+  - 之后公司构建如传入 commit，页面底部应显示 `2.x.x (<short-sha>)`；未传入时至少显示 `2.x.x (container)`，不应再显示 `local-dev`。
+- 安全约定：
+  - Supabase、OpenAI、萤石云、MiniMax、GitLab 等密钥不得写入仓库、文档、Dockerfile 或前端 `VITE_*`。
+  - 公司数据库连接和 API key 应由 K8s Secret 或运行时环境变量提供。
+- 需要后续线上确认：
+  - 等公司自动发布完成后，刷新 `https://lite.sy.soyoung.com/erzhuang-project/`，确认页面版本号不再是 `local-dev`。
+  - 检查 `https://lite.sy.soyoung.com/erzhuang-project/health`，预期 `database:"postgres"`。
+
 ## 2026-06-12 详情页流程体验 2.4.1 修复
 
 本次版本号从 `2.4.0` 升级到 `2.4.1`：
