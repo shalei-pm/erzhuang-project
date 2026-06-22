@@ -4,27 +4,14 @@ import {
   storeSpaceApi,
   type EzvizAccount,
   type AreaType,
-  type NonBusinessSceneType,
   type StoreDetail,
   type VideoChannel,
   type VideoRecorder,
 } from "../api";
 import { areaTypeLabels } from "../domain/areas";
+import { channelSceneLabel } from "../domain/channel-labels";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
 import { formatDateTime } from "../domain/format";
-
-const sceneLabels: Record<NonBusinessSceneType, string> = {
-  front_desk: "前台",
-  corridor: "走廊",
-  passage: "通道",
-  waiting_area: "候诊区",
-  hall: "大厅",
-  entrance: "门口",
-  storage: "库房",
-  pharmacy: "药房",
-  machine_room: "机房",
-  unknown: "未知",
-};
 
 type ChannelTypeFilter = "all" | AreaType;
 
@@ -876,10 +863,7 @@ function RecorderTableProgress({ progress, complete }: { progress?: { done: numb
 }
 
 function nonBusinessLabel(sceneType: VideoChannel["sceneType"]) {
-  if (sceneType === "treatment" || sceneType === "consultation" || sceneType === "beauty") {
-    return areaTypeLabels[sceneType];
-  }
-  return sceneLabels[sceneType] ?? "其他区域";
+  return channelSceneLabel(sceneType);
 }
 
 function channelStatusLabel(status: VideoChannel["status"]) {

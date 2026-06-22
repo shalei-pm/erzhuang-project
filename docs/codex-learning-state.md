@@ -1,10 +1,29 @@
 # Codex Learning State
 
-最后更新：2026-06-17
+最后更新：2026-06-22
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-22 其他区域确认后显示未知 2.12.1 修复记录
+
+- 版本号：`2.12.1`。
+- 用户反馈：
+  - 通道识别为“其他区域”后，手动填写“护士站”等编号/备注，点击确认正常。
+  - 再点击编辑修改并重新确认后，业务区域类型显示成“未知”。
+- 根因：
+  - 非业务区域自定义备注不属于固定场景枚举，前端二次确认时会发送 `sceneType = unknown`。
+  - 页面展示层把内部兜底枚举 `unknown` 直接翻译成“未知”，导致用户看到错误业务类型；实际备注仍保存在 `areaNote`。
+- 修复：
+  - 新增 `frontend/src/domain/channel-labels.ts`，集中维护通道场景展示名。
+  - `unknown` 在通道映射业务展示中统一显示为“其他区域”。
+  - `frontend/src/components/VideoChannelTab.tsx` 改为复用领域 helper，避免组件内重复维护场景文案。
+- 验证：
+  - 新增 `frontend/src/domain/channel-labels.test.ts` 覆盖 `unknown -> 其他区域`、`machine_room -> 机房`、`front_desk -> 前台`、`treatment -> 治疗室`。
+  - 已用临时 TypeScript 编译链路验证新增领域测试通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
 
 ## 2026-06-17 机构基础信息编辑 2.12.0 开发记录
 
