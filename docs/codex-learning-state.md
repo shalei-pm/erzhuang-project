@@ -24,6 +24,14 @@
   - 已用临时 TypeScript 编译链路验证新增领域测试通过。
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
+- 发布状态：
+  - 修复代码 commit：`d0d0d8d`。
+  - GitHub `main` 已推送修复代码。
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已合入并推送，merge commit：`de514e6`。
+  - 公司环境由 GitLab/K8s 自动发布；当前本机无法解析 `lite.sy.soyoung.com`，需要用户在公司内网侧确认页面版本。
+  - 韩国服务器已执行 `/opt/apps/erzhuang-project/scripts/deploy.sh`，服务器测试、Go build、前端 build、服务重启均通过。
+  - 韩国服务器本机验证：`VERSION=2.12.1`，`/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`，`erzhuang-project.service` 与 `nginx` 均为 active。
+  - 本机直连 `https://43.155.237.46/erzhuang/health` 仍连接失败，和既有网络现象一致；服务器本机服务状态正常。
 
 ## 2026-06-17 机构基础信息编辑 2.12.0 开发记录
 
