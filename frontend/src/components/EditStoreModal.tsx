@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { StoreSummary, UpdateStoreBasicInfoPayload } from "../api";
-import { CITY_OPTIONS } from "./CreateStoreModal";
+import { CITY_OPTIONS } from "../domain/cities";
 
 type EditStoreModalProps = {
   store: StoreSummary;

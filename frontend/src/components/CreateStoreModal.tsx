@@ -1,31 +1,10 @@
 import { useRef, useState } from "react";
 import type { CreateStoreSpacePayload, EzvizAccount, RecorderDraft, UploadResult } from "../api";
+import { CITY_OPTIONS } from "../domain/cities";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
 
 const MAX_PDF_BYTES = 5 * 1024 * 1024;
 const MAX_RECORDERS = 3;
-export const CITY_OPTIONS = [
-  "北京",
-  "上海",
-  "广州",
-  "深圳",
-  "成都",
-  "杭州",
-  "重庆",
-  "武汉",
-  "苏州",
-  "西安",
-  "南京",
-  "长沙",
-  "天津",
-  "郑州",
-  "东莞",
-  "青岛",
-  "昆明",
-  "宁波",
-  "合肥",
-  "佛山",
-];
 
 type CreateStoreModalProps = {
   accounts: EzvizAccount[];
