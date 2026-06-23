@@ -165,6 +165,13 @@ func snapshotKey(name string) string {
 	return filepath.ToSlash(filepath.Join("channel-snapshots", name))
 }
 
+func snapshotKeyForDiagnostics(name string) string {
+	if !validSnapshotName(name) {
+		return ""
+	}
+	return snapshotKey(name)
+}
+
 func contentTypeOrDefault(contentType string, extension string) string {
 	contentType = strings.TrimSpace(contentType)
 	if contentType != "" {

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/assets"
 )
 
 type Service struct {
@@ -41,6 +43,38 @@ func (s *Service) OpenChannelSnapshot(ctx context.Context, name string) (io.Read
 		return nil, "", ErrNotFound
 	}
 	return s.snapshotStore.Open(ctx, name)
+}
+
+func (s *Service) DiagnoseChannelSnapshot(ctx context.Context, name string) SnapshotDiagnostics {
+	diagnostics := SnapshotDiagnostics{
+		Code:         "snapshot_open_ok",
+		Stage:        "open_snapshot",
+		AssetStore:   assets.ModeFromEnv(),
+		SnapshotName: strings.TrimSpace(name),
+		SnapshotKey:  snapshotKeyForDiagnostics(name),
+		Exists:       true,
+	}
+	if s.snapshotStore == nil {
+		diagnostics.Code = "snapshot_store_not_configured"
+		diagnostics.Exists = false
+		diagnostics.Detail = "snapshot store is not configured"
+		return diagnostics
+	}
+	reader, _, err := s.snapshotStore.Open(ctx, name)
+	if err != nil {
+		diagnostics.Exists = false
+		if errors.Is(err, ErrNotFound) {
+			diagnostics.Code = "snapshot_not_found"
+		} else {
+			diagnostics.Code = "snapshot_open_failed"
+			diagnostics.Detail = sanitizeDiagnosticDetail(err.Error())
+		}
+		return diagnostics
+	}
+	if reader != nil {
+		_ = reader.Close()
+	}
+	return diagnostics
 }
 
 type ChannelScanner interface {

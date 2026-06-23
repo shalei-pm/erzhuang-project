@@ -6,6 +6,26 @@
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
 
+## 2026-06-23 通道截图与抓图识别诊断增强 2.14.4 修复记录
+
+- 版本号：`2.14.4`。
+- 用户反馈：
+  - 公司环境再次出现 `store space request failed`。
+  - 通道映射页所有“最近截图”显示加载失败，前端缺少足够信息判断是抓图、保存 Supabase、读取 Supabase，还是历史本地文件缺失。
+- 产品/排障决策：
+  - 页面需要展示脱敏后的诊断信息，便于用户直接把错误贴回给 Codex 定位。
+  - 不能展示 accessToken、apiKey、service role key 或完整签名 URL。
+- 修复：
+  - store-space 错误响应保留旧 `error` 字段，同时新增 `code`、`stage`、`detail`。
+  - 后端新增 `GET /api/store-space/channel-snapshots/{name}/diagnostics`，返回 `asset_store`、`snapshot_key`、`exists`、`code/stage/detail`。
+  - 前端 `ApiError` 保留 `code/stage/detail`，通道映射页错误提示会展示这些字段。
+  - 最近截图 `<img>` 加载失败时，前端自动请求截图诊断接口，并在缩略图下方用小字展示脱敏诊断信息。
+- 验证：
+  - 新增 `TestScanRecorderEndpointReturnsDiagnosticForUnexpectedError`，覆盖普通内部错误不再只返回一句 `store space request failed`。
+  - 新增 `TestChannelSnapshotDiagnosticsReportsOpenFailure`，覆盖截图读取失败时返回脱敏诊断信息。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+
 ## 2026-06-23 兜底抓图队列不中途停止 2.14.3 修复记录
 
 - 版本号：`2.14.3`。
