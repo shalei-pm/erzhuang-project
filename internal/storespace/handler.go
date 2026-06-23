@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 )
 
 type Handler struct {
@@ -387,6 +389,11 @@ func handleServiceError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, ErrNotImplemented) {
 		writeError(w, http.StatusNotImplemented, "not implemented", nil)
+		return
+	}
+	var ezvizError *ezviz.Error
+	if errors.As(err, &ezvizError) {
+		writeError(w, http.StatusBadGateway, ezvizError.Error(), nil)
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "store space request failed", nil)

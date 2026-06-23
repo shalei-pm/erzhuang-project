@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 )
 
 func TestListEzvizAccountsEndpointReturnsSafeFieldsOnly(t *testing.T) {
@@ -261,6 +263,41 @@ func TestScanRecorderEndpointReturnsStableNotImplemented(t *testing.T) {
 	}
 }
 
+func TestScanRecorderEndpointReturnsEzvizErrorCodeForFallback(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华东"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, planLimitScanner{})
+	handler := newTestHandlerWithService(service)
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "上海",
+		Name: "上海静安",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "K96112775"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/store-space/recorders/"+strconv.FormatInt(store.Recorders[0].ID, 10)+"/scan-channels", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadGateway, recorder.Code, recorder.Body.String())
+	}
+	var response map[string]string
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(response["error"], "10026") || !strings.Contains(response["error"], "设备数量超出个人版限制") {
+		t.Fatalf("expected fallback-detectable ezviz error, got %#v", response)
+	}
+}
+
 func TestExportChannelMappingsEndpointDownloadsExcel(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
@@ -313,4 +350,14 @@ func newTestHandlerWithService(service *Service) http.Handler {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, service)
 	return mux
+}
+
+type planLimitScanner struct{}
+
+func (planLimitScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
+	return nil, &ezviz.Error{Code: "10026", Msg: "设备数量超出个人版限制，当前设备无法操作"}
+}
+
+func (planLimitScanner) CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error) {
+	return ChannelSnapshotInput{}, nil
 }
