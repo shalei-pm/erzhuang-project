@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
@@ -20,10 +21,11 @@ const (
 )
 
 type HealthResponse struct {
-	App      string `json:"app"`
-	Status   string `json:"status"`
-	Version  string `json:"version"`
-	Database string `json:"database"`
+	App        string `json:"app"`
+	Status     string `json:"status"`
+	Version    string `json:"version"`
+	Database   string `json:"database"`
+	AssetStore string `json:"asset_store"`
 }
 
 type Task struct {
@@ -145,10 +147,11 @@ func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, HealthResponse{
-		App:      AppName,
-		Status:   status,
-		Version:  Version,
-		Database: database,
+		App:        AppName,
+		Status:     status,
+		Version:    Version,
+		Database:   database,
+		AssetStore: assets.ModeFromEnv(),
 	})
 }
 

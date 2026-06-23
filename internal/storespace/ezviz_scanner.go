@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -16,11 +15,6 @@ type EzvizScanner struct {
 	client   *ezviz.Client
 	accounts map[string]ezviz.Account
 }
-
-const (
-	captureProbeMaxChannel           = 32
-	captureProbeMaxConsecutiveErrors = 5
-)
 
 type ezvizCredential struct {
 	Name        string `json:"name"`
@@ -107,9 +101,6 @@ func (s *EzvizScanner) ScanRecorderChannels(ctx context.Context, account EzvizAc
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return nil, err
 		}
-		if shouldFallbackToCaptureProbe(err) {
-			return s.probeChannelsByCapture(ctx, credentials, recorder)
-		}
 		return nil, err
 	}
 	channels := make([]ScannedChannel, 0, len(cameras))
@@ -118,31 +109,6 @@ func (s *EzvizScanner) ScanRecorderChannels(ctx context.Context, account EzvizAc
 			ChannelNo:   camera.ChannelNo,
 			ChannelName: strings.TrimSpace(camera.CameraName),
 			Active:      camera.Status == 1,
-		})
-	}
-	return channels, nil
-}
-
-func shouldFallbackToCaptureProbe(err error) bool {
-	return ezviz.ErrorCode(err) == "10026"
-}
-
-func (s *EzvizScanner) probeChannelsByCapture(ctx context.Context, credentials ezviz.Account, recorder Recorder) ([]ScannedChannel, error) {
-	channels := []ScannedChannel{}
-	consecutiveErrors := 0
-	for channelNo := 1; channelNo <= captureProbeMaxChannel; channelNo++ {
-		if _, err := s.client.Capture(ctx, credentials, recorder.DeviceCode, channelNo); err != nil {
-			consecutiveErrors++
-			if consecutiveErrors >= captureProbeMaxConsecutiveErrors {
-				break
-			}
-			continue
-		}
-		consecutiveErrors = 0
-		channels = append(channels, ScannedChannel{
-			ChannelNo:   channelNo,
-			ChannelName: fmt.Sprintf("通道%d", channelNo),
-			Active:      true,
 		})
 	}
 	return channels, nil

@@ -41,6 +41,9 @@ func TestHealth(t *testing.T) {
 	if response.Database != "memory" {
 		t.Fatalf("expected database memory, got %q", response.Database)
 	}
+	if response.AssetStore != "local" {
+		t.Fatalf("expected asset store local, got %q", response.AssetStore)
+	}
 }
 
 func TestHealthDegradedWhenStorePingFails(t *testing.T) {

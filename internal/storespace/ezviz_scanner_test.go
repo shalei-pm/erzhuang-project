@@ -4,15 +4,14 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 )
 
-func TestEzvizScannerFallsBackToCaptureProbeWhenCameraListHitsPlanLimit(t *testing.T) {
-	var capturedChannels []string
+func TestEzvizScannerReturnsPlanLimitWithoutCaptureProbe(t *testing.T) {
+	var captureRequests int
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if err := r.ParseForm(); err != nil {
 			t.Fatalf("parse form: %v", err)
@@ -22,15 +21,8 @@ func TestEzvizScannerFallsBackToCaptureProbeWhenCameraListHitsPlanLimit(t *testi
 		case "/api/lapp/device/camera/list":
 			return jsonResponse(`{"code":"10026","msg":"设备数量超出个人版限制，当前设备无法操作"}`), nil
 		case "/api/lapp/device/capture":
-			if r.Form.Get("deviceSerial") != "GF8132547" {
-				t.Fatalf("unexpected deviceSerial %q", r.Form.Get("deviceSerial"))
-			}
-			channelNo := r.Form.Get("channelNo")
-			capturedChannels = append(capturedChannels, channelNo)
-			if channelNo == "1" || channelNo == "2" {
-				return jsonResponse(`{"code":"200","msg":"操作成功!","data":{"picUrl":"https://example.test/snapshot.jpg"}}`), nil
-			}
-			return jsonResponse(`{"code":"60012","msg":"未知错误"}`), nil
+			captureRequests++
+			return jsonResponse(`{"code":"200","msg":"操作成功!","data":{"picUrl":"https://example.test/snapshot.jpg"}}`), nil
 		default:
 			return jsonResponse(`{"code":"404","msg":"not found"}`), nil
 		}
@@ -43,22 +35,15 @@ func TestEzvizScannerFallsBackToCaptureProbeWhenCameraListHitsPlanLimit(t *testi
 		AccessToken: "token",
 	}})
 
-	channels, err := scanner.ScanRecorderChannels(context.Background(), EzvizAccount{AccountName: "华东"}, Recorder{DeviceCode: "GF8132547"})
-	if err != nil {
-		t.Fatalf("scan recorder channels: %v", err)
+	_, err := scanner.ScanRecorderChannels(context.Background(), EzvizAccount{AccountName: "华东"}, Recorder{DeviceCode: "GF8132547"})
+	if err == nil {
+		t.Fatal("expected camera list plan limit error")
 	}
-
-	if strings.Join(capturedChannels, ",") != "1,2,3,4,5,6,7" {
-		t.Fatalf("expected capture probing to stop after five consecutive failures, got %#v", capturedChannels)
+	if code := ezviz.ErrorCode(err); code != "10026" {
+		t.Fatalf("expected ezviz error code 10026, got %q: %v", code, err)
 	}
-	if len(channels) != 2 {
-		t.Fatalf("expected two probed active channels, got %#v", channels)
-	}
-	for index, channel := range channels {
-		expectedNo := index + 1
-		if channel.ChannelNo != expectedNo || !channel.Active || channel.ChannelName != "通道"+strconv.Itoa(expectedNo) {
-			t.Fatalf("unexpected probed channel at index %d: %#v", index, channel)
-		}
+	if captureRequests != 0 {
+		t.Fatalf("expected no synchronous capture probing on plan limit, got %d requests", captureRequests)
 	}
 }
 
