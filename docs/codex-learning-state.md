@@ -6,6 +6,27 @@
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
 
+## 2026-06-23 萤石云扫描通道抓图兜底 2.13.0 开发记录
+
+- 版本号：`2.13.0`。
+- 用户反馈：
+  - 部分录像机超过萤石云个人版设备限制时，`device/camera/list` 直接返回错误，导致系统扫描通道失败。
+  - 实测 `GF8132547` 在华东账号下 `device/camera/list` 返回 `10026`，但 `device/capture` 抓取通道 1 成功。
+- 产品决策：
+  - 默认仍优先使用萤石官方 `device/camera/list` 扫描通道。
+  - 当 `camera/list` 返回 `10026` 时，降级使用 `device/capture` 从通道 1 开始串行探测。
+  - 抓图成功即认为该通道有效；连续 5 个通道抓图失败后停止；最大探测到通道 32。
+- 修复：
+  - `internal/ezviz/client.go` 新增 `ErrorCode`，供上层识别萤石错误码。
+  - `internal/storespace/ezviz_scanner.go` 在 `10026` 时启用抓图兜底探测。
+  - 其他萤石错误码，例如 `20018 该用户不拥有该设备`，仍保持原错误，不误触发兜底扫描。
+- 验证：
+  - 新增 `internal/storespace/ezviz_scanner_test.go` 覆盖 `10026` 兜底抓图、连续 5 个失败停止、非权限错误不兜底。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go build ./cmd/server` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
 ## 2026-06-22 城市列表补充济南并按音序排列 2.12.2 开发记录
 
 - 版本号：`2.12.2`。
