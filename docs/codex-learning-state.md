@@ -27,8 +27,13 @@
     - 全部成功时保留原成功文案。
 - 验证：
   - 新增 `frontend/src/domain/channel-recognition.test.ts`，覆盖萤石 `10028` 全失败、部分失败和全部成功三种提示。
-  - `cd frontend && ./node_modules/.bin/vitest run src/domain/channel-recognition.test.ts` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-channel-test src/domain/channel-recognition.ts src/domain/channel-recognition.test.ts && node /tmp/erzhuang-channel-test/channel-recognition.test.js` 通过。
   - `cd frontend && npm run build` 通过。
+- 发布：
+  - GitHub `main` commit：`991033b`。
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已合入并推送，merge commit：`38158d8`，等待公司 K8s 自动发布。
+  - 韩国服务器已通过 SSH 执行 `/opt/apps/erzhuang-project/scripts/deploy.sh` 发布，服务器当前 commit：`991033b`。
+  - 韩国公网入口 `https://43.155.237.46/erzhuang/health` 验证通过。
 
 ## 2026-06-23 Supabase Storage Bucket 自愈 2.14.5 修复记录
 
