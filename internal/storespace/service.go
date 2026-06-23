@@ -267,6 +267,92 @@ func (s *Service) ScanRecorderChannels(ctx context.Context, recorderID int64) (*
 	return s.repo.ReplaceRecorderChannels(ctx, recorderID, channelInputs)
 }
 
+func (s *Service) ProbeRecognizeChannel(ctx context.Context, recorderID int64, input ProbeRecognizeChannelInput) (ProbeRecognizeChannelResult, error) {
+	if s.scanner == nil {
+		return ProbeRecognizeChannelResult{}, ErrNotImplemented
+	}
+	if input.ChannelNo <= 0 {
+		return ProbeRecognizeChannelResult{}, &ValidationError{Fields: map[string]string{"channel_no": "通道号必须大于 0"}}
+	}
+	recorder, err := s.repo.GetRecorder(ctx, recorderID)
+	if err != nil {
+		return ProbeRecognizeChannelResult{}, err
+	}
+	if recorder.EzvizAccountID == 0 {
+		return ProbeRecognizeChannelResult{}, &ValidationError{Fields: map[string]string{"ezviz_account_id": "缺少萤石云账号"}}
+	}
+	account, err := s.repo.GetEzvizAccount(ctx, recorder.EzvizAccountID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ProbeRecognizeChannelResult{}, &ValidationError{Fields: map[string]string{"ezviz_account_id": "找不到萤石云账号"}}
+		}
+		return ProbeRecognizeChannelResult{}, err
+	}
+
+	probeChannel := Channel{
+		RecorderID:  recorder.ID,
+		ChannelNo:   input.ChannelNo,
+		ChannelName: fmt.Sprintf("通道%d", input.ChannelNo),
+		Status:      ChannelStatusPendingRecognition,
+		IsActive:    true,
+		SceneType:   SceneTypeUnknown,
+	}
+	channelStarted := time.Now()
+	captureStarted := time.Now()
+	snapshot, err := s.scanner.CaptureChannel(ctx, *account, *recorder, probeChannel)
+	captureMS := elapsedMilliseconds(captureStarted)
+	if err != nil {
+		return ProbeRecognizeChannelResult{
+			Active:  false,
+			Message: err.Error(),
+		}, nil
+	}
+	channel, err := s.repo.UpsertRecorderChannel(ctx, recorderID, ChannelInput{
+		ChannelNo:   input.ChannelNo,
+		ChannelName: probeChannel.ChannelName,
+		IsActive:    true,
+	})
+	if err != nil {
+		return ProbeRecognizeChannelResult{}, err
+	}
+
+	recognitionImageURL := firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath)
+	if s.snapshotStore != nil && strings.TrimSpace(recognitionImageURL) != "" {
+		localURL, err := s.snapshotStore.SaveRemote(ctx, recognitionImageURL)
+		if err != nil {
+			updated, saveErr := s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
+				RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
+				CountAttempt:      true,
+			})
+			if saveErr != nil {
+				return ProbeRecognizeChannelResult{}, saveErr
+			}
+			return ProbeRecognizeChannelResult{Channel: updated, Active: true, Message: err.Error()}, nil
+		}
+		snapshot.ThumbnailPath = localURL
+		snapshot.FullImagePath = localURL
+		snapshot.FullImageExpiresAt = nil
+	}
+	snapshot.CountAttempt = true
+	snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
+	if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
+		recognitionStarted := time.Now()
+		result, err := s.recognizer.RecognizeChannel(ctx, recognitionImageURL)
+		recognitionMS := elapsedMilliseconds(recognitionStarted)
+		if err != nil {
+			snapshot.Status = ChannelStatusRecognitionFailed
+			snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+		} else {
+			applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+		}
+	}
+	updated, err := s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
+	if err != nil {
+		return ProbeRecognizeChannelResult{}, err
+	}
+	return ProbeRecognizeChannelResult{Channel: updated, Active: true}, nil
+}
+
 func (s *Service) ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error) {
 	input.AreaNumber = strings.TrimSpace(input.AreaNumber)
 	if input.SceneType == "" {

@@ -34,6 +34,7 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	mux.HandleFunc("DELETE /api/store-space/stores/{id}", handler.deleteStore)
 	mux.HandleFunc("DELETE /api/store-space/recorders/{recorder_id}", handler.deleteRecorder)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/scan-channels", handler.scanRecorderChannels)
+	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/probe-recognize-channel", handler.probeRecognizeChannel)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/recognize-channels", handler.recognizeRecorderChannels)
 	mux.HandleFunc("GET /api/store-space/channel-snapshots/{name}", handler.getChannelSnapshot)
 	mux.HandleFunc("DELETE /api/store-space/channels/{channel_id}", handler.deleteChannel)
@@ -235,6 +236,23 @@ func (h *Handler) scanRecorderChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, recorder)
+}
+
+func (h *Handler) probeRecognizeChannel(w http.ResponseWriter, r *http.Request) {
+	recorderID, ok := parseID(w, r, "recorder_id")
+	if !ok {
+		return
+	}
+	var input ProbeRecognizeChannelInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	result, err := h.service.ProbeRecognizeChannel(r.Context(), recorderID, input)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) recognizeRecorderChannels(w http.ResponseWriter, r *http.Request) {

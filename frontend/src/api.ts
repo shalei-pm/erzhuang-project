@@ -123,6 +123,12 @@ export type VideoChannel = {
   confirmedAt?: string;
 };
 
+export type ProbeRecognizeChannelResult = {
+  active: boolean;
+  channel?: VideoChannel;
+  message?: string;
+};
+
 export type StoreListResponse = {
   items: StoreSummary[];
   page: number;
@@ -343,6 +349,12 @@ type BackendVideoChannel = {
   recognitionResult?: unknown;
   confirmed_at?: string;
   confirmedAt?: string;
+};
+
+type BackendProbeRecognizeChannelResult = {
+  active?: boolean;
+  channel?: BackendVideoChannel;
+  message?: string;
 };
 
 type BackendStoreSpaceListResponse = {
@@ -848,6 +860,58 @@ const mockAdapter = {
     return clone(recognized);
   },
 
+  async probeRecognizeChannel(storeId: number, recorderId: number, channelNo: number): Promise<ProbeRecognizeChannelResult> {
+    await delay(420);
+    const store = mockStores.find((item) => item.id === storeId);
+    const recorder = store?.recorders.find((item) => item.id === recorderId);
+    if (!store || !recorder) {
+      throw new Error("录像机不存在");
+    }
+    if (channelNo > 4) {
+      return { active: false, message: "模拟通道无画面" };
+    }
+    const presets = [
+      { sceneType: "consultation" as SceneType, areaType: "consultation" as AreaType, areaNumber: "1", areaNote: "" },
+      { sceneType: "treatment" as SceneType, areaType: "treatment" as AreaType, areaNumber: "2", areaNote: "" },
+      { sceneType: "beauty" as SceneType, areaType: "beauty" as AreaType, areaNumber: "3", areaNote: "" },
+      { sceneType: "front_desk" as SceneType, areaType: "" as const, areaNumber: "", areaNote: "前台" },
+    ];
+    const preset = presets[(channelNo - 1) % presets.length];
+    const existing = recorder.channels.find((item) => item.channelNo === channelNo);
+    const channel: VideoChannel = {
+      id: existing?.id ?? Date.now() + channelNo,
+      recorderId,
+      recorderCode: recorder.deviceCode,
+      channelNo,
+      channelName: `通道${channelNo}`,
+      status: "pending_confirmation",
+      thumbnailUrl: `https://picsum.photos/seed/${recorder.deviceCode}-probe-${channelNo}/240/160`,
+      fullImageUrl: `https://picsum.photos/seed/${recorder.deviceCode}-probe-${channelNo}/960/640`,
+      fullImageExpiresAt: "",
+      recognitionAttempts: (existing?.recognitionAttempts ?? 0) + 1,
+      recognitionResult: {
+        status: "recognized",
+        area_type: preset.areaType,
+        area_number: preset.areaType ? preset.areaNumber : preset.areaNote,
+        confidence: "medium",
+        capture_ms: 420,
+        recognition_ms: 520,
+        total_ms: 940,
+      },
+      confirmedAt: existing?.confirmedAt,
+      ...preset,
+    };
+    const channels = [...recorder.channels.filter((item) => item.channelNo !== channelNo), channel].sort((a, b) => a.channelNo - b.channelNo);
+    replaceMockRecorder(storeId, {
+      ...recorder,
+      status: "online",
+      lastScannedAt: new Date().toISOString(),
+      effectiveChannelCount: channels.filter((item) => item.status !== "inactive").length,
+      channels,
+    });
+    return { active: true, channel: clone(channel) };
+  },
+
   async refreshChannelSnapshot(storeId: number, channelId: number): Promise<VideoChannel> {
     return this.recognizeChannel(storeId, channelId);
   },
@@ -1093,6 +1157,18 @@ const storeSpaceHttpAdapter = {
     return mapBackendChannel(response, 0, "");
   },
 
+  async probeRecognizeChannel(recorderId: number, recorderCode: string, channelNo: number): Promise<ProbeRecognizeChannelResult> {
+    const response = await requestJSON<BackendProbeRecognizeChannelResult>(`${STORE_SPACE_API_BASE}/recorders/${recorderId}/probe-recognize-channel`, {
+      method: "POST",
+      body: JSON.stringify({ channel_no: channelNo }),
+    });
+    return {
+      active: Boolean(response.active),
+      channel: response.channel ? mapBackendChannel(response.channel, recorderId, recorderCode) : undefined,
+      message: response.message ?? "",
+    };
+  },
+
   async refreshChannelSnapshot(channelId: number): Promise<VideoChannel> {
     const response = await requestJSON<BackendVideoChannel>(`${STORE_SPACE_API_BASE}/channels/${channelId}/snapshot`, {
       method: "POST",
@@ -1295,6 +1371,13 @@ export const storeSpaceApi = {
       return mockAdapter.recognizeChannel(storeId, channelId);
     }
     return storeSpaceHttpAdapter.recognizeChannel(channelId);
+  },
+
+  async probeRecognizeChannel(storeId: number, recorder: VideoRecorder, channelNo: number): Promise<ProbeRecognizeChannelResult> {
+    if (API_MODE === "mock") {
+      return mockAdapter.probeRecognizeChannel(storeId, recorder.id, channelNo);
+    }
+    return storeSpaceHttpAdapter.probeRecognizeChannel(recorder.id, recorder.deviceCode, channelNo);
   },
 
   async refreshChannelSnapshot(storeId: number, channelId: number): Promise<VideoChannel> {

@@ -29,6 +29,7 @@ type Repository interface {
 	GetChannelContext(ctx context.Context, channelID int64) (*Channel, *Recorder, *EzvizAccount, error)
 	GetEzvizAccount(ctx context.Context, accountID int64) (*EzvizAccount, error)
 	ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error)
+	UpsertRecorderChannel(ctx context.Context, recorderID int64, channel ChannelInput) (*Channel, error)
 	SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error)
 	UnlockChannelForEdit(ctx context.Context, channelID int64) (*Channel, error)
 	ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error)
@@ -513,6 +514,79 @@ func activeChannelCount(channels []Channel) int {
 		}
 	}
 	return count
+}
+
+func (s *MemoryStore) UpsertRecorderChannel(ctx context.Context, recorderID int64, input ChannelInput) (*Channel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	for _, store := range s.stores {
+		for recorderIndex := range store.Recorders {
+			recorder := &store.Recorders[recorderIndex]
+			if recorder.ID != recorderID {
+				continue
+			}
+			if input.ChannelNo <= 0 || !input.IsActive {
+				return nil, ErrNotFound
+			}
+			maxID := int64(0)
+			for channelIndex := range recorder.Channels {
+				channel := &recorder.Channels[channelIndex]
+				if channel.ID > maxID {
+					maxID = channel.ID
+				}
+				if channel.ChannelNo != input.ChannelNo {
+					continue
+				}
+				channel.ChannelName = strings.TrimSpace(input.ChannelName)
+				channel.IsActive = true
+				if channel.Status == ChannelStatusInactive {
+					if channel.AreaID != 0 || channel.AreaType != "" || channel.AreaNumber != 0 || channel.ConfirmedAt != nil {
+						if channel.AreaType != "" {
+							channel.Status = ChannelStatusConfirmedBusiness
+						} else {
+							channel.Status = ChannelStatusConfirmedNonBusiness
+						}
+					} else {
+						channel.Status = ChannelStatusPendingRecognition
+						channel.SceneType = SceneTypeUnknown
+					}
+				}
+				channel.UpdatedAt = now
+				recorder.EffectiveChannelCount = activeChannelCount(recorder.Channels)
+				recorder.LastScannedAt = &now
+				recorder.Status = RecorderStatusOnline
+				recorder.UpdatedAt = now
+				store.UpdatedAt = now
+				copy := *channel
+				return &copy, nil
+			}
+			channel := Channel{
+				ID:                  maxID + 1,
+				RecorderID:          recorder.ID,
+				ChannelNo:           input.ChannelNo,
+				ChannelName:         strings.TrimSpace(input.ChannelName),
+				Status:              ChannelStatusPendingRecognition,
+				IsActive:            true,
+				SceneType:           SceneTypeUnknown,
+				RecognitionAttempts: 0,
+				CreatedAt:           now,
+				UpdatedAt:           now,
+			}
+			recorder.Channels = append(recorder.Channels, channel)
+			sort.Slice(recorder.Channels, func(i, j int) bool {
+				return recorder.Channels[i].ChannelNo < recorder.Channels[j].ChannelNo
+			})
+			recorder.EffectiveChannelCount = activeChannelCount(recorder.Channels)
+			recorder.LastScannedAt = &now
+			recorder.Status = RecorderStatusOnline
+			recorder.UpdatedAt = now
+			store.UpdatedAt = now
+			return &channel, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func (s *MemoryStore) SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error) {
@@ -1550,6 +1624,73 @@ func (s *PostgresStore) ReplaceRecorderChannels(ctx context.Context, recorderID 
 	return s.GetRecorder(ctx, recorderID)
 }
 
+func (s *PostgresStore) UpsertRecorderChannel(ctx context.Context, recorderID int64, channel ChannelInput) (*Channel, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	if channel.ChannelNo <= 0 || !channel.IsActive {
+		return nil, ErrNotFound
+	}
+	if _, err := s.queryRecorder(ctx, tx, recorderID); err != nil {
+		return nil, err
+	}
+	var channelID int64
+	if err := tx.QueryRowContext(ctx, `
+		insert into video_channels (recorder_id, channel_no, channel_name, status, is_active, scene_type)
+		values ($1, $2, $3, $4, true, $5)
+		on conflict (recorder_id, channel_no) do update
+		set channel_name = excluded.channel_name,
+			is_active = true,
+			status = case
+				when video_channels.status = $6 and (
+					video_channels.area_id is not null
+					or video_channels.area_type is not null
+					or video_channels.area_number is not null
+					or video_channels.confirmed_at is not null
+				) then case
+					when video_channels.area_type is not null then $7
+					else $8
+				end
+				when video_channels.status = $6 then $4
+				else video_channels.status
+			end,
+			scene_type = case
+				when video_channels.status = $6 then $5
+				else video_channels.scene_type
+			end,
+			updated_at = now()
+		returning id
+	`, recorderID, channel.ChannelNo, strings.TrimSpace(channel.ChannelName), ChannelStatusPendingRecognition, SceneTypeUnknown, ChannelStatusInactive, ChannelStatusConfirmedBusiness, ChannelStatusConfirmedNonBusiness).Scan(&channelID); err != nil {
+		return nil, err
+	}
+
+	var activeCount int
+	if err := tx.QueryRowContext(ctx, `
+		select count(*)
+		from video_channels
+		where recorder_id = $1 and is_active and status <> $2
+	`, recorderID, ChannelStatusInactive).Scan(&activeCount); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update video_recorders
+		set status = $1,
+			effective_channel_count = $2,
+			last_scanned_at = now(),
+			updated_at = now()
+		where id = $3
+	`, RecorderStatusOnline, activeCount, recorderID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetChannel(ctx, channelID)
+}
+
 func (s *PostgresStore) SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -2255,6 +2396,7 @@ func scanChannel(scanner channelScanner) (*Channel, error) {
 	if fullImageExpiresAt.Valid {
 		channel.FullImageExpiresAt = &fullImageExpiresAt.Time
 	}
+	normalizeChannelSnapshot(&channel)
 	return &channel, nil
 }
 
@@ -2681,8 +2823,29 @@ func cloneStore(store Store) Store {
 	copy.Recorders = append([]Recorder(nil), store.Recorders...)
 	for index := range copy.Recorders {
 		copy.Recorders[index].Channels = append([]Channel(nil), copy.Recorders[index].Channels...)
+		for channelIndex := range copy.Recorders[index].Channels {
+			normalizeChannelSnapshot(&copy.Recorders[index].Channels[channelIndex])
+		}
 	}
 	return copy
+}
+
+func normalizeChannelSnapshot(channel *Channel) {
+	if channel == nil || channel.FullImageExpiresAt == nil {
+		return
+	}
+	if time.Now().Before(*channel.FullImageExpiresAt) {
+		return
+	}
+	if isSystemChannelSnapshotURL(channel.ThumbnailURL) || isSystemChannelSnapshotURL(channel.FullImageURL) {
+		return
+	}
+	channel.ThumbnailURL = ""
+	channel.FullImageURL = ""
+}
+
+func isSystemChannelSnapshotURL(value string) bool {
+	return strings.HasPrefix(strings.TrimSpace(value), "/api/store-space/channel-snapshots/")
 }
 
 func areaDisplayName(areaType AreaType, number int) string {

@@ -322,6 +322,16 @@ type Channel struct {
 	UpdatedAt           time.Time     `json:"updated_at"`
 }
 
+type ProbeRecognizeChannelInput struct {
+	ChannelNo int `json:"channel_no"`
+}
+
+type ProbeRecognizeChannelResult struct {
+	Channel *Channel `json:"channel,omitempty"`
+	Active  bool     `json:"active"`
+	Message string   `json:"message,omitempty"`
+}
+
 type ChannelMappingExport struct {
 	FileName    string
 	Content     []byte
