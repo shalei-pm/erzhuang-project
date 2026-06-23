@@ -24,6 +24,12 @@
   - 新增 `TestProbeRecognizeChannelReturnsInactiveWhenCaptureFails` 覆盖抓图失败不创建通道。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `cd frontend && npm run build` 通过。
+- 发布状态：
+  - GitHub `main` commit：`4d2860d`。
+  - 韩国服务器已通过 SSH 执行 `/opt/apps/erzhuang-project/scripts/deploy.sh` 发布，服务器当前 `COMMIT=4d2860d`，`VERSION=2.14.0`。
+  - 韩国服务器本机验证：`/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`，`erzhuang-project.service` 为 active。
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已合入并推送，merge commit：`caff710`。
+  - 公司环境由 GitLab/K8s 自动发布；本机当前无法直接验证公司内网页面版本，需要用户在公司网络侧确认。
 
 ## 2026-06-23 通道最近截图过期展示 2.13.1 修复记录
 
