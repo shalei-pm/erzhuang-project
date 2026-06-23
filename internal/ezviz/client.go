@@ -78,6 +78,14 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("ezviz api error code=%s msg=%s", e.Code, e.Msg)
 }
 
+func ErrorCode(err error) string {
+	var apiError *Error
+	if errors.As(err, &apiError) {
+		return apiError.Code
+	}
+	return ""
+}
+
 func NewClient(options ClientOptions) *Client {
 	baseURL := strings.TrimRight(options.BaseURL, "/")
 	if baseURL == "" {
