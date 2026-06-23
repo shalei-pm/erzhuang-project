@@ -129,6 +129,16 @@ export type ProbeRecognizeChannelResult = {
   message?: string;
 };
 
+export type SnapshotDiagnostics = {
+  code: string;
+  stage: string;
+  assetStore: string;
+  snapshotName: string;
+  snapshotKey: string;
+  exists: boolean;
+  detail?: string;
+};
+
 export type StoreListResponse = {
   items: StoreSummary[];
   page: number;
@@ -357,6 +367,19 @@ type BackendProbeRecognizeChannelResult = {
   message?: string;
 };
 
+type BackendSnapshotDiagnostics = {
+  code?: string;
+  stage?: string;
+  asset_store?: string;
+  assetStore?: string;
+  snapshot_name?: string;
+  snapshotName?: string;
+  snapshot_key?: string;
+  snapshotKey?: string;
+  exists?: boolean;
+  detail?: string;
+};
+
 type BackendStoreSpaceListResponse = {
   items: BackendStoreSpaceSummary[];
   page: number;
@@ -468,12 +491,18 @@ type DuplicateCheckResult = {
 export class ApiError extends Error {
   status: number;
   fields: Record<string, string>;
+  code: string;
+  stage: string;
+  detail: string;
 
-  constructor(status: number, message: string, fields: Record<string, string> = {}) {
+  constructor(status: number, message: string, fields: Record<string, string> = {}, code = "", stage = "", detail = "") {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.fields = fields;
+    this.code = code;
+    this.stage = stage;
+    this.detail = detail;
   }
 }
 
@@ -1176,6 +1205,13 @@ const storeSpaceHttpAdapter = {
     return mapBackendChannel(response, 0, "");
   },
 
+  async diagnoseChannelSnapshot(snapshotName: string): Promise<SnapshotDiagnostics> {
+    const response = await requestJSON<BackendSnapshotDiagnostics>(
+      `${STORE_SPACE_API_BASE}/channel-snapshots/${encodeURIComponent(snapshotName)}/diagnostics`,
+    );
+    return mapBackendSnapshotDiagnostics(response);
+  },
+
   async confirmChannel(channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/confirmation`, {
       method: "PUT",
@@ -1387,6 +1423,20 @@ export const storeSpaceApi = {
     return storeSpaceHttpAdapter.refreshChannelSnapshot(channelId);
   },
 
+  async diagnoseChannelSnapshot(snapshotName: string): Promise<SnapshotDiagnostics> {
+    if (API_MODE === "mock") {
+      return {
+        code: "snapshot_open_ok",
+        stage: "open_snapshot",
+        assetStore: "mock",
+        snapshotName,
+        snapshotKey: snapshotName ? `channel-snapshots/${snapshotName}` : "",
+        exists: true,
+      };
+    }
+    return storeSpaceHttpAdapter.diagnoseChannelSnapshot(snapshotName);
+  },
+
   async confirmChannel(storeId: number, channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
     if (API_MODE === "mock") {
       return mockAdapter.confirmChannel(storeId, channelId, patch);
@@ -1481,7 +1531,10 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
         : typeof data === "object" && data && "error" in data
           ? String(data.error)
           : `HTTP ${response.status}`;
-    throw new ApiError(response.status, message, fields);
+    const code = typeof data === "object" && data && "code" in data ? String(data.code) : "";
+    const stage = typeof data === "object" && data && "stage" in data ? String(data.stage) : "";
+    const detail = typeof data === "object" && data && "detail" in data ? String(data.detail) : "";
+    throw new ApiError(response.status, message, fields, code, stage, detail);
   }
 
   return data as T;
@@ -1722,6 +1775,18 @@ function mapBackendRecorder(recorder: BackendVideoRecorder): VideoRecorder {
     lastScannedAt: recorder.last_scanned_at ?? recorder.lastScannedAt ?? "",
     recognitionProgress: recorder.recognition_progress ?? recorder.recognitionProgress,
     channels: (recorder.channels ?? []).map((channel) => mapBackendChannel(channel, id, deviceCode)),
+  };
+}
+
+function mapBackendSnapshotDiagnostics(diagnostics: BackendSnapshotDiagnostics): SnapshotDiagnostics {
+  return {
+    code: diagnostics.code ?? "",
+    stage: diagnostics.stage ?? "",
+    assetStore: diagnostics.asset_store ?? diagnostics.assetStore ?? "",
+    snapshotName: diagnostics.snapshot_name ?? diagnostics.snapshotName ?? "",
+    snapshotKey: diagnostics.snapshot_key ?? diagnostics.snapshotKey ?? "",
+    exists: Boolean(diagnostics.exists),
+    detail: diagnostics.detail ?? "",
   };
 }
 

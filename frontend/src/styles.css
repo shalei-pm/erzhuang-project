@@ -1175,6 +1175,10 @@ td:nth-child(10) {
   text-overflow: ellipsis;
 }
 
+.channel-row-note.is-error {
+  color: #b91c1c;
+}
+
 .snapshot-preview-backdrop {
   position: fixed;
   inset: 0;

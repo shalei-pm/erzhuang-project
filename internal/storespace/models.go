@@ -148,6 +148,16 @@ type ChannelSnapshotInput struct {
 	CountAttempt       bool
 }
 
+type SnapshotDiagnostics struct {
+	Code         string `json:"code"`
+	Stage        string `json:"stage"`
+	AssetStore   string `json:"asset_store"`
+	SnapshotName string `json:"snapshot_name"`
+	SnapshotKey  string `json:"snapshot_key"`
+	Exists       bool   `json:"exists"`
+	Detail       string `json:"detail,omitempty"`
+}
+
 type ChannelRecognitionResult struct {
 	SceneType      string
 	AreaType       string

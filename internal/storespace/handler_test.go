@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -263,6 +265,49 @@ func TestScanRecorderEndpointReturnsStableNotImplemented(t *testing.T) {
 	}
 }
 
+func TestScanRecorderEndpointReturnsDiagnosticForUnexpectedError(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华东"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, unexpectedScanErrorScanner{})
+	handler := newTestHandlerWithService(service)
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "上海",
+		Name: "上海静安",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "K96112775"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/store-space/recorders/"+strconv.FormatInt(store.Recorders[0].ID, 10)+"/scan-channels", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusInternalServerError, response.Code, response.Body.String())
+	}
+	var payload struct {
+		Error  string `json:"error"`
+		Code   string `json:"code"`
+		Stage  string `json:"stage"`
+		Detail string `json:"detail"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Error != "store space request failed" || payload.Code != "store_space_request_failed" || payload.Stage != "store_space" {
+		t.Fatalf("unexpected diagnostic payload: %#v", payload)
+	}
+	if !strings.Contains(payload.Detail, "scan transport failed") {
+		t.Fatalf("expected sanitized detail to include root cause, got %#v", payload)
+	}
+}
+
 func TestScanRecorderEndpointReturnsEzvizErrorCodeForFallback(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华东"})
@@ -295,6 +340,40 @@ func TestScanRecorderEndpointReturnsEzvizErrorCodeForFallback(t *testing.T) {
 	}
 	if !strings.Contains(response["error"], "10026") || !strings.Contains(response["error"], "设备数量超出个人版限制") {
 		t.Fatalf("expected fallback-detectable ezviz error, got %#v", response)
+	}
+}
+
+func TestChannelSnapshotDiagnosticsReportsOpenFailure(t *testing.T) {
+	service := NewService(NewMemoryStore())
+	service.UseSnapshotStore(failingSnapshotStore{})
+	handler := newTestHandlerWithService(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/channel-snapshots/00000000000000000000000000000001.jpg/diagnostics", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, response.Code, response.Body.String())
+	}
+	var payload struct {
+		Code        string `json:"code"`
+		Stage       string `json:"stage"`
+		AssetStore  string `json:"asset_store"`
+		SnapshotKey string `json:"snapshot_key"`
+		Exists      bool   `json:"exists"`
+		Detail      string `json:"detail"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Code != "snapshot_open_failed" || payload.Stage != "open_snapshot" || payload.AssetStore == "" {
+		t.Fatalf("unexpected diagnostics payload: %#v", payload)
+	}
+	if payload.SnapshotKey != "channel-snapshots/00000000000000000000000000000001.jpg" || payload.Exists {
+		t.Fatalf("unexpected snapshot state: %#v", payload)
+	}
+	if !strings.Contains(payload.Detail, "open asset failed: http 403") || strings.Contains(payload.Detail, "secret-token") {
+		t.Fatalf("expected sanitized open failure detail, got %#v", payload)
 	}
 }
 
@@ -360,4 +439,24 @@ func (planLimitScanner) ScanRecorderChannels(ctx context.Context, account EzvizA
 
 func (planLimitScanner) CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error) {
 	return ChannelSnapshotInput{}, nil
+}
+
+type unexpectedScanErrorScanner struct{}
+
+func (unexpectedScanErrorScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
+	return nil, errors.New("scan transport failed: upstream reset")
+}
+
+func (unexpectedScanErrorScanner) CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error) {
+	return ChannelSnapshotInput{}, nil
+}
+
+type failingSnapshotStore struct{}
+
+func (failingSnapshotStore) SaveRemote(ctx context.Context, imageURL string) (string, error) {
+	return "", errors.New("not used")
+}
+
+func (failingSnapshotStore) Open(ctx context.Context, name string) (io.ReadCloser, string, error) {
+	return nil, "", errors.New("open asset failed: http 403 access_token=secret-token")
 }

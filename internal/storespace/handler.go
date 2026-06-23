@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 )
@@ -39,6 +40,7 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/probe-recognize-channel", handler.probeRecognizeChannel)
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/recognize-channels", handler.recognizeRecorderChannels)
 	mux.HandleFunc("GET /api/store-space/channel-snapshots/{name}", handler.getChannelSnapshot)
+	mux.HandleFunc("GET /api/store-space/channel-snapshots/{name}/diagnostics", handler.getChannelSnapshotDiagnostics)
 	mux.HandleFunc("DELETE /api/store-space/channels/{channel_id}", handler.deleteChannel)
 	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/recognize", handler.recognizeChannel)
 	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/snapshot", handler.refreshChannelSnapshot)
@@ -311,6 +313,10 @@ func (h *Handler) getChannelSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) getChannelSnapshotDiagnostics(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.service.DiagnoseChannelSnapshot(r.Context(), r.PathValue("name")))
+}
+
 func (h *Handler) unlockChannelForEdit(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parseID(w, r, "channel_id")
 	if !ok {
@@ -393,10 +399,10 @@ func handleServiceError(w http.ResponseWriter, err error) {
 	}
 	var ezvizError *ezviz.Error
 	if errors.As(err, &ezvizError) {
-		writeError(w, http.StatusBadGateway, ezvizError.Error(), nil)
+		writeDiagnosticError(w, http.StatusBadGateway, ezvizError.Error(), "ezviz_api_error", "ezviz", ezvizError.Error(), nil)
 		return
 	}
-	writeError(w, http.StatusInternalServerError, "store space request failed", nil)
+	writeDiagnosticError(w, http.StatusInternalServerError, "store space request failed", "store_space_request_failed", "store_space", err.Error(), nil)
 }
 
 func writeError(w http.ResponseWriter, status int, message string, fields map[string]string) {
@@ -405,6 +411,46 @@ func writeError(w http.ResponseWriter, status int, message string, fields map[st
 		response["fields"] = fields
 	}
 	writeJSON(w, status, response)
+}
+
+func writeDiagnosticError(w http.ResponseWriter, status int, message string, code string, stage string, detail string, fields map[string]string) {
+	response := map[string]any{
+		"error": message,
+		"code":  code,
+		"stage": stage,
+	}
+	if cleanDetail := sanitizeDiagnosticDetail(detail); cleanDetail != "" {
+		response["detail"] = cleanDetail
+	}
+	if len(fields) > 0 {
+		response["fields"] = fields
+	}
+	writeJSON(w, status, response)
+}
+
+func sanitizeDiagnosticDetail(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if len(value) > 500 {
+		value = value[:500]
+	}
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return unicode.IsSpace(r) || r == '&' || r == '?' || r == ';'
+	})
+	for _, field := range fields {
+		lower := strings.ToLower(field)
+		if strings.Contains(lower, "token=") ||
+			strings.Contains(lower, "apikey=") ||
+			strings.Contains(lower, "api_key=") ||
+			strings.Contains(lower, "access_token=") ||
+			strings.Contains(lower, "service_role") ||
+			strings.Contains(lower, "authorization:") {
+			value = strings.ReplaceAll(value, field, "[redacted]")
+		}
+	}
+	return value
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

@@ -4,6 +4,7 @@ import {
   storeSpaceApi,
   type EzvizAccount,
   type AreaType,
+  type SnapshotDiagnostics,
   type StoreDetail,
   type VideoChannel,
   type VideoRecorder,
@@ -49,6 +50,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [channelTypeFilter, setChannelTypeFilter] = useState<ChannelTypeFilter>("all");
   const [exportingChannels, setExportingChannels] = useState(false);
   const [expiredSnapshotIds, setExpiredSnapshotIds] = useState<Set<number>>(() => new Set());
+  const [snapshotDiagnostics, setSnapshotDiagnostics] = useState<Record<number, SnapshotDiagnostics | { detail: string }>>({});
   const [editingChannels, setEditingChannels] = useState<Record<number, Partial<VideoChannel>>>({});
   const completionTimerRef = useRef<number | null>(null);
   const regionAccounts = selectableRegionAccounts(accounts);
@@ -97,6 +99,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
           activeCount += 1;
           onStoreUpdated((currentStore) => upsertChannelInStore(currentStore, recorder.id, result.channel as VideoChannel));
           setExpiredSnapshotIds((current) => removeIdFromSet(current, result.channel!.id));
+          setSnapshotDiagnostics((current) => removeKeyFromRecord(current, result.channel!.id));
         } else {
           consecutiveFailures += 1;
         }
@@ -146,6 +149,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
         onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
         setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
+        setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
         setRecognizingChannelIds((current) => {
           const next = new Set(current);
           next.delete(channel.id);
@@ -335,6 +339,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
       onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
       setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
+      setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
       onToast(`已重新识别录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo}。`);
     } catch (error) {
       const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
@@ -356,6 +361,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       const updatedChannel = await storeSpaceApi.refreshChannelSnapshot(store.id, channel.id);
       onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
       setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
+      setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
       onToast(`已刷新录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo} 截图。`);
     } catch (error) {
       const message = channelErrorMessage(error, "刷新截图失败，请稍后重试。");
@@ -367,6 +373,20 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         next.delete(channel.id);
         return next;
       });
+    }
+  }
+
+  async function diagnoseSnapshotLoad(channel: VideoChannel) {
+    const snapshotName = snapshotNameFromURL(channel.thumbnailUrl || channel.fullImageUrl);
+    if (!snapshotName) {
+      setSnapshotDiagnostics((current) => ({ ...current, [channel.id]: { detail: "截图地址不是系统托管路径，无法诊断。" } }));
+      return;
+    }
+    try {
+      const diagnostics = await storeSpaceApi.diagnoseChannelSnapshot(snapshotName);
+      setSnapshotDiagnostics((current) => ({ ...current, [channel.id]: diagnostics }));
+    } catch (error) {
+      setSnapshotDiagnostics((current) => ({ ...current, [channel.id]: { detail: diagnosticErrorMessage(error) } }));
     }
   }
 
@@ -576,6 +596,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                 const isConfirmed = isConfirmedChannel(channel);
                 const isSnapshotExpired = hasExpiredSnapshot(channel);
                 const canPreviewSnapshot = Boolean(channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) && !isSnapshotExpired);
+                const snapshotDiagnostic = snapshotDiagnostics[channel.id];
                 const selectedAreaType = draft.areaType !== undefined ? draft.areaType : channel.areaType;
                 const selectedAreaNumber = draft.areaNumber ?? (selectedAreaType ? channel.areaNumber : channel.areaNote || channel.areaNumber);
                 return (
@@ -596,6 +617,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                             alt={`通道 ${channel.channelNo} 截图`}
                             onError={() => {
                               setExpiredSnapshotIds((current) => new Set(current).add(channel.id));
+                              void diagnoseSnapshotLoad(channel);
                             }}
                           />
                         ) : expiredSnapshotIds.has(channel.id) || isSnapshotExpired ? (
@@ -604,6 +626,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                           <span />
                         )}
                       </button>
+                      {snapshotDiagnostic ? <div className="channel-row-note is-error">{snapshotDiagnosticLabel(snapshotDiagnostic)}</div> : null}
                       {recognitionMessage ? <div className="channel-row-note">{recognitionMessage}</div> : null}
                     </td>
                     <td>
@@ -747,6 +770,12 @@ function removeIdFromSet(current: Set<number>, id: number) {
   return next;
 }
 
+function removeKeyFromRecord<T>(current: Record<number, T>, id: number) {
+  const next = { ...current };
+  delete next[id];
+  return next;
+}
+
 function channelRecognitionMessage(channel: VideoChannel) {
   const result = channel.recognitionResult;
   if (!result) return "";
@@ -810,6 +839,35 @@ function hasExpiredSnapshot(channel: VideoChannel) {
     return false;
   }
   return new Date(channel.fullImageExpiresAt).getTime() <= Date.now();
+}
+
+function snapshotNameFromURL(value: string) {
+  const match = value.match(/\/api\/store-space\/channel-snapshots\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function snapshotDiagnosticLabel(diagnostics: SnapshotDiagnostics | { detail: string }) {
+  if ("code" in diagnostics) {
+    const parts = [
+      diagnostics.code || "snapshot_diagnostic",
+      diagnostics.stage ? `阶段 ${diagnostics.stage}` : "",
+      diagnostics.assetStore ? `存储 ${diagnostics.assetStore}` : "",
+      diagnostics.snapshotKey ? `路径 ${diagnostics.snapshotKey}` : "",
+      diagnostics.detail,
+    ].filter(Boolean);
+    return parts.join(" · ");
+  }
+  return diagnostics.detail;
+}
+
+function diagnosticErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    return [error.message, error.code ? `code=${error.code}` : "", error.stage ? `stage=${error.stage}` : "", error.detail].filter(Boolean).join(" · ");
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return "诊断接口请求失败";
 }
 
 function replaceChannelInStore(store: StoreDetail, updatedChannel: VideoChannel): StoreDetail {
@@ -982,6 +1040,9 @@ function channelErrorMessage(error: unknown, fallback: string) {
   }
   if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
     return Object.values(error.fields).join("；");
+  }
+  if (error instanceof ApiError && (error.code || error.stage || error.detail)) {
+    return [error.message, error.code ? `code=${error.code}` : "", error.stage ? `stage=${error.stage}` : "", error.detail].filter(Boolean).join(" · ");
   }
   if (error instanceof Error && error.message.trim()) {
     return error.message;
