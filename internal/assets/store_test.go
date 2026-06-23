@@ -156,6 +156,48 @@ func TestSupabaseStorageStoreSaveOpenDeletePrefix(t *testing.T) {
 	}
 }
 
+func TestSupabaseStorageStoreCreatesBucketAndRetriesSaveWhenMissing(t *testing.T) {
+	var requests []string
+	var bucketBody string
+
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/storage/v1/object/missing-bucket/channel-snapshots/test.jpg" && len(requests) == 1:
+			return textResponse(r, http.StatusBadRequest, `{"statusCode":"404","error":"Bucket not found","message":"Bucket not found"}`, "application/json"), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/storage/v1/bucket":
+			body, _ := io.ReadAll(r.Body)
+			bucketBody = string(body)
+			return textResponse(r, http.StatusOK, `{"name":"missing-bucket"}`, "application/json"), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/storage/v1/object/missing-bucket/channel-snapshots/test.jpg":
+			return textResponse(r, http.StatusOK, `{"Key":"channel-snapshots/test.jpg"}`, "application/json"), nil
+		default:
+			return textResponse(r, http.StatusNotFound, "not found", "text/plain"), nil
+		}
+	})}
+
+	store := NewSupabaseStorageStore(SupabaseStorageConfig{
+		BaseURL:    "https://supabase.test",
+		ServiceKey: "service-key",
+		Bucket:     "missing-bucket",
+		HTTPClient: client,
+	})
+
+	if err := store.Save(context.Background(), "channel-snapshots/test.jpg", strings.NewReader("jpg-data"), "image/jpeg"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if strings.Join(requests, "\n") != strings.Join([]string{
+		"POST /storage/v1/object/missing-bucket/channel-snapshots/test.jpg",
+		"POST /storage/v1/bucket",
+		"POST /storage/v1/object/missing-bucket/channel-snapshots/test.jpg",
+	}, "\n") {
+		t.Fatalf("unexpected request sequence: %#v", requests)
+	}
+	if !strings.Contains(bucketBody, `"id":"missing-bucket"`) || !strings.Contains(bucketBody, `"public":false`) {
+		t.Fatalf("unexpected bucket create body %q", bucketBody)
+	}
+}
+
 func TestNewStoreFromEnvRequiresSupabaseConfig(t *testing.T) {
 	t.Setenv("ASSET_STORE", "supabase")
 	t.Setenv("SUPABASE_URL", "")

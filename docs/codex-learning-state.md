@@ -6,6 +6,33 @@
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
 
+## 2026-06-23 Supabase Storage Bucket 自愈 2.14.5 修复记录
+
+- 版本号：`2.14.5`。
+- 用户反馈：
+  - 公司环境仍出现 `store space request failed`。
+  - 最近截图显示“加载失败”，希望页面能展示更详细的抓图、识别、存储反馈，便于共同定位。
+- 排查结论：
+  - 公司环境 `/health` 返回 `database=postgres`、`asset_store=supabase`，说明后端已切到 Supabase Storage。
+  - 公司环境前端 bundle 已是 `2.14.4 (container)`，包含截图诊断逻辑。
+  - 抽样调用 `GET /api/store-space/channel-snapshots/9509d32aed822d963233de786e9a8ecd.jpg/diagnostics` 返回：
+    - `code=snapshot_open_failed`
+    - `stage=open_snapshot`
+    - `asset_store=supabase`
+    - `snapshot_key=channel-snapshots/9509d32aed822d963233de786e9a8ecd.jpg`
+    - `exists=false`
+    - `detail=open asset failed: http 400 {"statusCode":"404","error":"Bucket not found","message":"Bucket not found"}`
+  - 根因不是前端，也不是萤石临时 URL 过期；而是公司 Supabase Storage 中缺少代码使用的 bucket，或 `SUPABASE_STORAGE_BUCKET` 与实际 bucket 名不一致。
+- 修复：
+  - Supabase Storage 保存资产时，如果首次写入返回 `Bucket not found`，后端会用 service role 自动创建私有 bucket，并重试一次保存。
+  - 如果创建 bucket 失败或权限不足，仍返回明确错误，不做无限重试。
+- 注意：
+  - 已经因为 bucket 不存在而写入失败的历史截图对象不会自动恢复；需要对对应通道执行“刷新截图”或“重新识别”，生成新截图后才会写入 Supabase Storage。
+- 验证：
+  - 新增 `TestSupabaseStorageStoreCreatesBucketAndRetriesSaveWhenMissing`，覆盖 bucket 缺失时自动创建并重试保存。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+
 ## 2026-06-23 通道截图与抓图识别诊断增强 2.14.4 修复记录
 
 - 版本号：`2.14.4`。
