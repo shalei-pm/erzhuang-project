@@ -10,6 +10,7 @@ import {
   type VideoRecorder,
 } from "../api";
 import { areaTypeLabels } from "../domain/areas";
+import { channelRecognitionMessage, recorderRecognitionToast } from "../domain/channel-recognition";
 import { channelSceneLabel } from "../domain/channel-labels";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
 import { fallbackProbeChannelNumbers, fallbackProbeMaxChannelNo, shouldStopFallbackProbe } from "../domain/fallback-probe";
@@ -144,9 +145,11 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       return next;
     });
     try {
+      const updatedChannels: VideoChannel[] = [];
       for (let index = 0; index < targetChannels.length; index++) {
         const channel = targetChannels[index];
         const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
+        updatedChannels.push(updatedChannel);
         onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
         setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
         setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
@@ -165,7 +168,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         setCompletedRecorderProgressId(null);
         completionTimerRef.current = null;
       }, 900);
-      onToast(`已完成 ${recorder.deviceCode} 的通道识别。`);
+      onToast(recorderRecognitionToast(recorder.deviceCode, updatedChannels));
     } catch (error) {
       const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
       setChannelError(`录像机 ${recorder.deviceCode} 识别失败：${message}`);
@@ -774,64 +777,6 @@ function removeKeyFromRecord<T>(current: Record<number, T>, id: number) {
   const next = { ...current };
   delete next[id];
   return next;
-}
-
-function channelRecognitionMessage(channel: VideoChannel) {
-  const result = channel.recognitionResult;
-  if (!result) return "";
-  if (typeof result === "string") {
-    try {
-      return channelRecognitionMessageFromObject(JSON.parse(result));
-    } catch {
-      return result;
-    }
-  }
-  if (typeof result === "object" && result) {
-    return channelRecognitionMessageFromObject(result);
-  }
-  return "";
-}
-
-function channelRecognitionMessageFromObject(value: unknown) {
-  if (!value || typeof value !== "object") return "";
-  const result = value as {
-    status?: string;
-    message?: string;
-    area_type?: AreaType | "";
-    area_number?: string;
-    confidence?: string;
-    recognition_ms?: number;
-    total_ms?: number;
-    capture_ms?: number;
-  };
-  const timing = recognitionTimingLabel(result);
-  if (result.status === "capture_failed" || result.status === "recognition_failed") {
-    return ["失败", timing].filter(Boolean).join(" · ");
-  }
-  if (result.status === "recognized") {
-    const confidence = result.confidence === "low" ? "低置信" : "";
-    return [confidence, timing].filter(Boolean).join(" · ");
-  }
-  if (result.status === "captured") {
-    return ["抓图", timing].filter(Boolean).join(" · ");
-  }
-  return result.message || timing;
-}
-
-function recognitionTimingLabel(result: { capture_ms?: number; recognition_ms?: number; total_ms?: number }) {
-  const parts: string[] = [];
-  if (typeof result.recognition_ms === "number" && result.recognition_ms > 0) {
-    parts.push(`识别 ${formatDuration(result.recognition_ms)}`);
-  }
-  if (typeof result.total_ms === "number" && result.total_ms > 0) {
-    parts.push(`总 ${formatDuration(result.total_ms)}`);
-  }
-  return parts.join(" / ");
-}
-
-function formatDuration(ms: number) {
-  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.max(1, Math.round(ms))}ms`;
 }
 
 function hasExpiredSnapshot(channel: VideoChannel) {
