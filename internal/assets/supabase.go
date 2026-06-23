@@ -45,7 +45,15 @@ func (s *SupabaseStorageStore) Save(ctx context.Context, key string, body io.Rea
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.objectURL(clean), body)
+	payload, err := io.ReadAll(body)
+	if err != nil {
+		return err
+	}
+	return s.saveBytes(ctx, clean, payload, contentType, true)
+}
+
+func (s *SupabaseStorageStore) saveBytes(ctx context.Context, clean string, payload []byte, contentType string, retryMissingBucket bool) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.objectURL(clean), bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -58,7 +66,44 @@ func (s *SupabaseStorageStore) Save(ctx context.Context, key string, body io.Rea
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return storageHTTPError("save asset", response)
+		storageErr := storageHTTPError("save asset", response)
+		if retryMissingBucket && isBucketNotFoundError(storageErr) {
+			if err := s.ensureBucket(ctx); err != nil {
+				return err
+			}
+			return s.saveBytes(ctx, clean, payload, contentType, false)
+		}
+		return storageErr
+	}
+	return nil
+}
+
+func (s *SupabaseStorageStore) ensureBucket(ctx context.Context) error {
+	payload, err := json.Marshal(map[string]any{
+		"id":     s.bucket,
+		"name":   s.bucket,
+		"public": false,
+	})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/storage/v1/bucket", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	s.authorize(request)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		storageErr := storageHTTPError("create bucket", response)
+		if isAlreadyExistsError(storageErr) {
+			return nil
+		}
+		return storageErr
 	}
 	return nil
 }
@@ -202,4 +247,20 @@ func storageHTTPError(action string, response *http.Response) error {
 		message = response.Status
 	}
 	return fmt.Errorf("%s failed: http %d %s", action, response.StatusCode, message)
+}
+
+func isBucketNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "bucket not found")
+}
+
+func isAlreadyExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "already exists") || strings.Contains(message, "duplicate")
 }
