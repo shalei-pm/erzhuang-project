@@ -168,6 +168,24 @@ func TestNewStoreFromEnvRequiresSupabaseConfig(t *testing.T) {
 	}
 }
 
+func TestNewStoreFromEnvAutoSelectsSupabaseWhenStorageConfigExists(t *testing.T) {
+	t.Setenv("ASSET_STORE", "")
+	t.Setenv("SUPABASE_URL", "https://supabase.test")
+	t.Setenv("SUPABASE_SERVICE_ROLE_KEY", "service-key")
+	t.Setenv("SUPABASE_STORAGE_BUCKET", "design-plan-assets")
+
+	store, err := NewStoreFromEnv()
+	if err != nil {
+		t.Fatalf("new store from env: %v", err)
+	}
+	if _, ok := store.(*SupabaseStorageStore); !ok {
+		t.Fatalf("expected SupabaseStorageStore, got %T", store)
+	}
+	if mode := ModeFromEnv(); mode != "supabase" {
+		t.Fatalf("expected mode supabase, got %q", mode)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {

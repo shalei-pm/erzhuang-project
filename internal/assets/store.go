@@ -24,7 +24,7 @@ type Store interface {
 }
 
 func NewStoreFromEnv() (Store, error) {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("ASSET_STORE")))
+	mode := ModeFromEnv()
 	if mode == "" || mode == "local" {
 		root := strings.TrimSpace(os.Getenv("UPLOAD_DIR"))
 		if root == "" {
@@ -49,6 +49,19 @@ func NewStoreFromEnv() (Store, error) {
 		ServiceKey: serviceKey,
 		Bucket:     bucket,
 	}), nil
+}
+
+func ModeFromEnv() string {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("ASSET_STORE")))
+	if mode != "" {
+		return mode
+	}
+	if strings.TrimSpace(os.Getenv("SUPABASE_URL")) != "" &&
+		strings.TrimSpace(os.Getenv("SUPABASE_SERVICE_ROLE_KEY")) != "" &&
+		strings.TrimSpace(os.Getenv("SUPABASE_STORAGE_BUCKET")) != "" {
+		return "supabase"
+	}
+	return "local"
 }
 
 func cleanKey(key string) (string, error) {

@@ -6,6 +6,28 @@
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
 
+## 2026-06-23 扫描接口 10026 同步兜底下线 2.14.1 修复记录
+
+- 版本号：`2.14.1`。
+- 用户反馈：
+  - 公司环境华东录像机 `K96112775`（上海静安）扫描仍然出现 HTTP 504。
+  - 用户观察到系统仍像是在先跑完整通道扫描，而不是进入新的逐通道抓图识别流程。
+- 排查结论：
+  - `2.14.0` 前端已经在扫描接口返回 `10026` 时接管抓图识别队列。
+  - 但后端 `EzvizScanner.ScanRecorderChannels` 在 `camera/list` 返回 `10026` 时仍会同步调用旧的 `probeChannelsByCapture`，最多串行探测 32 个通道、连续 5 次失败后才停止。
+  - 在失败通道耗时较长时，公司网关容易先返回 504，前端无法收到 `10026`，也就无法进入新的逐通道抓图识别队列。
+- 修复：
+  - 下线扫描接口内的旧同步抓图兜底路径。
+  - `camera/list` 返回 `10026` 时，后端原样返回萤石错误，由前端触发 `probe-recognize-channel` 队列逐通道抓图、识别和写入。
+  - 保留非 `10026` 错误的原有返回逻辑。
+  - 资产存储模式增加防守性识别：如果运行时已经提供完整 Supabase Storage 配置，但漏配 `ASSET_STORE=supabase`，后端会自动使用 Supabase Storage，避免公司 K8s 环境误写容器本地目录。
+  - `/health` 增加非敏感字段 `asset_store`，用于确认线上当前使用 `local` 还是 `supabase`，方便排查“最近截图/设计图加载不出来”。
+- 验证：
+  - 更新 `TestEzvizScannerReturnsPlanLimitWithoutCaptureProbe`，覆盖 `10026` 时不发送任何 `/device/capture` 请求，并把错误返回给上层。
+  - 保留 `TestEzvizScannerDoesNotFallbackForUnauthorizedDevice`，覆盖非授权错误不触发抓图探测。
+  - 新增 `TestNewStoreFromEnvAutoSelectsSupabaseWhenStorageConfigExists` 覆盖 Supabase Storage 配置完整时自动选用 Supabase。
+  - 更新 `/health` 测试覆盖 `asset_store` 字段。
+
 ## 2026-06-23 抓图兜底扫描识别 2.14.0 开发记录
 
 - 版本号：`2.14.0`。
