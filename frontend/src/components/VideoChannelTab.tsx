@@ -11,6 +11,7 @@ import {
 import { areaTypeLabels } from "../domain/areas";
 import { channelSceneLabel } from "../domain/channel-labels";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
+import { fallbackProbeChannelNumbers, fallbackProbeMaxChannelNo, shouldStopFallbackProbe } from "../domain/fallback-probe";
 import { formatDateTime } from "../domain/format";
 
 type ChannelTypeFilter = "all" | AreaType;
@@ -81,15 +82,14 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   }
 
   async function runFallbackProbeRecognition(recorder: VideoRecorder) {
-    const maxChannelNo = 32;
-    const maxConsecutiveFailures = 5;
-    let consecutiveFailures = 0;
     let activeCount = 0;
+    let consecutiveFailures = 0;
+    const channelNumbers = fallbackProbeChannelNumbers();
     setChannelError("");
     setFallbackProbeProgress((current) => ({ ...current, [recorder.id]: { checked: 0, active: 0 } }));
-    setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: 0, total: maxChannelNo } }));
+    setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: 0, total: fallbackProbeMaxChannelNo } }));
     onToast(`无法直接获取 ${recorder.deviceCode} 的通道列表，正在通过抓图识别有效通道。`);
-    for (let channelNo = 1; channelNo <= maxChannelNo; channelNo++) {
+    for (const channelNo of channelNumbers) {
       try {
         const result = await storeSpaceApi.probeRecognizeChannel(store.id, recorder, channelNo);
         if (result.active && result.channel) {
@@ -104,8 +104,8 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         consecutiveFailures += 1;
       }
       setFallbackProbeProgress((current) => ({ ...current, [recorder.id]: { checked: channelNo, active: activeCount } }));
-      setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: channelNo, total: maxChannelNo } }));
-      if (consecutiveFailures >= maxConsecutiveFailures) {
+      setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: channelNo, total: fallbackProbeMaxChannelNo } }));
+      if (shouldStopFallbackProbe(channelNo, consecutiveFailures)) {
         break;
       }
     }
