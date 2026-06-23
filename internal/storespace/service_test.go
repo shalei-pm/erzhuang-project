@@ -767,6 +767,160 @@ func TestRefreshChannelSnapshotKeepsConfirmedMapping(t *testing.T) {
 	}
 }
 
+func TestExpiredRemoteChannelSnapshotIsNotExposed(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+	expiredAt := time.Now().Add(-time.Hour)
+	_, err = repo.SaveChannelSnapshot(context.Background(), recorder.Channels[0].ID, ChannelSnapshotInput{
+		ThumbnailPath:       "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
+		FullImagePath:       "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
+		FullImageExpiresAt:  &expiredAt,
+		RecognitionResult:   channelRecognitionStatusJSON("captured", "", 10, 0, 10),
+		AreaNumberText:      "1",
+		CountAttempt:        true,
+	})
+	if err != nil {
+		t.Fatalf("save snapshot: %v", err)
+	}
+
+	loaded, err := service.GetStore(context.Background(), store.ID)
+	if err != nil {
+		t.Fatalf("get store: %v", err)
+	}
+	channel := loaded.Recorders[0].Channels[0]
+	if channel.ThumbnailURL != "" || channel.FullImageURL != "" {
+		t.Fatalf("expected expired remote snapshot URLs to be hidden, got thumbnail=%q full=%q", channel.ThumbnailURL, channel.FullImageURL)
+	}
+	if channel.FullImageExpiresAt == nil {
+		t.Fatal("expected expiration metadata to remain available")
+	}
+}
+
+func TestProbeRecognizeChannelCreatesChannelAndStoresRecognition(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华东"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, fakeChannelScanner{
+		snapshots: map[int]string{
+			1: "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
+		},
+	}, fakeChannelRecognizer{
+		result: ChannelRecognitionResult{
+			SceneType:  string(SceneTypeTreatment),
+			AreaType:   string(AreaTypeTreatment),
+			AreaNumber: "3",
+			Confidence: "high",
+		},
+	})
+	snapshotStore := NewLocalSnapshotStore(t.TempDir())
+	snapshotStore.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"image/jpeg"}},
+			Body:       io.NopCloser(strings.NewReader("fake-jpeg-data")),
+			Request:    request,
+		}, nil
+	})}
+	service.UseSnapshotStore(snapshotStore)
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "上海",
+		Name: "上海测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "K92940413"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	result, err := service.ProbeRecognizeChannel(context.Background(), store.Recorders[0].ID, ProbeRecognizeChannelInput{ChannelNo: 1})
+	if err != nil {
+		t.Fatalf("probe recognize channel: %v", err)
+	}
+
+	if !result.Active || result.Channel == nil {
+		t.Fatalf("expected active channel, got %#v", result)
+	}
+	if result.Channel.ChannelNo != 1 {
+		t.Fatalf("expected channel 1, got %#v", result.Channel)
+	}
+	if result.Channel.Status != ChannelStatusPendingConfirmation {
+		t.Fatalf("expected pending confirmation, got %#v", result.Channel)
+	}
+	if result.Channel.AreaType != AreaTypeTreatment || result.Channel.AreaNumber != 3 {
+		t.Fatalf("expected treatment 3, got %#v", result.Channel)
+	}
+	if !strings.HasPrefix(result.Channel.ThumbnailURL, "/api/store-space/channel-snapshots/") {
+		t.Fatalf("expected stable snapshot URL, got %#v", result.Channel)
+	}
+	if result.Channel.RecognitionAttempts != 1 {
+		t.Fatalf("expected one recognition attempt, got %#v", result.Channel)
+	}
+	updated, err := service.GetStore(context.Background(), store.ID)
+	if err != nil {
+		t.Fatalf("get store: %v", err)
+	}
+	if len(updated.Recorders[0].Channels) != 1 || updated.Recorders[0].EffectiveChannelCount != 1 {
+		t.Fatalf("expected recorder metrics updated, got %#v", updated.Recorders[0])
+	}
+}
+
+func TestProbeRecognizeChannelReturnsInactiveWhenCaptureFails(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华东"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, failingCaptureScanner{})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "上海",
+		Name: "上海测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "K92940413"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	result, err := service.ProbeRecognizeChannel(context.Background(), store.Recorders[0].ID, ProbeRecognizeChannelInput{ChannelNo: 11})
+	if err != nil {
+		t.Fatalf("probe recognize channel: %v", err)
+	}
+	if result.Active || result.Channel != nil {
+		t.Fatalf("expected inactive result, got %#v", result)
+	}
+	updated, err := service.GetStore(context.Background(), store.ID)
+	if err != nil {
+		t.Fatalf("get store: %v", err)
+	}
+	if len(updated.Recorders[0].Channels) != 0 {
+		t.Fatalf("expected no channel created after capture failure, got %#v", updated.Recorders[0].Channels)
+	}
+}
+
 func TestRecognizeRecorderChannelsPrefillsAIResultAndKeepsPendingConfirmation(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
@@ -1434,6 +1588,16 @@ func (f fakeChannelScanner) CaptureChannel(ctx context.Context, account EzvizAcc
 		FullImagePath:      url,
 		FullImageExpiresAt: &expiresAt,
 	}, nil
+}
+
+type failingCaptureScanner struct{}
+
+func (f failingCaptureScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
+	return nil, nil
+}
+
+func (f failingCaptureScanner) CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error) {
+	return ChannelSnapshotInput{}, errors.New("capture failed")
 }
 
 type memorySnapshotStore struct {

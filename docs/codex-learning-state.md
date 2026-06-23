@@ -1,10 +1,50 @@
 # Codex Learning State
 
-最后更新：2026-06-22
+最后更新：2026-06-23
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-23 抓图兜底扫描识别 2.14.0 开发记录
+
+- 版本号：`2.14.0`。
+- 用户反馈与产品调整：
+  - 华东录像机 `K92940413` 扫描上报 HTTP 504。
+  - 实测 `camera/list` 返回 `10026 设备数量超出个人版限制`，通道 1-10 可抓图，通道 11-15 返回 `60012` 且每个失败耗时约 10-15 秒，完整同步兜底扫描约 70 秒。
+  - 产品流程调整为：当无法直接获取通道列表时，不再等待完整扫描结果，而是逐通道抓图；抓图成功即创建有效通道、保存最近截图，并同步完成 AI 区域识别。
+  - 页面只展示“已检测 X 个，有效 Y 个”，连续失败数只作为内部停止条件，不展示给用户。
+- 实现：
+  - 新增 `ProbeRecognizeChannel` 服务能力和 `POST /api/store-space/recorders/{recorder_id}/probe-recognize-channel`。
+  - 新增仓库方法 `UpsertRecorderChannel`，单通道成功时创建/更新通道，不清空其他通道，也不覆盖已确认映射。
+  - 前端扫描遇到 `10026` 或“设备数量超出个人版限制”时，自动进入抓图识别队列，从通道 1 开始逐个调用单通道接口。
+  - 成功通道立即写入页面通道列表，截图和 AI 识别结果同步展示；连续 5 个失败或达到通道 32 后停止。
+- 验证：
+  - 新增 `TestProbeRecognizeChannelCreatesChannelAndStoresRecognition` 覆盖抓图成功后创建通道、保存稳定截图、写入 AI 识别结果。
+  - 新增 `TestProbeRecognizeChannelReturnsInactiveWhenCaptureFails` 覆盖抓图失败不创建通道。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-06-23 通道最近截图过期展示 2.13.1 修复记录
+
+- 版本号：`2.13.1`。
+- 用户反馈：
+  - 有效通道里的“最近截图”过几天后仍然出现加载失败，怀疑图片没有妥善保存。
+- 排查结论：
+  - 当前新识别/刷新链路会把萤石云 `device/capture` 返回的临时图片先下载，再通过 `AssetStore` 保存为 `/api/store-space/channel-snapshots/{name}`，这是稳定托管路径。
+  - 韩国服务器抽样检查：
+    - 新测试门店 `萤石华北测试门店` 的截图均为 `/api/store-space/channel-snapshots/...`，后端接口返回 200。
+    - 老门店 `新氧青春诊所 深圳龙岗坂田万科项目` 的 38 个通道仍保存为 `https://opencapture.ys7.com/...` 临时 URL，并带 `full_image_expires_at`，属于历史数据未迁移。
+  - 因此本次现象主要来自历史临时截图 URL 过期；新截图保存逻辑本身可用。
+- 修复：
+  - 后端读取通道时，如果截图是带过期时间的远程临时图，且已过期，则不再把 `thumbnail_url/full_image_url` 暴露给前端。
+  - 已保存到系统截图库的 `/api/store-space/channel-snapshots/...` 不受过期时间影响。
+  - 前端对已过期截图显示“已过期”，保留“刷新截图/重新识别”入口，让用户重新生成稳定截图。
+- 验证：
+  - 新增 `TestExpiredRemoteChannelSnapshotIsNotExposed` 覆盖过期远程截图不再暴露给前端。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
 
 ## 2026-06-23 萤石云扫描通道抓图兜底 2.13.0 开发记录
 

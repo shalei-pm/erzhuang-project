@@ -34,6 +34,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
   const [recognizingChannelIds, setRecognizingChannelIds] = useState<Set<number>>(() => new Set());
   const [recorderProgress, setRecorderProgress] = useState<Record<number, { done: number; total: number }>>({});
+  const [fallbackProbeProgress, setFallbackProbeProgress] = useState<Record<number, { checked: number; active: number }>>({});
   const [completedRecorderProgressId, setCompletedRecorderProgressId] = useState<number | null>(null);
   const [previewChannel, setPreviewChannel] = useState<VideoChannel | null>(null);
   const [confirmingChannelIds, setConfirmingChannelIds] = useState<Set<number>>(() => new Set());
@@ -68,11 +69,60 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onToast(`已扫描 ${recorder.deviceCode}，发现 ${nextRecorder.effectiveChannelCount} 个有效通道。`);
     } catch (error) {
       const message = channelErrorMessage(error, "扫描失败，请稍后重试。");
+      if (shouldUseFallbackProbe(message)) {
+        await runFallbackProbeRecognition(recorder);
+        return;
+      }
       setChannelError(`录像机 ${recorder.deviceCode} 扫描失败：${message}`);
       onToast(message);
     } finally {
       setWorkingRecorderId(null);
     }
+  }
+
+  async function runFallbackProbeRecognition(recorder: VideoRecorder) {
+    const maxChannelNo = 32;
+    const maxConsecutiveFailures = 5;
+    let consecutiveFailures = 0;
+    let activeCount = 0;
+    setChannelError("");
+    setFallbackProbeProgress((current) => ({ ...current, [recorder.id]: { checked: 0, active: 0 } }));
+    setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: 0, total: maxChannelNo } }));
+    onToast(`无法直接获取 ${recorder.deviceCode} 的通道列表，正在通过抓图识别有效通道。`);
+    for (let channelNo = 1; channelNo <= maxChannelNo; channelNo++) {
+      try {
+        const result = await storeSpaceApi.probeRecognizeChannel(store.id, recorder, channelNo);
+        if (result.active && result.channel) {
+          consecutiveFailures = 0;
+          activeCount += 1;
+          onStoreUpdated((currentStore) => upsertChannelInStore(currentStore, recorder.id, result.channel as VideoChannel));
+          setExpiredSnapshotIds((current) => removeIdFromSet(current, result.channel!.id));
+        } else {
+          consecutiveFailures += 1;
+        }
+      } catch (error) {
+        consecutiveFailures += 1;
+      }
+      setFallbackProbeProgress((current) => ({ ...current, [recorder.id]: { checked: channelNo, active: activeCount } }));
+      setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: channelNo, total: maxChannelNo } }));
+      if (consecutiveFailures >= maxConsecutiveFailures) {
+        break;
+      }
+    }
+    setCompletedRecorderProgressId(recorder.id);
+    if (completionTimerRef.current !== null) {
+      window.clearTimeout(completionTimerRef.current);
+    }
+    completionTimerRef.current = window.setTimeout(() => {
+      setCompletedRecorderProgressId(null);
+      setFallbackProbeProgress((current) => {
+        const next = { ...current };
+        delete next[recorder.id];
+        return next;
+      });
+      completionTimerRef.current = null;
+    }, 900);
+    onToast(`已完成 ${recorder.deviceCode} 的抓图识别，发现 ${activeCount} 个有效通道。`);
   }
 
   async function recognizeRecorder(recorder: VideoRecorder) {
@@ -425,7 +475,11 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                             </button>
                           </div>
                           {isRecognizingRecorder ? (
-                            <span className="recorder-thinking-label">{recognitionProgressLabel(recorderProgress[recorder.id])}</span>
+                            <span className="recorder-thinking-label">
+                              {fallbackProbeProgress[recorder.id]
+                                ? fallbackProbeProgressLabel(fallbackProbeProgress[recorder.id])
+                                : recognitionProgressLabel(recorderProgress[recorder.id])}
+                            </span>
                           ) : recorder.recognitionProgress ? (
                             <span className="recorder-muted-label">{recorder.recognitionProgress}</span>
                           ) : null}
@@ -520,6 +574,8 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                 const isUnlocking = unlockingChannelIds.has(channel.id);
                 const isDeleting = deletingChannelIds.has(channel.id);
                 const isConfirmed = isConfirmedChannel(channel);
+                const isSnapshotExpired = hasExpiredSnapshot(channel);
+                const canPreviewSnapshot = Boolean(channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) && !isSnapshotExpired);
                 const selectedAreaType = draft.areaType !== undefined ? draft.areaType : channel.areaType;
                 const selectedAreaNumber = draft.areaNumber ?? (selectedAreaType ? channel.areaNumber : channel.areaNote || channel.areaNumber);
                 return (
@@ -528,13 +584,13 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     <td>{channel.channelNo}</td>
                     <td>
                       <button
-                        className={`channel-thumb ${channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) ? "has-image" : ""}`}
+                        className={`channel-thumb ${canPreviewSnapshot ? "has-image" : ""}`}
                         type="button"
-                        disabled={expiredSnapshotIds.has(channel.id) || (!channel.fullImageUrl && !channel.thumbnailUrl)}
-                        aria-label={channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) ? `查看通道 ${channel.channelNo} 截图` : "暂无截图"}
+                        disabled={!canPreviewSnapshot}
+                        aria-label={canPreviewSnapshot ? `查看通道 ${channel.channelNo} 截图` : "暂无截图"}
                         onClick={() => setPreviewChannel(channel)}
                       >
-                        {channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) ? (
+                        {canPreviewSnapshot ? (
                           <img
                             src={channel.thumbnailUrl}
                             alt={`通道 ${channel.channelNo} 截图`}
@@ -542,8 +598,8 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                               setExpiredSnapshotIds((current) => new Set(current).add(channel.id));
                             }}
                           />
-                        ) : expiredSnapshotIds.has(channel.id) ? (
-                          <span className="channel-thumb-expired">加载失败</span>
+                        ) : expiredSnapshotIds.has(channel.id) || isSnapshotExpired ? (
+                          <span className="channel-thumb-expired">{isSnapshotExpired ? "已过期" : "加载失败"}</span>
                         ) : (
                           <span />
                         )}
@@ -749,6 +805,13 @@ function formatDuration(ms: number) {
   return `${Math.max(1, Math.round(ms))}ms`;
 }
 
+function hasExpiredSnapshot(channel: VideoChannel) {
+  if (!channel.fullImageExpiresAt) {
+    return false;
+  }
+  return new Date(channel.fullImageExpiresAt).getTime() <= Date.now();
+}
+
 function replaceChannelInStore(store: StoreDetail, updatedChannel: VideoChannel): StoreDetail {
   const recorders = store.recorders.map((recorder) => {
     if (!recorder.channels.some((channel) => channel.id === updatedChannel.id)) return recorder;
@@ -765,6 +828,30 @@ function replaceChannelInStore(store: StoreDetail, updatedChannel: VideoChannel)
     channelCount: recorders.reduce((total, recorder) => total + recorder.channels.filter((channel) => channel.status !== "inactive").length, 0),
     updatedAt: new Date().toISOString(),
   };
+}
+
+function upsertChannelInStore(store: StoreDetail, recorderId: number, updatedChannel: VideoChannel): StoreDetail {
+  const recorders = store.recorders.map((recorder) => {
+    if (recorder.id !== recorderId) return recorder;
+    const channel = { ...updatedChannel, recorderId, recorderCode: recorder.deviceCode };
+    const existing = recorder.channels.some((item) => item.id === channel.id || item.channelNo === channel.channelNo);
+    const channels = (existing
+      ? recorder.channels.map((item) => (item.id === channel.id || item.channelNo === channel.channelNo ? channel : item))
+      : [...recorder.channels, channel]
+    ).sort((a, b) => a.channelNo - b.channelNo);
+    return {
+      ...recorder,
+      status: "online" as const,
+      channels,
+      effectiveChannelCount: channels.filter((item) => item.status !== "inactive").length,
+      lastScannedAt: new Date().toISOString(),
+    };
+  });
+  return recalculateStoreVideoMetrics({
+    ...store,
+    recorders,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 function removeRecorderFromStore(store: StoreDetail, recorderId: number): StoreDetail {
@@ -836,6 +923,14 @@ function isConfirmedChannel(channel: VideoChannel) {
 function recognitionProgressLabel(progress?: { done: number; total: number }) {
   if (!progress || progress.total <= 0) return "正在准备识别";
   return `识别进度 ${progress.done}/${progress.total} · ${recognitionProgressPercent(progress)}%`;
+}
+
+function fallbackProbeProgressLabel(progress: { checked: number; active: number }) {
+  return `抓图识别中 · 已检测 ${progress.checked} 个，有效 ${progress.active} 个`;
+}
+
+function shouldUseFallbackProbe(message: string) {
+  return message.includes("10026") || message.includes("设备数量超出个人版限制");
 }
 
 function recognitionProgressPercent(progress?: { done: number; total: number }) {
