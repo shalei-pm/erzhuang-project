@@ -32,6 +32,12 @@
   - 新增 `TestSupabaseStorageStoreCreatesBucketAndRetriesSaveWhenMissing`，覆盖 bucket 缺失时自动创建并重试保存。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `cd frontend && npm run build` 通过。
+- 发布：
+  - GitHub `main` commit：`8a73c95`。
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已合入并推送，merge commit：`1c59220`，等待公司 K8s 自动发布。
+  - 韩国服务器已通过 SSH 执行 `/opt/apps/erzhuang-project/scripts/deploy.sh` 发布，服务器当前 commit：`8a73c95`。
+  - 韩国服务器本机健康检查返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"local"}`。
+  - 韩国公网入口 `https://43.155.237.46/erzhuang/health` 验证通过。
 
 ## 2026-06-23 通道截图与抓图识别诊断增强 2.14.4 修复记录
 
