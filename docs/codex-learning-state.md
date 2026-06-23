@@ -6,6 +6,21 @@
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
 
+## 2026-06-23 萤石错误透传 2.14.2 修复记录
+
+- 版本号：`2.14.2`。
+- 用户反馈：
+  - 公司环境华东录像机 `K96112775` 扫描不再表现为 504，但页面提示“录像机 K96112775 扫描失败：store space request failed”，仍没有进入逐通道抓图识别。
+- 排查结论：
+  - `2.14.1` 后端扫描接口已不再同步抓图兜底，能把萤石 `10026` 错误返回到 service 层。
+  - 但 store-space handler 没有识别 `ezviz.Error`，统一把未知错误转成 `store space request failed`。
+  - 前端只能看到泛化文案，无法命中 `10026` 或“设备数量超出个人版限制”的兜底判断。
+- 修复：
+  - store-space handler 对 `ezviz.Error` 返回 HTTP 502，并保留错误 code/msg，例如 `ezviz api error code=10026 msg=...`。
+  - 前端现有 `shouldUseFallbackProbe` 可直接根据返回文案进入逐通道抓图识别队列。
+- 验证：
+  - 新增 `TestScanRecorderEndpointReturnsEzvizErrorCodeForFallback`，覆盖 `10026` 不再被吞成 `store space request failed`。
+
 ## 2026-06-23 扫描接口 10026 同步兜底下线 2.14.1 修复记录
 
 - 版本号：`2.14.1`。
