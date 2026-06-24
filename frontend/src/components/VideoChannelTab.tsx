@@ -15,6 +15,7 @@ import { channelSceneLabel } from "../domain/channel-labels";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
 import { fallbackProbeChannelNumbers, fallbackProbeMaxChannelNo, shouldStopFallbackProbe } from "../domain/fallback-probe";
 import { formatDateTime } from "../domain/format";
+import { ImageLoadQueue } from "../domain/image-load-queue";
 
 type ChannelTypeFilter = "all" | AreaType;
 
@@ -24,6 +25,8 @@ const channelTypeFilters: { value: ChannelTypeFilter; label: string }[] = [
   { value: "treatment", label: "治疗室" },
   { value: "beauty", label: "生美" },
 ];
+
+const snapshotImageQueue = new ImageLoadQueue(2);
 
 type VideoChannelTabProps = {
   store: StoreDetail;
@@ -615,7 +618,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                         onClick={() => setPreviewChannel(channel)}
                       >
                         {canPreviewSnapshot ? (
-                          <img
+                          <QueuedSnapshotImage
                             src={channel.thumbnailUrl}
                             alt={`通道 ${channel.channelNo} 截图`}
                             onError={() => {
@@ -777,6 +780,51 @@ function removeKeyFromRecord<T>(current: Record<number, T>, id: number) {
   const next = { ...current };
   delete next[id];
   return next;
+}
+
+function QueuedSnapshotImage({ src, alt, onError }: { src: string; alt: string; onError: () => void }) {
+  const [queuedSrc, setQueuedSrc] = useState("");
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    setQueuedSrc("");
+    let cancelled = false;
+    const load = snapshotImageQueue.enqueue(() => preloadImage(src));
+    load
+      .then((nextSrc) => {
+        if (!cancelled) {
+          setQueuedSrc(nextSrc);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled && !(error instanceof DOMException && error.name === "AbortError")) {
+          onErrorRef.current();
+        }
+      });
+    return () => {
+      cancelled = true;
+      load.cancel();
+    };
+  }, [src]);
+
+  if (!queuedSrc) {
+    return <span className="channel-thumb-loading" aria-hidden="true" />;
+  }
+
+  return <img src={queuedSrc} alt={alt} loading="lazy" decoding="async" onError={onError} />;
+}
+
+function preloadImage(src: string) {
+  return new Promise<string>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(src);
+    image.onerror = () => reject(new Error("snapshot image load failed"));
+    image.src = src;
+  });
 }
 
 function hasExpiredSnapshot(channel: VideoChannel) {
