@@ -1,10 +1,39 @@
 # Codex Learning State
 
-最后更新：2026-06-23
+最后更新：2026-06-24
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-24 通道缩略图队列加载 2.14.7 修复记录
+
+- 版本号：`2.14.7`。
+- 用户反馈：
+  - 公司环境 `新氧青春诊所(上海新淮海坊店)` 通道最近截图加载非常慢，转一段时间后失败。
+- 排查结论：
+  - 门店 ID：`9`，录像机 `L18975312`，通道数 `30`。
+  - 截图更新时间为 `2026-06-24 12:35` 之后，说明不是旧截图对象缺失的单一问题。
+  - 只读请求测试显示：
+    - 串行加载前 8 张时，单张也会出现 2s 到 20s 以上不等的耗时，部分请求 20s 内读不完响应体。
+    - 并发加载 30 张时，21 个请求拿到 HTTP 200 但 20s 内未读完 body，9 个请求 AbortError，平均耗时接近 20s。
+    - 并发 4 或 6 时，12 张测试样本基本全部 25s 超时。
+  - 结论：前端一次性加载缩略图会放大失败，必须先做队列/限并发；但单张读取也偏慢，后续仍需要后端生成真正小缩略图或优化 Supabase 图片代理链路。
+- 修复：
+  - 新增 `frontend/src/domain/image-load-queue.ts`，提供通用前端图片加载队列，当前缩略图并发限制为 `2`。
+  - 通道表格缩略图不再直接一次性设置全部 `<img src>`，而是进入队列并等待图片真实 `load/error` 后才释放下一个名额，避免浏览器仍然同时拉取几十张图。
+  - 队列等待期间展示稳定尺寸的小 loading 占位，避免表格抖动。
+  - 离开页面、筛选或切换数据时取消仍在排队的加载任务。
+- 后续建议：
+  - 继续做后端真实缩略图生成：表格加载几十 KB 小图，点击预览再加载大图。
+  - 评估后端缓存或 signed URL，减少 Go 后端代理 Supabase 大图造成的慢请求。
+- 验证：
+  - 新增 `frontend/src/domain/image-load-queue.test.ts`，覆盖并发限制、任务完成后释放下一个名额、取消排队任务。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-image-queue-test src/domain/image-load-queue.ts src/domain/image-load-queue.test.ts && node /tmp/erzhuang-image-queue-test/image-load-queue.test.js` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-channel-test src/domain/channel-recognition.ts src/domain/channel-recognition.test.ts && node /tmp/erzhuang-channel-test/channel-recognition.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - 本地浏览器打开 `http://127.0.0.1:5177/erzhuang/`，页面能正常渲染，控制台无 error；因本地 dev server 未连接完整后端数据，本轮未在本地复现真实公司门店缩略图瀑布。
 
 ## 2026-06-23 录像机识别失败提示修正 2.14.6 修复记录
 

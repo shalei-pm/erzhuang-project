@@ -1157,6 +1157,15 @@ td:nth-child(10) {
   font-size: 11px;
 }
 
+.channel-thumb .channel-thumb-loading {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(148, 163, 184, 0.28);
+  border-top-color: #64748b;
+  border-radius: 999px;
+  animation: spin 0.8s linear infinite;
+}
+
 .channel-thumb img {
   display: block;
   width: 100%;
