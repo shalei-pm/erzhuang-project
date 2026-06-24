@@ -242,18 +242,19 @@ type Store struct {
 }
 
 type StoreListItem struct {
-	ID                int64            `json:"id"`
-	City              string           `json:"city"`
-	Name              string           `json:"name"`
-	ExternalOrgID     string           `json:"external_org_id"`
-	DesignPlanStatus  DesignPlanStatus `json:"design_plan_status"`
-	OverallStatus     OverallStatus    `json:"overall_status"`
-	RecorderCount     int              `json:"recorder_count"`
-	ChannelCount      int              `json:"channel_count"`
-	TreatmentCount    int              `json:"treatment_count"`
-	ConsultationCount int              `json:"consultation_count"`
-	BeautyCount       int              `json:"beauty_count"`
-	UpdatedAt         time.Time        `json:"updated_at"`
+	ID                     int64            `json:"id"`
+	City                   string           `json:"city"`
+	Name                   string           `json:"name"`
+	ExternalOrgID          string           `json:"external_org_id"`
+	DesignPlanStatus       DesignPlanStatus `json:"design_plan_status"`
+	OverallStatus          OverallStatus    `json:"overall_status"`
+	RecorderCount          int              `json:"recorder_count"`
+	ChannelCount           int              `json:"channel_count"`
+	ChannelsFullyConfirmed bool             `json:"channels_fully_confirmed"`
+	TreatmentCount         int              `json:"treatment_count"`
+	ConsultationCount      int              `json:"consultation_count"`
+	BeautyCount            int              `json:"beauty_count"`
+	UpdatedAt              time.Time        `json:"updated_at"`
 }
 
 type StoreListResult struct {

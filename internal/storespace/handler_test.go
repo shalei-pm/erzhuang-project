@@ -421,6 +421,71 @@ func TestExportChannelMappingsEndpointDownloadsExcel(t *testing.T) {
 	}
 }
 
+func TestListStoresReportsChannelsFullyConfirmed(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{channels: []ScannedChannel{
+		{ChannelNo: 1, ChannelName: "通道1", Active: true},
+		{ChannelNo: 2, ChannelName: "通道2", Active: true},
+	}})
+	handler := newTestHandlerWithService(service)
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	before := listStoresForTest(t, handler)
+	if len(before.Items) != 1 {
+		t.Fatalf("expected one store, got %d", len(before.Items))
+	}
+	if before.Items[0].ChannelsFullyConfirmed {
+		t.Fatalf("expected scanned but unconfirmed channels to be reported as not fully confirmed")
+	}
+
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{AreaType: AreaTypeTreatment, AreaNumber: "1"}); err != nil {
+		t.Fatalf("confirm channel 1: %v", err)
+	}
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[1].ID, ChannelConfirmationInput{SceneType: SceneTypeMachineRoom, AreaNote: "机房"}); err != nil {
+		t.Fatalf("confirm channel 2: %v", err)
+	}
+
+	after := listStoresForTest(t, handler)
+	if len(after.Items) != 1 {
+		t.Fatalf("expected one store, got %d", len(after.Items))
+	}
+	if !after.Items[0].ChannelsFullyConfirmed {
+		t.Fatalf("expected all active confirmed channels to be reported as fully confirmed")
+	}
+}
+
+func listStoresForTest(t *testing.T, handler http.Handler) StoreListResult {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores?page=1&page_size=20", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, response.Code, response.Body.String())
+	}
+	var result StoreListResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode list stores: %v", err)
+	}
+	return result
+}
+
 func newTestHandler() http.Handler {
 	return newTestHandlerWithService(NewService(NewMemoryStore()))
 }

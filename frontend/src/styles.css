@@ -384,6 +384,31 @@ tr:last-child td {
   border-bottom: 0;
 }
 
+.store-index-cell {
+  position: relative;
+  overflow: hidden;
+}
+
+.store-index-number {
+  position: relative;
+  z-index: 1;
+}
+
+.store-confirmed-watermark {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  z-index: 0;
+  pointer-events: none;
+  transform: translateY(-50%) rotate(-22deg);
+  color: rgba(21, 128, 61, 0.24);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
 th:nth-child(1),
 td:nth-child(1),
 th:nth-child(4),

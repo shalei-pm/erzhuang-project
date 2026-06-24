@@ -1090,6 +1090,11 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 			s.updated_at,
 			count(distinct r.id) as recorder_count,
 			count(distinct c.id) filter (where c.is_active) as channel_count,
+			count(distinct c.id) filter (where c.is_active) > 0
+				and count(distinct c.id) filter (
+					where c.is_active
+						and c.status not in ('confirmed_business', 'confirmed_non_business')
+				) = 0 as channels_fully_confirmed,
 			count(distinct a.id) filter (where a.area_type = 'treatment') as treatment_count,
 			count(distinct a.id) filter (where a.area_type = 'consultation') as consultation_count,
 			count(distinct a.id) filter (where a.area_type = 'beauty') as beauty_count
@@ -1122,6 +1127,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 			&item.UpdatedAt,
 			&item.RecorderCount,
 			&item.ChannelCount,
+			&item.ChannelsFullyConfirmed,
 			&item.TreatmentCount,
 			&item.ConsultationCount,
 			&item.BeautyCount,
@@ -2803,6 +2809,7 @@ func storeListItem(store Store) StoreListItem {
 			}
 		}
 	}
+	item.ChannelsFullyConfirmed = activeChannelsFullyConfirmed(store.Recorders)
 	for _, area := range store.Areas {
 		switch area.Type {
 		case AreaTypeTreatment:
@@ -2814,6 +2821,22 @@ func storeListItem(store Store) StoreListItem {
 		}
 	}
 	return item
+}
+
+func activeChannelsFullyConfirmed(recorders []Recorder) bool {
+	hasActiveChannel := false
+	for _, recorder := range recorders {
+		for _, channel := range recorder.Channels {
+			if !channel.IsActive {
+				continue
+			}
+			hasActiveChannel = true
+			if channel.Status != ChannelStatusConfirmedBusiness && channel.Status != ChannelStatusConfirmedNonBusiness {
+				return false
+			}
+		}
+	}
+	return hasActiveChannel
 }
 
 func cloneStore(store Store) Store {
