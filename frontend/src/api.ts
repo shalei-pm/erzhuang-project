@@ -54,6 +54,7 @@ export type StoreSummary = {
   designPlanStatus: DesignPlanStatus;
   recorderCount: number;
   channelCount: number;
+  channelsFullyConfirmed: boolean;
   treatmentCount: number;
   consultationCount: number;
   beautyCount: number;
@@ -403,6 +404,8 @@ type BackendStoreSpaceSummary = {
   recorderCount?: number;
   channel_count?: number;
   channelCount?: number;
+  channels_fully_confirmed?: boolean;
+  channelsFullyConfirmed?: boolean;
   treatment_count?: number;
   treatmentCount?: number;
   consultation_count?: number;
@@ -1592,6 +1595,7 @@ function mapBackendSummary(item: BackendStoreSummary): StoreSummary {
     designPlanStatus: item.thumbnail_url ? "completed" : "not_uploaded",
     recorderCount: 0,
     channelCount: 0,
+    channelsFullyConfirmed: false,
     treatmentCount: item.treatment_count,
     consultationCount: item.consultation_count,
     beautyCount: item.beauty_count,
@@ -1623,6 +1627,7 @@ function mapBackendDetail(store: BackendStoreDetail): StoreDetail {
     designPlanStatus: store.preview_url || store.preview_image_path ? "completed" : "not_uploaded",
     recorderCount: 0,
     channelCount: 0,
+    channelsFullyConfirmed: false,
     treatmentCount: counts.treatment,
     consultationCount: counts.consultation,
     beautyCount: counts.beauty,
@@ -1668,6 +1673,7 @@ function mapStoreSpaceSummary(store: BackendStoreSpaceSummary): StoreSummary {
     designPlanStatus: store.design_plan_status ?? store.designPlanStatus ?? "not_uploaded",
     recorderCount: store.recorder_count ?? store.recorderCount ?? 0,
     channelCount: store.channel_count ?? store.channelCount ?? 0,
+    channelsFullyConfirmed: store.channels_fully_confirmed ?? store.channelsFullyConfirmed ?? false,
     treatmentCount: store.treatment_count ?? store.treatmentCount ?? 0,
     consultationCount: store.consultation_count ?? store.consultationCount ?? 0,
     beautyCount: store.beauty_count ?? store.beautyCount ?? 0,
@@ -1834,6 +1840,7 @@ function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
     designPlanStatus: match.thumbnail_url ? "completed" : "not_uploaded",
     recorderCount: 0,
     channelCount: 0,
+    channelsFullyConfirmed: false,
     treatmentCount: match.treatment_count ?? 0,
     consultationCount: match.consultation_count ?? 0,
     beautyCount: match.beauty_count ?? 0,
@@ -1853,6 +1860,7 @@ function duplicateMatchToStoreSpaceSummary(match: BackendDuplicateMatch): StoreS
     designPlanStatus: "not_uploaded",
     recorderCount: 0,
     channelCount: 0,
+    channelsFullyConfirmed: false,
     treatmentCount: match.treatment_count ?? 0,
     consultationCount: match.consultation_count ?? 0,
     beautyCount: match.beauty_count ?? 0,
@@ -2030,6 +2038,7 @@ function createMockStore(id: number, name: string, status: StoreStatus, areas: S
     designPlanStatus: "completed",
     recorderCount: recorders.length,
     channelCount: countChannels(recorders),
+    channelsFullyConfirmed: false,
     status,
     updatedAt: now,
     areaCount: areas.length,
@@ -2063,6 +2072,7 @@ function buildDetailFromPayload(payload: SaveStorePayload, updatedAt: string): S
     designPlanStatus: payload.previewUrl ? "pending_annotation" : "not_uploaded",
     recorderCount: payload.recorders?.length ?? 0,
     channelCount: countChannels(payload.recorders ?? []),
+    channelsFullyConfirmed: false,
     treatmentCount: counts.treatment,
     consultationCount: counts.consultation,
     beautyCount: counts.beauty,

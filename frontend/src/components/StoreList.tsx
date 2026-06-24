@@ -66,8 +66,15 @@ export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, o
               const isDeleting = deletingStoreIds.has(store.id);
               const isOpening = openingStoreIds.has(store.id);
               return (
-                <tr key={store.id}>
-                  <td>{(page - 1) * pageSize + index + 1}</td>
+                <tr className={store.channelsFullyConfirmed ? "is-channels-confirmed" : ""} key={store.id}>
+                  <td className="store-index-cell">
+                    <span className="store-index-number">{(page - 1) * pageSize + index + 1}</span>
+                    {store.channelsFullyConfirmed ? (
+                      <span className="store-confirmed-watermark" aria-hidden="true">
+                        已确认
+                      </span>
+                    ) : null}
+                  </td>
                   <td>{store.city || "未设置"}</td>
                   <td className="store-name">{store.name}</td>
                   <td>{store.externalOrgId || "-"}</td>
