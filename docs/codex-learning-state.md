@@ -2832,3 +2832,20 @@ git pull --ff-only
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `git diff --check` 通过。
   - 本地 Vite 服务可启动；自动浏览器截图验收因本项目未安装 Playwright、Browser 会话 tab 绑定异常未完成，真实画面仍需公司线上 H5 页面复验。
+
+## 2026-06-26 H5 Monitor 恢复 MSE 播放路径 2.19.3 开发记录
+
+- 背景：
+  - 2.19.2 发布后，公司线上 H5 监控详情页播放器容器和声音按钮可见，但实时画面完全黑屏。
+  - 用户反馈“啥都没显示出来”，相比 2.19.1 已能出画面但有 SourceBuffer 告警，属于播放渲染回归。
+- 排查结论：
+  - 2.19.2 为规避 `MediaSource.addSourceBuffer` 告警关闭了 `useMSE`。
+  - 从现象判断，公司真实 FLV 流在当前浏览器/播放器组合下仍依赖 MSE 路径出画面；关闭 MSE 后播放器初始化成功但无法渲染视频。
+- 实现：
+  - 恢复 `useMSE:true`，保留官方样式、诊断降级、播放器销毁清理、诊断条不遮挡等其他改动。
+  - 本轮只改一个变量，先恢复出画面；黑条和 SourceBuffer warning 后续再基于线上真实表现单独处理。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
