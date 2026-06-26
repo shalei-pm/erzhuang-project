@@ -778,12 +778,17 @@ function QueuedSnapshotImage({ src, alt, onError }: { src: string; alt: string; 
   }, [onError]);
 
   useEffect(() => {
+    if (snapshotImageQueue.hasLoaded(src)) {
+      setQueuedSrc(src);
+      return;
+    }
     setQueuedSrc("");
     let cancelled = false;
     const load = snapshotImageQueue.enqueue(() => preloadImage(src));
     load
       .then((nextSrc) => {
         if (!cancelled) {
+          snapshotImageQueue.rememberLoaded(nextSrc);
           setQueuedSrc(nextSrc);
         }
       })

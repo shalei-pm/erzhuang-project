@@ -70,6 +70,12 @@ try {
 }
 blocker.cancel();
 
+const cachedQueue = new ImageLoadQueue(2);
+assertEqual(cachedQueue.hasLoaded("/api/store-space/channel-snapshots/one.jpg"), false);
+cachedQueue.rememberLoaded("/api/store-space/channel-snapshots/one.jpg");
+assertEqual(cachedQueue.hasLoaded("/api/store-space/channel-snapshots/one.jpg"), true);
+assertEqual(cachedQueue.hasLoaded("/api/store-space/channel-snapshots/two.jpg"), false);
+
 console.log("image-load-queue tests passed");
 
 function tick() {

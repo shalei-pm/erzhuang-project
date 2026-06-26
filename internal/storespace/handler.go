@@ -313,7 +313,15 @@ func (h *Handler) refreshChannelSnapshot(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) getChannelSnapshot(w http.ResponseWriter, r *http.Request) {
-	reader, contentType, err := h.service.OpenChannelSnapshot(r.Context(), r.PathValue("name"))
+	name := r.PathValue("name")
+	etag := strconv.Quote(name)
+	w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
+	w.Header().Set("ETag", etag)
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	reader, contentType, err := h.service.OpenChannelSnapshot(r.Context(), name)
 	if err != nil {
 		handleServiceError(w, err)
 		return
