@@ -3,6 +3,7 @@ import type { StoreDetail, StoreSummary } from "../api";
 export type StoreDetailNavigationTab = "design-plan" | "channels";
 
 export const storeDetailCacheTTL = 60_000;
+export const h5MonitorPilotExternalOrgId = "10030";
 
 type CacheEntry = {
   detail: StoreDetail;
@@ -34,6 +35,15 @@ export function storeDetailTabFromDetail(store: StoreDetail): StoreDetailNavigat
   if ((store.recorderCount ?? 0) > 0 || store.recorders.length > 0) return "channels";
   if (store.designPlanStatus !== "not_uploaded" || Boolean(store.previewUrl || store.thumbnailUrl)) return "design-plan";
   return "channels";
+}
+
+export function canOpenH5Monitor(store: Pick<StoreSummary, "externalOrgId">): boolean {
+  return store.externalOrgId === h5MonitorPilotExternalOrgId;
+}
+
+export function h5MonitorPath(externalOrgId: string, configuredBase = import.meta.env.BASE_URL || "/erzhuang-project/"): string {
+  const prefix = normalizeBasePrefix(configuredBase) || "/erzhuang-project";
+  return `${prefix}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor`;
 }
 
 export function createStoreDetailCache(ttlMs = storeDetailCacheTTL) {
@@ -125,4 +135,10 @@ function sharedSummaryFields(store: StoreDetail): Pick<StoreSummary, "id" | "cit
     status: store.status,
     updatedAt: store.updatedAt,
   };
+}
+
+function normalizeBasePrefix(value: string): string {
+  const normalized = value.startsWith("/") ? value : `/${value}`;
+  const firstSegment = normalized.split("/").filter(Boolean)[0];
+  return firstSegment ? `/${firstSegment}` : "";
 }

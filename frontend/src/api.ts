@@ -2122,6 +2122,11 @@ function toStoredPath(value: string, fallback: string) {
   return storedImagePath(value, fallback);
 }
 
+export const __testing = {
+  toDisplayImageUrl,
+  toStoredPath,
+};
+
 function displayFileName(value: string) {
   const parts = value.split(/[\\/]/);
   return parts[parts.length - 1] || value;

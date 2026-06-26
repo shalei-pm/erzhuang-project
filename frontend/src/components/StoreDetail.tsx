@@ -14,6 +14,7 @@ type StoreDetailProps = {
   accounts: EzvizAccount[];
   aiSettings: AISettings | null;
   switchingAIModel: boolean;
+  h5MonitorUrl?: string;
   onBack: () => void;
   onTabChange: (tab: StoreDetailTab) => void;
   onToggleAIModel: () => void;
@@ -30,6 +31,7 @@ export function StoreDetail({
   accounts,
   aiSettings,
   switchingAIModel,
+  h5MonitorUrl,
   onBack,
   onTabChange,
   onToggleAIModel,
@@ -65,7 +67,7 @@ export function StoreDetail({
   return (
     <section className="detail-page">
       <header className="detail-header">
-        <div>
+        <div className="detail-header-main">
           <button className="detail-back-button" onClick={onBack} aria-label="返回机构列表">
             <span aria-hidden="true">←</span>
             <span>返回列表</span>
@@ -90,6 +92,13 @@ export function StoreDetail({
             </div>
           </div>
         </div>
+        {h5MonitorUrl ? (
+          <div className="detail-header-side">
+            <button className="detail-back-button" onClick={() => window.location.assign(h5MonitorUrl)}>
+              查看监控
+            </button>
+          </div>
+        ) : null}
       </header>
 
       <div className="detail-tabs-row">

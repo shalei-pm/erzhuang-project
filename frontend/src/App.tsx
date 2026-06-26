@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import {
   storeSpaceApi,
   type AISettings,
@@ -16,7 +16,9 @@ import { StoreList } from "./components/StoreList";
 import { errorMessage } from "./domain/format";
 import {
   createStoreDetailCache,
+  canOpenH5Monitor,
   detailTabFromSummary,
+  h5MonitorPath,
   makePendingStoreDetail,
   mergeStoreDetailTab,
   type StoreDetailNavigationTab,
@@ -26,7 +28,26 @@ import {
 const PAGE_SIZE = 20;
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "local-dev";
 
+const H5MonitorPage = lazy(() => import("./pages/H5Monitor").then((module) => ({ default: module.H5Monitor })));
+const H5MonitorChannelPage = lazy(() =>
+  import("./pages/H5MonitorChannel").then((module) => ({ default: module.H5MonitorChannel })),
+);
+
+type H5Route =
+  | { name: "home"; externalOrgId: string }
+  | { name: "channel"; externalOrgId: string; channelId: number }
+  | null;
+
 function App() {
+  const h5Route = parseH5Route();
+  if (h5Route) {
+    return <H5RouteShell initialRoute={h5Route} />;
+  }
+
+  return <AdminApp />;
+}
+
+function AdminApp() {
   const [stores, setStores] = useState<StoreSummary[]>([]);
   const [accounts, setAccounts] = useState<EzvizAccount[]>([]);
   const [query, setQuery] = useState("");
@@ -317,6 +338,7 @@ function App() {
           accounts={accounts}
           aiSettings={aiSettings}
           switchingAIModel={switchingAIModel}
+          h5MonitorUrl={canOpenH5Monitor(activeStore) ? h5MonitorPath(activeStore.externalOrgId) : undefined}
           onBack={() => {
             detailRequestIdRef.current += 1;
             setActiveStore(null);
@@ -434,6 +456,99 @@ function App() {
       ) : null}
     </main>
   );
+}
+
+function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
+  const [route, setRoute] = useState<H5Route>(initialRoute);
+
+  useEffect(() => {
+    const onPopState = () => setRoute(parseH5Route());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  if (!route) {
+    return (
+      <div className="h5-not-found">
+        <p>页面不存在。请通过门店监控二维码进入。</p>
+      </div>
+    );
+  }
+
+  if (route.name === "home") {
+    return (
+      <Suspense fallback={<div className="h5-loading">加载中...</div>}>
+        <H5MonitorPage
+          externalOrgId={route.externalOrgId}
+          onOpenChannel={(channelId) => {
+            const url = `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(route.externalOrgId)}/monitor/channels/${channelId}`;
+            window.history.pushState({}, "", url);
+            setRoute({ name: "channel", externalOrgId: route.externalOrgId, channelId });
+          }}
+        />
+      </Suspense>
+    );
+  }
+
+  return (
+    <Suspense fallback={<div className="h5-loading">加载中...</div>}>
+      <H5MonitorChannelPage
+        externalOrgId={route.externalOrgId}
+        channelId={route.channelId}
+        onBack={() => {
+          const url = `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(route.externalOrgId)}/monitor`;
+          window.history.pushState({}, "", url);
+          setRoute({ name: "home", externalOrgId: route.externalOrgId });
+        }}
+      />
+    </Suspense>
+  );
+}
+
+function parseH5Route(): H5Route {
+  const path = window.location.pathname;
+  const h5Path = stripKnownBasePrefix(path);
+
+  const channelMatch = h5Path.match(/^\/h5\/orgs\/([^/]+)\/monitor\/channels\/([^/]+)$/);
+  if (channelMatch) {
+    const channelId = Number.parseInt(channelMatch[2], 10);
+    if (Number.isInteger(channelId) && channelId > 0) {
+      return { name: "channel", externalOrgId: decodeURIComponent(channelMatch[1]), channelId };
+    }
+    return null;
+  }
+
+  const homeMatch = h5Path.match(/^\/h5\/orgs\/([^/]+)\/monitor$/);
+  if (homeMatch) {
+    return { name: "home", externalOrgId: decodeURIComponent(homeMatch[1]) };
+  }
+
+  return null;
+}
+
+function stripKnownBasePrefix(path: string) {
+  for (const prefix of h5BasePrefixes()) {
+    if (prefix && path === prefix) return "/";
+    if (prefix && path.startsWith(`${prefix}/`)) {
+      return path.slice(prefix.length) || "/";
+    }
+  }
+  return path;
+}
+
+function h5RoutePrefix() {
+  const currentPrefix = h5BasePrefixes().find((prefix) => prefix && window.location.pathname.startsWith(`${prefix}/h5/`));
+  return currentPrefix || normalizeBasePrefix(import.meta.env.BASE_URL || "/erzhuang-project/");
+}
+
+function h5BasePrefixes() {
+  return Array.from(new Set([normalizeBasePrefix(import.meta.env.BASE_URL || "/erzhuang-project/"), "/erzhuang-project", "/erzhuang"].filter(Boolean)));
+}
+
+function normalizeBasePrefix(value: string) {
+  const normalized = value.startsWith("/") ? value : `/${value}`;
+  const firstSegment = normalized.split("/").filter(Boolean)[0];
+  return firstSegment ? `/${firstSegment}` : "";
 }
 
 function storeCity(store: StoreSummary) {

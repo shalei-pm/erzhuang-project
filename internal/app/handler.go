@@ -4,15 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
 
 const (
-	AppName = "erzhuang-project"
-	Version = "v2"
+	AppName            = "erzhuang-project"
+	Version            = "v2"
+	defaultAppBasePath = "/erzhuang-project"
+	legacyAppBasePath  = "/erzhuang"
 )
 
 type HealthResponse struct {
@@ -49,10 +55,18 @@ func NewHandlerWithStore(store Store) http.Handler {
 }
 
 func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository, storeSpaceRepo storespace.Repository) http.Handler {
-	return NewHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo))
+	return newHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo), nil)
 }
 
 func NewHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service) http.Handler {
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, nil)
+}
+
+func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService)
+}
+
+func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
 	handler := &Handler{store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
@@ -61,7 +75,82 @@ func NewHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("POST /api/ai-settings/toggle", handler.toggleAISettingsHandler)
 	designplan.RegisterRoutes(mux, designPlanService)
 	storespace.RegisterRoutes(mux, storeSpaceService)
-	return mux
+	if h5MonitorService != nil {
+		h5monitor.RegisterRoutes(mux, h5MonitorService)
+	}
+	registerFrontendRoutes(mux)
+	return withBasePathAPIPrefixes(mux)
+}
+
+func withBasePathAPIPrefixes(next http.Handler) http.Handler {
+	basePaths := configuredBasePaths()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, basePath := range basePaths {
+			if r.URL.Path == basePath+"/health" {
+				cloned := r.Clone(r.Context())
+				cloned.URL.Path = "/health"
+				next.ServeHTTP(w, cloned)
+				return
+			}
+
+			apiPrefix := basePath + "/api/"
+			if strings.HasPrefix(r.URL.Path, apiPrefix) {
+				cloned := r.Clone(r.Context())
+				cloned.URL.Path = strings.TrimPrefix(r.URL.Path, basePath)
+				next.ServeHTTP(w, cloned)
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func configuredBasePaths() []string {
+	basePath := normalizeBasePath(os.Getenv("APP_BASE_PATH"))
+	paths := []string{basePath}
+	if basePath != legacyAppBasePath {
+		paths = append(paths, legacyAppBasePath)
+	}
+	return paths
+}
+
+func normalizeBasePath(value string) string {
+	if value == "" || value == "/" {
+		return defaultAppBasePath
+	}
+	value = "/" + strings.Trim(value, "/")
+	if value == "/" {
+		return defaultAppBasePath
+	}
+	return value
+}
+
+func registerFrontendRoutes(mux *http.ServeMux) {
+	frontendDir := os.Getenv("FRONTEND_DIR")
+	if frontendDir == "" {
+		return
+	}
+
+	for _, basePath := range configuredBasePaths() {
+		mux.Handle("GET "+basePath, frontendHandler(frontendDir, basePath))
+		mux.Handle("GET "+basePath+"/", frontendHandler(frontendDir, basePath))
+	}
+}
+
+func frontendHandler(frontendDir string, basePath string) http.Handler {
+	fileServer := http.FileServer(http.Dir(frontendDir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, basePath)
+		path = strings.TrimPrefix(path, "/")
+		if path == "" {
+			http.ServeFile(w, r, filepath.Join(frontendDir, "index.html"))
+			return
+		}
+
+		r.URL.Path = path
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {

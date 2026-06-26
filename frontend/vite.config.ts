@@ -1,9 +1,16 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   base: "/erzhuang/",
   plugins: [react()],
+  test: {
+    include: ["src/api.test.ts"],
+    env: {
+      VITE_DESIGN_PLAN_API_BASE: "/erzhuang-project/api/design-plan",
+      VITE_STORE_SPACE_API_BASE: "/erzhuang-project/api/store-space",
+    },
+  },
   server: {
     host: "127.0.0.1",
     port: 5173,

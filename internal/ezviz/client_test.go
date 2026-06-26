@@ -131,8 +131,8 @@ func TestClientLiveAddressRequestsHLSAndRefreshesToken(t *testing.T) {
 			if r.Form.Get("expireTime") != "600" {
 				t.Fatalf("unexpected expireTime %q", r.Form.Get("expireTime"))
 			}
-			if r.Form.Get("supportH265") != "0" {
-				t.Fatalf("unexpected supportH265 %q", r.Form.Get("supportH265"))
+			if _, ok := r.Form["supportH265"]; ok {
+				t.Fatalf("supportH265 should be omitted by default, got %q", r.Form.Get("supportH265"))
 			}
 			if r.Form.Get("code") != "verify-code" {
 				t.Fatalf("unexpected code %q", r.Form.Get("code"))
@@ -156,6 +156,7 @@ func TestClientLiveAddressRequestsHLSAndRefreshesToken(t *testing.T) {
 		DeviceSerial: "gn0941203",
 		ChannelNo:    2,
 		Protocol:     2,
+		Type:         1,
 		Quality:      2,
 		ExpireTime:   600,
 		Code:         "verify-code",
@@ -171,6 +172,53 @@ func TestClientLiveAddressRequestsHLSAndRefreshesToken(t *testing.T) {
 		t.Fatalf("expected two live address requests, got %d", liveAddressRequests)
 	}
 	if result.ID != "url-id-1" || result.URL == "" || result.ExpireTime != "2026-06-24 12:00:00" {
+		t.Fatalf("unexpected live address result: %#v", result)
+	}
+}
+
+func TestClientLiveAddressRequestsFLVWithOptionalH5Parameters(t *testing.T) {
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if r.URL.Path != "/api/lapp/v2/live/address/get" {
+			return jsonResponse(`{"code":"404","msg":"not found"}`), nil
+		}
+		if r.Form.Get("protocol") != "4" {
+			t.Fatalf("unexpected protocol %q", r.Form.Get("protocol"))
+		}
+		if r.Form.Get("type") != "2" {
+			t.Fatalf("unexpected type %q", r.Form.Get("type"))
+		}
+		if r.Form.Get("supportH265") != "1" {
+			t.Fatalf("unexpected supportH265 %q", r.Form.Get("supportH265"))
+		}
+		if r.Form.Get("mute") != "0" {
+			t.Fatalf("unexpected mute %q", r.Form.Get("mute"))
+		}
+		return jsonResponse(`{"code":"200","msg":"ok","data":{"id":"url-id-flv","url":"https://open.ys7.com/live.flv","expireTime":"2026-06-24 12:00:00"}}`), nil
+	})
+
+	client := NewClient(ClientOptions{BaseURL: "https://ezviz.test", HTTPClient: &http.Client{Transport: transport}})
+	result, err := client.LiveAddress(context.Background(), Account{
+		Name:        "华北",
+		AppKey:      "app-key",
+		AppSecret:   "app-secret",
+		AccessToken: "token",
+	}, LiveAddressRequest{
+		DeviceSerial: "gn0941203",
+		ChannelNo:    2,
+		Protocol:     4,
+		Type:         2,
+		Quality:      2,
+		ExpireTime:   600,
+		SupportH265:  true,
+		Mute:         IntPtr(0),
+	})
+	if err != nil {
+		t.Fatalf("live address: %v", err)
+	}
+	if result.ID != "url-id-flv" || result.URL == "" {
 		t.Fatalf("unexpected live address result: %#v", result)
 	}
 }

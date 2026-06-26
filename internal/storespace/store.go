@@ -10,6 +10,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
+	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 )
 
 var ErrNotFound = errors.New("store space resource not found")
@@ -21,6 +24,9 @@ type Repository interface {
 	UpsertEzvizAccountName(ctx context.Context, accountName string) error
 	ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error)
 	GetStore(ctx context.Context, id int64) (*Store, error)
+	GetStoreByExternalOrgID(ctx context.Context, externalOrgID string) (*h5monitor.StoreInfo, error)
+	ListActiveChannelsByOrgID(ctx context.Context, externalOrgID string) ([]h5monitor.ChannelInfo, error)
+	GetH5MonitorChannelByID(ctx context.Context, channelID int64) (*h5monitor.ChannelInfo, error)
 	GetStoreDesignPlanData(ctx context.Context, id int64) (*Store, error)
 	GetStoreChannelData(ctx context.Context, id int64) (*Store, error)
 	CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error)
@@ -53,6 +59,66 @@ type MemoryStore struct {
 	stores         map[int64]*Store
 	accounts       map[int64]*EzvizAccount
 	deviceCodes    map[string]int64
+}
+
+type H5MonitorRepository struct {
+	repo     Repository
+	accounts map[string]ezviz.Account
+}
+
+func NewH5MonitorRepository(repo Repository, accounts []ezviz.Account) *H5MonitorRepository {
+	accountMap := map[string]ezviz.Account{}
+	for _, account := range accounts {
+		if strings.TrimSpace(account.Name) == "" {
+			continue
+		}
+		accountMap[strings.TrimSpace(account.Name)] = account
+	}
+	return &H5MonitorRepository{repo: repo, accounts: accountMap}
+}
+
+func (r *H5MonitorRepository) GetStoreByExternalOrgID(ctx context.Context, externalOrgID string) (*h5monitor.StoreInfo, error) {
+	return r.repo.GetStoreByExternalOrgID(ctx, externalOrgID)
+}
+
+func (r *H5MonitorRepository) ListActiveChannelsByOrgID(ctx context.Context, externalOrgID string) ([]h5monitor.ChannelInfo, error) {
+	channels, err := r.repo.ListActiveChannelsByOrgID(ctx, externalOrgID)
+	if err != nil {
+		return nil, err
+	}
+	return r.withCredentials(channels), nil
+}
+
+func (r *H5MonitorRepository) GetChannelByID(ctx context.Context, channelID int64) (*h5monitor.ChannelInfo, error) {
+	channel, err := r.repo.GetH5MonitorChannelByID(ctx, channelID)
+	if err != nil {
+		return nil, err
+	}
+	r.applyCredentials(channel)
+	return channel, nil
+}
+
+func (r *H5MonitorRepository) withCredentials(channels []h5monitor.ChannelInfo) []h5monitor.ChannelInfo {
+	result := make([]h5monitor.ChannelInfo, 0, len(channels))
+	for index := range channels {
+		channel := channels[index]
+		r.applyCredentials(&channel)
+		if strings.TrimSpace(channel.AppKey) == "" || strings.TrimSpace(channel.AppSecret) == "" {
+			continue
+		}
+		result = append(result, channel)
+	}
+	return result
+}
+
+func (r *H5MonitorRepository) applyCredentials(channel *h5monitor.ChannelInfo) {
+	account, ok := r.accounts[strings.TrimSpace(channel.AccountName)]
+	if !ok {
+		return
+	}
+	channel.AppKey = account.AppKey
+	channel.AppSecret = account.AppSecret
+	channel.AccessToken = account.AccessToken
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -188,6 +254,84 @@ func (s *MemoryStore) GetStore(ctx context.Context, id int64) (*Store, error) {
 	}
 	copy := cloneStore(*store)
 	return &copy, nil
+}
+
+func (s *MemoryStore) GetStoreByExternalOrgID(ctx context.Context, externalOrgID string) (*h5monitor.StoreInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	orgID := strings.TrimSpace(externalOrgID)
+	for _, store := range s.stores {
+		if store.ExternalOrgID != orgID {
+			continue
+		}
+		return &h5monitor.StoreInfo{
+			ID:            store.ID,
+			Name:          store.Name,
+			City:          store.City,
+			ExternalOrgID: store.ExternalOrgID,
+		}, nil
+	}
+	return nil, ErrNotFound
+}
+
+func (s *MemoryStore) ListActiveChannelsByOrgID(ctx context.Context, externalOrgID string) ([]h5monitor.ChannelInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	store := s.findStoreByExternalOrgIDLocked(externalOrgID)
+	if store == nil {
+		return nil, ErrNotFound
+	}
+	result := []h5monitor.ChannelInfo{}
+	for _, recorder := range store.Recorders {
+		account, ok := s.accounts[recorder.EzvizAccountID]
+		if !ok || strings.TrimSpace(recorder.DeviceCode) == "" {
+			continue
+		}
+		for _, channel := range recorder.Channels {
+			info := h5ChannelInfo(*store, recorder, channel, *account)
+			if h5monitorChannelIsValid(info) {
+				result = append(result, info)
+			}
+		}
+	}
+	return result, nil
+}
+
+func (s *MemoryStore) GetH5MonitorChannelByID(ctx context.Context, channelID int64) (*h5monitor.ChannelInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, store := range s.stores {
+		for _, recorder := range store.Recorders {
+			account, ok := s.accounts[recorder.EzvizAccountID]
+			if !ok || strings.TrimSpace(recorder.DeviceCode) == "" {
+				continue
+			}
+			for _, channel := range recorder.Channels {
+				if channel.ID != channelID {
+					continue
+				}
+				info := h5ChannelInfo(*store, recorder, channel, *account)
+				if !h5monitorChannelIsValid(info) {
+					return nil, ErrNotFound
+				}
+				return &info, nil
+			}
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (s *MemoryStore) findStoreByExternalOrgIDLocked(externalOrgID string) *Store {
+	orgID := strings.TrimSpace(externalOrgID)
+	for _, store := range s.stores {
+		if store.ExternalOrgID == orgID {
+			return store
+		}
+	}
+	return nil
 }
 
 func (s *MemoryStore) GetStoreDesignPlanData(ctx context.Context, id int64) (*Store, error) {
@@ -1201,6 +1345,73 @@ func (s *PostgresStore) GetStore(ctx context.Context, id int64) (*Store, error) 
 	}
 	store.Recorders = recorders
 	return store, nil
+}
+
+func (s *PostgresStore) GetStoreByExternalOrgID(ctx context.Context, externalOrgID string) (*h5monitor.StoreInfo, error) {
+	var store h5monitor.StoreInfo
+	err := s.db.QueryRowContext(ctx, `
+		select id, name, city, external_org_id
+		from stores
+		where external_org_id = $1
+	`, strings.TrimSpace(externalOrgID)).Scan(&store.ID, &store.Name, &store.City, &store.ExternalOrgID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &store, nil
+}
+
+func (s *PostgresStore) ListActiveChannelsByOrgID(ctx context.Context, externalOrgID string) ([]h5monitor.ChannelInfo, error) {
+	rows, err := s.db.QueryContext(ctx, h5MonitorChannelQuery(`
+		where s.external_org_id = $1
+			and c.is_active
+			and c.status in ('confirmed_business', 'confirmed_non_business')
+			and r.device_code <> ''
+			and r.ezviz_account_id is not null
+		order by c.channel_no
+	`), strings.TrimSpace(externalOrgID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	channels := []h5monitor.ChannelInfo{}
+	for rows.Next() {
+		channel, err := scanH5MonitorChannel(rows)
+		if err != nil {
+			return nil, err
+		}
+		channels = append(channels, channel)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(channels) == 0 {
+		if _, err := s.GetStoreByExternalOrgID(ctx, externalOrgID); err != nil {
+			return nil, err
+		}
+	}
+	return channels, nil
+}
+
+func (s *PostgresStore) GetH5MonitorChannelByID(ctx context.Context, channelID int64) (*h5monitor.ChannelInfo, error) {
+	row := s.db.QueryRowContext(ctx, h5MonitorChannelQuery(`
+		where c.id = $1
+			and c.is_active
+			and c.status in ('confirmed_business', 'confirmed_non_business')
+			and r.device_code <> ''
+			and r.ezviz_account_id is not null
+	`), channelID)
+	channel, err := scanH5MonitorChannel(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &channel, nil
 }
 
 func (s *PostgresStore) getStoreBase(ctx context.Context, id int64) (*Store, error) {
@@ -2486,6 +2697,91 @@ func scanChannel(scanner channelScanner) (*Channel, error) {
 	}
 	normalizeChannelSnapshot(&channel)
 	return &channel, nil
+}
+
+type h5MonitorChannelScanner interface {
+	Scan(dest ...any) error
+}
+
+func h5MonitorChannelQuery(whereClause string) string {
+	return `
+		select
+			s.id,
+			r.id,
+			c.id,
+			c.channel_no,
+			c.channel_name,
+			c.status,
+			c.is_active,
+			coalesce(c.area_type, ''),
+			c.scene_type,
+			coalesce(c.area_number, 0),
+			coalesce(c.area_note, ''),
+			coalesce(snapshot.thumbnail_path, ''),
+			r.device_code,
+			coalesce(r.ezviz_account_id, 0),
+			coalesce(a.account_name, '')
+		from video_channels c
+		join video_recorders r on r.id = c.recorder_id
+		join stores s on s.id = r.store_id
+		left join ezviz_accounts a on a.id = r.ezviz_account_id
+		left join lateral (
+			select thumbnail_path
+			from channel_snapshots
+			where channel_id = c.id
+			order by created_at desc, id desc
+			limit 1
+		) snapshot on true
+	` + whereClause
+}
+
+func scanH5MonitorChannel(scanner h5MonitorChannelScanner) (h5monitor.ChannelInfo, error) {
+	var channel h5monitor.ChannelInfo
+	err := scanner.Scan(
+		&channel.StoreID,
+		&channel.RecorderID,
+		&channel.ID,
+		&channel.ChannelNo,
+		&channel.ChannelName,
+		&channel.Status,
+		&channel.IsActive,
+		&channel.AreaType,
+		&channel.SceneType,
+		&channel.AreaNumber,
+		&channel.AreaNote,
+		&channel.ThumbnailURL,
+		&channel.DeviceSerial,
+		&channel.EzvizAccountID,
+		&channel.AccountName,
+	)
+	return channel, err
+}
+
+func h5ChannelInfo(store Store, recorder Recorder, channel Channel, account EzvizAccount) h5monitor.ChannelInfo {
+	return h5monitor.ChannelInfo{
+		ID:             channel.ID,
+		StoreID:        store.ID,
+		RecorderID:     recorder.ID,
+		ChannelNo:      channel.ChannelNo,
+		ChannelName:    channel.ChannelName,
+		Status:         string(channel.Status),
+		IsActive:       channel.IsActive,
+		AreaType:       string(channel.AreaType),
+		SceneType:      string(channel.SceneType),
+		AreaNumber:     channel.AreaNumber,
+		AreaNote:       channel.AreaNote,
+		ThumbnailURL:   channel.ThumbnailURL,
+		DeviceSerial:   recorder.DeviceCode,
+		EzvizAccountID: recorder.EzvizAccountID,
+		AccountName:    account.AccountName,
+	}
+}
+
+func h5monitorChannelIsValid(channel h5monitor.ChannelInfo) bool {
+	return channel.IsActive &&
+		(channel.Status == string(ChannelStatusConfirmedBusiness) || channel.Status == string(ChannelStatusConfirmedNonBusiness)) &&
+		strings.TrimSpace(channel.DeviceSerial) != "" &&
+		strings.TrimSpace(channel.AccountName) != ""
 }
 
 type queryRunner interface {
