@@ -148,6 +148,11 @@ func frontendHandler(frontendDir string, basePath string) http.Handler {
 			return
 		}
 
+		if _, err := os.Stat(filepath.Join(frontendDir, path)); err != nil && filepath.Ext(path) == "" {
+			http.ServeFile(w, r, filepath.Join(frontendDir, "index.html"))
+			return
+		}
+
 		r.URL.Path = path
 		fileServer.ServeHTTP(w, r)
 	})

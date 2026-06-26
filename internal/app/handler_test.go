@@ -6,6 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,6 +86,27 @@ func TestTasks(t *testing.T) {
 
 	if len(response) == 0 {
 		t.Fatal("expected at least one task")
+	}
+}
+
+func TestServesFrontendIndexForNestedRoute(t *testing.T) {
+	frontendDir := t.TempDir()
+	t.Setenv("FRONTEND_DIR", frontendDir)
+	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
+	if err := os.WriteFile(filepath.Join(frontendDir, "index.html"), []byte("<html>nested frontend</html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/erzhuang-project/h5/orgs/10030/monitor", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), "nested frontend") {
+		t.Fatalf("expected frontend index body, got %q", recorder.Body.String())
 	}
 }
 
