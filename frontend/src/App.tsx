@@ -18,6 +18,8 @@ import {
   createStoreDetailCache,
   detailTabFromSummary,
   makePendingStoreDetail,
+  mergeStoreDetailTab,
+  type StoreDetailNavigationTab,
   storeDetailTabFromDetail,
 } from "./domain/store-detail-navigation";
 
@@ -38,7 +40,8 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [activeStore, setActiveStore] = useState<StoreDetailType | null>(null);
-  const [activeStoreLoading, setActiveStoreLoading] = useState(false);
+  const [loadingDetailTabs, setLoadingDetailTabs] = useState<Set<StoreDetailTab>>(() => new Set());
+  const [loadedDetailTabs, setLoadedDetailTabs] = useState<Set<StoreDetailTab>>(() => new Set());
   const [activeTab, setActiveTab] = useState<StoreDetailTab>("design-plan");
   const [aiSettings, setAISettings] = useState<AISettings | null>(null);
   const [switchingAIModel, setSwitchingAIModel] = useState(false);
@@ -114,34 +117,74 @@ function App() {
     setOpeningStoreIds((current) => new Set(current).add(storeId));
     if (summary) {
       setActiveStore(makePendingStoreDetail(summary));
-      setActiveTab(tab ?? detailTabFromSummary(summary));
-      setActiveStoreLoading(true);
+      const initialTab = tab ?? detailTabFromSummary(summary);
+      setActiveTab(initialTab);
+      setLoadedDetailTabs(new Set());
+      setLoadingDetailTabs(new Set([initialTab]));
     }
     try {
-      const cached = summary ? detailCacheRef.current.get(storeId, summary.updatedAt) : null;
+      const initialTab = tab ?? (summary ? detailTabFromSummary(summary) : "channels");
+      const cached = summary ? detailCacheRef.current.get(storeId, summary.updatedAt, initialTab) : null;
       if (cached) {
         if (detailRequestIdRef.current !== requestId) return;
         setActiveStore(cached);
-        setActiveTab(tab ?? storeDetailTabFromDetail(cached));
-        setActiveStoreLoading(false);
+        setActiveTab(initialTab);
+        setLoadedDetailTabs(detailCacheRef.current.loadedTabs(storeId, cached.updatedAt));
+        setLoadingDetailTabs(new Set());
         return;
       }
       const startedAt = performance.now();
-      const detail = await storeSpaceApi.getStore(storeId);
-      detailCacheRef.current.set(detail);
+      const detail = await loadStoreDetailTab(storeId, initialTab);
       if (detailRequestIdRef.current !== requestId) return;
-      console.info(`[store-detail] loaded ${storeId} in ${Math.round(performance.now() - startedAt)}ms`);
-      setActiveStore(detail);
-      setActiveTab(tab ?? storeDetailTabFromDetail(detail));
-      setActiveStoreLoading(false);
+      const nextDetail = mergeStoreDetailTab(summary ? makePendingStoreDetail(summary) : detail, detail, initialTab);
+      detailCacheRef.current.set(nextDetail, [initialTab]);
+      console.info(`[store-detail] loaded ${storeId}/${initialTab} in ${Math.round(performance.now() - startedAt)}ms`);
+      setActiveStore(nextDetail);
+      setActiveTab(initialTab);
+      setLoadedDetailTabs(new Set([initialTab]));
+      setLoadingDetailTabs(new Set());
     } catch (error) {
       if (detailRequestIdRef.current !== requestId) return;
       setActiveStore(null);
-      setActiveStoreLoading(false);
+      setLoadedDetailTabs(new Set());
+      setLoadingDetailTabs(new Set());
       setToast(errorMessage(error, "门店详情加载失败。"));
     } finally {
       setOpeningStoreIds((current) => removeIdFromSet(current, storeId));
     }
+  }
+
+  async function ensureDetailTabLoaded(tab: StoreDetailTab) {
+    const currentStore = activeStoreRef.current;
+    if (!currentStore || loadingDetailTabs.has(tab) || loadedDetailTabs.has(tab)) return;
+    const requestId = detailRequestIdRef.current;
+    setActiveTab(tab);
+    const cached = detailCacheRef.current.get(currentStore.id, currentStore.updatedAt, tab);
+    if (cached) {
+      setActiveStore(cached);
+      setLoadedDetailTabs(detailCacheRef.current.loadedTabs(currentStore.id, cached.updatedAt));
+      return;
+    }
+    setLoadingDetailTabs((current) => new Set(current).add(tab));
+    try {
+      const startedAt = performance.now();
+      const detail = await loadStoreDetailTab(currentStore.id, tab);
+      if (detailRequestIdRef.current !== requestId) return;
+      console.info(`[store-detail] loaded ${currentStore.id}/${tab} in ${Math.round(performance.now() - startedAt)}ms`);
+      handleStoreUpdated((store) => mergeStoreDetailTab(store, detail, tab), [tab]);
+      setLoadedDetailTabs((current) => new Set(current).add(tab));
+    } catch (error) {
+      if (detailRequestIdRef.current !== requestId) return;
+      setToast(errorMessage(error, tab === "channels" ? "通道映射加载失败。" : "设计图标注加载失败。"));
+    } finally {
+      if (detailRequestIdRef.current === requestId) {
+        setLoadingDetailTabs((current) => removeFromSet(current, tab));
+      }
+    }
+  }
+
+  function loadStoreDetailTab(storeId: number, tab: StoreDetailNavigationTab) {
+    return tab === "channels" ? storeSpaceApi.getStoreChannelData(storeId) : storeSpaceApi.getStoreDesignPlanData(storeId);
   }
 
   async function loadAISettings() {
@@ -180,10 +223,11 @@ function App() {
         if (!ok) return;
       }
       const detail = await storeSpaceApi.createStore(payload);
-      detailCacheRef.current.set(detail);
+      detailCacheRef.current.set(detail, ["design-plan", "channels"]);
       setCreateOpen(false);
       setActiveStore(detail);
-      setActiveStoreLoading(false);
+      setLoadedDetailTabs(new Set(["design-plan", "channels"]));
+      setLoadingDetailTabs(new Set());
       setActiveTab(storeDetailTabFromDetail(detail));
       setToast("门店已创建，请继续完善空间资源。");
       await loadStores();
@@ -207,7 +251,7 @@ function App() {
         if (!ok) return;
       }
       const detail = await storeSpaceApi.updateStoreBasicInfo(payload);
-      detailCacheRef.current.set(detail);
+      detailCacheRef.current.set(detail, ["design-plan", "channels"]);
       setEditingStore(null);
       setStores((items) => items.map((item) => (item.id === detail.id ? detail : item)));
       if (activeStore?.id === detail.id) {
@@ -250,12 +294,12 @@ function App() {
     }
   }
 
-  function handleStoreUpdated(update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType)) {
+  function handleStoreUpdated(update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType), loadedTabs: StoreDetailTab[] = ["design-plan", "channels"]) {
     const currentStore = activeStoreRef.current;
     if (!currentStore && typeof update === "function") return;
     const nextStore = typeof update === "function" ? update(currentStore as StoreDetailType) : update;
     activeStoreRef.current = nextStore;
-    detailCacheRef.current.set(nextStore);
+    detailCacheRef.current.set(nextStore, loadedTabs);
     setActiveStore(nextStore);
     setStores((items) => items.map((item) => (item.id === nextStore.id ? nextStore : item)));
   }
@@ -267,7 +311,8 @@ function App() {
         <StoreDetail
           store={activeStore}
           initialTab={activeTab}
-          loading={activeStoreLoading}
+          loadingTabs={loadingDetailTabs}
+          loadedTabs={loadedDetailTabs}
           saving={saving}
           accounts={accounts}
           aiSettings={aiSettings}
@@ -275,9 +320,11 @@ function App() {
           onBack={() => {
             detailRequestIdRef.current += 1;
             setActiveStore(null);
-            setActiveStoreLoading(false);
+            setLoadedDetailTabs(new Set());
+            setLoadingDetailTabs(new Set());
             void loadStores();
           }}
+          onTabChange={(tab) => void ensureDetailTabLoaded(tab)}
           onToggleAIModel={toggleAIModel}
           onStoreUpdated={handleStoreUpdated}
           onToast={setToast}
@@ -410,8 +457,12 @@ function summarizeStores(stores: StoreSummary[]) {
 }
 
 function removeIdFromSet(current: Set<number>, id: number) {
+  return removeFromSet(current, id);
+}
+
+function removeFromSet<T>(current: Set<T>, value: T) {
   const next = new Set(current);
-  next.delete(id);
+  next.delete(value);
   return next;
 }
 

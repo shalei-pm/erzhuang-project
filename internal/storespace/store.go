@@ -21,6 +21,8 @@ type Repository interface {
 	UpsertEzvizAccountName(ctx context.Context, accountName string) error
 	ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error)
 	GetStore(ctx context.Context, id int64) (*Store, error)
+	GetStoreDesignPlanData(ctx context.Context, id int64) (*Store, error)
+	GetStoreChannelData(ctx context.Context, id int64) (*Store, error)
 	CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error)
 	UpdateStoreBasicInfo(ctx context.Context, id int64, input UpdateStoreBasicInfoInput) (*Store, error)
 	SaveDesignPlan(ctx context.Context, storeID int64, input SaveDesignPlanInput) (*Store, error)
@@ -185,6 +187,33 @@ func (s *MemoryStore) GetStore(ctx context.Context, id int64) (*Store, error) {
 		return nil, ErrNotFound
 	}
 	copy := cloneStore(*store)
+	return &copy, nil
+}
+
+func (s *MemoryStore) GetStoreDesignPlanData(ctx context.Context, id int64) (*Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	store, ok := s.stores[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	copy := cloneStore(*store)
+	copy.Recorders = nil
+	return &copy, nil
+}
+
+func (s *MemoryStore) GetStoreChannelData(ctx context.Context, id int64) (*Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	store, ok := s.stores[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	copy := cloneStore(*store)
+	copy.Areas = nil
+	copy.DesignPlans = nil
 	return &copy, nil
 }
 
@@ -1149,6 +1178,30 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 }
 
 func (s *PostgresStore) GetStore(ctx context.Context, id int64) (*Store, error) {
+	store, err := s.getStoreBase(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	areas, err := s.listAreas(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	store.Areas = areas
+	plans, err := s.listDesignPlans(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	store.DesignPlans = plans
+	recorders, err := s.listRecorders(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	store.Recorders = recorders
+	return store, nil
+}
+
+func (s *PostgresStore) getStoreBase(ctx context.Context, id int64) (*Store, error) {
 	var store Store
 	err := s.db.QueryRowContext(ctx, `
 		select id, city, name, normalized_name, external_org_id, design_plan_status,
@@ -1172,7 +1225,14 @@ func (s *PostgresStore) GetStore(ctx context.Context, id int64) (*Store, error) 
 	if err != nil {
 		return nil, err
 	}
+	return &store, nil
+}
 
+func (s *PostgresStore) GetStoreDesignPlanData(ctx context.Context, id int64) (*Store, error) {
+	store, err := s.getStoreBase(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	areas, err := s.listAreas(ctx, id)
 	if err != nil {
 		return nil, err
@@ -1183,12 +1243,20 @@ func (s *PostgresStore) GetStore(ctx context.Context, id int64) (*Store, error) 
 		return nil, err
 	}
 	store.DesignPlans = plans
+	return store, nil
+}
+
+func (s *PostgresStore) GetStoreChannelData(ctx context.Context, id int64) (*Store, error) {
+	store, err := s.getStoreBase(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	recorders, err := s.listRecorders(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	store.Recorders = recorders
-	return &store, nil
+	return store, nil
 }
 
 func (s *PostgresStore) CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error) {

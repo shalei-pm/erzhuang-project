@@ -3,6 +3,7 @@ import {
   createStoreDetailCache,
   detailTabFromSummary,
   makePendingStoreDetail,
+  mergeStoreDetailTab,
   storeDetailTabFromDetail,
 } from "./store-detail-navigation.js";
 
@@ -80,11 +81,38 @@ assertEqual(
 
 const cache = createStoreDetailCache(1000);
 const loaded = detail({ id: 7, updatedAt: "2026-06-26T08:00:00.000Z", recorderCount: 1 });
-cache.set(loaded, 10_000);
+cache.set(loaded, ["channels"], 10_000);
 
-assertEqual(cache.get(7, loaded.updatedAt, 10_500), loaded);
-assertEqual(cache.get(7, loaded.updatedAt, 11_100), null);
-assertEqual(cache.get(7, "2026-06-26T08:01:00.000Z", 10_500), null);
+assertEqual(cache.get(7, loaded.updatedAt, "channels", 10_500), loaded);
+assertEqual(cache.get(7, loaded.updatedAt, "design-plan", 10_500), null);
+assertEqual(cache.get(7, loaded.updatedAt, "channels", 11_100), null);
+assertEqual(cache.get(7, "2026-06-26T08:01:00.000Z", "channels", 10_500), null);
+
+const channelDetail = detail({
+  recorders: [
+    {
+      id: 1,
+      storeId: 7,
+      ezvizAccountId: 1,
+      accountName: "华东",
+      deviceCode: "K123",
+      status: "online",
+      effectiveChannelCount: 1,
+      lastScannedAt: "",
+      channels: [],
+    },
+  ],
+});
+const designPlanDetail = detail({
+  fileName: "plan.pdf",
+  previewUrl: "/plan.png",
+  areas: [{ id: "area-1", name: "治疗室 1", type: "treatment", number: "1", confidence: "high", needsReview: false, box: null }],
+});
+const mergedWithChannels = mergeStoreDetailTab(makePendingStoreDetail(baseSummary), channelDetail, "channels");
+const mergedWithDesignPlan = mergeStoreDetailTab(mergedWithChannels, designPlanDetail, "design-plan");
+assertEqual(mergedWithDesignPlan.recorders.length, 1);
+assertEqual(mergedWithDesignPlan.fileName, "plan.pdf");
+assertEqual(mergedWithDesignPlan.areas.length, 1);
 
 console.log("store-detail-navigation tests passed");
 

@@ -2634,3 +2634,26 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - 本地 dev server 需提升权限启动，已启动在 `http://127.0.0.1:5176/erzhuang/`；Playwright 浏览器二进制未安装，本轮未完成自动化截图验收。
+
+## 2026-06-26 门店详情 Tab 接口轻拆 2.18.0 开发记录
+
+- 目标：
+  - 在不废弃全量详情接口的前提下，把机构详情页数据按 Tab 轻量拆分，减少进入默认 Tab 时等待非当前业务块数据。
+  - 避免把接口拆得过细，保持后续维护和 H5 monitor 复用简单。
+- 后端实现：
+  - 保留 `GET /api/store-space/stores/{id}` 全量详情接口，继续作为兼容和 mutation 兜底。
+  - 新增 `GET /api/store-space/stores/{id}/design-plan-data`，只返回门店基础信息、设计图、区域标注。
+  - 新增 `GET /api/store-space/stores/{id}/channel-data`，只返回门店基础信息、录像机和通道。
+  - `PostgresStore` 抽出基础门店查询 helper，两个 Tab 接口分别只调用对应列表查询。
+- 前端实现：
+  - 详情页仍先用列表摘要立即进入详情壳。
+  - 默认 Tab 只请求对应 Tab 数据；切换到另一个 Tab 时再懒加载。
+  - 详情缓存升级为按 Tab 记录已加载状态，合并数据时不会清空另一个 Tab 已有内容。
+  - 创建、编辑、保存、删除、确认等已有 mutation 仍保留现有全量返回处理，不在本轮扩大改造。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/storespace -run 'TestGetStoreDesignPlanDataEndpointReturnsOnlyDesignPlanTabData|TestGetStoreChannelDataEndpointReturnsOnlyChannelTabData'` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck --jsx react-jsx --types vite/client --outDir /tmp/erzhuang-store-detail-nav-test src/vite-env.d.ts src/domain/store-detail-navigation.ts src/domain/store-detail-navigation.test.ts && node /tmp/erzhuang-store-detail-nav-test/domain/store-detail-navigation.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+- 风险：
+  - 如果某个 mutation 返回全量详情后，缓存会标记两个 Tab 均已加载；这符合当前兼容策略，但后续若 mutation 也拆分，需要一起调整缓存标记。
