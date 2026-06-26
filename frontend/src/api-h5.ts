@@ -40,11 +40,15 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
       typeof data === "object" && data && "error" in data
         ? String((data as Record<string, unknown>).error)
         : `HTTP ${response.status}`;
+    const code =
+      typeof data === "object" && data && "code" in data
+        ? String((data as Record<string, unknown>).code)
+        : "";
     const fields =
       typeof data === "object" && data && "fields" in data
         ? (data as Record<string, Record<string, string>>).fields
         : {};
-    throw new H5ApiError(response.status, message, fields || {});
+    throw new H5ApiError(response.status, message, fields || {}, code);
   }
 
   return data as T;
@@ -63,12 +67,14 @@ function runtimeBasePath(configuredBase: string): string {
 export class H5ApiError extends Error {
   status: number;
   fields: Record<string, string>;
+  code: string;
 
-  constructor(status: number, message: string, fields: Record<string, string> = {}) {
+  constructor(status: number, message: string, fields: Record<string, string> = {}, code = "") {
     super(message);
     this.name = "H5ApiError";
     this.status = status;
     this.fields = fields;
+    this.code = code;
   }
 }
 

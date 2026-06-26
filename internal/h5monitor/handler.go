@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 )
 
 type Handler struct {
@@ -102,7 +104,11 @@ func (h *Handler) disableURL(w http.ResponseWriter, r *http.Request) {
 	}
 	err = h.service.DisableURL(r.Context(), r.PathValue("externalOrgId"), channelID, request.URLID, userID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		body := map[string]any{"ok": false, "error": err.Error()}
+		if code := ezviz.ErrorCode(err); code != "" {
+			body["code"] = code
+		}
+		writeJSON(w, http.StatusOK, body)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -136,6 +142,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	var validationError *ValidationError
 	if errors.As(err, &validationError) {
 		writeError(w, http.StatusBadRequest, validationError.Error(), validationError.Fields)
+		return
+	}
+	if code := ezviz.ErrorCode(err); code != "" {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error(), "code": code})
 		return
 	}
 	if errors.Is(err, ErrNotFound) {

@@ -26,6 +26,12 @@ type PlaybackResult struct {
 	ExpireTime string `json:"expireTime"`
 }
 
+type DisableLiveAddressRequest struct {
+	DeviceSerial string
+	ChannelNo    int
+	URLID        string
+}
+
 func (c *Client) PlaybackAddress(ctx context.Context, account Account, input PlaybackRequest) (PlaybackResult, error) {
 	if strings.TrimSpace(input.DeviceSerial) == "" {
 		return PlaybackResult{}, errors.New("deviceSerial is required for playback")
@@ -66,8 +72,15 @@ func (c *Client) PlaybackAddress(ctx context.Context, account Account, input Pla
 	return response.Data, nil
 }
 
-func (c *Client) DisableLiveAddress(ctx context.Context, account Account, urlID string) error {
-	urlID = strings.TrimSpace(urlID)
+func (c *Client) DisableLiveAddress(ctx context.Context, account Account, input DisableLiveAddressRequest) error {
+	deviceSerial := strings.ToUpper(strings.TrimSpace(input.DeviceSerial))
+	urlID := strings.TrimSpace(input.URLID)
+	if deviceSerial == "" {
+		return errors.New("deviceSerial is required to disable address")
+	}
+	if input.ChannelNo <= 0 {
+		return errors.New("channelNo must be > 0 to disable address")
+	}
 	if urlID == "" {
 		return errors.New("urlID is required to disable address")
 	}
@@ -78,7 +91,9 @@ func (c *Client) DisableLiveAddress(ctx context.Context, account Account, urlID 
 
 	values := url.Values{}
 	values.Set("accessToken", token)
-	values.Set("id", urlID)
+	values.Set("deviceSerial", deviceSerial)
+	values.Set("channelNo", strconv.Itoa(input.ChannelNo))
+	values.Set("urlId", urlID)
 	var response apiResponse[any]
 	if err := c.postForm(ctx, "/api/lapp/v2/live/address/disable", values, &response); err != nil {
 		return err

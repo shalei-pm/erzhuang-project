@@ -328,10 +328,17 @@ function parseLocalDateTime(value: string): Date | null {
 function errMessage(err: unknown, fallback: string): string {
   if (err instanceof H5ApiError) {
     const fieldMsgs = Object.values(err.fields).filter(Boolean);
-    if (fieldMsgs.length > 0) return fieldMsgs.join("；");
-    return err.message;
+    return [
+      fallback,
+      `HTTP ${err.status}`,
+      err.code ? `code=${err.code}` : "",
+      err.message,
+      fieldMsgs.length > 0 ? `fields=${fieldMsgs.join("；")}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }
-  if (err instanceof Error && err.message.trim()) return err.message;
+  if (err instanceof Error && err.message.trim()) return `${fallback} · ${err.name}: ${err.message}`;
   return fallback;
 }
 

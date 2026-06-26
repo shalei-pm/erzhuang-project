@@ -2783,3 +2783,27 @@ git pull --ff-only
   - 本地没有公司数据库，未在本机验证 `10030/GN0941203` 的真实 H5 API 数据。
   - `ezuikit-flv` 打包后会生成约 1.8MB 未压缩播放器 chunk；已通过详情页 lazy import 控制影响范围。
   - 前端 `vitest` 当前只运行 `src/api.test.ts`，因为仓库内其他 `.test.ts` 仍是脚本式断言文件，后续可统一整理测试入口。
+
+## 2026-06-26 H5 Monitor 播放与回放诊断修复 2.19.1 开发记录
+
+- 背景：
+  - 公司线上 H5 视频详情页进入后播放器黑屏，页面显示“播放器加载失败”，错误为 `v is not a constructor`。
+  - 回放 Tab 看不到录像片段。
+  - 用户希望错误信息继续外显，并增加可一起定位排查的详细上下文。
+- 排查结论：
+  - 直播黑屏主因是前端动态加载 `ezuikit-flv` 后优先把模块对象当构造函数使用；该包实际导出为 default class，打包后触发 `v is not a constructor`。
+  - 公司线上回放片段接口返回 500，原因是萤石 `localIndex` 字段在线上返回为数字，后端原结构体按 string 解码导致 JSON unmarshal 失败。
+  - 播放地址失效接口原来只提交 `id`，萤石新接口要求 `deviceSerial`、`channelNo`、`urlId`，线上曾返回 `deviceSerial不能为空`。
+- 实现：
+  - `H5FlvPlayer` 动态加载播放器时按 `default`、`EzuikitFlv`、`module` 顺序选择真正的函数构造器。
+  - 播放器错误面板增加 stage、简化 URL、decoder 路径、直播/回放模式、库导出类型；事件 payload 中的签名 URL 会缩写，避免完整临时签名外露。
+  - H5 API 错误对象增加后端 `code` 字段，页面 toast 展示 `HTTP` 状态、萤石错误码和字段错误。
+  - 回放片段 `localIndex` 改为兼容 string/number 的 `FlexibleString`。
+  - 播放地址失效接口改为携带 `deviceSerial`、`channelNo`、`urlId`，并补测试防止参数退化。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `cd frontend && npm run build` 通过；仍有播放器 chunk 体积提示，属于 `ezuikit-flv` 依赖体积预期。
+  - `git diff --check` 通过。
+- 发布：
+  - 待推送公司 GitLab 固定分支 `codex/containerize-single-image` 后，由公司 K8s 自动发布。
