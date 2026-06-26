@@ -89,40 +89,39 @@ export function mergeStoreDetailTab(current: StoreDetail, incoming: StoreDetail,
   if (tab === "channels") {
     return {
       ...current,
-      ...summaryFields(incoming),
+      ...sharedSummaryFields(incoming),
+      recorderCount: incoming.recorderCount,
+      channelCount: incoming.channelCount,
+      channelsFullyConfirmed: incoming.channelsFullyConfirmed,
+      treatmentCount: incoming.treatmentCount,
+      consultationCount: incoming.consultationCount,
+      beautyCount: incoming.beautyCount,
       recorders: incoming.recorders,
     };
   }
   return {
     ...current,
-    ...summaryFields(incoming),
+    ...sharedSummaryFields(incoming),
+    thumbnailUrl: incoming.thumbnailUrl,
+    designPlanStatus: incoming.designPlanStatus,
+    areaCount: incoming.areaCount,
     fileName: incoming.fileName,
     originalPath: incoming.originalPath,
     previewPath: incoming.previewPath,
     thumbnailPath: incoming.thumbnailPath,
     pageCount: incoming.pageCount,
     previewUrl: incoming.previewUrl,
-    thumbnailUrl: incoming.thumbnailUrl,
     recognitionResult: incoming.recognitionResult,
     areas: incoming.areas,
   };
 }
 
-function summaryFields(store: StoreDetail): StoreSummary {
+function sharedSummaryFields(store: StoreDetail): Pick<StoreSummary, "id" | "city" | "name" | "externalOrgId" | "status" | "updatedAt"> {
   return {
     id: store.id,
     city: store.city,
     name: store.name,
     externalOrgId: store.externalOrgId,
-    thumbnailUrl: store.thumbnailUrl,
-    designPlanStatus: store.designPlanStatus,
-    recorderCount: store.recorderCount,
-    channelCount: store.channelCount,
-    channelsFullyConfirmed: store.channelsFullyConfirmed,
-    treatmentCount: store.treatmentCount,
-    consultationCount: store.consultationCount,
-    beautyCount: store.beautyCount,
-    areaCount: store.areaCount,
     status: store.status,
     updatedAt: store.updatedAt,
   };

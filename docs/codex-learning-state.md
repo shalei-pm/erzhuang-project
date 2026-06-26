@@ -2739,3 +2739,20 @@ git pull --ff-only
   - 公司 GitLab 发布分支 merge commit：`6c71f07 Merge branch 'main' into codex/containerize-single-image`。
   - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
   - 公司线上 JS 已更新为 `assets/index-BJXO-7_s.js`，确认包含 `2.18.1`、`IntersectionObserver` 和 `160px 0px` 懒加载触发配置。
+
+## 2026-06-26 详情页 Tab 统计修复 2.18.2 开发记录
+
+- 背景：
+  - 2.18.0 将详情数据拆成设计图 Tab 和通道映射 Tab 后，顶部统计被当前 Tab 的局部接口摘要字段覆盖。
+  - 进入通道映射时，通道接口没有区域数据，导致业务区域数显示 0。
+  - 切换到设计图标注时，设计图接口没有录像机和通道数据，导致录像机数、有效通道数显示 0。
+- 实现：
+  - `mergeStoreDetailTab` 不再使用局部接口的摘要字段整包覆盖当前详情。
+  - 通道 Tab 只更新录像机、有效通道、确认状态和业务类型计数。
+  - 设计图 Tab 只更新设计图状态、缩略图、业务区域数和区域标注数据。
+  - 保留门店基础信息、状态和更新时间等共享字段更新。
+- 验证：
+  - 新增 `store-detail-navigation` 复现测试，覆盖“先加载通道 Tab、再加载设计图 Tab”后顶部统计不被互相清零。
+  - `cd frontend && ./node_modules/.bin/tsc --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck --jsx react-jsx --types vite/client --outDir /tmp/erzhuang-store-detail-nav-test src/vite-env.d.ts src/domain/store-detail-navigation.ts src/domain/store-detail-navigation.test.ts && node /tmp/erzhuang-store-detail-nav-test/domain/store-detail-navigation.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
