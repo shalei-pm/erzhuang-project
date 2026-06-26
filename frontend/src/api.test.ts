@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { __testing } from "./api";
+import { canOpenH5Monitor, h5MonitorPath } from "./domain/store-detail-navigation";
 
 describe("design plan API path helpers", () => {
   it("adds the project base path to backend image URLs", () => {
@@ -28,5 +29,18 @@ describe("design plan API path helpers", () => {
     expect(__testing.toStoredPath("/erzhuang/api/design-plan/uploads/upload-1/thumbnail", "mock/fallback.png")).toBe(
       "uploads/upload-1/thumbnail.png",
     );
+  });
+});
+
+describe("H5 monitor trial entry", () => {
+  it("only allows the pilot org 10030 to open H5 monitor", () => {
+    expect(canOpenH5Monitor({ externalOrgId: "10030" })).toBe(true);
+    expect(canOpenH5Monitor({ externalOrgId: "010030" })).toBe(false);
+    expect(canOpenH5Monitor({ externalOrgId: "10031" })).toBe(false);
+    expect(canOpenH5Monitor({ externalOrgId: "" })).toBe(false);
+  });
+
+  it("builds the H5 monitor path with the current project base", () => {
+    expect(h5MonitorPath("10030")).toBe("/erzhuang-project/h5/orgs/10030/monitor");
   });
 });

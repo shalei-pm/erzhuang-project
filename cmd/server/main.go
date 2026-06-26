@@ -12,6 +12,8 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/channelai"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
+	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -36,6 +38,7 @@ func main() {
 		storeSpaceRepo := storespace.NewPostgresStore(db)
 		storeSpaceService := storespace.NewService(storeSpaceRepo)
 		storeSpaceService.UseSnapshotStore(storespace.NewAssetSnapshotStore(assetStore))
+		var h5MonitorService *h5monitor.Service
 		var channelRecognizer storespace.ChannelRecognizer
 		if _, enabled, err := channelai.NewRecognizerFromEnv(); err != nil {
 			log.Printf("channel ai recognizer disabled: %v", err)
@@ -52,9 +55,10 @@ func main() {
 			scanner := storespace.NewEzvizScannerFromAccounts(ezvizAccounts)
 			storeSpaceService = storespace.NewServiceWithScannerAndRecognizer(storeSpaceRepo, scanner, channelRecognizer)
 			storeSpaceService.UseSnapshotStore(storespace.NewAssetSnapshotStore(assetStore))
+			h5MonitorService = h5monitor.NewService(storespace.NewH5MonitorRepository(storeSpaceRepo, ezvizAccounts), ezviz.NewClient(ezviz.ClientOptions{}))
 			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
-		handler = app.NewHandlerWithServices(appStore, designplan.NewServiceWithAssetStoreAndAIProvider(designplan.NewPostgresStore(db), assetStore, appStore), storeSpaceService)
+		handler = app.NewHandlerWithServicesAndH5Monitor(appStore, designplan.NewServiceWithAssetStoreAndAIProvider(designplan.NewPostgresStore(db), assetStore, appStore), storeSpaceService, h5MonitorService)
 		log.Print("database store enabled: postgres")
 	} else {
 		log.Print("database store disabled: using memory store")

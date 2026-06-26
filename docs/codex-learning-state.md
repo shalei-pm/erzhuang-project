@@ -714,39 +714,6 @@
   - 删除通道和删除录像机增加乐观更新：点击删除后先从页面移除，后端失败时恢复原门店状态。
   - 新增 `scripts/check-channel-actions-optimistic-state.mjs`，防止通道操作退回“等接口返回后才更新页面”的交互。
 
-## 2026-06-11 单镜像容器化分支
-
-当前分支：`codex/containerize-single-image`
-
-目标：为 PM 同事项目提供一个可由公司发布系统脚本构建的 Docker image，后续由公司发布系统推送并发布到内网 K8s。
-
-本次新增：
-
-- `Dockerfile`：多阶段构建，包含前端 Vite 产物、Go 后端二进制、`ca-certificates`、`poppler-utils`。
-- `.dockerignore`：排除 Git、本地依赖、构建产物、上传文件和本地环境文件。
-- `scripts/build-image.sh`：发布系统可调用的镜像构建脚本，支持 `IMAGE_NAME`、`IMAGE_TAG`、`DOCKERFILE`、`CONTEXT`。
-- `docs/containerization.md`：记录本地构建、运行、环境变量、K8s 对接注意事项。
-- Go 服务支持：
-  - 读取 `APP_BASE_PATH` 和 `FRONTEND_DIR` 并托管 `/erzhuang-project` 前端页面。
-  - 兼容 `/erzhuang-project/api/...` 到 `/api/...`，适配公司发布系统 path 配置和前端 API 默认路径。
-  - 兼容 `/erzhuang-project/health` 到 `/health`，用于通过公司域名做外部健康检查。
-
-验证结果：
-
-- `go test ./...`：通过。
-- `bash -n scripts/build-image.sh`：通过。
-- `npm ci && npm run build`（在 `frontend/`）：通过。
-- `IMAGE_TAG=local ./scripts/build-image.sh`：已执行到 Docker 构建入口，但本机 Docker 环境不可用，报错为 Docker daemon/buildx 缺失或未启动；需在有 Docker daemon 的发布机/本机重试。
-
-重要运行约定：
-
-- 容器默认监听：`0.0.0.0:18080`。
-- 健康检查：`GET /health`。
-- 外部健康检查：`GET /erzhuang-project/health`。
-- 前端入口：`GET /erzhuang-project`。
-- 数据库通过运行时环境变量 `DATABASE_URL` 注入，不写入镜像和 Git。
-- AI/PDF 识别相关密钥通过运行时 Secret 注入；上传目录建议在 K8s 挂 PVC 或后续改对象存储。
-
 当前新增产品需求讨论：
 
 - 项目方向：设计图标记与诊室区域管理。
@@ -2368,32 +2335,6 @@ git diff --check
     - `/erzhuang/` HTML 已引用新 JS/CSS。
     - 线上 JS 中已确认包含 `2.4.0 (eb6261c)`、“城市”和“未设置”。
 
-## 2026-06-17 公司 GitLab 自动发布流程固化
-
-- 用户确认：后续本项目公司环境使用公司 GitLab 固定分支自动发布流程。
-- 本地仓库仍使用 `/Users/sylar/erzhuang-project`，不另开目录，避免上下文分裂。
-- 公司 GitLab remote：`gitlab`。
-- 公司仓库：`https://gitlab.sy.soyoung.com/pm/shalei-pm/erzhuang-project.git`。
-- 公司固定发布分支：`codex/containerize-single-image`。
-- 自动发布节奏：GitLab 分支推送后约每 5 分钟发布一次。
-- 当前公司分支最新已推送 commit：`53996d7 Inject frontend version in container build`。
-- 当前公司分支 `VERSION`：`2.10.0`。
-- 关键流程：
-  - 公司环境修改默认在 `codex/containerize-single-image` 分支上完成并推送到 GitLab。
-  - 如需同步个人 `main` 的能力，使用正常 `git merge main` 合入公司分支。
-  - 公司分支受保护，不 force push。
-  - 合并时保留公司 Dockerfile、K8s、数据库和路径配置，不用个人 Lighthouse 配置覆盖。
-- 版本号问题复盘：
-  - 线上曾显示 `local-dev`，根因是前端使用 `import.meta.env.VITE_APP_VERSION || "local-dev"`，而公司 Dockerfile 原来直接 `npm run build`，未注入 `VITE_APP_VERSION`。
-  - 已在 Dockerfile 中加入从 `VERSION` 和 `GIT_VERSION` 生成 `VITE_APP_VERSION` 的构建逻辑。
-  - 之后公司构建如传入 commit，页面底部应显示 `2.x.x (<short-sha>)`；未传入时至少显示 `2.x.x (container)`，不应再显示 `local-dev`。
-- 安全约定：
-  - Supabase、OpenAI、萤石云、MiniMax、GitLab 等密钥不得写入仓库、文档、Dockerfile 或前端 `VITE_*`。
-  - 公司数据库连接和 API key 应由 K8s Secret 或运行时环境变量提供。
-- 需要后续线上确认：
-  - 等公司自动发布完成后，刷新 `https://lite.sy.soyoung.com/erzhuang-project/`，确认页面版本号不再是 `local-dev`。
-  - 检查 `https://lite.sy.soyoung.com/erzhuang-project/health`，预期 `database:"postgres"`。
-
 ## 2026-06-12 详情页流程体验 2.4.1 修复
 
 本次版本号从 `2.4.0` 升级到 `2.4.1`：
@@ -2804,3 +2745,41 @@ git pull --ff-only
   - 公司 GitLab 发布分支 merge commit：`5700181 Merge branch 'main' into codex/containerize-single-image`。
   - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
   - 公司线上 JS 已更新为 `assets/index-BoEHEZrM.js`，确认包含 `2.18.4`。
+
+## 2026-06-26 H5 Monitor 试点集成 2.19.0 开发记录
+
+- 目标：
+  - 将独立 `h5-monitor` 原型集成进主项目，先作为受控试点能力给单门店验证。
+  - 试点范围只开放“北京保利实验室门店”，新氧机构 ID `10030`，录像机 `GN0941203`。
+- 后端实现：
+  - 新增 `internal/h5monitor` 模块，提供 H5 首页、直播地址、录像片段、回放地址、播放地址失效接口。
+  - 复用现有 `storespace` 门店、通道、录像机、萤石账号数据；播放凭证仍来自运行时 `EZVIZ_ACCOUNTS_JSON`，不写入前端或文档。
+  - 新增萤石能力：FLV 直播地址、FLV 回放地址、录像片段查询、地址失效、AAC 转码 best-effort。
+  - H5 API 响应不暴露 `device_serial`、app key、app secret、access token、萤石账号名。
+  - 服务端门禁集中在 `h5monitor.Service`：默认只允许 `externalOrgId=10030` 和 `deviceSerial=GN0941203`。
+  - 并发限制本轮仍为进程内内存计数：普通用户 15 路，管理员 20 路；多 Pod 场景后续需落库或接入统一会话。
+- 前端实现：
+  - 新增 H5 路由：
+    - `/h5/orgs/{externalOrgId}/monitor`
+    - `/h5/orgs/{externalOrgId}/monitor/channels/{channelId}`
+  - 后台详情页右上角新增“查看监控”按钮，且仅 `externalOrgId=10030` 的门店展示。
+  - H5 首页按区域筛选展示监控通道，默认每批 24 路，支持加载更多。
+  - H5 详情页默认直播，支持切换录像、查询片段、点击片段播放。
+  - 播放器使用 `ezuikit-flv`，静态 decoder 文件放在 `frontend/public/assets/ezuikit-flv/`。
+  - 播放器默认静音以满足浏览器自动播放限制，用户点击后调用官方 `openSound/closeSound`。
+  - H5 页面使用 route-level lazy import，后台页面不主动加载 H5 播放页面。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过；提示播放器 chunk 较大，属于 `ezuikit-flv` 依赖体积预期。
+  - `cd frontend && npm run test` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite 浏览器验收通过：
+    - `/erzhuang-project/h5/orgs/demo/monitor` 可渲染 H5 首页 mock 数据。
+    - 点击通道可进入 H5 详情页，默认实时视频，声音按钮可见。
+    - 切换录像可显示日期选择和录像片段。
+    - `/erzhuang-project/` 后台首页未误进入 H5 路由。
+- 风险：
+  - 公司真实播放依赖 `EZVIZ_ACCOUNTS_JSON` 中包含华北账号，且账号名与数据库录像机绑定账号一致。
+  - 本地没有公司数据库，未在本机验证 `10030/GN0941203` 的真实 H5 API 数据。
+  - `ezuikit-flv` 打包后会生成约 1.8MB 未压缩播放器 chunk；已通过详情页 lazy import 控制影响范围。
+  - 前端 `vitest` 当前只运行 `src/api.test.ts`，因为仓库内其他 `.test.ts` 仍是脚本式断言文件，后续可统一整理测试入口。

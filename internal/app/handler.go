@@ -10,6 +10,7 @@ import (
 
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
 
@@ -54,10 +55,18 @@ func NewHandlerWithStore(store Store) http.Handler {
 }
 
 func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository, storeSpaceRepo storespace.Repository) http.Handler {
-	return NewHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo))
+	return newHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo), nil)
 }
 
 func NewHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service) http.Handler {
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, nil)
+}
+
+func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService)
+}
+
+func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
 	handler := &Handler{store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
@@ -66,6 +75,9 @@ func NewHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("POST /api/ai-settings/toggle", handler.toggleAISettingsHandler)
 	designplan.RegisterRoutes(mux, designPlanService)
 	storespace.RegisterRoutes(mux, storeSpaceService)
+	if h5MonitorService != nil {
+		h5monitor.RegisterRoutes(mux, h5MonitorService)
+	}
 	registerFrontendRoutes(mux)
 	return withBasePathAPIPrefixes(mux)
 }

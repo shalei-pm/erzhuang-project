@@ -62,8 +62,11 @@ type LiveAddressRequest struct {
 	DeviceSerial string
 	ChannelNo    int
 	Protocol     int
+	Type         int
 	Quality      int
 	ExpireTime   int
+	SupportH265  bool
+	Mute         *int
 	Code         string
 }
 
@@ -279,14 +282,25 @@ func liveAddressValues(token string, input LiveAddressRequest) url.Values {
 	values.Set("deviceSerial", strings.ToUpper(strings.TrimSpace(input.DeviceSerial)))
 	values.Set("channelNo", strconv.Itoa(input.ChannelNo))
 	values.Set("protocol", strconv.Itoa(protocol))
-	values.Set("type", "1")
+	if input.Type > 0 {
+		values.Set("type", strconv.Itoa(input.Type))
+	}
 	values.Set("quality", strconv.Itoa(quality))
 	values.Set("expireTime", strconv.Itoa(expireTime))
-	values.Set("supportH265", "0")
+	if input.SupportH265 {
+		values.Set("supportH265", "1")
+	}
+	if input.Mute != nil && (*input.Mute == 0 || *input.Mute == 1) {
+		values.Set("mute", strconv.Itoa(*input.Mute))
+	}
 	if code := strings.TrimSpace(input.Code); code != "" {
 		values.Set("code", code)
 	}
 	return values
+}
+
+func IntPtr(value int) *int {
+	return &value
 }
 
 func (c *Client) postForm(ctx context.Context, path string, values url.Values, target any) error {
