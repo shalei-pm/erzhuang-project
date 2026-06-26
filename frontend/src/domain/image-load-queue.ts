@@ -12,6 +12,7 @@ export type QueuedImageLoad<T> = Promise<T> & {
 export class ImageLoadQueue {
   private active = 0;
   private readonly pending: Array<QueueTask<unknown>> = [];
+  private readonly loadedKeys = new Set<string>();
 
   constructor(private readonly concurrency: number) {}
 
@@ -44,6 +45,14 @@ export class ImageLoadQueue {
 
   getActiveCount() {
     return this.active;
+  }
+
+  hasLoaded(key: string) {
+    return this.loadedKeys.has(key);
+  }
+
+  rememberLoaded(key: string) {
+    this.loadedKeys.add(key);
   }
 
   private drain() {

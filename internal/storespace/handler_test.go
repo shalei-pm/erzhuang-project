@@ -377,6 +377,42 @@ func TestChannelSnapshotDiagnosticsReportsOpenFailure(t *testing.T) {
 	}
 }
 
+func TestChannelSnapshotResponseUsesBrowserCacheHeaders(t *testing.T) {
+	service := NewService(NewMemoryStore())
+	service.UseSnapshotStore(staticSnapshotStore{data: "jpg-data", contentType: "image/jpeg"})
+	handler := newTestHandlerWithService(service)
+	name := "00000000000000000000000000000001.jpg"
+
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/channel-snapshots/"+name, nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, response.Code, response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "private, max-age=604800, immutable" {
+		t.Fatalf("unexpected cache header: %q", response.Header().Get("Cache-Control"))
+	}
+	etag := response.Header().Get("ETag")
+	if etag != strconv.Quote(name) {
+		t.Fatalf("unexpected etag: %q", etag)
+	}
+	if response.Body.String() != "jpg-data" {
+		t.Fatalf("unexpected body: %q", response.Body.String())
+	}
+
+	cachedRequest := httptest.NewRequest(http.MethodGet, "/api/store-space/channel-snapshots/"+name, nil)
+	cachedRequest.Header.Set("If-None-Match", etag)
+	cachedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(cachedResponse, cachedRequest)
+	if cachedResponse.Code != http.StatusNotModified {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusNotModified, cachedResponse.Code, cachedResponse.Body.String())
+	}
+	if cachedResponse.Body.Len() != 0 {
+		t.Fatalf("expected empty 304 body, got %q", cachedResponse.Body.String())
+	}
+}
+
 func TestExportChannelMappingsEndpointDownloadsExcel(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
@@ -532,4 +568,17 @@ func (failingSnapshotStore) SaveRemote(ctx context.Context, imageURL string) (st
 
 func (failingSnapshotStore) Open(ctx context.Context, name string) (io.ReadCloser, string, error) {
 	return nil, "", errors.New("open asset failed: http 403 access_token=secret-token")
+}
+
+type staticSnapshotStore struct {
+	data        string
+	contentType string
+}
+
+func (s staticSnapshotStore) SaveRemote(ctx context.Context, imageURL string) (string, error) {
+	return "", errors.New("not used")
+}
+
+func (s staticSnapshotStore) Open(ctx context.Context, name string) (io.ReadCloser, string, error) {
+	return io.NopCloser(strings.NewReader(s.data)), s.contentType, nil
 }

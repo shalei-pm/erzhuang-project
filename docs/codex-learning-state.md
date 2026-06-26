@@ -2595,3 +2595,23 @@ git pull --ff-only
   - `git diff --check` 通过。
 - 未完成：
   - Vite dev server 需要提升权限后可启动；Playwright 自带浏览器未安装，系统 Chrome headless 被本机权限限制关闭，因此本轮未完成自动化截图验收。
+
+## 2026-06-26 通道截图缓存 2.17.1 开发记录
+
+- 目标：
+  - 降低机构详情页通道映射 Tab 每次进入时最近截图重新排队加载的等待感。
+  - 保持刷新截图/重新识别后能显示新图，不让用户看到过期图片。
+- 实现：
+  - 前端 `ImageLoadQueue` 增加已成功加载 URL 的内存记录。
+  - `QueuedSnapshotImage` 仅在同一 URL 已成功加载过时直接显示；未命中仍走原来的队列预加载和错误兜底。
+  - 后端通道截图接口增加 `Cache-Control: private, max-age=604800, immutable` 与 `ETag`，命中 `If-None-Match` 时返回 `304`。
+  - 前端验收清单新增规则：版本化图片 URL 应支持浏览器缓存或前端内存缓存，刷新图片时通过新 URL 失效旧缓存。
+- 风险控制：
+  - 不修改截图 URL 生成逻辑。
+  - 不修改图片加载失败兜底逻辑。
+  - 当前截图刷新会生成新文件名，因此新 URL 会自然绕过旧缓存。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/storespace -run 'TestChannelSnapshotResponseUsesBrowserCacheHeaders|TestChannelSnapshotDiagnosticsReportsOpenFailure'` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-image-queue-test src/domain/image-load-queue.ts src/domain/image-load-queue.test.ts && node /tmp/erzhuang-image-queue-test/image-load-queue.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
