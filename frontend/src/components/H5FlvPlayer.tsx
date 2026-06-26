@@ -130,7 +130,7 @@ export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
           isLive,
           muted: true,
           autoWasm: true,
-          useMSE: false,
+          useMSE: true,
           useWCS: true,
           scaleMode: 2,
           videoBuffer: 1,
