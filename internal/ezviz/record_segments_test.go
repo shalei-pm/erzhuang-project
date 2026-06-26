@@ -33,7 +33,7 @@ func TestQueryRecordSegmentsSendsHeadersQueryAndRefreshesToken(t *testing.T) {
 			if r.URL.Query().Get("startTime") == "" || r.URL.Query().Get("endTime") == "" {
 				t.Fatalf("missing startTime/endTime in query: %s", r.URL.RawQuery)
 			}
-			return jsonResponse(`{"meta":{"code":200,"message":"ok"},"data":{"records":[{"startTime":1731945592,"endTime":1731949200,"type":"PLAN","size":"100MB"}],"fromNvr":true,"deviceSerial":"AZ3988334","localIndex":2,"hasMore":false}}`), nil
+			return jsonResponse(`{"meta":{"code":"200","message":"ok"},"data":{"records":[{"startTime":1731945592,"endTime":1731949200,"type":"PLAN","size":"100MB"}],"fromNvr":true,"deviceSerial":"AZ3988334","localIndex":2,"hasMore":false}}`), nil
 		case "/api/lapp/token/get":
 			tokenRequests++
 			return jsonResponse(`{"code":"200","msg":"ok","data":{"accessToken":"fresh-token","expireTime":9999999999999}}`), nil

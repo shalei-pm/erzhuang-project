@@ -2807,3 +2807,6 @@ git pull --ff-only
   - `git diff --check` 通过。
 - 发布：
   - 待推送公司 GitLab 固定分支 `codex/containerize-single-image` 后，由公司 K8s 自动发布。
+- 线上追加验证：
+  - 公司线上第一次发布后，回放片段接口从 `localIndex` 解码错误推进到新的真实返回差异：`meta.code` 有时是字符串。
+  - 已补充 `FlexibleInt` 兼容 string/number，并用 `meta.code:"200"` 的测试复现覆盖。

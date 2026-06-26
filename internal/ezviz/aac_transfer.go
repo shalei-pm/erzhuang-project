@@ -14,10 +14,30 @@ import (
 
 type metaResponse[T any] struct {
 	Meta struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
+		Code    FlexibleInt `json:"code"`
+		Message string      `json:"message"`
 	} `json:"meta"`
 	Data T `json:"data"`
+}
+
+type FlexibleInt int
+
+func (i *FlexibleInt) UnmarshalJSON(data []byte) error {
+	var number int
+	if err := json.Unmarshal(data, &number); err == nil {
+		*i = FlexibleInt(number)
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		number, err := strconv.Atoi(strings.TrimSpace(text))
+		if err != nil {
+			return fmt.Errorf("decode flexible int %q: %w", text, err)
+		}
+		*i = FlexibleInt(number)
+		return nil
+	}
+	return fmt.Errorf("decode flexible int: %s", string(data))
 }
 
 func (c *Client) EnsureAACTransfer(ctx context.Context, account Account, deviceSerial string, channelNo int) error {
@@ -73,7 +93,7 @@ func (c *Client) callAACTransfer(ctx context.Context, account Account, token str
 		return fmt.Errorf("decode ezviz aac transfer response: %w", err)
 	}
 	if result.Meta.Code != 200 {
-		return &Error{Code: strconv.Itoa(result.Meta.Code), Msg: redact(result.Meta.Message, account)}
+		return &Error{Code: strconv.Itoa(int(result.Meta.Code)), Msg: redact(result.Meta.Message, account)}
 	}
 	return nil
 }

@@ -121,7 +121,7 @@ func (c *Client) callRecordSegments(ctx context.Context, account Account, token 
 		return RecordSegmentsResult{}, fmt.Errorf("decode ezviz record segments response: %w", err)
 	}
 	if result.Meta.Code != 200 {
-		return RecordSegmentsResult{}, &Error{Code: strconv.Itoa(result.Meta.Code), Msg: redact(result.Meta.Message, account)}
+		return RecordSegmentsResult{}, &Error{Code: strconv.Itoa(int(result.Meta.Code)), Msg: redact(result.Meta.Message, account)}
 	}
 	return result.Data, nil
 }
