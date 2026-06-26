@@ -2932,3 +2932,8 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `cd frontend && npm run test` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+- 发布：
+  - 公司 GitLab `codex/containerize-single-image` 已推送 commit `48e143c`，触发公司 K8s 自动发布。
+  - GitHub `main` 已同步 commit `4a52b8b`。
+  - 公司线上 `/health` 返回 `database:"postgres"`、`asset_store:"supabase"`。
+  - 公司线上静态资源已更新到 `2.19.7 (container)`，H5 详情 chunk 包含 `native-video`、`playsInline`、`hls/flv` 协议选择逻辑。
