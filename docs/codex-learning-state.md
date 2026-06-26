@@ -2615,3 +2615,22 @@ git pull --ff-only
   - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-image-queue-test src/domain/image-load-queue.ts src/domain/image-load-queue.test.ts && node /tmp/erzhuang-image-queue-test/image-load-queue.test.js` 通过。
   - `cd frontend && npm run build` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+
+## 2026-06-26 门店详情即时进入 2.17.2 开发记录
+
+- 背景：
+  - 机构列表点击“详情”时，前端原逻辑会等待 `GET /api/store-space/stores/{id}` 全量详情接口返回后才切换页面。
+  - 该接口会加载门店基础信息、区域、设计图、录像机、通道和最近截图路径；大门店或网络波动时，用户会感觉点击后“转很久才进入”。
+- 实现：
+  - 新增 `frontend/src/domain/store-detail-navigation.ts`，沉淀列表摘要到详情占位对象、默认 Tab 判断、短期详情缓存逻辑。
+  - 点击详情后立即用列表摘要生成详情壳，先展示门店标题、统计、Tab 和“正在加载门店详情”面板。
+  - 完整详情接口返回后再替换真实数据；请求失败则回到列表并展示错误提示。
+  - 同一门店 60 秒内二次进入且列表 `updatedAt` 未变化时使用前端内存详情缓存。
+  - 用户返回列表会递增详情请求版本号，避免旧请求返回后把页面重新拉回详情。
+- 未做：
+  - 暂未拆分后端详情接口。下一步如仍有明显慢接口，可把门店详情拆成轻量 shell、通道数据、设计图数据三个加载单元。
+- 验证：
+  - `cd frontend && ./node_modules/.bin/tsc --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck --jsx react-jsx --types vite/client --outDir /tmp/erzhuang-store-detail-nav-test src/vite-env.d.ts src/domain/store-detail-navigation.ts src/domain/store-detail-navigation.test.ts && node /tmp/erzhuang-store-detail-nav-test/domain/store-detail-navigation.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - 本地 dev server 需提升权限启动，已启动在 `http://127.0.0.1:5176/erzhuang/`；Playwright 浏览器二进制未安装，本轮未完成自动化截图验收。

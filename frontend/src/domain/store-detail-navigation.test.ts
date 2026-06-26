@@ -1,0 +1,95 @@
+import type { StoreDetail, StoreSummary } from "../api.js";
+import {
+  createStoreDetailCache,
+  detailTabFromSummary,
+  makePendingStoreDetail,
+  storeDetailTabFromDetail,
+} from "./store-detail-navigation.js";
+
+const baseSummary: StoreSummary = {
+  id: 7,
+  city: "上海",
+  name: "新氧青春诊所 上海测试店",
+  externalOrgId: "SOY-7",
+  thumbnailUrl: "",
+  designPlanStatus: "not_uploaded",
+  recorderCount: 0,
+  channelCount: 0,
+  channelsFullyConfirmed: false,
+  treatmentCount: 0,
+  consultationCount: 0,
+  beautyCount: 0,
+  areaCount: 0,
+  status: "needs_review",
+  updatedAt: "2026-06-26T08:00:00.000Z",
+};
+
+function summary(patch: Partial<StoreSummary>): StoreSummary {
+  return { ...baseSummary, ...patch };
+}
+
+function detail(patch: Partial<StoreDetail>): StoreDetail {
+  return {
+    ...baseSummary,
+    fileName: "",
+    originalPath: "",
+    previewPath: "",
+    thumbnailPath: "",
+    pageCount: 0,
+    previewUrl: "",
+    areas: [],
+    recorders: [],
+    ...patch,
+  };
+}
+
+const pending = makePendingStoreDetail(summary({ recorderCount: 2, channelCount: 12 }));
+
+assertEqual(pending.name, "新氧青春诊所 上海测试店");
+assertEqual(pending.recorderCount, 2);
+assertEqual(pending.channelCount, 12);
+assertEqual(JSON.stringify(pending.recorders), "[]");
+assertEqual(JSON.stringify(pending.areas), "[]");
+assertEqual(pending.previewUrl, "");
+
+assertEqual(detailTabFromSummary(summary({ recorderCount: 1, designPlanStatus: "not_uploaded" })), "channels");
+
+assertEqual(detailTabFromSummary(summary({ recorderCount: 0, designPlanStatus: "completed" })), "design-plan");
+
+assertEqual(
+  storeDetailTabFromDetail(
+    detail({
+      recorderCount: 0,
+      recorders: [
+        {
+          id: 1,
+          storeId: 7,
+          ezvizAccountId: 1,
+          accountName: "华东",
+          deviceCode: "K123",
+          status: "online",
+          effectiveChannelCount: 1,
+          lastScannedAt: "",
+          channels: [],
+        },
+      ],
+    }),
+  ),
+  "channels",
+);
+
+const cache = createStoreDetailCache(1000);
+const loaded = detail({ id: 7, updatedAt: "2026-06-26T08:00:00.000Z", recorderCount: 1 });
+cache.set(loaded, 10_000);
+
+assertEqual(cache.get(7, loaded.updatedAt, 10_500), loaded);
+assertEqual(cache.get(7, loaded.updatedAt, 11_100), null);
+assertEqual(cache.get(7, "2026-06-26T08:01:00.000Z", 10_500), null);
+
+console.log("store-detail-navigation tests passed");
+
+function assertEqual(actual: unknown, expected: unknown) {
+  if (actual !== expected) {
+    throw new Error(`expected ${String(expected)}, got ${String(actual)}`);
+  }
+}
