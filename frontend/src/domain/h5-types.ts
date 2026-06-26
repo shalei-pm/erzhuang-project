@@ -30,6 +30,7 @@ export interface H5LiveURLResponse {
   url: string;
   expire_time: string;
   url_id: string;
+  protocol?: string;
 }
 
 export interface H5RecordSegment {
@@ -48,6 +49,7 @@ export interface H5PlaybackURLResponse {
   url: string;
   expire_time: string;
   url_id: string;
+  protocol?: string;
 }
 
 export interface H5ApiError {

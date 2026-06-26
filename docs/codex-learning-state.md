@@ -2892,3 +2892,43 @@ git pull --ff-only
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `git diff --check` 通过。
   - 本地 Vite 服务可启动；Playwright CLI 因本机未安装 `chrome-for-testing` 浏览器二进制未完成截图验收。
+
+## 2026-06-26 H5 Monitor 自绘回放时间弹层 2.19.6 开发记录
+
+- 背景：
+  - 2.19.5 使用原生 `datetime-local` 后，虽然避免了 AntD DatePicker 弹层错位和 chunk 过大，但浏览器原生弹层样式无法与项目风格统一。
+  - 用户提供 ahabook 批阅记录日期选择器作为参考，希望日期选择区域整体可点击，弹层风格更接近当前产品。
+- 设计决定：
+  - 不继续依赖浏览器原生日期时间弹层，改为 H5 页面内自绘轻量日期时间选择器。
+  - 保留 `今天 / 昨天 / 前天` 快捷日期和“定位回放”按钮。
+  - 自绘弹层采用白色圆角浮层、圆形月份切换按钮、轻量日期网格、克制选中态，并支持点击外部关闭。
+  - 保持实时/录像切换、关闭详情时释放当前播放地址的逻辑不变。
+- 实现：
+  - `PlaybackDatePicker` 新增自绘日期网格、小时/分钟滚动列、月份切换和完整触发按钮。
+  - 选择器触发区整体可点击，不再只依赖原生日历图标。
+  - 日期选中态改为浅底描边，弱化“蓝色按钮感”，更贴近项目后台浮层风格。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-26 H5 Monitor 移动端实时视频 HLS 适配 2.19.7 开发记录
+
+- 背景：
+  - 用户在手机浏览器和飞书内打开 H5 监控详情页后，实时视频黑屏。
+  - 之前桌面端为恢复画面将 `ezuikit-flv` 的 MSE 路径重新打开，但移动浏览器对 FLV/MSE 兼容性不稳定，不能继续只调 FLV 播放器参数。
+- 排查结论：
+  - H5 详情页当前固定向萤石请求 FLV 地址，并固定使用 `ezuikit-flv` 播放。
+  - 移动端应优先使用 HLS/m3u8 + 原生 `<video playsInline controls>`，桌面端保留 FLV 播放器路径，避免影响已能播放的桌面环境。
+  - 本地录像回放文档对 HLS 支持不明确，当前回放仍保持 FLV 路径，后续需要基于移动端真实表现决定是否切萤石 JSSDK/ezopen 或内部 ISAPI 代理。
+- 实现：
+  - H5 live-url 请求新增 `protocol` 参数，支持 `hls/flv`；服务端按协议向萤石请求 `protocol=2/4`，并在响应里返回协议。
+  - 前端移动端通用判断不限定 iPhone，覆盖 iPhone、Android、飞书/企微类移动 WebView，移动端实时视频请求 HLS，桌面请求 FLV。
+  - 播放器组件根据协议选择播放方式：HLS/m3u8 走原生 `<video>`，FLV 继续走 `ezuikit-flv`。
+  - 原生 video 路径保留加载态，直到 `loadedmetadata/canplay/playing` 后收起；失败时展示协议和简化 URL 诊断。
+- 验证：
+  - 新增后端测试覆盖 HLS/FLV 两种 live-url 协议参数。
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。

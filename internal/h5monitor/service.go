@@ -114,7 +114,7 @@ func (s *Service) GetMonitorHome(ctx context.Context, externalOrgID string) (Mon
 	}, nil
 }
 
-func (s *Service) GetLiveURL(ctx context.Context, externalOrgID string, channelID int64, userID string, isAdmin bool) (LiveURLResponse, error) {
+func (s *Service) GetLiveURL(ctx context.Context, externalOrgID string, channelID int64, userID string, isAdmin bool, protocolValue string) (LiveURLResponse, error) {
 	channel, err := s.validateChannel(ctx, externalOrgID, channelID)
 	if err != nil {
 		return LiveURLResponse{}, err
@@ -124,21 +124,22 @@ func (s *Service) GetLiveURL(ctx context.Context, externalOrgID string, channelI
 	}
 	account := channelToAccount(channel)
 	_ = s.player.EnsureAACTransfer(ctx, account, channel.DeviceSerial, channel.ChannelNo)
+	protocol, ezvizProtocol, supportH265 := normalizeLiveProtocol(protocolValue)
 	result, err := s.player.LiveAddress(ctx, account, ezviz.LiveAddressRequest{
 		DeviceSerial: channel.DeviceSerial,
 		ChannelNo:    channel.ChannelNo,
-		Protocol:     4,
+		Protocol:     ezvizProtocol,
 		Type:         1,
 		Quality:      2,
 		ExpireTime:   600,
-		SupportH265:  true,
+		SupportH265:  supportH265,
 		Mute:         ezviz.IntPtr(0),
 	})
 	if err != nil {
 		s.releaseConcurrency(userID)
 		return LiveURLResponse{}, err
 	}
-	return LiveURLResponse{URL: result.URL, ExpireTime: result.ExpireTime, URLID: result.ID}, nil
+	return LiveURLResponse{URL: result.URL, ExpireTime: result.ExpireTime, URLID: result.ID, Protocol: protocol}, nil
 }
 
 func (s *Service) GetRecordSegments(ctx context.Context, externalOrgID string, channelID int64, dateValue string) (RecordSegmentsResponse, error) {
@@ -210,6 +211,15 @@ func (s *Service) DisableURL(ctx context.Context, externalOrgID string, channelI
 	})
 	s.releaseConcurrency(userID)
 	return disableErr
+}
+
+func normalizeLiveProtocol(value string) (protocol string, ezvizProtocol int, supportH265 bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "hls", "m3u8":
+		return "hls", 2, false
+	default:
+		return "flv", 4, true
+	}
 }
 
 func (s *Service) validateChannel(ctx context.Context, externalOrgID string, channelID int64) (*ChannelInfo, error) {
