@@ -76,6 +76,19 @@ func TestValidateStoreInputAllowsSameNumberAcrossDifferentTypes(t *testing.T) {
 	}
 }
 
+func TestValidateStoreInputAllowsVIPTreatmentWithoutNumber(t *testing.T) {
+	input := validStoreInput()
+	input.Areas = append(input.Areas, AreaInput{
+		Name: "VIP治疗室",
+		Type: AreaTypeVIPTreatment,
+		Box:  &Box{X: 0.5, Y: 0.1, Width: 0.2, Height: 0.2},
+	})
+
+	if err := ValidateStoreInput(input); err != nil {
+		t.Fatalf("expected VIP treatment without number to be valid, got %v", err)
+	}
+}
+
 func validStoreInput() StoreInput {
 	return StoreInput{
 		Name: "杭州西湖店",

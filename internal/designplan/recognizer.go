@@ -386,18 +386,19 @@ func (o recognizerOutput) toRecognitionResult() *RecognitionResult {
 func recognitionPrompt() string {
 	return strings.TrimSpace(`你是医疗门店装修图纸识别助手。请从这张门店设计图中识别门店名称和目标空间区域。
 
-只识别三类区域：
+只识别四类业务区域：
 1. treatment：治疗室，指医美治疗室。
-2. consultation：面诊室。
-3. beauty：生美、生美区、生美治疗室、美容区、美容治疗室。
+2. vip_treatment：VIP治疗室，仅当图纸文字明确出现“VIP治疗室”或“VIP”时使用。
+3. consultation：面诊室。
+4. beauty：生美、生美区、生美治疗室、美容区、美容治疗室。
 
 要求：
 - 门店名称优先来自图纸标题或图签。
 - 区域名称尽量保留图纸原文。
 - 如果区域文字里有明显数字编号，可以填入 number；没有编号则填空字符串。
-- treatment 和 consultation 的 number 很重要；beauty 可为空。
+- treatment 和 consultation 的 number 很重要；vip_treatment 和 beauty 可为空。
 - box 使用相对坐标，基于整张拼接图片，x/y/width/height 都是 0 到 1 的小数。
-- 只输出目标三类区域，忽略前台、走廊、仓库、卫生间等非目标区域。
+- 只输出目标业务区域，忽略前台、走廊、仓库、卫生间等非目标区域。
 - 按图纸位置从上到下、从左到右排序。
 - 如果不确定，confidence 用 low，并设置 needs_review 为 true。
 - raw_notes 用中文简短说明识别依据或问题。`)
@@ -410,7 +411,7 @@ func recognitionJSONSchema() map[string]any {
 		"required":             []string{"name", "type", "number", "confidence", "needs_review", "box"},
 		"properties": map[string]any{
 			"name":         map[string]any{"type": "string"},
-			"type":         map[string]any{"type": "string", "enum": []string{"treatment", "consultation", "beauty"}},
+			"type":         map[string]any{"type": "string", "enum": []string{"treatment", "vip_treatment", "consultation", "beauty"}},
 			"number":       map[string]any{"type": "string"},
 			"confidence":   map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}},
 			"needs_review": map[string]any{"type": "boolean"},
@@ -447,6 +448,11 @@ func generatedAreaName(areaType AreaType, number string) string {
 			return "治疗室 " + number
 		}
 		return "治疗室"
+	case AreaTypeVIPTreatment:
+		if number != "" {
+			return "VIP治疗室 " + number
+		}
+		return "VIP治疗室"
 	case AreaTypeConsultation:
 		if number != "" {
 			return "面诊室 " + number

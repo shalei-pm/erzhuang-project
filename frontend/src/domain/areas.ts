@@ -2,14 +2,23 @@ import type { AreaBox, AreaType, StoreArea } from "../api";
 
 export const areaTypeLabels: Record<AreaType, string> = {
   treatment: "治疗室",
+  vip_treatment: "VIP治疗室",
   consultation: "面诊室",
   beauty: "生美",
 };
 
+export function isTreatmentAreaType(type: AreaType | "" | undefined) {
+  return type === "treatment" || type === "vip_treatment";
+}
+
+export function isAreaNumberOptional(type: AreaType | "" | undefined) {
+  return type === "vip_treatment";
+}
+
 export function areaDisplayName(area: StoreArea) {
   if (!area.type) return "";
   if (area.number.trim()) return `${areaTypeLabels[area.type]} ${area.number.trim()}`;
-  return area.type === "beauty" ? areaTypeLabels[area.type] : "";
+  return isAreaNumberOptional(area.type) || area.type === "beauty" ? areaTypeLabels[area.type] : "";
 }
 
 export function areaBoxPrimaryLabel(area: StoreArea) {
@@ -26,7 +35,7 @@ export function areaBoxSecondaryLabel(area: StoreArea) {
 export function areaSummary(area: StoreArea) {
   if (!area.type) return "未选择类型";
   const label = areaTypeLabels[area.type];
-  if (!area.number) return area.type === "beauty" ? label : `${label} · 未编号`;
+  if (!area.number) return isAreaNumberOptional(area.type) || area.type === "beauty" ? label : `${label} · 未编号`;
   return `${label} · 编号 ${area.number}`;
 }
 
@@ -39,11 +48,12 @@ export function withGeneratedAreaFields(area: StoreArea): StoreArea {
 
 export function normalizeAreaForSave(area: StoreArea): StoreArea {
   const generated = withGeneratedAreaFields(area);
+  const numberComplete = isAreaNumberOptional(generated.type) || Boolean(generated.number.trim());
   const isComplete =
     Boolean(generated.type) &&
     Boolean(generated.box) &&
     Boolean(generated.name.trim()) &&
-    Boolean(generated.number.trim());
+    numberComplete;
   return {
     ...generated,
     confidence: isComplete ? "high" : generated.confidence,
@@ -133,7 +143,7 @@ export function mergeRecognizedAreas(existingAreas: StoreArea[], recognizedAreas
 export function countAreaTypes(areas: StoreArea[]) {
   return areas.reduce(
     (counts, item) => {
-      if (item.type === "treatment") counts.treatment += 1;
+      if (isTreatmentAreaType(item.type)) counts.treatment += 1;
       if (item.type === "consultation") counts.consultation += 1;
       if (item.type === "beauty") counts.beauty += 1;
       return counts;
@@ -143,7 +153,9 @@ export function countAreaTypes(areas: StoreArea[]) {
 }
 
 function businessAreaKey(area: StoreArea) {
-  if (!area.type || !area.number.trim()) return "";
+  if (!area.type) return "";
+  if (area.type === "vip_treatment" && !area.number.trim()) return "vip_treatment:";
+  if (!area.number.trim()) return "";
   return `${area.type}:${Number(area.number.trim())}`;
 }
 

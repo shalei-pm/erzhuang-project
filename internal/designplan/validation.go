@@ -34,7 +34,7 @@ func ValidateStoreInput(input StoreInput) error {
 			fields[prefix+".name"] = "区域名称必填"
 		}
 		if !validAreaType(area.Type) {
-			fields[prefix+".type"] = "区域类型必填，且只能是 treatment、consultation、beauty"
+			fields[prefix+".type"] = "区域类型必填，且只能是 treatment、vip_treatment、consultation、beauty"
 		}
 		if area.Box == nil {
 			fields[prefix+".box"] = "区域框必填"
@@ -71,6 +71,7 @@ func ValidateStoreInput(input StoreInput) error {
 
 func validAreaType(areaType AreaType) bool {
 	return areaType == AreaTypeTreatment ||
+		areaType == AreaTypeVIPTreatment ||
 		areaType == AreaTypeConsultation ||
 		areaType == AreaTypeBeauty
 }

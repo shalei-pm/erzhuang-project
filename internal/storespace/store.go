@@ -671,8 +671,14 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 					return &copy, nil
 				}
 
-				number, err := strconv.Atoi(strings.TrimSpace(input.AreaNumber))
-				if err != nil || number <= 0 {
+				number := 0
+				if strings.TrimSpace(input.AreaNumber) != "" {
+					parsedNumber, err := strconv.Atoi(strings.TrimSpace(input.AreaNumber))
+					if err != nil || parsedNumber <= 0 {
+						return nil, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
+					}
+					number = parsedNumber
+				} else if input.AreaType != AreaTypeVIPTreatment {
 					return nil, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
 				}
 				area, err := s.updateOrFindVideoAreaLocked(store, channel.AreaID, input.AreaType, number, now)
@@ -1095,7 +1101,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 					where c.is_active
 						and c.status not in ('confirmed_business', 'confirmed_non_business')
 				) = 0 as channels_fully_confirmed,
-			count(distinct a.id) filter (where a.area_type = 'treatment') as treatment_count,
+			count(distinct a.id) filter (where a.area_type in ('treatment', 'vip_treatment')) as treatment_count,
 			count(distinct a.id) filter (where a.area_type = 'consultation') as consultation_count,
 			count(distinct a.id) filter (where a.area_type = 'beauty') as beauty_count
 		from stores s
@@ -1791,8 +1797,14 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 			return nil, err
 		}
 	} else {
-		number, err := strconv.Atoi(strings.TrimSpace(input.AreaNumber))
-		if err != nil || number <= 0 {
+		number := 0
+		if strings.TrimSpace(input.AreaNumber) != "" {
+			parsedNumber, err := strconv.Atoi(strings.TrimSpace(input.AreaNumber))
+			if err != nil || parsedNumber <= 0 {
+				return nil, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
+			}
+			number = parsedNumber
+		} else if input.AreaType != AreaTypeVIPTreatment {
 			return nil, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
 		}
 		area, err := updateOrFindVideoArea(ctx, tx, storeID, channelID, input.AreaType, number)
@@ -2812,7 +2824,7 @@ func storeListItem(store Store) StoreListItem {
 	item.ChannelsFullyConfirmed = activeChannelsFullyConfirmed(store.Recorders)
 	for _, area := range store.Areas {
 		switch area.Type {
-		case AreaTypeTreatment:
+		case AreaTypeTreatment, AreaTypeVIPTreatment:
 			item.TreatmentCount++
 		case AreaTypeConsultation:
 			item.ConsultationCount++
@@ -2875,6 +2887,11 @@ func areaDisplayName(areaType AreaType, number int) string {
 	switch areaType {
 	case AreaTypeTreatment:
 		return fmt.Sprintf("治疗室 %d", number)
+	case AreaTypeVIPTreatment:
+		if number > 0 {
+			return fmt.Sprintf("VIP治疗室 %d", number)
+		}
+		return "VIP治疗室"
 	case AreaTypeConsultation:
 		return fmt.Sprintf("面诊室 %d", number)
 	case AreaTypeBeauty:

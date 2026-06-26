@@ -1,7 +1,8 @@
 import sampleStoreFloorPlanUrl from "../../testdata/design-plans/generated/sample-store-floor-plan.png";
+import { isTreatmentAreaType } from "./domain/areas";
 import { defaultApiBase, displayImageUrl, storedImagePath, trimTrailingSlash } from "./url-utils";
 
-export type AreaType = "treatment" | "consultation" | "beauty";
+export type AreaType = "treatment" | "vip_treatment" | "consultation" | "beauty";
 
 export type Confidence = "high" | "medium" | "low";
 export type StoreStatus = "completed" | "needs_review" | "incomplete";
@@ -1836,6 +1837,7 @@ function areaDisplayNameFromParts(type: AreaType | "", number: string) {
   if (!type) return "";
   const labels: Record<AreaType, string> = {
     treatment: "治疗室",
+    vip_treatment: "VIP治疗室",
     consultation: "面诊室",
     beauty: "生美",
   };
@@ -2280,7 +2282,7 @@ function area(
 function countAreas(areas: StoreArea[]) {
   return areas.reduce(
     (counts, item) => {
-      if (item.type === "treatment") counts.treatment += 1;
+      if (isTreatmentAreaType(item.type)) counts.treatment += 1;
       if (item.type === "consultation") counts.consultation += 1;
       if (item.type === "beauty") counts.beauty += 1;
       return counts;

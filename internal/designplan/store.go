@@ -238,7 +238,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 			s.name,
 			s.status,
 			s.updated_at,
-			count(a.id) filter (where a.area_type = 'treatment') as treatment_count,
+			count(a.id) filter (where a.area_type in ('treatment', 'vip_treatment')) as treatment_count,
 			count(a.id) filter (where a.area_type = 'consultation') as consultation_count,
 			count(a.id) filter (where a.area_type = 'beauty') as beauty_count,
 			count(a.id) as area_count
@@ -452,7 +452,7 @@ func (s *PostgresStore) CheckDuplicate(ctx context.Context, name string, exclude
 			s.status,
 			s.updated_at,
 			count(a.id) as area_count,
-			count(a.id) filter (where a.area_type = 'treatment') as treatment_count,
+			count(a.id) filter (where a.area_type in ('treatment', 'vip_treatment')) as treatment_count,
 			count(a.id) filter (where a.area_type = 'consultation') as consultation_count,
 			count(a.id) filter (where a.area_type = 'beauty') as beauty_count
 		from design_plan_stores s
@@ -679,7 +679,7 @@ func storeListItem(store Store) StoreListItem {
 	for _, area := range store.Areas {
 		item.AreaCount++
 		switch area.Type {
-		case AreaTypeTreatment:
+		case AreaTypeTreatment, AreaTypeVIPTreatment:
 			item.TreatmentCount++
 		case AreaTypeConsultation:
 			item.ConsultationCount++

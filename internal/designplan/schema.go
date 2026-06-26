@@ -39,7 +39,7 @@ func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 			created_at timestamptz not null default now(),
 			updated_at timestamptz not null default now(),
 			constraint design_plan_store_areas_type_check
-				check (area_type in ('treatment', 'consultation', 'beauty')),
+				check (area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty')),
 			constraint design_plan_store_areas_confidence_check
 				check (confidence in ('high', 'medium', 'low')),
 			constraint design_plan_store_areas_box_check check (
@@ -54,6 +54,9 @@ func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 		`create unique index if not exists design_plan_store_areas_unique_number_per_type
 			on design_plan_store_areas (store_id, area_type, area_number)
 			where area_number is not null`,
+		`alter table design_plan_store_areas drop constraint if exists design_plan_store_areas_type_check`,
+		`alter table design_plan_store_areas add constraint design_plan_store_areas_type_check
+			check (area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty'))`,
 		`create index if not exists design_plan_stores_updated_at_idx
 			on design_plan_stores (updated_at desc)`,
 		`alter table design_plan_stores

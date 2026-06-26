@@ -9,22 +9,14 @@ import {
   type VideoChannel,
   type VideoRecorder,
 } from "../api";
-import { areaTypeLabels } from "../domain/areas";
+import { areaTypeLabels, isAreaNumberOptional } from "../domain/areas";
+import { channelListFilters, filterAndSortChannels, type ChannelListFilter } from "../domain/channel-filters";
 import { channelRecognitionMessage, recorderRecognitionToast } from "../domain/channel-recognition";
 import { channelSceneLabel } from "../domain/channel-labels";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
 import { fallbackProbeChannelNumbers, fallbackProbeMaxChannelNo, shouldStopFallbackProbe } from "../domain/fallback-probe";
 import { formatDateTime } from "../domain/format";
 import { ImageLoadQueue } from "../domain/image-load-queue";
-
-type ChannelTypeFilter = "all" | AreaType;
-
-const channelTypeFilters: { value: ChannelTypeFilter; label: string }[] = [
-  { value: "all", label: "全部" },
-  { value: "consultation", label: "面诊室" },
-  { value: "treatment", label: "治疗室" },
-  { value: "beauty", label: "生美" },
-];
 
 const snapshotImageQueue = new ImageLoadQueue(2);
 
@@ -51,7 +43,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [deletingChannelIds, setDeletingChannelIds] = useState<Set<number>>(() => new Set());
   const [newRecorderCode, setNewRecorderCode] = useState("");
   const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
-  const [channelTypeFilter, setChannelTypeFilter] = useState<ChannelTypeFilter>("all");
+  const [channelTypeFilter, setChannelTypeFilter] = useState<ChannelListFilter>("all");
   const [exportingChannels, setExportingChannels] = useState(false);
   const [expiredSnapshotIds, setExpiredSnapshotIds] = useState<Set<number>>(() => new Set());
   const [snapshotDiagnostics, setSnapshotDiagnostics] = useState<Record<number, SnapshotDiagnostics | { detail: string }>>({});
@@ -239,7 +231,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     const areaType = patch.areaType ?? channel.areaType;
     const areaNumber = patch.areaNumber ?? channel.areaNumber;
     const sceneType = patch.sceneType ?? channel.sceneType;
-    if (areaType && !String(areaNumber).trim()) {
+    if (areaType && !isAreaNumberOptional(areaType) && !String(areaNumber).trim()) {
       onToast("确认为业务区域时，编号必填。");
       return;
     }
@@ -541,7 +533,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
             )}
           </button>
           <div className="segmented-control" role="radiogroup" aria-label="业务区域类型筛选">
-            {channelTypeFilters.map((filter) => (
+            {channelListFilters.map((filter) => (
               <button
                 key={filter.value}
                 type="button"
@@ -558,7 +550,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       </section>
 
       {store.recorders.map((recorder) => {
-        const visibleChannels = recorder.channels.filter((channel) => channelMatchesTypeFilter(channel, channelTypeFilter, editingChannels[channel.id]));
+        const visibleChannels = filterAndSortChannels(recorder.channels, channelTypeFilter, editingChannels);
         return (
           <section className="channel-table-section" key={recorder.id}>
             <div className="section-title-row">
@@ -649,6 +641,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                         >
                           <option value="">其他区域</option>
                           <option value="treatment">治疗室</option>
+                          <option value="vip_treatment">VIP治疗室</option>
                           <option value="consultation">面诊室</option>
                           <option value="beauty">生美</option>
                         </select>
@@ -668,7 +661,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                             }
                             updateChannelDraft(channel.id, { areaNumber: event.target.value, areaNote: event.target.value });
                           }}
-                          placeholder={selectedAreaType ? "必填" : "-"}
+                          placeholder={selectedAreaType && !isAreaNumberOptional(selectedAreaType) ? "必填" : "-"}
                         />
                       ) : (
                         channel.areaType ? channel.areaNumber || "-" : channel.areaNote || channel.areaNumber || "-"
@@ -758,12 +751,6 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       ) : null}
     </section>
   );
-}
-
-function channelMatchesTypeFilter(channel: VideoChannel, filter: ChannelTypeFilter, draft?: Partial<VideoChannel>) {
-  if (filter === "all") return true;
-  const areaType = draft?.areaType !== undefined ? draft.areaType : channel.areaType;
-  return areaType === filter;
 }
 
 function addIdToSet(current: Set<number>, id: number) {

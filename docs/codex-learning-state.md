@@ -2568,3 +2568,30 @@ git pull --ff-only
 - 注意：
   - TAT 发布因本机无 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` 环境变量而未继续输入密钥，改用已记录的 SSH key 执行同一部署脚本。
   - 韩国部署时服务重启后前 13 次本机 health 连接失败，第 14 次成功，判断为服务启动/依赖初始化短暂延迟；本次无需回滚。
+
+## 2026-06-26 VIP治疗室与通道筛选 2.17.0 开发记录
+
+- 目标：
+  - 新增业务区域类型 `VIP治疗室`，归入治疗室大类。
+  - 通道映射筛选扩展为：全部、面诊室、治疗室、生美、前台/候诊区、通道/其他。
+  - 筛选和排序规则沉淀为可复用前端领域模块，供后续 H5 monitor 首页复用。
+- 关键规则：
+  - `VIP治疗室` 对应 `area_type=vip_treatment`，治疗室筛选和治疗室数量统计都包含它。
+  - `VIP治疗室` 编号/备注非必填，空编号在后端以 `area_number=0` 表示；同一门店最多一个未编号 VIP 治疗室。
+  - 普通治疗室、面诊室、生美仍要求数字编号。
+  - `前台/候诊区` 只按可见/可维护文本包含 `前台`、`候诊`、`等候` 判断。
+  - `通道/其他` 作为非业务且非前台候诊的兜底组。
+- 实现：
+  - 新增 `frontend/src/domain/channel-filters.ts`，以最小字段接口 `ChannelFilterable` 承载通道筛选、归类、排序规则。
+  - 新增 `frontend/src/domain/channel-filters.test.ts` 覆盖全部排序、治疗室包含 VIP、前台候诊匹配、通道/其他兜底。
+  - 通道映射 Tab 改用共享筛选模块，新增 VIP 治疗室选项。
+  - 设计图标注区域卡片新增 VIP 治疗室选项，并与通道映射一致支持空编号。
+  - `internal/storespace` 与旧 `internal/designplan` 模块同步支持 `vip_treatment`，避免旧路由/schema 保留三类约束。
+  - `docs/h5-monitor-dev-task.md` 增加复用实现方案，要求 H5 monitor 不复制分组排序逻辑。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && ./node_modules/.bin/vitest run src/domain/channel-filters.test.ts` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 未完成：
+  - Vite dev server 需要提升权限后可启动；Playwright 自带浏览器未安装，系统 Chrome headless 被本机权限限制关闭，因此本轮未完成自动化截图验收。

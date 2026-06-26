@@ -438,7 +438,11 @@ func (s *Service) ConfirmChannel(ctx context.Context, channelID int64, input Cha
 		return nil, err
 	}
 	if input.AreaType != "" {
-		input.AreaNumber = strconv.Itoa(number)
+		if input.AreaType == AreaTypeVIPTreatment && number == 0 {
+			input.AreaNumber = ""
+		} else {
+			input.AreaNumber = strconv.Itoa(number)
+		}
 		input.SceneType = SceneType(input.AreaType)
 	}
 	return s.repo.ConfirmChannel(ctx, channelID, input)
@@ -687,6 +691,8 @@ func normalizeRecognitionAreaType(value string) AreaType {
 	switch AreaType(strings.ToLower(strings.TrimSpace(value))) {
 	case AreaTypeTreatment:
 		return AreaTypeTreatment
+	case AreaTypeVIPTreatment:
+		return AreaTypeVIPTreatment
 	case AreaTypeConsultation:
 		return AreaTypeConsultation
 	case AreaTypeBeauty:
@@ -793,6 +799,8 @@ func channelAreaTypeLabel(channel Channel) string {
 		return "面诊室"
 	case AreaTypeTreatment:
 		return "治疗室"
+	case AreaTypeVIPTreatment:
+		return "VIP治疗室"
 	case AreaTypeBeauty:
 		return "生美"
 	default:
@@ -814,7 +822,7 @@ func channelExportTypeRank(label string) int {
 	switch label {
 	case "面诊室":
 		return 0
-	case "治疗室":
+	case "治疗室", "VIP治疗室":
 		return 1
 	case "生美":
 		return 2

@@ -1,5 +1,6 @@
 export type ChannelSceneType =
   | "treatment"
+  | "vip_treatment"
   | "consultation"
   | "beauty"
   | "front_desk"
@@ -15,6 +16,7 @@ export type ChannelSceneType =
 
 const sceneLabels: Record<ChannelSceneType, string> = {
   treatment: "治疗室",
+  vip_treatment: "VIP治疗室",
   consultation: "面诊室",
   beauty: "生美",
   front_desk: "前台",
