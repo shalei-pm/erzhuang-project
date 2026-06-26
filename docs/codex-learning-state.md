@@ -2734,3 +2734,8 @@ git pull --ff-only
   - `cd frontend && npm test -- --run` 未通过，失败为既有测试文件未使用 Vitest `test/it` 套件结构，以及 `api.test` 在当前测试环境下 base path 断言不一致；本次改动未触及对应逻辑。
 - 风险：
   - 本地 mock 环境没有门店通道数据，未完成真实通道表格的浏览器截图验收；公司环境发布后需重点观察通道映射 Tab 首屏截图加载速度和滚动加载表现。
+- 发布：
+  - GitHub `main` commit：`463c32c Lazy load channel snapshots`。
+  - 公司 GitLab 发布分支 merge commit：`6c71f07 Merge branch 'main' into codex/containerize-single-image`。
+  - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 公司线上 JS 已更新为 `assets/index-BJXO-7_s.js`，确认包含 `2.18.1`、`IntersectionObserver` 和 `160px 0px` 懒加载触发配置。
