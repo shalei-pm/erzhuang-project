@@ -9,6 +9,7 @@ interface EzuikitFlvPlayer {
   openSound: () => void;
   play: () => unknown;
   pause: () => unknown;
+  getState?: () => unknown;
 }
 
 interface EzuikitFlvConstructor {
@@ -41,6 +42,29 @@ type PlayerDiagnostic = {
 let playerLib: EzuikitFlvConstructor | null = null;
 let playerLibPromise: Promise<{ ctor: EzuikitFlvConstructor | null; diagnostics: string[] }> | null = null;
 const DECODER_PATH = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/assets/ezuikit-flv/decoder.js`;
+const FIRST_FRAME_TIMEOUT_MS = 12000;
+const PLAYER_ERROR_EVENTS = [
+  "error",
+  "streamError",
+  "playError",
+  "fetchError",
+  "audioCodecUnsupported",
+  "wasmDecodeError",
+  "webcodecsH265NotSupport",
+  "webcodecsDecodeError",
+  "mediaSourceH265NotSupport",
+  "mseSourceBufferError",
+  "unrecoverableEarlyEof",
+];
+const PLAYER_PROGRESS_EVENTS = [
+  "streamSuccess",
+  "videoInfo",
+  "videoFrame",
+  "playing",
+  "loaded",
+  "decoderWorkerInit",
+  "decoderLoaded",
+];
 
 async function loadPlayerLib(): Promise<{ ctor: EzuikitFlvConstructor | null; diagnostics: string[] }> {
   if (playerLib) return { ctor: playerLib, diagnostics: ["cached constructor"] };
@@ -81,6 +105,8 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
   );
   const playerRef = useRef<EzuikitFlvPlayer | null>(null);
   const warningTimerRef = useRef<number | null>(null);
+  const firstFrameTimerRef = useRef<number | null>(null);
+  const playerEventsRef = useRef<string[]>([]);
   const [muted, setMuted] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -91,12 +117,16 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
 
   useEffect(() => {
     if (isMock) {
+      clearFirstFrameTimer(firstFrameTimerRef);
+      playerEventsRef.current = [];
       setLoading(false);
       setLoadFailed(false);
       setDiagnostic(null);
       return;
     }
     if (isNativeVideo) {
+      clearFirstFrameTimer(firstFrameTimerRef);
+      playerEventsRef.current = [];
       setLoading(true);
       setLoadFailed(false);
       setDiagnostic(null);
@@ -105,6 +135,8 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
     let cancelled = false;
 
     async function init() {
+      clearFirstFrameTimer(firstFrameTimerRef);
+      playerEventsRef.current = [];
       setLoading(true);
       setLoadFailed(false);
       setDiagnostic(null);
@@ -167,8 +199,32 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
           } else {
             scheduleWarningClear(warningTimerRef, setDiagnostic);
           }
+        }, (eventName, payload) => {
+          notePlayerEvent(playerEventsRef, eventName, payload);
+          if (isFirstFrameEvent(eventName)) {
+            clearFirstFrameTimer(firstFrameTimerRef);
+            setLoading(false);
+            setLoadFailed(false);
+            setDiagnostic((current) => (current?.stage === "first-frame-timeout" ? null : current));
+          }
         });
-        setLoading(false);
+        startFirstFrameTimer(firstFrameTimerRef, () => {
+          if (cancelled) return;
+          setLoading(false);
+          setLoadFailed(true);
+          const nextDiagnostic = {
+            stage: "first-frame-timeout",
+            message: `播放器已初始化，但 ${FIRST_FRAME_TIMEOUT_MS / 1000} 秒内没有收到首帧/流成功事件`,
+            details: [
+              ...commonDetails,
+              `events=${playerEventsRef.current.length > 0 ? playerEventsRef.current.join(" > ") : "none"}`,
+              `state=${safePlayerState(player)}`,
+            ],
+            severity: "error" as const,
+          };
+          setDiagnostic(nextDiagnostic);
+          onError?.(formatDiagnostic(nextDiagnostic));
+        });
       } catch (err) {
         if (cancelled) return;
         setLoading(false);
@@ -189,6 +245,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
     return () => {
       cancelled = true;
       clearWarningTimer(warningTimerRef);
+      clearFirstFrameTimer(firstFrameTimerRef);
       if (playerRef.current) {
         stopPlayer(playerRef.current, containerId);
         playerRef.current = null;
@@ -270,14 +327,25 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
   );
 }
 
-function attachPlayerDiagnostics(player: EzuikitFlvPlayer, onPlayerError: (message: string) => void) {
+function attachPlayerDiagnostics(
+  player: EzuikitFlvPlayer,
+  onPlayerError: (message: string) => void,
+  onPlayerProgress: (eventName: string, payload: unknown) => void,
+) {
   const maybeEmitter = player as unknown as { on?: (event: string, handler: (payload: unknown) => void) => void };
   if (typeof maybeEmitter.on !== "function") {
     return;
   }
-  for (const eventName of ["error", "streamError", "playError", "fetchError", "audioCodecUnsupported"]) {
+  for (const eventName of PLAYER_ERROR_EVENTS) {
     try {
       maybeEmitter.on(eventName, (payload) => onPlayerError(`${eventName}:${serializePayload(payload)}`));
+    } catch {
+      // Some player versions may not support every event name.
+    }
+  }
+  for (const eventName of PLAYER_PROGRESS_EVENTS) {
+    try {
+      maybeEmitter.on(eventName, (payload) => onPlayerProgress(eventName, payload));
     } catch {
       // Some player versions may not support every event name.
     }
@@ -299,6 +367,15 @@ function PlayerDiagnosticPanel({ diagnostic }: { diagnostic: PlayerDiagnostic })
 function isRecoverablePlayerEvent(message: string) {
   const text = message.toLowerCase();
   return text.includes("mediasource") || text.includes("sourcebuffer") || text.includes("mse");
+}
+
+function isFirstFrameEvent(eventName: string) {
+  return ["streamSuccess", "videoInfo", "videoFrame", "playing", "loaded"].includes(eventName);
+}
+
+function notePlayerEvent(eventRef: MutableRefObject<string[]>, eventName: string, payload: unknown) {
+  const text = payload ? `${eventName}:${shortPayload(payload)}` : eventName;
+  eventRef.current = [...eventRef.current.slice(-7), text];
 }
 
 function shouldUseNativeVideo(url: string, protocol?: string) {
@@ -338,6 +415,18 @@ function scheduleWarningClear(
 }
 
 function clearWarningTimer(timerRef: MutableRefObject<number | null>) {
+  if (timerRef.current !== null) {
+    window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+}
+
+function startFirstFrameTimer(timerRef: MutableRefObject<number | null>, onTimeout: () => void) {
+  clearFirstFrameTimer(timerRef);
+  timerRef.current = window.setTimeout(onTimeout, FIRST_FRAME_TIMEOUT_MS);
+}
+
+function clearFirstFrameTimer(timerRef: MutableRefObject<number | null>) {
   if (timerRef.current !== null) {
     window.clearTimeout(timerRef.current);
     timerRef.current = null;
@@ -401,6 +490,20 @@ function serializePayload(payload: unknown) {
     return redactSignedUrls(JSON.stringify(payload));
   } catch {
     return redactSignedUrls(String(payload));
+  }
+}
+
+function shortPayload(payload: unknown) {
+  const text = serializePayload(payload);
+  return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+}
+
+function safePlayerState(player: EzuikitFlvPlayer) {
+  if (typeof player.getState !== "function") return "unavailable";
+  try {
+    return shortPayload(player.getState());
+  } catch (err) {
+    return errorText(err);
   }
 }
 

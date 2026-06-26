@@ -2956,3 +2956,20 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `cd frontend && npm run test` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+
+## 2026-06-26 H5 Monitor 移动端黑屏诊断增强 2.19.9 开发记录
+
+- 背景：
+  - 2.19.8 在手机端仍然黑屏，页面只显示“点击开启声音”，没有错误详情。
+  - 截图说明播放器实例已经初始化成功，但没有渲染出首帧；之前代码在初始化成功后立即关闭 loading，导致“初始化成功但无首帧”的状态被误判为正常。
+- 排查结论：
+  - 当前缺少首帧/流成功诊断，无法判断卡在取流、解码、还是渲染阶段。
+  - `ezuikit-flv` 暴露 `streamSuccess`、`videoInfo`、`videoFrame`、`playing`、`loadingTimeout`、`wasmDecodeError` 等事件，可用于收集黑屏证据。
+- 实现：
+  - 播放器初始化后不再立即收起 loading，而是等待 `streamSuccess/videoInfo/videoFrame/playing/loaded` 这类首帧或流成功事件。
+  - 增加 12 秒首帧超时诊断：超时后显示 `first-frame-timeout`、协议、解码路径、最近播放器事件和 `getState()`。
+  - 监听更多错误事件，包括 `wasmDecodeError`、`webcodecsH265NotSupport`、`mediaSourceH265NotSupport`、`unrecoverableEarlyEof` 等。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
