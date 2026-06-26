@@ -1433,6 +1433,9 @@ func TestConfirmVIPTreatmentAllowsBlankNumberAndCountsAsTreatment(t *testing.T) 
 	if result.Items[0].TreatmentCount != 1 {
 		t.Fatalf("expected VIP treatment to count as treatment, got %d", result.Items[0].TreatmentCount)
 	}
+	if result.Items[0].AreaCount != 1 {
+		t.Fatalf("expected VIP treatment to count toward total business areas, got %d", result.Items[0].AreaCount)
+	}
 }
 
 func TestSaveDesignPlanAllowsVIPTreatmentWithoutNumber(t *testing.T) {
@@ -1479,6 +1482,9 @@ func TestSaveDesignPlanAllowsVIPTreatmentWithoutNumber(t *testing.T) {
 	}
 	if result.Items[0].TreatmentCount != 1 {
 		t.Fatalf("expected VIP treatment to count as treatment, got %d", result.Items[0].TreatmentCount)
+	}
+	if result.Items[0].AreaCount != 1 {
+		t.Fatalf("expected saved design area to count toward total business areas, got %d", result.Items[0].AreaCount)
 	}
 }
 

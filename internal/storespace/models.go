@@ -256,6 +256,7 @@ type StoreListItem struct {
 	TreatmentCount         int              `json:"treatment_count"`
 	ConsultationCount      int              `json:"consultation_count"`
 	BeautyCount            int              `json:"beauty_count"`
+	AreaCount              int              `json:"area_count"`
 	UpdatedAt              time.Time        `json:"updated_at"`
 }
 

@@ -1132,7 +1132,8 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 				) = 0 as channels_fully_confirmed,
 			count(distinct a.id) filter (where a.area_type in ('treatment', 'vip_treatment')) as treatment_count,
 			count(distinct a.id) filter (where a.area_type = 'consultation') as consultation_count,
-			count(distinct a.id) filter (where a.area_type = 'beauty') as beauty_count
+			count(distinct a.id) filter (where a.area_type = 'beauty') as beauty_count,
+			count(distinct a.id) as area_count
 		from stores s
 		left join store_areas a on a.store_id = s.id
 		left join video_recorders r on r.store_id = s.id
@@ -1166,6 +1167,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 			&item.TreatmentCount,
 			&item.ConsultationCount,
 			&item.BeautyCount,
+			&item.AreaCount,
 		); err != nil {
 			return StoreListResult{}, err
 		}
@@ -2891,6 +2893,7 @@ func storeListItem(store Store) StoreListItem {
 	}
 	item.ChannelsFullyConfirmed = activeChannelsFullyConfirmed(store.Recorders)
 	for _, area := range store.Areas {
+		item.AreaCount++
 		switch area.Type {
 		case AreaTypeTreatment, AreaTypeVIPTreatment:
 			item.TreatmentCount++
