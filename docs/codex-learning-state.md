@@ -2740,3 +2740,8 @@ git pull --ff-only
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
+- 发布：
+  - GitHub `main` commit：`e974ee3 Return store list area counts`。
+  - 公司 GitLab 发布分支 merge commit：`5700181 Merge branch 'main' into codex/containerize-single-image`。
+  - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 公司线上 JS 已更新为 `assets/index-BoEHEZrM.js`，确认包含 `2.18.4`。
