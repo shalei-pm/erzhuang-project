@@ -448,9 +448,9 @@ function summarizeStores(stores: StoreSummary[]) {
   return stores.reduce(
     (summary, store) => ({
       storeCount: summary.storeCount + 1,
-      consultationCount: summary.consultationCount + store.consultationCount,
-      treatmentCount: summary.treatmentCount + store.treatmentCount,
-      beautyCount: summary.beautyCount + store.beautyCount,
+      consultationCount: summary.consultationCount + (store.consultationCount ?? 0),
+      treatmentCount: summary.treatmentCount + (store.treatmentCount ?? 0),
+      beautyCount: summary.beautyCount + (store.beautyCount ?? 0),
     }),
     { storeCount: 0, consultationCount: 0, treatmentCount: 0, beautyCount: 0 },
   );

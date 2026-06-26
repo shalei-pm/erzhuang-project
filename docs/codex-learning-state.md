@@ -2702,3 +2702,19 @@ git pull --ff-only
   - 公司 GitLab 发布分支 merge commit：`01493f2 Merge branch 'main' into codex/containerize-single-image`。
   - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
   - 公司线上 JS 已更新为 `assets/index-BHsDPUSA.js`，确认包含 `2.18.2`。
+
+## 2026-06-26 详情页局部统计未知值修复 2.18.3 开发记录
+
+- 背景：
+  - 2.18.2 修复了 Tab 切换时统计互相清零，但通道映射 Tab 首次进入仍可能显示业务区域数 0。
+  - 根因是 `channel-data` 局部接口不返回 `areas` 字段，前端映射层把“未返回区域数据”推导成 `areaCount=0`。
+- 实现：
+  - `mapStoreSpaceDetail` 区分“后端返回空数组”和“后端未返回字段”。
+  - 当 `areas` 字段缺失时，不再推导区域相关计数为 0，而是保留为未知值，交给详情合并逻辑沿用列表摘要或已加载设计图数据。
+  - 当 `recorders` 字段缺失时，同理不推导录像机/通道计数为 0。
+  - `mergeStoreDetailTab` 遇到局部详情统计为未知值时保留当前统计。
+- 验证：
+  - `store-detail-navigation` 定向测试通过。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。

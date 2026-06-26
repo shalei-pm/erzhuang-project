@@ -53,13 +53,13 @@ export type StoreSummary = {
   externalOrgId: string;
   thumbnailUrl: string;
   designPlanStatus: DesignPlanStatus;
-  recorderCount: number;
-  channelCount: number;
-  channelsFullyConfirmed: boolean;
-  treatmentCount: number;
-  consultationCount: number;
-  beautyCount: number;
-  areaCount: number;
+  recorderCount: number | undefined;
+  channelCount: number | undefined;
+  channelsFullyConfirmed: boolean | undefined;
+  treatmentCount: number | undefined;
+  consultationCount: number | undefined;
+  beautyCount: number | undefined;
+  areaCount: number | undefined;
   status: StoreStatus;
   updatedAt: string;
 };
@@ -1805,17 +1805,18 @@ function mapStoreSpaceSummary(store: BackendStoreSpaceSummary): StoreSummary {
 
 function mapStoreSpaceDetail(store: BackendStoreSpaceDetail): StoreDetail {
   const designPlan = firstStoreSpaceDesignPlan(store);
+  const hasAreas = store.areas !== undefined;
+  const hasRecorders = store.recorders !== undefined;
   const areas = (store.areas ?? []).map(mapStoreSpaceArea);
   const recorders = (store.recorders ?? []).map(mapBackendRecorder);
   const counts = countAreas(areas);
-  const summary = mapStoreSpaceSummary({
-    ...store,
-    treatment_count: store.treatment_count ?? store.treatmentCount ?? counts.treatment,
-    consultation_count: store.consultation_count ?? store.consultationCount ?? counts.consultation,
-    beauty_count: store.beauty_count ?? store.beautyCount ?? counts.beauty,
-    area_count: store.area_count ?? store.areaCount ?? areas.length,
-    recorder_count: store.recorder_count ?? store.recorderCount ?? recorders.length,
-    channel_count: store.channel_count ?? store.channelCount ?? countChannels(recorders),
+  const summary = mapStoreSpaceDetailSummary(store, {
+    treatmentCount: hasAreas ? counts.treatment : undefined,
+    consultationCount: hasAreas ? counts.consultation : undefined,
+    beautyCount: hasAreas ? counts.beauty : undefined,
+    areaCount: hasAreas ? areas.length : undefined,
+    recorderCount: hasRecorders ? recorders.length : undefined,
+    channelCount: hasRecorders ? countChannels(recorders) : undefined,
   });
 
   return {
@@ -1830,6 +1831,29 @@ function mapStoreSpaceDetail(store: BackendStoreSpaceDetail): StoreDetail {
     recognitionResult: designPlan?.recognition_result ?? designPlan?.recognitionResult,
     areas,
     recorders,
+  };
+}
+
+function mapStoreSpaceDetailSummary(
+  store: BackendStoreSpaceSummary,
+  inferred: Partial<Pick<StoreSummary, "recorderCount" | "channelCount" | "treatmentCount" | "consultationCount" | "beautyCount" | "areaCount">>,
+): StoreSummary {
+  return {
+    id: store.id,
+    city: store.city ?? store.cityName ?? "",
+    name: store.name,
+    externalOrgId: store.external_org_id ?? store.externalOrgId ?? "",
+    thumbnailUrl: "",
+    designPlanStatus: store.design_plan_status ?? store.designPlanStatus ?? "not_uploaded",
+    recorderCount: store.recorder_count ?? store.recorderCount ?? inferred.recorderCount,
+    channelCount: store.channel_count ?? store.channelCount ?? inferred.channelCount,
+    channelsFullyConfirmed: store.channels_fully_confirmed ?? store.channelsFullyConfirmed,
+    treatmentCount: store.treatment_count ?? store.treatmentCount ?? inferred.treatmentCount,
+    consultationCount: store.consultation_count ?? store.consultationCount ?? inferred.consultationCount,
+    beautyCount: store.beauty_count ?? store.beautyCount ?? inferred.beautyCount,
+    areaCount: store.area_count ?? store.areaCount ?? inferred.areaCount,
+    status: mapStoreSpaceOverallStatus(store.overall_status ?? store.overallStatus),
+    updatedAt: store.updated_at ?? store.updatedAt ?? new Date().toISOString(),
   };
 }
 
