@@ -114,6 +114,46 @@ assertEqual(mergedWithDesignPlan.recorders.length, 1);
 assertEqual(mergedWithDesignPlan.fileName, "plan.pdf");
 assertEqual(mergedWithDesignPlan.areas.length, 1);
 
+const summaryWithCounts = summary({
+  recorderCount: 2,
+  channelCount: 24,
+  areaCount: 13,
+  treatmentCount: 6,
+  consultationCount: 4,
+  beautyCount: 3,
+});
+const channelOnlyDetail = detail({
+  recorderCount: 2,
+  channelCount: 24,
+  areaCount: 0,
+  treatmentCount: 6,
+  consultationCount: 4,
+  beautyCount: 3,
+  recorders: channelDetail.recorders,
+});
+const designPlanOnlyDetail = detail({
+  recorderCount: 0,
+  channelCount: 0,
+  areaCount: 13,
+  treatmentCount: 0,
+  consultationCount: 0,
+  beautyCount: 0,
+  fileName: "plan.pdf",
+  previewUrl: "/plan.png",
+  areas: designPlanDetail.areas,
+});
+const mergedChannelOnly = mergeStoreDetailTab(makePendingStoreDetail(summaryWithCounts), channelOnlyDetail, "channels");
+assertEqual(mergedChannelOnly.recorderCount, 2);
+assertEqual(mergedChannelOnly.channelCount, 24);
+assertEqual(mergedChannelOnly.areaCount, 13);
+const mergedBothTabs = mergeStoreDetailTab(mergedChannelOnly, designPlanOnlyDetail, "design-plan");
+assertEqual(mergedBothTabs.recorderCount, 2);
+assertEqual(mergedBothTabs.channelCount, 24);
+assertEqual(mergedBothTabs.areaCount, 13);
+assertEqual(mergedBothTabs.treatmentCount, 6);
+assertEqual(mergedBothTabs.consultationCount, 4);
+assertEqual(mergedBothTabs.beautyCount, 3);
+
 console.log("store-detail-navigation tests passed");
 
 function assertEqual(actual: unknown, expected: unknown) {
