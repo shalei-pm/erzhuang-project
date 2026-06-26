@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  base: "/erzhuang/",
+  base: "/erzhuang-project/",
   plugins: [react()],
   test: {
     include: ["src/api.test.ts"],
@@ -15,10 +15,10 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 5173,
     proxy: {
-      "/erzhuang/api": {
+      "/erzhuang-project/api": {
         target: "http://127.0.0.1:18080",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/erzhuang\/api/, "/api"),
+        rewrite: (path) => path.replace(/^\/erzhuang-project\/api/, "/api"),
       },
     },
   },
