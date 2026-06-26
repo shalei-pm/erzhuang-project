@@ -74,7 +74,7 @@ func (c *Client) QueryRecordSegments(ctx context.Context, account Account, input
 	if err != nil {
 		return RecordSegmentsResult{}, err
 	}
-	result, err := c.callRecordSegments(ctx, account, token, serial, input.ChannelNo, startTime, endTime, pageSize)
+	result, err := c.callRecordSegmentsPages(ctx, account, token, serial, input.ChannelNo, startTime, endTime, pageSize)
 	if err != nil {
 		if !isTokenError(err) {
 			return RecordSegmentsResult{}, err
@@ -83,9 +83,34 @@ func (c *Client) QueryRecordSegments(ctx context.Context, account Account, input
 		if err != nil {
 			return RecordSegmentsResult{}, err
 		}
-		return c.callRecordSegments(ctx, account, token, serial, input.ChannelNo, startTime, endTime, pageSize)
+		return c.callRecordSegmentsPages(ctx, account, token, serial, input.ChannelNo, startTime, endTime, pageSize)
 	}
 	return result, nil
+}
+
+func (c *Client) callRecordSegmentsPages(ctx context.Context, account Account, token string, deviceSerial string, channelNo int, startTime int64, endTime int64, pageSize int) (RecordSegmentsResult, error) {
+	var merged RecordSegmentsResult
+	nextStart := startTime
+	for page := 0; page < 20; page++ {
+		result, err := c.callRecordSegments(ctx, account, token, deviceSerial, channelNo, nextStart, endTime, pageSize)
+		if err != nil {
+			return RecordSegmentsResult{}, err
+		}
+		if page == 0 {
+			merged = result
+		} else {
+			merged.Records = append(merged.Records, result.Records...)
+			merged.HasMore = result.HasMore
+			merged.NextFileTime = result.NextFileTime
+		}
+		if !result.HasMore || result.NextFileTime <= nextStart || result.NextFileTime > endTime {
+			merged.HasMore = result.HasMore && result.NextFileTime > nextStart && result.NextFileTime <= endTime
+			merged.NextFileTime = result.NextFileTime
+			return merged, nil
+		}
+		nextStart = result.NextFileTime
+	}
+	return merged, nil
 }
 
 func (c *Client) callRecordSegments(ctx context.Context, account Account, token string, deviceSerial string, channelNo int, startTime int64, endTime int64, pageSize int) (RecordSegmentsResult, error) {
@@ -130,8 +155,17 @@ func dayRange(date time.Time) (int64, int64) {
 	if date.IsZero() {
 		date = time.Now()
 	}
+	date = date.In(ezvizLocation())
 	year, month, day := date.Date()
 	start := time.Date(year, month, day, 0, 0, 0, 0, date.Location())
 	end := start.Add(24*time.Hour - time.Second)
 	return start.Unix(), end.Unix()
+}
+
+func ezvizLocation() *time.Location {
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("CST", 8*60*60)
+	}
+	return location
 }

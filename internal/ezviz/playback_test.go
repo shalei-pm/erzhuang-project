@@ -34,7 +34,7 @@ func TestPlaybackAddressRequestsTypeTwoFLVAndRefreshesToken(t *testing.T) {
 			if r.Form.Get("mute") != "0" {
 				t.Fatalf("unexpected mute %q", r.Form.Get("mute"))
 			}
-			if r.Form.Get("startTime") != "1731945592" || r.Form.Get("stopTime") != "1731949200" {
+			if r.Form.Get("startTime") != "2024-11-18 23:59:52" || r.Form.Get("stopTime") != "2024-11-19 01:00:00" {
 				t.Fatalf("unexpected playback time range %q-%q", r.Form.Get("startTime"), r.Form.Get("stopTime"))
 			}
 			return jsonResponse(`{"code":"200","msg":"ok","data":{"id":"play-url-1","url":"https://example.test/play.flv","expireTime":"2026-12-31 23:59:59"}}`), nil

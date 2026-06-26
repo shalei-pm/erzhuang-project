@@ -2849,3 +2849,25 @@ git pull --ff-only
   - `cd frontend && npm run test` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `git diff --check` 通过。
+
+## 2026-06-26 H5 Monitor 回放时间参数与片段分页修复 2.19.4 开发记录
+
+- 背景：
+  - 公司线上 H5 监控切到“录像”后，点击回放片段获取播放地址失败。
+  - 错误提示为 `回放地址获取失败 · HTTP 500 · code=10001 · ezviz api error code=10001 msg=illegal parameter startTime`。
+  - 用户同时反馈录像回放片段“好像也不太对”。
+- 排查结论：
+  - 录像片段查询接口 `/api/v3/device/local/video/unify/query` 的 `startTime/endTime` 使用 Unix 秒是正确的。
+  - 播放地址接口 `/api/lapp/v2/live/address/get` 在回放模式下要求 `startTime/stopTime` 为 `YYYY-MM-DD HH:mm:ss` 字符串；之前后端错误地传了 Unix 秒。
+  - 公司容器时区不应影响录像片段日期。片段查询应按中国门店业务日期，也就是 `Asia/Shanghai` 自然日查询。
+  - 片段查询返回 `hasMore/nextFileTime` 时，之前只取第一页，会导致一天内录像片段不完整。
+- 实现：
+  - 回放播放地址参数改为北京时间 `YYYY-MM-DD HH:mm:ss`。
+  - 录像片段查询的自然日范围固定按 `Asia/Shanghai` 计算。
+  - 录像片段查询支持跟随 `nextFileTime` 分页合并，避免只展示第一页片段。
+  - 增加 Go 测试覆盖回放时间格式、上海自然日范围、片段分页合并。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `git diff --check` 通过。

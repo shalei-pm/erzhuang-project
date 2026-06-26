@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const ezvizTimeLayout = "2006-01-02 15:04:05"
+
 type PlaybackRequest struct {
 	DeviceSerial string
 	ChannelNo    int
@@ -138,10 +140,14 @@ func playbackValues(token string, input PlaybackRequest) url.Values {
 	values.Set("expireTime", strconv.Itoa(expireTime))
 	values.Set("supportH265", "1")
 	values.Set("mute", "0")
-	values.Set("startTime", strconv.FormatInt(input.StartTime.Unix(), 10))
-	values.Set("stopTime", strconv.FormatInt(input.StopTime.Unix(), 10))
+	values.Set("startTime", formatEzvizLocalTime(input.StartTime))
+	values.Set("stopTime", formatEzvizLocalTime(input.StopTime))
 	if code := strings.TrimSpace(input.Code); code != "" {
 		values.Set("code", code)
 	}
 	return values
+}
+
+func formatEzvizLocalTime(value time.Time) string {
+	return value.In(ezvizLocation()).Format(ezvizTimeLayout)
 }
