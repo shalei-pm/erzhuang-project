@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { storeSpaceApi, type AreaType, type StoreArea, type StoreDetail } from "../api";
-import { createManualArea, mergeRecognizedAreas, normalizeAreaForSave, withGeneratedAreaFields } from "../domain/areas";
+import { createManualArea, isAreaNumberOptional, mergeRecognizedAreas, normalizeAreaForSave, withGeneratedAreaFields } from "../domain/areas";
 import { clampBox, type DragState, planFileNameForStore, resizeBox, stageText, type UploadStage } from "../domain/designPlan";
 import { errorMessage } from "../domain/format";
 import { AreaCardList } from "./AreaCardList";
@@ -410,14 +410,17 @@ function validateAreas(areas: StoreArea[], hasPreview: boolean): ValidationResul
     if (!areaItem.name.trim()) errors.push("区域名称不能为空");
     if (!areaItem.type) errors.push("区域类型不能为空");
     if (!areaItem.box) errors.push("高亮框不能为空");
-    if (areaItem.type && !areaItem.number.trim()) {
+    if (areaItem.type && !isAreaNumberOptional(areaItem.type) && !areaItem.number.trim()) {
       errors.push(`${areaTypeLabel(areaItem.type)}编号不能为空`);
     }
     if (areaItem.number.trim() && !/^\d+$/.test(areaItem.number.trim())) {
       errors.push("编号只能填写数字");
     }
-    if (areaItem.type && areaItem.number.trim() && /^\d+$/.test(areaItem.number.trim())) {
-      const key = `${areaItem.type}:${Number(areaItem.number)}`;
+    const canCheckDuplicate =
+      areaItem.type &&
+      ((areaItem.number.trim() && /^\d+$/.test(areaItem.number.trim())) || (isAreaNumberOptional(areaItem.type) && !areaItem.number.trim()));
+    if (canCheckDuplicate) {
+      const key = `${areaItem.type}:${areaItem.number.trim() ? Number(areaItem.number) : 0}`;
       if (seenNumbers.has(key)) {
         errors.push("同类型下编号不能重复");
         const firstAreaId = seenNumbers.get(key);
@@ -438,6 +441,7 @@ function validateAreas(areas: StoreArea[], hasPreview: boolean): ValidationResul
 
 function areaTypeLabel(type: AreaType) {
   if (type === "treatment") return "治疗室";
+  if (type === "vip_treatment") return "VIP治疗室";
   if (type === "consultation") return "面诊室";
   return "生美";
 }

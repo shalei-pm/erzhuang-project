@@ -792,12 +792,12 @@ func TestExpiredRemoteChannelSnapshotIsNotExposed(t *testing.T) {
 	}
 	expiredAt := time.Now().Add(-time.Hour)
 	_, err = repo.SaveChannelSnapshot(context.Background(), recorder.Channels[0].ID, ChannelSnapshotInput{
-		ThumbnailPath:       "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
-		FullImagePath:       "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
-		FullImageExpiresAt:  &expiredAt,
-		RecognitionResult:   channelRecognitionStatusJSON("captured", "", 10, 0, 10),
-		AreaNumberText:      "1",
-		CountAttempt:        true,
+		ThumbnailPath:      "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
+		FullImagePath:      "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
+		FullImageExpiresAt: &expiredAt,
+		RecognitionResult:  channelRecognitionStatusJSON("captured", "", 10, 0, 10),
+		AreaNumberText:     "1",
+		CountAttempt:       true,
 	})
 	if err != nil {
 		t.Fatalf("save snapshot: %v", err)
@@ -1381,6 +1381,104 @@ func TestConfirmChannelCreatesBusinessArea(t *testing.T) {
 	}
 	if channel.ConfirmedAt == nil {
 		t.Fatal("expected confirmation timestamp")
+	}
+}
+
+func TestConfirmVIPTreatmentAllowsBlankNumberAndCountsAsTreatment(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华南"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "VIP治疗室", Active: true}},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "深圳",
+		Name: "深圳壹方城",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GQ2603603"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	updated, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:  AreaTypeVIPTreatment,
+		SceneType: SceneTypeVIPTreatment,
+	})
+	if err != nil {
+		t.Fatalf("confirm VIP treatment without number: %v", err)
+	}
+
+	if len(updated.Areas) != 1 {
+		t.Fatalf("expected one VIP treatment area, got %#v", updated.Areas)
+	}
+	if updated.Areas[0].Type != AreaTypeVIPTreatment || updated.Areas[0].Number != 0 {
+		t.Fatalf("unexpected VIP treatment area: %#v", updated.Areas[0])
+	}
+	channel := updated.Recorders[0].Channels[0]
+	if channel.Status != ChannelStatusConfirmedBusiness || channel.AreaType != AreaTypeVIPTreatment || channel.AreaNumber != 0 {
+		t.Fatalf("unexpected confirmed channel: %#v", channel)
+	}
+	result, err := service.ListStores(context.Background(), StoreFilters{})
+	if err != nil {
+		t.Fatalf("list stores: %v", err)
+	}
+	if result.Items[0].TreatmentCount != 1 {
+		t.Fatalf("expected VIP treatment to count as treatment, got %d", result.Items[0].TreatmentCount)
+	}
+}
+
+func TestSaveDesignPlanAllowsVIPTreatmentWithoutNumber(t *testing.T) {
+	repo := NewMemoryStore()
+	service := NewService(repo)
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City:               "深圳",
+		Name:               "深圳壹方城",
+		ExternalOrgID:      "10001",
+		DesignPlanUploadID: "upload_123",
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	updated, err := service.SaveDesignPlan(context.Background(), store.ID, SaveDesignPlanInput{
+		UploadID:         "upload_123",
+		PDFFileName:      "shenzhen.pdf",
+		PreviewImagePath: "uploads/upload_123/preview.png",
+		ThumbnailPath:    "uploads/upload_123/thumbnail.png",
+		PageCount:        1,
+		Areas: []DesignAreaInput{
+			{
+				DisplayName: "VIP治疗室",
+				Type:        AreaTypeVIPTreatment,
+				NumberText:  "",
+				Box:         &AreaBox{X: 0.1, Y: 0.2, Width: 0.3, Height: 0.4},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("save VIP treatment without number: %v", err)
+	}
+
+	if len(updated.Areas) != 1 {
+		t.Fatalf("expected one area, got %#v", updated.Areas)
+	}
+	if updated.Areas[0].Type != AreaTypeVIPTreatment || updated.Areas[0].Number != 0 || updated.Areas[0].DisplayName != "VIP治疗室" {
+		t.Fatalf("unexpected VIP treatment area: %#v", updated.Areas[0])
+	}
+	result, err := service.ListStores(context.Background(), StoreFilters{})
+	if err != nil {
+		t.Fatalf("list stores: %v", err)
+	}
+	if result.Items[0].TreatmentCount != 1 {
+		t.Fatalf("expected VIP treatment to count as treatment, got %d", result.Items[0].TreatmentCount)
 	}
 }
 

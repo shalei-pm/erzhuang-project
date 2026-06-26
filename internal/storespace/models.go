@@ -6,6 +6,7 @@ type AreaType string
 
 const (
 	AreaTypeTreatment    AreaType = "treatment"
+	AreaTypeVIPTreatment AreaType = "vip_treatment"
 	AreaTypeConsultation AreaType = "consultation"
 	AreaTypeBeauty       AreaType = "beauty"
 )
@@ -75,6 +76,7 @@ type SceneType string
 
 const (
 	SceneTypeTreatment    SceneType = "treatment"
+	SceneTypeVIPTreatment SceneType = "vip_treatment"
 	SceneTypeConsultation SceneType = "consultation"
 	SceneTypeBeauty       SceneType = "beauty"
 	SceneTypeFrontDesk    SceneType = "front_desk"

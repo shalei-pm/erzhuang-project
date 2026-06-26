@@ -1,5 +1,5 @@
 import type { AreaType, StoreArea } from "../api";
-import { areaDisplayName, areaSummary } from "../domain/areas";
+import { areaDisplayName, areaSummary, isAreaNumberOptional } from "../domain/areas";
 
 type AreaCardListProps = {
   areas: StoreArea[];
@@ -27,6 +27,7 @@ export function AreaCardList({
       {areas.map((areaItem, index) => {
         const errors = areaErrors[areaItem.id] ?? [];
         const lockedByChannel = areaItem.source === "video_channel" || areaItem.source === "multiple";
+        const numberOptional = isAreaNumberOptional(areaItem.type);
         return (
           <article
             ref={(node) => {
@@ -59,6 +60,7 @@ export function AreaCardList({
                 >
                   <option value="">请选择</option>
                   <option value="treatment">治疗室</option>
+                  <option value="vip_treatment">VIP治疗室</option>
                   <option value="consultation">面诊室</option>
                   <option value="beauty">生美</option>
                 </select>
@@ -70,7 +72,7 @@ export function AreaCardList({
                   disabled={lockedByChannel}
                   onChange={(event) => onUpdateArea(areaItem.id, { number: event.target.value })}
                   inputMode="numeric"
-                  placeholder="必填"
+                  placeholder={numberOptional ? "-" : "必填"}
                 />
               </label>
             </div>

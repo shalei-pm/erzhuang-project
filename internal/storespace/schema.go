@@ -44,14 +44,20 @@ func PostgresSchemaStatements() []string {
 			created_at timestamptz not null default now(),
 			updated_at timestamptz not null default now(),
 			constraint store_areas_type_check
-				check (area_type in ('treatment', 'consultation', 'beauty')),
+				check (area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty')),
 			constraint store_areas_source_check
 				check (source in ('manual', 'design_plan', 'video_channel', 'multiple')),
 			constraint store_areas_status_check
 				check (status in ('candidate', 'confirmed')),
 			constraint store_areas_area_number_check
-				check (area_number > 0)
+				check ((area_type = 'vip_treatment' and area_number >= 0) or (area_type <> 'vip_treatment' and area_number > 0))
 		)`,
+		`alter table store_areas drop constraint if exists store_areas_type_check`,
+		`alter table store_areas add constraint store_areas_type_check
+			check (area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty'))`,
+		`alter table store_areas drop constraint if exists store_areas_area_number_check`,
+		`alter table store_areas add constraint store_areas_area_number_check
+			check ((area_type = 'vip_treatment' and area_number >= 0) or (area_type <> 'vip_treatment' and area_number > 0))`,
 		`create unique index if not exists store_areas_unique_number_per_type
 			on store_areas (store_id, area_type, area_number)`,
 		`create table if not exists store_design_plans (
@@ -144,15 +150,21 @@ func PostgresSchemaStatements() []string {
 			constraint video_channels_status_check
 				check (status in ('pending_recognition', 'pending_confirmation', 'confirmed_business', 'confirmed_non_business', 'recognition_failed', 'inactive')),
 			constraint video_channels_scene_type_check
-				check (scene_type in ('treatment', 'consultation', 'beauty', 'front_desk', 'corridor', 'passage', 'waiting_area', 'hall', 'entrance', 'storage', 'pharmacy', 'machine_room', 'unknown')),
+				check (scene_type in ('treatment', 'vip_treatment', 'consultation', 'beauty', 'front_desk', 'corridor', 'passage', 'waiting_area', 'hall', 'entrance', 'storage', 'pharmacy', 'machine_room', 'unknown')),
 			constraint video_channels_area_type_check
-				check (area_type is null or area_type in ('treatment', 'consultation', 'beauty')),
+				check (area_type is null or area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty')),
 			constraint video_channels_channel_no_check
 				check (channel_no > 0),
 			constraint video_channels_recognition_attempts_check
 				check (recognition_attempts >= 0)
 		)`,
 		`alter table video_channels add column if not exists area_note text not null default ''`,
+		`alter table video_channels drop constraint if exists video_channels_scene_type_check`,
+		`alter table video_channels add constraint video_channels_scene_type_check
+			check (scene_type in ('treatment', 'vip_treatment', 'consultation', 'beauty', 'front_desk', 'corridor', 'passage', 'waiting_area', 'hall', 'entrance', 'storage', 'pharmacy', 'machine_room', 'unknown'))`,
+		`alter table video_channels drop constraint if exists video_channels_area_type_check`,
+		`alter table video_channels add constraint video_channels_area_type_check
+			check (area_type is null or area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty'))`,
 		`create unique index if not exists video_channels_unique_channel
 			on video_channels (recorder_id, channel_no)`,
 		`create table if not exists channel_snapshots (
@@ -298,7 +310,7 @@ func PostgresSchemaStatements() []string {
 			from design_plan_store_areas dpa
 			join design_plan_stores dps on dps.id = dpa.store_id
 			join stores s on s.normalized_name = dps.normalized_name
-			where dpa.area_type in ('treatment', 'consultation', 'beauty')
+			where dpa.area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty')
 		),
 		legacy_areas as (
 			select
@@ -357,7 +369,7 @@ func PostgresSchemaStatements() []string {
 			from design_plan_store_areas dpa
 			join design_plan_stores dps on dps.id = dpa.store_id
 			join stores s on s.normalized_name = dps.normalized_name
-			where dpa.area_type in ('treatment', 'consultation', 'beauty')
+			where dpa.area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty')
 		),
 		legacy_areas as (
 			select

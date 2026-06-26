@@ -12,6 +12,7 @@ type AreaType string
 
 const (
 	AreaTypeTreatment    AreaType = "treatment"
+	AreaTypeVIPTreatment AreaType = "vip_treatment"
 	AreaTypeConsultation AreaType = "consultation"
 	AreaTypeBeauty       AreaType = "beauty"
 )

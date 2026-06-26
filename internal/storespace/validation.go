@@ -100,11 +100,14 @@ func validateSaveDesignPlanInput(input SaveDesignPlanInput) error {
 	for index, area := range input.Areas {
 		prefix := fmt.Sprintf("areas[%d]", index)
 		if !validAreaType(area.Type) {
-			fields[prefix+".area_type"] = "区域类型只能是 treatment、consultation、beauty"
+			fields[prefix+".area_type"] = "区域类型只能是 treatment、vip_treatment、consultation、beauty"
 		}
-		number := mustPositiveInt(area.NumberText)
-		if strings.TrimSpace(area.NumberText) == "" {
-			fields[prefix+".area_number"] = "区域编号必填"
+		numberText := strings.TrimSpace(area.NumberText)
+		number := mustPositiveInt(numberText)
+		if numberText == "" {
+			if area.Type != AreaTypeVIPTreatment {
+				fields[prefix+".area_number"] = "区域编号必填"
+			}
 		} else if !onlyDigits(area.NumberText) {
 			fields[prefix+".area_number"] = "区域编号只能是数字"
 		} else if number <= 0 {
@@ -113,7 +116,7 @@ func validateSaveDesignPlanInput(input SaveDesignPlanInput) error {
 		if area.Box == nil {
 			fields[prefix+".box"] = "高亮框不能为空"
 		}
-		if area.Type != "" && number > 0 {
+		if area.Type != "" && (number > 0 || (area.Type == AreaTypeVIPTreatment && numberText == "")) {
 			key := string(area.Type) + ":" + strconv.Itoa(number)
 			if seenNumbers[key] {
 				fields[prefix+".area_number"] = "同类型下编号不能重复"
@@ -133,11 +136,13 @@ func validateAreaLookup(input AreaLookup) (int, error) {
 		fields["store_id"] = "门店 ID 必填"
 	}
 	if !validAreaType(input.Type) {
-		fields["area_type"] = "区域类型只能是 treatment、consultation、beauty"
+		fields["area_type"] = "区域类型只能是 treatment、vip_treatment、consultation、beauty"
 	}
 	numberText := strings.TrimSpace(input.NumberText)
 	if numberText == "" {
-		fields["area_number"] = "区域编号必填"
+		if input.Type != AreaTypeVIPTreatment {
+			fields["area_number"] = "区域编号必填"
+		}
 	} else if !onlyDigits(numberText) {
 		fields["area_number"] = "区域编号只能是数字"
 	}
@@ -146,6 +151,9 @@ func validateAreaLookup(input AreaLookup) (int, error) {
 	}
 	if len(fields) > 0 {
 		return 0, &ValidationError{Fields: fields}
+	}
+	if numberText == "" && input.Type == AreaTypeVIPTreatment {
+		return 0, nil
 	}
 	number, err := strconv.Atoi(numberText)
 	if err != nil || number <= 0 {
@@ -184,11 +192,13 @@ func validateChannelConfirmationInput(input ChannelConfirmationInput) (int, erro
 		return 0, nil
 	}
 	if !validAreaType(input.AreaType) {
-		fields["area_type"] = "区域类型只能是 treatment、consultation、beauty"
+		fields["area_type"] = "区域类型只能是 treatment、vip_treatment、consultation、beauty"
 	}
 	numberText := strings.TrimSpace(input.AreaNumber)
 	if numberText == "" {
-		fields["area_number"] = "区域编号必填"
+		if input.AreaType != AreaTypeVIPTreatment {
+			fields["area_number"] = "区域编号必填"
+		}
 	} else if !onlyDigits(numberText) {
 		fields["area_number"] = "区域编号只能是数字"
 	}
@@ -196,6 +206,9 @@ func validateChannelConfirmationInput(input ChannelConfirmationInput) (int, erro
 		return 0, &ValidationError{Fields: fields}
 	}
 	number, err := strconv.Atoi(numberText)
+	if numberText == "" && input.AreaType == AreaTypeVIPTreatment {
+		return 0, nil
+	}
 	if err != nil || number <= 0 {
 		return 0, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
 	}
@@ -203,7 +216,7 @@ func validateChannelConfirmationInput(input ChannelConfirmationInput) (int, erro
 }
 
 func validAreaType(value AreaType) bool {
-	return value == AreaTypeTreatment || value == AreaTypeConsultation || value == AreaTypeBeauty
+	return value == AreaTypeTreatment || value == AreaTypeVIPTreatment || value == AreaTypeConsultation || value == AreaTypeBeauty
 }
 
 func validAreaSource(value AreaSource) bool {
@@ -216,6 +229,7 @@ func validAreaSource(value AreaSource) bool {
 func validSceneType(value SceneType) bool {
 	switch value {
 	case SceneTypeTreatment,
+		SceneTypeVIPTreatment,
 		SceneTypeConsultation,
 		SceneTypeBeauty,
 		SceneTypeFrontDesk,

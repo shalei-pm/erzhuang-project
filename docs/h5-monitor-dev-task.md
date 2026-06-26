@@ -121,9 +121,39 @@ POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/playback-url
 /h5/orgs/{externalOrgId}/monitor/channels/{channelId} -> 详情（播放器）
 ```
 
+### 通道分组复用规则
+
+后台通道映射页已经沉淀一套可复用的通道筛选/排序规则。H5 monitor 首页不要重新发明分组口径，应复用同样的领域规则：
+
+- 共享规则位置：`frontend/src/domain/channel-filters.ts`。
+- 分组：全部、面诊室、治疗室、生美、前台/候诊区、通道/其他。
+- `VIP治疗室` 属于治疗室大类，筛选“治疗室”时必须包含。
+- `前台/候诊区` 只按可见/可维护文本包含 `前台`、`候诊`、`等候` 判断，不根据 AI 原始长文本猜测。
+- `通道/其他` 是非业务且非前台候诊的兜底组，包含通道、走廊、药房、机房、办公室、未知等。
+- 排序：全部按录像机编号 + 通道号；业务区域按编号/备注里的数字；前台/候诊区和通道/其他按展示文本，相同文本再按录像机编号 + 通道号。
+
+#### 复用实现方案
+
+前端已新增 `frontend/src/domain/channel-filters.ts` 作为通道列表的领域规则模块。H5 monitor 首页实现分组时，应直接复用这个模块：
+
+```ts
+import { channelListFilters, filterAndSortChannels } from "../domain/channel-filters";
+```
+
+该模块不绑定后台通道映射页组件，只要求通道对象具备最小字段：`id`、`recorderCode`、`channelNo`、`areaType`、`areaNumber`、`areaNote`、`sceneType`、`channelName`、`status`。如果 H5 API 返回的字段名不同，应在 `frontend/src/api-h5.ts` 或 H5 页面入口处做一次轻量适配，不要复制筛选和排序逻辑。
+
+后台类型口径：
+
+- `internal/storespace/models.go` 中 `AreaTypeVIPTreatment = "vip_treatment"`。
+- `VIP治疗室` 计入治疗室总数和治疗室筛选。
+- `VIP治疗室` 的 `area_number` 允许为 `0`，表示未填写编号/备注；同一门店最多有一个未编号 VIP 治疗室。
+- 普通 `治疗室`、`面诊室`、`生美` 仍要求正整数编号。
+
+H5 列表建议不要新增自己的分组枚举。若需要在 H5 页面隐藏“全部”筛选，仍应从 `channelListFilters` 过滤展示项，而不是手写新数组。
+
 ### 交互要求
 
-- 首页：通道按区域分组（面诊室/治疗室/生美/其他），显示最近截图，点击进入详情。
+- 首页：通道按共享筛选口径分组或筛选（全部、面诊室、治疗室、生美、前台/候诊区、通道/其他），显示最近截图，点击进入详情。
 - 详情页：默认静音播放，显著显示"点击开启声音"按钮，用户点击后取消静音。
 - 回放：选择日期 -> 查询片段 -> 点击片段播放。
 - 离开详情页时主动失效播放地址（调用 `/api/lapp/v2/live/address/disable`）。
