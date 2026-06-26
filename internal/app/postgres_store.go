@@ -50,6 +50,33 @@ func (s *PostgresStore) ListTasks(ctx context.Context) ([]Task, error) {
 	return tasks, nil
 }
 
+func (s *PostgresStore) GetAIProvider(ctx context.Context) (string, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `
+		select value
+		from app_settings
+		where key = 'ai_provider'
+	`).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func (s *PostgresStore) SetAIProvider(ctx context.Context, provider string) error {
+	_, err := s.db.ExecContext(ctx, `
+		insert into app_settings (key, value, updated_at)
+		values ('ai_provider', $1, now())
+		on conflict (key) do update
+		set value = excluded.value,
+			updated_at = excluded.updated_at
+	`, NormalizeAIProvider(provider))
+	return err
+}
+
 func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 	statements := []string{
 		`create table if not exists tasks (
@@ -66,6 +93,17 @@ func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 		`alter table tasks enable row level security`,
 		`drop policy if exists tasks_no_client_access on tasks`,
 		`create policy tasks_no_client_access on tasks
+			for all to anon, authenticated
+			using (false)
+			with check (false)`,
+		`create table if not exists app_settings (
+			key text primary key,
+			value text not null,
+			updated_at timestamptz not null default now()
+		)`,
+		`alter table app_settings enable row level security`,
+		`drop policy if exists app_settings_no_client_access on app_settings`,
+		`create policy app_settings_no_client_access on app_settings
 			for all to anon, authenticated
 			using (false)
 			with check (false)`,

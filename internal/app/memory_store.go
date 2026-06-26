@@ -1,9 +1,14 @@
 package app
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 type MemoryStore struct {
-	tasks []Task
+	mu         sync.RWMutex
+	tasks      []Task
+	aiProvider string
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -28,4 +33,17 @@ func (s *MemoryStore) ListTasks(ctx context.Context) ([]Task, error) {
 	tasks := make([]Task, len(s.tasks))
 	copy(tasks, s.tasks)
 	return tasks, nil
+}
+
+func (s *MemoryStore) GetAIProvider(ctx context.Context) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.aiProvider, nil
+}
+
+func (s *MemoryStore) SetAIProvider(ctx context.Context, provider string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.aiProvider = NormalizeAIProvider(provider)
+	return nil
 }

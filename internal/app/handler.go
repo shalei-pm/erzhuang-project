@@ -38,6 +38,7 @@ type Store interface {
 	Name() string
 	Ping(ctx context.Context) error
 	ListTasks(ctx context.Context) ([]Task, error)
+	AISettingsStore
 }
 
 type Handler struct {
@@ -61,6 +62,8 @@ func NewHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
+	mux.HandleFunc("GET /api/ai-settings", handler.aiSettingsHandler)
+	mux.HandleFunc("POST /api/ai-settings/toggle", handler.toggleAISettingsHandler)
 	designplan.RegisterRoutes(mux, designPlanService)
 	storespace.RegisterRoutes(mux, storeSpaceService)
 	registerFrontendRoutes(mux)
@@ -165,6 +168,29 @@ func (h *Handler) tasksHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, tasks)
+}
+
+func (h *Handler) aiSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	provider, err := h.store.GetAIProvider(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "load ai settings failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, AISettingsFromProvider(provider))
+}
+
+func (h *Handler) toggleAISettingsHandler(w http.ResponseWriter, r *http.Request) {
+	provider, err := h.store.GetAIProvider(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "load ai settings failed"})
+		return
+	}
+	nextProvider := NextAIProvider(provider)
+	if err := h.store.SetAIProvider(r.Context(), nextProvider); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "save ai settings failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, AISettingsFromProvider(nextProvider))
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

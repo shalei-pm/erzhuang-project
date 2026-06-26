@@ -15,12 +15,16 @@ type Service struct {
 	recognizer Recognizer
 }
 
+type AIProviderReader interface {
+	GetAIProvider(ctx context.Context) (string, error)
+}
+
 func NewService(repo Repository) *Service {
 	uploads := NewUploadManagerFromEnv()
 	return &Service{
 		repo:       repo,
 		uploads:    uploads,
-		recognizer: NewOpenAIRecognizerFromEnvWithAssetReader(uploads.OpenStored),
+		recognizer: NewRecognizerFromEnvWithAssetReader(uploads.OpenStored),
 	}
 }
 
@@ -30,7 +34,17 @@ func NewServiceWithAssetStore(repo Repository, assetStore assets.Store) *Service
 	return &Service{
 		repo:       repo,
 		uploads:    uploads,
-		recognizer: NewOpenAIRecognizerFromEnvWithAssetReader(uploads.OpenStored),
+		recognizer: NewRecognizerFromEnvWithAssetReader(uploads.OpenStored),
+	}
+}
+
+func NewServiceWithAssetStoreAndAIProvider(repo Repository, assetStore assets.Store, providerReader AIProviderReader) *Service {
+	rootDir := strings.TrimSpace(getenv("UPLOAD_DIR", defaultUploadDir))
+	uploads := NewUploadManager(rootDir, assetStore)
+	return &Service{
+		repo:       repo,
+		uploads:    uploads,
+		recognizer: NewDynamicRecognizerWithAssetReader(providerReader, uploads.OpenStored),
 	}
 }
 

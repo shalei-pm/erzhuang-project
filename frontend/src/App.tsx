@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   storeSpaceApi,
+  type AISettings,
   type CreateStoreSpacePayload,
   type EzvizAccount,
   type StoreDetail as StoreDetailType,
@@ -9,6 +10,7 @@ import {
 } from "./api";
 import { CreateStoreModal } from "./components/CreateStoreModal";
 import { EditStoreModal } from "./components/EditStoreModal";
+import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
 import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
 import { StoreList } from "./components/StoreList";
 import { errorMessage } from "./domain/format";
@@ -31,10 +33,16 @@ function App() {
   const [toast, setToast] = useState("");
   const [activeStore, setActiveStore] = useState<StoreDetailType | null>(null);
   const [activeTab, setActiveTab] = useState<StoreDetailTab>("design-plan");
+  const [aiSettings, setAISettings] = useState<AISettings | null>(null);
+  const [switchingAIModel, setSwitchingAIModel] = useState(false);
   const [deletingStoreIds, setDeletingStoreIds] = useState<Set<number>>(() => new Set());
   const [openingStoreIds, setOpeningStoreIds] = useState<Set<number>>(() => new Set());
   const listRequestIdRef = useRef(0);
   const activeStoreRef = useRef<StoreDetailType | null>(null);
+
+  if (new URLSearchParams(window.location.search).get("tool") === "ezviz-live-demo") {
+    return <EzvizLiveDemo appVersion={APP_VERSION} />;
+  }
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const cityOptions = uniqueCities(stores);
@@ -56,6 +64,10 @@ function App() {
       .listEzvizAccounts()
       .then(setAccounts)
       .catch((error) => setToast(errorMessage(error, "萤石云账号加载失败。")));
+  }, []);
+
+  useEffect(() => {
+    void loadAISettings();
   }, []);
 
   async function loadStores(nextQuery = query, nextPage = page) {
@@ -96,6 +108,29 @@ function App() {
       setToast(errorMessage(error, "门店详情加载失败。"));
     } finally {
       setOpeningStoreIds((current) => removeIdFromSet(current, storeId));
+    }
+  }
+
+  async function loadAISettings() {
+    try {
+      const settings = await storeSpaceApi.getAISettings();
+      setAISettings(settings);
+    } catch (error) {
+      setToast(errorMessage(error, "识别模型状态加载失败。"));
+    }
+  }
+
+  async function toggleAIModel() {
+    if (switchingAIModel) return;
+    setSwitchingAIModel(true);
+    try {
+      const settings = await storeSpaceApi.toggleAISettings();
+      setAISettings(settings);
+      setToast(`已切换识别模型：${settings.label}`);
+    } catch (error) {
+      setToast(errorMessage(error, "识别模型切换失败。"));
+    } finally {
+      setSwitchingAIModel(false);
     }
   }
 
@@ -202,10 +237,13 @@ function App() {
           initialTab={activeTab}
           saving={saving}
           accounts={accounts}
+          aiSettings={aiSettings}
+          switchingAIModel={switchingAIModel}
           onBack={() => {
             setActiveStore(null);
             void loadStores();
           }}
+          onToggleAIModel={toggleAIModel}
           onStoreUpdated={handleStoreUpdated}
           onToast={setToast}
         />

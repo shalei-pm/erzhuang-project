@@ -140,6 +140,21 @@ export type SnapshotDiagnostics = {
   detail?: string;
 };
 
+export type LiveAddressPayload = {
+  ezvizAccountId?: number | "";
+  accountName?: string;
+  deviceSerial: string;
+  channelNo: number;
+  code?: string;
+};
+
+export type LiveAddressResult = {
+  url: string;
+  urlId: string;
+  expireTime: string;
+  protocol: string;
+};
+
 export type StoreListResponse = {
   items: StoreSummary[];
   page: number;
@@ -204,6 +219,12 @@ export type AddRecorderPayload = {
   deviceCode: string;
 };
 
+export type AISettings = {
+  provider: "openai" | "minimax";
+  model: string;
+  label: string;
+};
+
 type ApiMode = "auto" | "http" | "mock";
 
 type BackendStoreListResponse = {
@@ -252,6 +273,15 @@ type BackendUploadResult = {
   thumbnail_path: string;
   preview_url: string;
   thumbnail_url: string;
+};
+
+type BackendLiveAddressResult = {
+  url: string;
+  url_id?: string;
+  urlId?: string;
+  expire_time?: string;
+  expireTime?: string;
+  protocol?: string;
 };
 
 type BackendRecognitionResult = {
@@ -513,6 +543,7 @@ const DEFAULT_API_BASE = defaultApiBase("design-plan", import.meta.env.BASE_URL)
 const API_BASE = trimTrailingSlash(import.meta.env.VITE_DESIGN_PLAN_API_BASE || DEFAULT_API_BASE);
 const DEFAULT_STORE_SPACE_API_BASE = defaultApiBase("store-space", import.meta.env.BASE_URL);
 const STORE_SPACE_API_BASE = trimTrailingSlash(import.meta.env.VITE_STORE_SPACE_API_BASE || DEFAULT_STORE_SPACE_API_BASE);
+const APP_API_BASE = STORE_SPACE_API_BASE.replace(/\/api\/store-space$/, "/api");
 const API_MODE = normalizeApiMode(import.meta.env.VITE_DESIGN_PLAN_API_MODE);
 const MOCK_PLAN_IMAGE = sampleStoreFloorPlanUrl;
 const MOCK_ORIGINAL_PDF_PATH = "mock/uploads/sample-store-floor-plan.pdf";
@@ -525,6 +556,7 @@ let nextStoreId = 38;
 let nextRecorderId = 900;
 let nextChannelId = 5000;
 const mockUploads = new Map<string, string>();
+let mockAISettings: AISettings = { provider: "openai", model: "gpt-5.5", label: "OpenAI / gpt-5.5" };
 
 let mockEzvizAccounts: EzvizAccount[] = [
   { id: 1, accountName: "华北", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
@@ -1090,6 +1122,14 @@ const httpAdapter = {
 };
 
 const storeSpaceHttpAdapter = {
+  async getAISettings(): Promise<AISettings> {
+    return requestJSON<AISettings>(`${APP_API_BASE}/ai-settings`);
+  },
+
+  async toggleAISettings(): Promise<AISettings> {
+    return requestJSON<AISettings>(`${APP_API_BASE}/ai-settings/toggle`, { method: "POST" });
+  },
+
   async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores`, {
       method: "POST",
@@ -1215,6 +1255,20 @@ const storeSpaceHttpAdapter = {
     return mapBackendSnapshotDiagnostics(response);
   },
 
+  async getLiveAddress(payload: LiveAddressPayload): Promise<LiveAddressResult> {
+    const response = await requestJSON<BackendLiveAddressResult>(`${STORE_SPACE_API_BASE}/diagnostics/ezviz/live-address`, {
+      method: "POST",
+      body: JSON.stringify({
+        ezviz_account_id: payload.ezvizAccountId ? Number(payload.ezvizAccountId) : 0,
+        account_name: payload.accountName?.trim() ?? "",
+        device_serial: payload.deviceSerial.trim(),
+        channel_no: Number(payload.channelNo),
+        code: payload.code?.trim() ?? "",
+      }),
+    });
+    return mapBackendLiveAddress(response);
+  },
+
   async confirmChannel(channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/confirmation`, {
       method: "PUT",
@@ -1311,6 +1365,24 @@ export const designPlanApi = {
 export const storeSpaceApi = {
   endpoints: {
     base: STORE_SPACE_API_BASE,
+  },
+
+  async getAISettings(): Promise<AISettings> {
+    if (API_MODE === "mock") {
+      return mockAISettings;
+    }
+    return storeSpaceHttpAdapter.getAISettings();
+  },
+
+  async toggleAISettings(): Promise<AISettings> {
+    if (API_MODE === "mock") {
+      mockAISettings =
+        mockAISettings.provider === "minimax"
+          ? { provider: "openai", model: "gpt-5.5", label: "OpenAI / gpt-5.5" }
+          : { provider: "minimax", model: "MiniMax-M3", label: "MiniMax / MiniMax-M3" };
+      return clone(mockAISettings);
+    }
+    return storeSpaceHttpAdapter.toggleAISettings();
   },
 
   async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
@@ -1438,6 +1510,18 @@ export const storeSpaceApi = {
       };
     }
     return storeSpaceHttpAdapter.diagnoseChannelSnapshot(snapshotName);
+  },
+
+  async getLiveAddress(payload: LiveAddressPayload): Promise<LiveAddressResult> {
+    if (API_MODE === "mock") {
+      return {
+        url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+        urlId: "mock-url-id",
+        expireTime: "mock",
+        protocol: "hls",
+      };
+    }
+    return storeSpaceHttpAdapter.getLiveAddress(payload);
   },
 
   async confirmChannel(storeId: number, channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
@@ -1793,6 +1877,15 @@ function mapBackendSnapshotDiagnostics(diagnostics: BackendSnapshotDiagnostics):
     snapshotKey: diagnostics.snapshot_key ?? diagnostics.snapshotKey ?? "",
     exists: Boolean(diagnostics.exists),
     detail: diagnostics.detail ?? "",
+  };
+}
+
+function mapBackendLiveAddress(result: BackendLiveAddressResult): LiveAddressResult {
+  return {
+    url: result.url ?? "",
+    urlId: result.url_id ?? result.urlId ?? "",
+    expireTime: result.expire_time ?? result.expireTime ?? "",
+    protocol: result.protocol ?? "hls",
   };
 }
 
