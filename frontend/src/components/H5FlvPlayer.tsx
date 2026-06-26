@@ -22,6 +22,8 @@ interface EzuikitFlvConstructor {
     autoWasm: boolean;
     useMSE: boolean;
     useWCS: boolean;
+    hasAudio: boolean;
+    keepScreenOn: boolean;
     scaleMode: 0 | 1 | 2;
     videoBuffer: number;
     themeData: null;
@@ -84,7 +86,8 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
   const [loadFailed, setLoadFailed] = useState(false);
   const [diagnostic, setDiagnostic] = useState<PlayerDiagnostic | null>(null);
   const isMock = url.startsWith("mock-");
-  const isNativeVideo = !isMock && shouldUseNativeVideo(url, protocol);
+  const preferSoftDecode = isMobilePlaybackContext();
+  const isNativeVideo = !isMock && shouldUseNativeVideo(url, protocol) && !preferSoftDecode;
 
   useEffect(() => {
     if (isMock) {
@@ -112,6 +115,8 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
         `url=${summarizeUrl(url)}`,
         `decoder=${DECODER_PATH}`,
         `mode=${isLive ? "live" : "playback"}`,
+        `protocol=${protocol || inferProtocol(url) || "unknown"}`,
+        `decode=${preferSoftDecode ? "mobile-wasm" : "desktop-mse"}`,
         `lib=${loaded.diagnostics.join(",")}`,
       ];
       const Ctor = loaded.ctor;
@@ -138,8 +143,10 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
           isLive,
           muted: true,
           autoWasm: true,
-          useMSE: true,
+          useMSE: !preferSoftDecode,
           useWCS: true,
+          hasAudio: true,
+          keepScreenOn: preferSoftDecode,
           scaleMode: 2,
           videoBuffer: 1,
           themeData: null,
@@ -187,7 +194,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
         playerRef.current = null;
       }
     };
-  }, [url, isLive, onError, isMock, isNativeVideo, containerId, protocol]);
+  }, [url, isLive, onError, isMock, isNativeVideo, containerId, protocol, preferSoftDecode]);
 
   function toggleMute() {
     const next = !muted;
@@ -297,6 +304,15 @@ function isRecoverablePlayerEvent(message: string) {
 function shouldUseNativeVideo(url: string, protocol?: string) {
   const normalized = (protocol || inferProtocol(url)).toLowerCase();
   return normalized === "hls" || normalized === "m3u8";
+}
+
+function isMobilePlaybackContext() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent.toLowerCase();
+  return (
+    navigator.maxTouchPoints > 1 &&
+    /android|iphone|ipad|ipod|mobile|micromessenger|lark|feishu|bytedancewebview/.test(ua)
+  );
 }
 
 function inferProtocol(url: string) {
