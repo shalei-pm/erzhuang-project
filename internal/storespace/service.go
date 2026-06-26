@@ -172,6 +172,14 @@ func (s *Service) GetStore(ctx context.Context, id int64) (*Store, error) {
 	return s.repo.GetStore(ctx, id)
 }
 
+func (s *Service) GetStoreDesignPlanData(ctx context.Context, id int64) (*Store, error) {
+	return s.repo.GetStoreDesignPlanData(ctx, id)
+}
+
+func (s *Service) GetStoreChannelData(ctx context.Context, id int64) (*Store, error) {
+	return s.repo.GetStoreChannelData(ctx, id)
+}
+
 func (s *Service) ExportChannelMappingExcel(ctx context.Context, storeID int64) (*ChannelMappingExport, error) {
 	store, err := s.repo.GetStore(ctx, storeID)
 	if err != nil {

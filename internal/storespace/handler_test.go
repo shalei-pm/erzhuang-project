@@ -170,6 +170,65 @@ func TestUpdateStoreBasicInfoEndpoint(t *testing.T) {
 	}
 }
 
+func TestGetStoreDesignPlanDataEndpointReturnsOnlyDesignPlanTabData(t *testing.T) {
+	handler := newTestHandler()
+	createStoreForHandlerTest(t, handler, `{"city":"上海","name":"上海测试店","recorders":[{"device_code":"D12345678"}],"design_plan_upload_id":"tmp_plan"}`)
+	saveBody := `{
+		"pdf_file_name":"plan.pdf",
+		"preview_image_path":"uploads/tmp_plan/preview.png",
+		"thumbnail_path":"uploads/tmp_plan/thumbnail.png",
+		"page_count":1,
+		"areas":[{"display_name":"治疗室 1","area_type":"treatment","area_number":"1","box":{"x":0.1,"y":0.2,"width":0.3,"height":0.4}}]
+	}`
+	saveRequest := httptest.NewRequest(http.MethodPut, "/api/store-space/stores/1/design-plan", bytes.NewBufferString(saveBody))
+	saveResponse := httptest.NewRecorder()
+	handler.ServeHTTP(saveResponse, saveRequest)
+	if saveResponse.Code != http.StatusOK {
+		t.Fatalf("expected save status %d, got %d body=%s", http.StatusOK, saveResponse.Code, saveResponse.Body.String())
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores/1/design-plan-data", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, response.Code, response.Body.String())
+	}
+	var store Store
+	if err := json.NewDecoder(response.Body).Decode(&store); err != nil {
+		t.Fatalf("decode store: %v", err)
+	}
+	if len(store.DesignPlans) != 1 || len(store.Areas) != 1 {
+		t.Fatalf("expected design plan and areas, got plans=%#v areas=%#v", store.DesignPlans, store.Areas)
+	}
+	if store.Recorders != nil {
+		t.Fatalf("expected recorders omitted from design plan data, got %#v", store.Recorders)
+	}
+}
+
+func TestGetStoreChannelDataEndpointReturnsOnlyChannelTabData(t *testing.T) {
+	handler := newTestHandler()
+	createStoreForHandlerTest(t, handler, `{"city":"上海","name":"上海测试店","recorders":[{"device_code":"D12345678"}],"design_plan_upload_id":"tmp_plan"}`)
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores/1/channel-data", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, response.Code, response.Body.String())
+	}
+	var store Store
+	if err := json.NewDecoder(response.Body).Decode(&store); err != nil {
+		t.Fatalf("decode store: %v", err)
+	}
+	if len(store.Recorders) != 1 || store.Recorders[0].DeviceCode != "D12345678" {
+		t.Fatalf("expected recorders, got %#v", store.Recorders)
+	}
+	if store.DesignPlans != nil || store.Areas != nil {
+		t.Fatalf("expected design plan fields omitted from channel data, got plans=%#v areas=%#v", store.DesignPlans, store.Areas)
+	}
+}
+
 func TestDeleteRecorderEndpointRemovesRecorder(t *testing.T) {
 	handler := newTestHandler()
 	createBody := `{"city":"深圳","name":"深圳壹方城","recorders":[{"device_code":"D12345678"},{"device_code":"D87654321"}]}`
@@ -520,6 +579,21 @@ func listStoresForTest(t *testing.T, handler http.Handler) StoreListResult {
 		t.Fatalf("decode list stores: %v", err)
 	}
 	return result
+}
+
+func createStoreForHandlerTest(t *testing.T, handler http.Handler, body string) Store {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/api/store-space/stores", bytes.NewBufferString(body))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("expected create status %d, got %d body=%s", http.StatusCreated, response.Code, response.Body.String())
+	}
+	var store Store
+	if err := json.NewDecoder(response.Body).Decode(&store); err != nil {
+		t.Fatalf("decode created store: %v", err)
+	}
+	return store
 }
 
 func newTestHandler() http.Handler {

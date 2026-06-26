@@ -32,6 +32,8 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	mux.HandleFunc("POST /api/store-space/stores/check-duplicate", handler.checkDuplicate)
 	mux.HandleFunc("GET /api/store-space/stores/{id}", handler.getStore)
 	mux.HandleFunc("PATCH /api/store-space/stores/{id}", handler.updateStoreBasicInfo)
+	mux.HandleFunc("GET /api/store-space/stores/{id}/design-plan-data", handler.getStoreDesignPlanData)
+	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-data", handler.getStoreChannelData)
 	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-mappings/export.xlsx", handler.exportChannelMappings)
 	mux.HandleFunc("PUT /api/store-space/stores/{id}/design-plan", handler.saveDesignPlan)
 	mux.HandleFunc("POST /api/store-space/stores/{id}/recorders", handler.addRecorder)
@@ -103,6 +105,32 @@ func (h *Handler) getStore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store, err := h.service.GetStore(r.Context(), id)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, store)
+}
+
+func (h *Handler) getStoreDesignPlanData(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r, "id")
+	if !ok {
+		return
+	}
+	store, err := h.service.GetStoreDesignPlanData(r.Context(), id)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, store)
+}
+
+func (h *Handler) getStoreChannelData(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r, "id")
+	if !ok {
+		return
+	}
+	store, err := h.service.GetStoreChannelData(r.Context(), id)
 	if err != nil {
 		handleServiceError(w, err)
 		return

@@ -1185,6 +1185,16 @@ const storeSpaceHttpAdapter = {
     return mapStoreSpaceDetail(response);
   },
 
+  async getStoreDesignPlanData(id: number): Promise<StoreDetail> {
+    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores/${id}/design-plan-data`);
+    return mapStoreSpaceDetail(response);
+  },
+
+  async getStoreChannelData(id: number): Promise<StoreDetail> {
+    const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores/${id}/channel-data`);
+    return mapStoreSpaceDetail(response);
+  },
+
   async saveStore(payload: SaveStorePayload): Promise<StoreDetail> {
     if (!payload.id) {
       throw new ApiError(400, "保存设计图标注需要门店 ID");
@@ -1398,6 +1408,31 @@ export const storeSpaceApi = {
       return mockAdapter.getStore(id);
     }
     return storeSpaceHttpAdapter.getStore(id);
+  },
+
+  async getStoreDesignPlanData(id: number): Promise<StoreDetail> {
+    if (API_MODE === "mock") {
+      const detail = await mockAdapter.getStore(id);
+      return { ...detail, recorders: [] };
+    }
+    return storeSpaceHttpAdapter.getStoreDesignPlanData(id);
+  },
+
+  async getStoreChannelData(id: number): Promise<StoreDetail> {
+    if (API_MODE === "mock") {
+      const detail = await mockAdapter.getStore(id);
+      return {
+        ...detail,
+        fileName: "",
+        originalPath: "",
+        previewPath: "",
+        thumbnailPath: "",
+        pageCount: 0,
+        previewUrl: "",
+        areas: [],
+      };
+    }
+    return storeSpaceHttpAdapter.getStoreChannelData(id);
   },
 
   async uploadPdf(file: File | string = "mock-design-plan.pdf"): Promise<UploadResult> {

@@ -8,12 +8,14 @@ export type StoreDetailTab = "design-plan" | "channels";
 type StoreDetailProps = {
   store: StoreDetailType;
   initialTab: StoreDetailTab;
-  loading?: boolean;
+  loadingTabs: Set<StoreDetailTab>;
+  loadedTabs: Set<StoreDetailTab>;
   saving: boolean;
   accounts: EzvizAccount[];
   aiSettings: AISettings | null;
   switchingAIModel: boolean;
   onBack: () => void;
+  onTabChange: (tab: StoreDetailTab) => void;
   onToggleAIModel: () => void;
   onStoreUpdated: (update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType)) => void;
   onToast: (message: string) => void;
@@ -22,12 +24,14 @@ type StoreDetailProps = {
 export function StoreDetail({
   store,
   initialTab,
-  loading = false,
+  loadingTabs,
+  loadedTabs,
   saving,
   accounts,
   aiSettings,
   switchingAIModel,
   onBack,
+  onTabChange,
   onToggleAIModel,
   onStoreUpdated,
   onToast,
@@ -50,6 +54,13 @@ export function StoreDetail({
       ),
     }));
   }
+
+  function selectTab(tab: StoreDetailTab) {
+    setActiveTab(tab);
+    onTabChange(tab);
+  }
+
+  const isActiveTabLoading = loadingTabs.has(activeTab) || !loadedTabs.has(activeTab);
 
   return (
     <section className="detail-page">
@@ -83,10 +94,10 @@ export function StoreDetail({
 
       <div className="detail-tabs-row">
         <nav className="tabs" aria-label="门店详情 Tab">
-          <button className={activeTab === "design-plan" ? "is-active" : ""} onClick={() => setActiveTab("design-plan")}>
+          <button className={activeTab === "design-plan" ? "is-active" : ""} onClick={() => selectTab("design-plan")}>
             设计图标注
           </button>
-          <button className={activeTab === "channels" ? "is-active" : ""} onClick={() => setActiveTab("channels")}>
+          <button className={activeTab === "channels" ? "is-active" : ""} onClick={() => selectTab("channels")}>
             通道映射
           </button>
         </nav>
@@ -98,11 +109,11 @@ export function StoreDetail({
         </div>
       </div>
 
-      {loading ? (
+      {isActiveTabLoading ? (
         <div className="detail-loading-panel" role="status" aria-live="polite">
           <span aria-hidden="true" />
-          <strong>正在加载门店详情</strong>
-          <p>已进入详情页，通道映射和设计图数据加载完成后会自动展示。</p>
+          <strong>{activeTab === "channels" ? "正在加载通道映射" : "正在加载设计图标注"}</strong>
+          <p>已进入详情页，当前 Tab 数据加载完成后会自动展示。</p>
         </div>
       ) : (
         <>
