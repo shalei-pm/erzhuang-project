@@ -2688,7 +2688,7 @@ td:nth-child(10) {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px 12px;
+  gap: 10px;
   padding: 12px 16px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
@@ -2722,27 +2722,46 @@ td:nth-child(10) {
   font-weight: 650;
 }
 
-.h5-antd-date-picker {
-  width: 220px;
-  max-width: 100%;
-  min-height: 36px;
-  border-color: var(--border-subtle);
+.h5-date-time-field {
+  display: grid;
+  grid-template-columns: auto minmax(188px, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: min(320px, 100%);
+  flex: 1 1 260px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.h5-date-time-field input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
-.h5-antd-date-picker:hover,
-.h5-antd-date-picker.ant-picker-focused {
+.h5-date-time-field input:focus {
   border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
-.h5-antd-date-popup .ant-picker-panel-container {
-  border-radius: var(--radius-card);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.14);
-}
-
-.h5-antd-date-popup .ant-picker-cell-in-view.ant-picker-cell-selected .ant-picker-cell-inner,
-.h5-antd-date-popup .ant-picker-ok .ant-btn-primary {
+.h5-date-confirm {
+  min-height: 34px;
+  padding: 0 14px;
+  border-color: var(--brand);
   background: var(--brand);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .h5-segment-list {
@@ -2844,7 +2863,12 @@ td:nth-child(10) {
     padding: 10px 12px;
   }
 
-  .h5-antd-date-picker {
+  .h5-date-time-field {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .h5-date-confirm {
     width: 100%;
   }
 }
