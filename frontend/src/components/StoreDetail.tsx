@@ -8,6 +8,7 @@ export type StoreDetailTab = "design-plan" | "channels";
 type StoreDetailProps = {
   store: StoreDetailType;
   initialTab: StoreDetailTab;
+  loading?: boolean;
   saving: boolean;
   accounts: EzvizAccount[];
   aiSettings: AISettings | null;
@@ -21,6 +22,7 @@ type StoreDetailProps = {
 export function StoreDetail({
   store,
   initialTab,
+  loading = false,
   saving,
   accounts,
   aiSettings,
@@ -96,18 +98,28 @@ export function StoreDetail({
         </div>
       </div>
 
-      <div hidden={activeTab !== "design-plan"}>
-        <DesignPlanTab store={store} saving={saving} onStoreUpdated={onStoreUpdated} onToast={onToast} />
-      </div>
-      <div hidden={activeTab !== "channels"}>
-        <VideoChannelTab
-          store={store}
-          accounts={accounts}
-          onStoreUpdated={onStoreUpdated}
-          onRecorderUpdated={updateRecorder}
-          onToast={onToast}
-        />
-      </div>
+      {loading ? (
+        <div className="detail-loading-panel" role="status" aria-live="polite">
+          <span aria-hidden="true" />
+          <strong>正在加载门店详情</strong>
+          <p>已进入详情页，通道映射和设计图数据加载完成后会自动展示。</p>
+        </div>
+      ) : (
+        <>
+          <div hidden={activeTab !== "design-plan"}>
+            <DesignPlanTab store={store} saving={saving} onStoreUpdated={onStoreUpdated} onToast={onToast} />
+          </div>
+          <div hidden={activeTab !== "channels"}>
+            <VideoChannelTab
+              store={store}
+              accounts={accounts}
+              onStoreUpdated={onStoreUpdated}
+              onRecorderUpdated={updateRecorder}
+              onToast={onToast}
+            />
+          </div>
+        </>
+      )}
     </section>
   );
 }

@@ -14,6 +14,12 @@ import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
 import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
 import { StoreList } from "./components/StoreList";
 import { errorMessage } from "./domain/format";
+import {
+  createStoreDetailCache,
+  detailTabFromSummary,
+  makePendingStoreDetail,
+  storeDetailTabFromDetail,
+} from "./domain/store-detail-navigation";
 
 const PAGE_SIZE = 20;
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "local-dev";
@@ -32,12 +38,15 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [activeStore, setActiveStore] = useState<StoreDetailType | null>(null);
+  const [activeStoreLoading, setActiveStoreLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<StoreDetailTab>("design-plan");
   const [aiSettings, setAISettings] = useState<AISettings | null>(null);
   const [switchingAIModel, setSwitchingAIModel] = useState(false);
   const [deletingStoreIds, setDeletingStoreIds] = useState<Set<number>>(() => new Set());
   const [openingStoreIds, setOpeningStoreIds] = useState<Set<number>>(() => new Set());
   const listRequestIdRef = useRef(0);
+  const detailRequestIdRef = useRef(0);
+  const detailCacheRef = useRef(createStoreDetailCache());
   const activeStoreRef = useRef<StoreDetailType | null>(null);
 
   if (new URLSearchParams(window.location.search).get("tool") === "ezviz-live-demo") {
@@ -99,12 +108,36 @@ function App() {
 
   async function openStore(storeId: number, tab?: StoreDetailTab) {
     if (openingStoreIds.has(storeId)) return;
+    const summary = stores.find((store) => store.id === storeId);
+    const requestId = detailRequestIdRef.current + 1;
+    detailRequestIdRef.current = requestId;
     setOpeningStoreIds((current) => new Set(current).add(storeId));
+    if (summary) {
+      setActiveStore(makePendingStoreDetail(summary));
+      setActiveTab(tab ?? detailTabFromSummary(summary));
+      setActiveStoreLoading(true);
+    }
     try {
+      const cached = summary ? detailCacheRef.current.get(storeId, summary.updatedAt) : null;
+      if (cached) {
+        if (detailRequestIdRef.current !== requestId) return;
+        setActiveStore(cached);
+        setActiveTab(tab ?? storeDetailTabFromDetail(cached));
+        setActiveStoreLoading(false);
+        return;
+      }
+      const startedAt = performance.now();
       const detail = await storeSpaceApi.getStore(storeId);
+      detailCacheRef.current.set(detail);
+      if (detailRequestIdRef.current !== requestId) return;
+      console.info(`[store-detail] loaded ${storeId} in ${Math.round(performance.now() - startedAt)}ms`);
       setActiveStore(detail);
-      setActiveTab(tab ?? defaultStoreDetailTab(detail));
+      setActiveTab(tab ?? storeDetailTabFromDetail(detail));
+      setActiveStoreLoading(false);
     } catch (error) {
+      if (detailRequestIdRef.current !== requestId) return;
+      setActiveStore(null);
+      setActiveStoreLoading(false);
       setToast(errorMessage(error, "门店详情加载失败。"));
     } finally {
       setOpeningStoreIds((current) => removeIdFromSet(current, storeId));
@@ -147,9 +180,11 @@ function App() {
         if (!ok) return;
       }
       const detail = await storeSpaceApi.createStore(payload);
+      detailCacheRef.current.set(detail);
       setCreateOpen(false);
       setActiveStore(detail);
-      setActiveTab(defaultStoreDetailTab(detail));
+      setActiveStoreLoading(false);
+      setActiveTab(storeDetailTabFromDetail(detail));
       setToast("门店已创建，请继续完善空间资源。");
       await loadStores();
     } catch (error) {
@@ -172,6 +207,7 @@ function App() {
         if (!ok) return;
       }
       const detail = await storeSpaceApi.updateStoreBasicInfo(payload);
+      detailCacheRef.current.set(detail);
       setEditingStore(null);
       setStores((items) => items.map((item) => (item.id === detail.id ? detail : item)));
       if (activeStore?.id === detail.id) {
@@ -184,12 +220,6 @@ function App() {
     } finally {
       setSaving(false);
     }
-  }
-
-  function defaultStoreDetailTab(store: StoreDetailType): StoreDetailTab {
-    if (store.recorderCount > 0 || store.recorders.length > 0) return "channels";
-    if (store.designPlanStatus !== "not_uploaded" || Boolean(store.previewUrl || store.thumbnailUrl)) return "design-plan";
-    return "channels";
   }
 
   async function uploadPdf(file: File) {
@@ -207,6 +237,7 @@ function App() {
     setDeletingStoreIds((current) => new Set(current).add(store.id));
     try {
       await storeSpaceApi.deleteStore(store.id);
+      detailCacheRef.current.delete(store.id);
       setToast(`已删除：${store.name}`);
       if (activeStore?.id === store.id) {
         setActiveStore(null);
@@ -224,6 +255,7 @@ function App() {
     if (!currentStore && typeof update === "function") return;
     const nextStore = typeof update === "function" ? update(currentStore as StoreDetailType) : update;
     activeStoreRef.current = nextStore;
+    detailCacheRef.current.set(nextStore);
     setActiveStore(nextStore);
     setStores((items) => items.map((item) => (item.id === nextStore.id ? nextStore : item)));
   }
@@ -235,12 +267,15 @@ function App() {
         <StoreDetail
           store={activeStore}
           initialTab={activeTab}
+          loading={activeStoreLoading}
           saving={saving}
           accounts={accounts}
           aiSettings={aiSettings}
           switchingAIModel={switchingAIModel}
           onBack={() => {
+            detailRequestIdRef.current += 1;
             setActiveStore(null);
+            setActiveStoreLoading(false);
             void loadStores();
           }}
           onToggleAIModel={toggleAIModel}
