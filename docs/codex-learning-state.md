@@ -2596,3 +2596,34 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
 - 未完成：
   - 当前沙箱无法用 Playwright/Computer Use 完成页面截图验收；本地 dev server 已启动在 `http://127.0.0.1:5177/erzhuang/`，需要浏览器人工确认按钮位置。
+
+## 2026-06-26 识别模型切换 2.16.0 发布记录
+
+- 版本号：`2.16.0`。
+- GitHub `main` commit：`d783014 Add runtime AI model switching`。
+- 公司 GitLab 发布分支：`codex/containerize-single-image`。
+- 公司 GitLab merge commit：`0ebed48 Merge branch 'main' into codex/containerize-single-image`。
+- 发布范围：
+  - 机构详情页 Tab 行最右侧新增“切换识别模型”按钮和当前模型显示。
+  - 后端新增 AI settings API，运行时在 OpenAI / MiniMax 之间切换。
+  - 通道截图识别和设计图识别支持动态 provider。
+  - MiniMax HTTP recognizer 内置到 Go 服务，保留 `minimax-script` 作为短期兜底。
+  - 同步 H5 monitor 技术调研文档和隐藏 Ezviz live demo 支撑代码。
+- 本地验证：
+  - `git diff --check --cached` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - staged diff 敏感信息扫描未发现真实 key。
+- 公司环境验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 公司线上 JS 已确认包含 `2.16.0`、“当前识别模型”、“切换识别模型”、`OpenAI`、`MiniMax`。
+- 韩国服务器发布：
+  - 通过 SSH 执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
+  - 服务器拉取 GitHub `main` 到 `d783014`。
+  - 服务器 `go test ./...`、Go build、frontend build 通过。
+  - 重启 `erzhuang-project.service` 后健康检查最终通过。
+  - 公网 `https://43.155.237.46/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"local"}`。
+  - 韩国线上 JS 已确认包含 `2.16.0`、`d783014`、“当前识别模型”、“切换识别模型”、`OpenAI`、`MiniMax`。
+- 注意：
+  - TAT 发布因本机无 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` 环境变量而未继续输入密钥，改用已记录的 SSH key 执行同一部署脚本。
+  - 韩国部署时服务重启后前 13 次本机 health 连接失败，第 14 次成功，判断为服务启动/依赖初始化短暂延迟；本次无需回滚。
