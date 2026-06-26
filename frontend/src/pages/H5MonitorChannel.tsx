@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DatePicker } from "antd";
-import dayjs, { type Dayjs } from "dayjs";
 import { h5Api, H5ApiError } from "../api-h5";
 import { H5FlvPlayer } from "../components/H5FlvPlayer";
 import type {
@@ -227,7 +225,6 @@ function PlaybackDatePicker({
   onChange: (dateTime: string) => void;
   onConfirm: (dateTime: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const today = startOfToday();
   const quickDates: Array<{ key: QuickDateKey; label: string; date: string }> = [
     { key: "today", label: "今天", date: formatDateInput(today) },
@@ -254,26 +251,18 @@ function PlaybackDatePicker({
           </button>
         ))}
       </div>
-      <DatePicker
-        open={open}
-        showTime={{ format: "HH:mm" }}
-        format="YYYY-MM-DD HH:mm"
-        value={dayjs(value)}
-        popupClassName="h5-antd-date-popup"
-        className="h5-antd-date-picker"
-        placeholder="选择具体日期"
-        inputReadOnly
-        onOpenChange={setOpen}
-        onChange={(next) => {
-          if (next) onChange(formatDayjsValue(next));
-        }}
-        onOk={(next) => {
-          const formatted = formatDayjsValue(next);
-          onChange(formatted);
-          onConfirm(formatted);
-          setOpen(false);
-        }}
-      />
+      <label className="h5-date-time-field">
+        <span>回放时间</span>
+        <input
+          type="datetime-local"
+          value={value}
+          max={initialDateTimeValue()}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </label>
+      <button type="button" className="h5-date-confirm" onClick={() => onConfirm(value)}>
+        定位回放
+      </button>
     </div>
   );
 }
@@ -340,8 +329,4 @@ function errMessage(err: unknown, fallback: string): string {
   }
   if (err instanceof Error && err.message.trim()) return `${fallback} · ${err.name}: ${err.message}`;
   return fallback;
-}
-
-function formatDayjsValue(value: Dayjs): string {
-  return value.format("YYYY-MM-DDTHH:mm");
 }

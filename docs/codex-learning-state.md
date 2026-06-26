@@ -2871,3 +2871,24 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `cd frontend && npm run test` 通过。
   - `git diff --check` 通过。
+
+## 2026-06-26 H5 Monitor 回放时间选择器样式修复 2.19.5 开发记录
+
+- 背景：
+  - 公司线上 H5 监控“录像”页日期选择弹层出现明显错位。
+  - Ant Design DatePicker 默认弹层风格、英文月份和时间列布局与当前 H5 监控页不匹配。
+- 设计决定：
+  - 不继续修 AntD 弹层尺寸，改为 H5 页面内的轻量时间选择条。
+  - 保留 `今天 / 昨天 / 前天` 快捷日期。
+  - 用原生 `datetime-local` 选择具体时间，并提供“定位回放”按钮。
+  - 保留实时/录像切换、离开详情时释放当前播放地址的逻辑。
+- 实现：
+  - H5 回放页移除 `DatePicker/dayjs` 直接依赖。
+  - 新增 `.h5-date-time-field` 和 `.h5-date-confirm` 样式，使用项目现有边框、圆角、主色和焦点态。
+  - H5 详情 chunk 从约 420KB 降到约 10KB，移动端加载更轻。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite 服务可启动；Playwright CLI 因本机未安装 `chrome-for-testing` 浏览器二进制未完成截图验收。
