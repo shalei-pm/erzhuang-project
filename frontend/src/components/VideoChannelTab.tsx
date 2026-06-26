@@ -771,6 +771,8 @@ function removeKeyFromRecord<T>(current: Record<number, T>, id: number) {
 
 function QueuedSnapshotImage({ src, alt, onError }: { src: string; alt: string; onError: () => void }) {
   const [queuedSrc, setQueuedSrc] = useState("");
+  const [shouldLoad, setShouldLoad] = useState(() => snapshotImageQueue.hasLoaded(src));
+  const placeholderRef = useRef<HTMLSpanElement | null>(null);
   const onErrorRef = useRef(onError);
 
   useEffect(() => {
@@ -779,10 +781,41 @@ function QueuedSnapshotImage({ src, alt, onError }: { src: string; alt: string; 
 
   useEffect(() => {
     if (snapshotImageQueue.hasLoaded(src)) {
+      setShouldLoad(true);
       setQueuedSrc(src);
       return;
     }
+    setShouldLoad(false);
     setQueuedSrc("");
+  }, [src]);
+
+  useEffect(() => {
+    if (shouldLoad || snapshotImageQueue.hasLoaded(src)) return;
+    const target = placeholderRef.current;
+    if (!target || typeof IntersectionObserver === "undefined") {
+      setShouldLoad(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "160px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [shouldLoad, src]);
+
+  useEffect(() => {
+    if (!shouldLoad) return;
+    if (snapshotImageQueue.hasLoaded(src)) {
+      setQueuedSrc(src);
+      return;
+    }
     let cancelled = false;
     const load = snapshotImageQueue.enqueue(() => preloadImage(src));
     load
@@ -801,10 +834,10 @@ function QueuedSnapshotImage({ src, alt, onError }: { src: string; alt: string; 
       cancelled = true;
       load.cancel();
     };
-  }, [src]);
+  }, [shouldLoad, src]);
 
   if (!queuedSrc) {
-    return <span className="channel-thumb-loading" aria-hidden="true" />;
+    return <span ref={placeholderRef} className="channel-thumb-loading" aria-hidden="true" />;
   }
 
   return <img src={queuedSrc} alt={alt} loading="lazy" decoding="async" onError={onError} />;

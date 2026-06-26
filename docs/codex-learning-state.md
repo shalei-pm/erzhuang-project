@@ -2657,3 +2657,21 @@ git pull --ff-only
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
 - 风险：
   - 如果某个 mutation 返回全量详情后，缓存会标记两个 Tab 均已加载；这符合当前兼容策略，但后续若 mutation 也拆分，需要一起调整缓存标记。
+
+## 2026-06-26 通道最近截图视口懒加载 2.18.1 开发记录
+
+- 目标：
+  - 降低机构详情页通道映射 Tab 首次进入时最近截图的并发加载压力。
+  - 保留已有图片队列和缓存能力，避免改动后出现截图裂图或刷新截图不更新。
+- 实现：
+  - `QueuedSnapshotImage` 增加 `IntersectionObserver` 视口触发逻辑。
+  - 未进入视野附近的截图只显示原加载占位，不立即进入预加载队列。
+  - 截图进入视野附近约 `160px` 后才进入既有 `ImageLoadQueue(2)`，继续限制同时预加载 2 张。
+  - 已成功加载过的同 URL 继续直接显示，保持 2.17.1 的内存缓存效果。
+  - 不支持 `IntersectionObserver` 的浏览器自动回退到原队列加载逻辑。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - 本地 Vite 预览页面可打开，首页渲染正常，控制台未发现运行时错误。
+  - `cd frontend && npm test -- --run` 未通过，失败为既有测试文件未使用 Vitest `test/it` 套件结构，以及 `api.test` 在当前测试环境下 base path 断言不一致；本次改动未触及对应逻辑。
+- 风险：
+  - 本地 mock 环境没有门店通道数据，未完成真实通道表格的浏览器截图验收；公司环境发布后需重点观察通道映射 Tab 首屏截图加载速度和滚动加载表现。
