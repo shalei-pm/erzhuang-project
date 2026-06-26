@@ -2782,3 +2782,20 @@ git pull --ff-only
   - 公司 GitLab 发布分支 merge commit：`22f53be Merge branch 'main' into codex/containerize-single-image`。
   - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
   - 公司线上 JS 已更新为 `assets/index-BE0jYwKG.js`，确认包含 `2.18.3`。
+
+## 2026-06-26 门店列表业务区域总数修复 2.18.4 开发记录
+
+- 背景：
+  - 2.18.3 保证局部 Tab 接口缺失统计字段时不覆盖已有值，但详情页首次进入仍依赖门店列表摘要生成顶部壳。
+  - 后端 `ListStores` 只返回治疗室、面诊室、生美分项计数，没有返回业务区域总数 `area_count`。
+  - 因此前端列表摘要中的 `areaCount` 仍为 0，首次进入通道映射时顶部业务区域显示 0，切到设计图后才显示真实区域数。
+- 实现：
+  - `StoreListItem` 新增 `area_count` 字段。
+  - Postgres `ListStores` SQL 增加 `count(distinct a.id) as area_count` 并扫描到返回结构。
+  - MemoryStore `storeListItem` 同步累计 `AreaCount`。
+- 验证：
+  - 新增/补充 storespace 测试，覆盖设计图保存区域后列表摘要 `AreaCount` 返回真实数量。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/storespace -run 'TestSaveDesignPlanAllowsVIPTreatmentWithoutNumber|TestConfirmVIPTreatmentAllowsBlankNumberAndCountsAsTreatment'` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
