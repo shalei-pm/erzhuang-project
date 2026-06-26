@@ -25,13 +25,13 @@ export function makePendingStoreDetail(summary: StoreSummary): StoreDetail {
 }
 
 export function detailTabFromSummary(summary: StoreSummary): StoreDetailNavigationTab {
-  if (summary.recorderCount > 0) return "channels";
+  if ((summary.recorderCount ?? 0) > 0) return "channels";
   if (summary.designPlanStatus !== "not_uploaded" || Boolean(summary.thumbnailUrl)) return "design-plan";
   return "channels";
 }
 
 export function storeDetailTabFromDetail(store: StoreDetail): StoreDetailNavigationTab {
-  if (store.recorderCount > 0 || store.recorders.length > 0) return "channels";
+  if ((store.recorderCount ?? 0) > 0 || store.recorders.length > 0) return "channels";
   if (store.designPlanStatus !== "not_uploaded" || Boolean(store.previewUrl || store.thumbnailUrl)) return "design-plan";
   return "channels";
 }
@@ -90,21 +90,21 @@ export function mergeStoreDetailTab(current: StoreDetail, incoming: StoreDetail,
     return {
       ...current,
       ...sharedSummaryFields(incoming),
-      recorderCount: incoming.recorderCount,
-      channelCount: incoming.channelCount,
-      channelsFullyConfirmed: incoming.channelsFullyConfirmed,
-      treatmentCount: incoming.treatmentCount,
-      consultationCount: incoming.consultationCount,
-      beautyCount: incoming.beautyCount,
+      recorderCount: incoming.recorderCount ?? current.recorderCount,
+      channelCount: incoming.channelCount ?? current.channelCount,
+      channelsFullyConfirmed: incoming.channelsFullyConfirmed ?? current.channelsFullyConfirmed,
+      treatmentCount: incoming.treatmentCount ?? current.treatmentCount,
+      consultationCount: incoming.consultationCount ?? current.consultationCount,
+      beautyCount: incoming.beautyCount ?? current.beautyCount,
       recorders: incoming.recorders,
     };
   }
   return {
-    ...current,
-    ...sharedSummaryFields(incoming),
-    thumbnailUrl: incoming.thumbnailUrl,
-    designPlanStatus: incoming.designPlanStatus,
-    areaCount: incoming.areaCount,
+      ...current,
+      ...sharedSummaryFields(incoming),
+      thumbnailUrl: incoming.thumbnailUrl,
+      designPlanStatus: incoming.designPlanStatus,
+      areaCount: incoming.areaCount ?? current.areaCount,
     fileName: incoming.fileName,
     originalPath: incoming.originalPath,
     previewPath: incoming.previewPath,
