@@ -2810,3 +2810,25 @@ git pull --ff-only
 - 线上追加验证：
   - 公司线上第一次发布后，回放片段接口从 `localIndex` 解码错误推进到新的真实返回差异：`meta.code` 有时是字符串。
   - 已补充 `FlexibleInt` 兼容 string/number，并用 `meta.code:"200"` 的测试复现覆盖。
+
+## 2026-06-26 H5 Monitor 播放画面适配与 MSE 告警修复 2.19.2 开发记录
+
+- 背景：
+  - 公司线上部分实时视频已经能出画面，但页面出现 `MediaSource.addSourceBuffer` / `SourceBuffer` 告警。
+  - 播放画面顶部有明显黑条，整体画面显示不完整，诊断条也会遮挡主要画面。
+- 排查结论：
+  - 报错来自 `ezuikit-flv` 的 MSE 硬解码路径，属于播放器内部 SourceBuffer 资源/上限问题；单画面 H5 场景稳定性优先于硬解码收益。
+  - 画面黑条与播放器默认渲染模式、缺少官方样式、内部 video/canvas 未被外层容器稳定约束有关。
+- 实现：
+  - 引入 `ezuikit-flv/style.css`。
+  - 播放器配置关闭 `useMSE`，保留 `useWCS` 和 `autoWasm`，规避 MSE SourceBuffer 路径。
+  - 设置 `scaleMode`、`videoBuffer`、`themeData:null`、`mutedShowAutoReload:false`，减少播放器内置控件和自动重载干扰。
+  - 切换/卸载播放器时先 pause 再 destroy，并清空容器 DOM，减少旧实例残留。
+  - 将 MSE/SourceBuffer 类事件降级为可恢复 warning，6 秒后自动收起，不再用错误 toast 和大红层长期遮挡画面。
+  - CSS 强制播放器内部 `video/canvas` 填满容器，诊断条移到顶部并区分 warning/error 视觉层级。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite 服务可启动；自动浏览器截图验收因本项目未安装 Playwright、Browser 会话 tab 绑定异常未完成，真实画面仍需公司线上 H5 页面复验。

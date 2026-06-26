@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import "ezuikit-flv/style.css";
 
 // ezuikit-flv is loaded dynamically to avoid SSR issues and to keep
 // the decoder path configurable.
@@ -6,8 +7,8 @@ interface EzuikitFlvPlayer {
   destroy: () => void;
   closeSound: () => void;
   openSound: () => void;
-  play: () => void;
-  pause: () => void;
+  play: () => unknown;
+  pause: () => unknown;
 }
 
 interface EzuikitFlvConstructor {
@@ -21,6 +22,10 @@ interface EzuikitFlvConstructor {
     autoWasm: boolean;
     useMSE: boolean;
     useWCS: boolean;
+    scaleMode: 0 | 1 | 2;
+    videoBuffer: number;
+    themeData: null;
+    mutedShowAutoReload: boolean;
   }): EzuikitFlvPlayer;
 }
 
@@ -28,6 +33,7 @@ type PlayerDiagnostic = {
   stage: string;
   message: string;
   details: string[];
+  severity: "error" | "warning";
 };
 
 let playerLib: EzuikitFlvConstructor | null = null;
@@ -66,8 +72,12 @@ export interface H5FlvPlayerProps {
 }
 
 export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
-  const containerId = useRef(`player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const containerId = useMemo(
+    () => `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    [url, isLive],
+  );
   const playerRef = useRef<EzuikitFlvPlayer | null>(null);
+  const warningTimerRef = useRef<number | null>(null);
   const [muted, setMuted] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -104,6 +114,7 @@ export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
           stage: "load-player-lib",
           message: "播放器库没有返回可用构造函数",
           details: commonDetails,
+          severity: "error" as const,
         };
         setDiagnostic(nextDiagnostic);
         onError?.(formatDiagnostic(nextDiagnostic));
@@ -112,25 +123,35 @@ export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
 
       try {
         const player = new Ctor({
-          id: containerId.current,
+          id: containerId,
           url,
           decoder: DECODER_PATH,
           autoPlay: true,
           isLive,
           muted: true,
           autoWasm: true,
-          useMSE: true,
+          useMSE: false,
           useWCS: true,
+          scaleMode: 2,
+          videoBuffer: 1,
+          themeData: null,
+          mutedShowAutoReload: false,
         });
         playerRef.current = player;
         attachPlayerDiagnostics(player, (message) => {
+          const severity: PlayerDiagnostic["severity"] = isRecoverablePlayerEvent(message) ? "warning" : "error";
           const nextDiagnostic = {
             stage: "player-event",
             message,
             details: commonDetails,
+            severity,
           };
           setDiagnostic(nextDiagnostic);
-          onError?.(formatDiagnostic(nextDiagnostic));
+          if (severity === "error") {
+            onError?.(formatDiagnostic(nextDiagnostic));
+          } else {
+            scheduleWarningClear(warningTimerRef, setDiagnostic);
+          }
         });
         setLoading(false);
       } catch (err) {
@@ -141,6 +162,7 @@ export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
           stage: "init-player",
           message: errorText(err),
           details: commonDetails,
+          severity: "error" as const,
         };
         setDiagnostic(nextDiagnostic);
         onError?.(formatDiagnostic(nextDiagnostic));
@@ -151,16 +173,13 @@ export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
 
     return () => {
       cancelled = true;
+      clearWarningTimer(warningTimerRef);
       if (playerRef.current) {
-        try {
-          playerRef.current.destroy();
-        } catch {
-          // ignore
-        }
+        stopPlayer(playerRef.current, containerId);
         playerRef.current = null;
       }
     };
-  }, [url, isLive, onError, isMock]);
+  }, [url, isLive, onError, isMock, containerId]);
 
   function toggleMute() {
     const next = !muted;
@@ -186,7 +205,7 @@ export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
           <span className="h5-player-mock-badge">{isLive ? "实时视频" : "录像回放"}</span>
         </div>
       ) : (
-        <div id={containerId.current} className="h5-player-container" />
+        <div key={containerId} id={containerId} className="h5-player-container" />
       )}
       {loading && (
         <div className="h5-player-overlay">
@@ -228,7 +247,7 @@ function attachPlayerDiagnostics(player: EzuikitFlvPlayer, onPlayerError: (messa
 
 function PlayerDiagnosticPanel({ diagnostic }: { diagnostic: PlayerDiagnostic }) {
   return (
-    <div className="h5-player-diagnostic" aria-label="播放器错误详情">
+    <div className={`h5-player-diagnostic ${diagnostic.severity}`} aria-label="播放器错误详情">
       <strong>{diagnostic.stage}</strong>
       <span>{diagnostic.message}</span>
       {diagnostic.details.map((item) => (
@@ -236,6 +255,54 @@ function PlayerDiagnosticPanel({ diagnostic }: { diagnostic: PlayerDiagnostic })
       ))}
     </div>
   );
+}
+
+function isRecoverablePlayerEvent(message: string) {
+  const text = message.toLowerCase();
+  return text.includes("mediasource") || text.includes("sourcebuffer") || text.includes("mse");
+}
+
+function scheduleWarningClear(
+  timerRef: MutableRefObject<number | null>,
+  setDiagnostic: Dispatch<SetStateAction<PlayerDiagnostic | null>>,
+) {
+  clearWarningTimer(timerRef);
+  timerRef.current = window.setTimeout(() => {
+    setDiagnostic((current) => (current?.severity === "warning" ? null : current));
+    timerRef.current = null;
+  }, 6000);
+}
+
+function clearWarningTimer(timerRef: MutableRefObject<number | null>) {
+  if (timerRef.current !== null) {
+    window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+}
+
+function stopPlayer(player: EzuikitFlvPlayer, containerId: string) {
+  try {
+    const paused = player.pause();
+    if (paused && typeof (paused as Promise<unknown>).finally === "function") {
+      void (paused as Promise<unknown>).finally(() => destroyPlayer(player, containerId));
+      return;
+    }
+  } catch {
+    // continue to destroy
+  }
+  destroyPlayer(player, containerId);
+}
+
+function destroyPlayer(player: EzuikitFlvPlayer, containerId: string) {
+  try {
+    player.destroy();
+  } catch {
+    // ignore
+  }
+  const container = document.getElementById(containerId);
+  if (container) {
+    container.innerHTML = "";
+  }
 }
 
 function formatDiagnostic(diagnostic: PlayerDiagnostic) {
