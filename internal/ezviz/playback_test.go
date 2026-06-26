@@ -89,13 +89,17 @@ func TestPlaybackAddressRejectsInvalidTimeRange(t *testing.T) {
 	}
 }
 
-func TestDisableLiveAddressSendsID(t *testing.T) {
-	var capturedID string
+func TestDisableLiveAddressSendsDeviceChannelAndURLID(t *testing.T) {
+	var capturedDeviceSerial string
+	var capturedChannelNo string
+	var capturedURLID string
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if err := r.ParseForm(); err != nil {
 			t.Fatalf("parse form: %v", err)
 		}
-		capturedID = r.Form.Get("id")
+		capturedDeviceSerial = r.Form.Get("deviceSerial")
+		capturedChannelNo = r.Form.Get("channelNo")
+		capturedURLID = r.Form.Get("urlId")
 		return jsonResponse(`{"code":"200","msg":"ok","data":null}`), nil
 	})
 
@@ -104,10 +108,14 @@ func TestDisableLiveAddressSendsID(t *testing.T) {
 	client.tokens["test"] = tokenCache{accessToken: "tok", expiresAt: farFuture()}
 	client.mu.Unlock()
 
-	if err := client.DisableLiveAddress(context.Background(), Account{Name: "test", AppKey: "k", AppSecret: "s"}, "url-id-123"); err != nil {
+	if err := client.DisableLiveAddress(context.Background(), Account{Name: "test", AppKey: "k", AppSecret: "s"}, DisableLiveAddressRequest{
+		DeviceSerial: "az3988334",
+		ChannelNo:    2,
+		URLID:        "url-id-123",
+	}); err != nil {
 		t.Fatalf("disable live address: %v", err)
 	}
-	if capturedID != "url-id-123" {
-		t.Fatalf("unexpected id %q", capturedID)
+	if capturedDeviceSerial != "AZ3988334" || capturedChannelNo != "2" || capturedURLID != "url-id-123" {
+		t.Fatalf("unexpected disable params device=%q channel=%q urlId=%q", capturedDeviceSerial, capturedChannelNo, capturedURLID)
 	}
 }

@@ -52,7 +52,7 @@ type EzvizPlayer interface {
 	LiveAddress(ctx context.Context, account ezviz.Account, input ezviz.LiveAddressRequest) (ezviz.LiveAddressResult, error)
 	PlaybackAddress(ctx context.Context, account ezviz.Account, input ezviz.PlaybackRequest) (ezviz.PlaybackResult, error)
 	QueryRecordSegments(ctx context.Context, account ezviz.Account, input ezviz.RecordSegmentsQuery) (ezviz.RecordSegmentsResult, error)
-	DisableLiveAddress(ctx context.Context, account ezviz.Account, urlID string) error
+	DisableLiveAddress(ctx context.Context, account ezviz.Account, input ezviz.DisableLiveAddressRequest) error
 }
 
 const (
@@ -203,7 +203,11 @@ func (s *Service) DisableURL(ctx context.Context, externalOrgID string, channelI
 		s.releaseConcurrency(userID)
 		return err
 	}
-	disableErr := s.player.DisableLiveAddress(ctx, channelToAccount(channel), strings.TrimSpace(urlID))
+	disableErr := s.player.DisableLiveAddress(ctx, channelToAccount(channel), ezviz.DisableLiveAddressRequest{
+		DeviceSerial: channel.DeviceSerial,
+		ChannelNo:    channel.ChannelNo,
+		URLID:        strings.TrimSpace(urlID),
+	})
 	s.releaseConcurrency(userID)
 	return disableErr
 }

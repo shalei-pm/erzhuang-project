@@ -24,9 +24,25 @@ type RecordSegmentsResult struct {
 	Records      []RecordSegment `json:"records"`
 	FromNvr      bool            `json:"fromNvr"`
 	DeviceSerial string          `json:"deviceSerial"`
-	LocalIndex   string          `json:"localIndex"`
+	LocalIndex   FlexibleString  `json:"localIndex"`
 	HasMore      bool            `json:"hasMore"`
 	NextFileTime int64           `json:"nextFileTime"`
+}
+
+type FlexibleString string
+
+func (s *FlexibleString) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		*s = FlexibleString(text)
+		return nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err == nil {
+		*s = FlexibleString(number.String())
+		return nil
+	}
+	return fmt.Errorf("decode flexible string: %s", string(data))
 }
 
 type RecordSegmentsQuery struct {

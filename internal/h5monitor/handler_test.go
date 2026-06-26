@@ -47,6 +47,7 @@ func (r *fakeRepo) GetChannelByID(ctx context.Context, channelID int64) (*Channe
 type fakePlayer struct {
 	liveInput     ezviz.LiveAddressRequest
 	playbackInput ezviz.PlaybackRequest
+	disableInput  ezviz.DisableLiveAddressRequest
 	disableErr    error
 	disabledIDs   []string
 }
@@ -69,8 +70,9 @@ func (p *fakePlayer) QueryRecordSegments(ctx context.Context, account ezviz.Acco
 	return ezviz.RecordSegmentsResult{Records: []ezviz.RecordSegment{{StartTime: 1731945592, EndTime: 1731949200, Type: "ALARM"}}}, nil
 }
 
-func (p *fakePlayer) DisableLiveAddress(ctx context.Context, account ezviz.Account, urlID string) error {
-	p.disabledIDs = append(p.disabledIDs, urlID)
+func (p *fakePlayer) DisableLiveAddress(ctx context.Context, account ezviz.Account, input ezviz.DisableLiveAddressRequest) error {
+	p.disableInput = input
+	p.disabledIDs = append(p.disabledIDs, input.URLID)
 	return p.disableErr
 }
 
@@ -231,5 +233,8 @@ func TestDisableURLReturnsOKFalseOnEzvizFailure(t *testing.T) {
 	}
 	if len(player.disabledIDs) != 1 || player.disabledIDs[0] != "live-url-id" {
 		t.Fatalf("unexpected disabled ids: %v", player.disabledIDs)
+	}
+	if player.disableInput.DeviceSerial != "GN0941203" || player.disableInput.ChannelNo != 2 {
+		t.Fatalf("unexpected disable input: %#v", player.disableInput)
 	}
 }
