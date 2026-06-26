@@ -86,15 +86,15 @@ export const h5Api = {
     return requestJSON(`${API_BASE}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor`);
   },
 
-  async getLiveUrl(externalOrgId: string, channelId: number, userId: string, isAdmin: boolean): Promise<H5LiveURLResponse> {
+  async getLiveUrl(externalOrgId: string, channelId: number, userId: string, isAdmin: boolean, protocol = "flv"): Promise<H5LiveURLResponse> {
     if (import.meta.env.DEV && externalOrgId === "demo") {
       void userId;
       void isAdmin;
-      return { url: `mock-live-${channelId}`, expire_time: "local demo", url_id: `demo-live-${channelId}` };
+      return { url: `mock-live-${channelId}`, expire_time: "local demo", url_id: `demo-live-${channelId}`, protocol };
     }
     return requestJSON(`${API_BASE}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor/channels/${channelId}/live-url`, {
       method: "POST",
-      body: JSON.stringify({ user_id: userId, is_admin: isAdmin }),
+      body: JSON.stringify({ user_id: userId, is_admin: isAdmin, protocol }),
     });
   },
 

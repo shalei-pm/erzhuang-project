@@ -31,14 +31,16 @@ type MonitorHomeResponse struct {
 }
 
 type LiveURLRequest struct {
-	UserID  string `json:"user_id,omitempty"`
-	IsAdmin bool   `json:"is_admin,omitempty"`
+	UserID   string `json:"user_id,omitempty"`
+	IsAdmin  bool   `json:"is_admin,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
 }
 
 type LiveURLResponse struct {
 	URL        string `json:"url"`
 	ExpireTime string `json:"expire_time"`
 	URLID      string `json:"url_id"`
+	Protocol   string `json:"protocol"`
 }
 
 type RecordSegmentResponse struct {

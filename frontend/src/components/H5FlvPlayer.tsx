@@ -67,11 +67,12 @@ async function loadPlayerLib(): Promise<{ ctor: EzuikitFlvConstructor | null; di
 
 export interface H5FlvPlayerProps {
   url: string;
+  protocol?: string;
   isLive: boolean;
   onError?: (message: string) => void;
 }
 
-export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
+export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps) {
   const containerId = useMemo(
     () => `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     [url, isLive],
@@ -83,10 +84,17 @@ export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [diagnostic, setDiagnostic] = useState<PlayerDiagnostic | null>(null);
   const isMock = url.startsWith("mock-");
+  const isNativeVideo = !isMock && shouldUseNativeVideo(url, protocol);
 
   useEffect(() => {
     if (isMock) {
       setLoading(false);
+      setLoadFailed(false);
+      setDiagnostic(null);
+      return;
+    }
+    if (isNativeVideo) {
+      setLoading(true);
       setLoadFailed(false);
       setDiagnostic(null);
       return;
@@ -179,7 +187,7 @@ export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
         playerRef.current = null;
       }
     };
-  }, [url, isLive, onError, isMock, containerId]);
+  }, [url, isLive, onError, isMock, isNativeVideo, containerId, protocol]);
 
   function toggleMute() {
     const next = !muted;
@@ -204,6 +212,30 @@ export function H5FlvPlayer({ url, isLive, onError }: H5FlvPlayerProps) {
           <img src={`https://picsum.photos/seed/${encodeURIComponent(url)}/960/540`} alt="模拟监控画面" />
           <span className="h5-player-mock-badge">{isLive ? "实时视频" : "录像回放"}</span>
         </div>
+      ) : isNativeVideo ? (
+        <video
+          className="h5-player-container h5-native-video"
+          src={url}
+          controls
+          playsInline
+          autoPlay
+          muted={muted}
+          onLoadedMetadata={() => setLoading(false)}
+          onCanPlay={() => setLoading(false)}
+          onPlaying={() => setLoading(false)}
+          onError={() => {
+            setLoading(false);
+            setLoadFailed(true);
+            const nextDiagnostic = {
+              stage: "native-video",
+              message: "原生视频播放失败",
+              details: [`url=${summarizeUrl(url)}`, `protocol=${protocol || inferProtocol(url)}`, `mode=${isLive ? "live" : "playback"}`],
+              severity: "error" as const,
+            };
+            setDiagnostic(nextDiagnostic);
+            onError?.(formatDiagnostic(nextDiagnostic));
+          }}
+        />
       ) : (
         <div key={containerId} id={containerId} className="h5-player-container" />
       )}
@@ -260,6 +292,22 @@ function PlayerDiagnosticPanel({ diagnostic }: { diagnostic: PlayerDiagnostic })
 function isRecoverablePlayerEvent(message: string) {
   const text = message.toLowerCase();
   return text.includes("mediasource") || text.includes("sourcebuffer") || text.includes("mse");
+}
+
+function shouldUseNativeVideo(url: string, protocol?: string) {
+  const normalized = (protocol || inferProtocol(url)).toLowerCase();
+  return normalized === "hls" || normalized === "m3u8";
+}
+
+function inferProtocol(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.pathname.toLowerCase().endsWith(".m3u8")) return "hls";
+    if (parsed.pathname.toLowerCase().endsWith(".flv")) return "flv";
+  } catch {
+    // fall through
+  }
+  return "";
 }
 
 function scheduleWarningClear(

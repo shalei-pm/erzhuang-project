@@ -171,10 +171,34 @@ func TestPilotHomeAndPlaybackRejectNonPilotDevice(t *testing.T) {
 	}
 }
 
-func TestLiveURLUsesH5FLVParameters(t *testing.T) {
+func TestLiveURLUsesRequestedHLSParameters(t *testing.T) {
 	service, player := newFakeService()
 	handler := NewHandler(service)
-	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1","protocol":"hls"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getLiveURL(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if player.liveInput.Protocol != 2 || player.liveInput.Type != 1 || player.liveInput.Quality != 2 || player.liveInput.ExpireTime != 600 || player.liveInput.SupportH265 {
+		t.Fatalf("unexpected live input: %#v", player.liveInput)
+	}
+	if player.liveInput.Mute == nil || *player.liveInput.Mute != 0 {
+		t.Fatalf("expected explicit mute=0, got %#v", player.liveInput.Mute)
+	}
+	if !strings.Contains(response.Body.String(), `"protocol":"hls"`) {
+		t.Fatalf("expected hls protocol in response, got %s", response.Body.String())
+	}
+}
+
+func TestLiveURLUsesRequestedFLVParameters(t *testing.T) {
+	service, player := newFakeService()
+	handler := NewHandler(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1","protocol":"flv"}`))
 	request.SetPathValue("externalOrgId", "10030")
 	request.SetPathValue("channelId", "2")
 	response := httptest.NewRecorder()
@@ -187,8 +211,8 @@ func TestLiveURLUsesH5FLVParameters(t *testing.T) {
 	if player.liveInput.Protocol != 4 || player.liveInput.Type != 1 || player.liveInput.Quality != 2 || player.liveInput.ExpireTime != 600 || !player.liveInput.SupportH265 {
 		t.Fatalf("unexpected live input: %#v", player.liveInput)
 	}
-	if player.liveInput.Mute == nil || *player.liveInput.Mute != 0 {
-		t.Fatalf("expected explicit mute=0, got %#v", player.liveInput.Mute)
+	if !strings.Contains(response.Body.String(), `"protocol":"flv"`) {
+		t.Fatalf("expected flv protocol in response, got %s", response.Body.String())
 	}
 }
 
