@@ -2756,3 +2756,8 @@ git pull --ff-only
   - `cd frontend && ./node_modules/.bin/tsc --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck --jsx react-jsx --types vite/client --outDir /tmp/erzhuang-store-detail-nav-test src/vite-env.d.ts src/domain/store-detail-navigation.ts src/domain/store-detail-navigation.test.ts && node /tmp/erzhuang-store-detail-nav-test/domain/store-detail-navigation.test.js` 通过。
   - `cd frontend && npm run build` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+- 发布：
+  - GitHub `main` commit：`92593fa Fix split detail tab metrics`。
+  - 公司 GitLab 发布分支 merge commit：`01493f2 Merge branch 'main' into codex/containerize-single-image`。
+  - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 公司线上 JS 已更新为 `assets/index-BHsDPUSA.js`，确认包含 `2.18.2`。
