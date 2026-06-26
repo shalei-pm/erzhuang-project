@@ -223,12 +223,7 @@ function BackIcon() {
 }
 
 function preferredLiveProtocol(): "hls" | "flv" {
-  if (typeof navigator === "undefined") return "flv";
-  const ua = navigator.userAgent.toLowerCase();
-  const isMobile =
-    navigator.maxTouchPoints > 1 &&
-    /android|iphone|ipad|ipod|mobile|micromessenger|lark|feishu|bytedancewebview/.test(ua);
-  return isMobile ? "hls" : "flv";
+  return "flv";
 }
 
 function PlaybackDatePicker({

@@ -2937,3 +2937,22 @@ git pull --ff-only
   - GitHub `main` 已同步 commit `4a52b8b`。
   - 公司线上 `/health` 返回 `database:"postgres"`、`asset_store:"supabase"`。
   - 公司线上静态资源已更新到 `2.19.7 (container)`，H5 详情 chunk 包含 `native-video`、`playsInline`、`hls/flv` 协议选择逻辑。
+
+## 2026-06-26 H5 Monitor 移动端 H265 播放器适配 2.19.8 开发记录
+
+- 背景：
+  - 2.19.7 将移动端实时视频改为 HLS + 原生 video 后，手机端提示“视频编码类型非 H264”。
+  - 用户判断不应为了手机播放统一关闭 H265，因为会降低录像机编码效率并增大录像体积。
+- 排查结论：
+  - HLS/native video 路径依赖浏览器原生解码，遇到 H265 流时容易失败。
+  - `ezuikit-flv` 本地类型说明显示：MSE 硬解只支持 H264，iOS Safari 不支持；`autoWasm` 支持 H265 时从 MSE 自动降级到 wasm。
+  - 更合理的方向是保留 H265 设备配置，移动端用播放器软解适配，而不是改录像机编码。
+- 实现：
+  - H5 实时视频默认协议改回 FLV，避免移动端进入 HLS/native video 的 H264 限制。
+  - `H5FlvPlayer` 移动端播放上下文关闭 `useMSE`，保留 `autoWasm:true` 和 `useWCS:true`。
+  - 播放器参数增加 `hasAudio:true`、移动端 `keepScreenOn:true`，保留声音和手机屏幕常亮能力。
+  - 诊断信息增加 `protocol` 与 `decode`，便于区分桌面 MSE 与移动端 wasm 路径。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
