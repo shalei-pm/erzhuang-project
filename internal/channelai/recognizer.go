@@ -36,15 +36,52 @@ type Recognizer interface {
 	Recognize(ctx context.Context, imageURL string) (Result, error)
 }
 
+type ProviderReader interface {
+	GetAIProvider(ctx context.Context) (string, error)
+}
+
+func NewDynamicRecognizer(providerReader ProviderReader) Recognizer {
+	return &DynamicRecognizer{providerReader: providerReader}
+}
+
+type DynamicRecognizer struct {
+	providerReader ProviderReader
+}
+
+func (r *DynamicRecognizer) Recognize(ctx context.Context, imageURL string) (Result, error) {
+	provider := ""
+	if r.providerReader != nil {
+		value, err := r.providerReader.GetAIProvider(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		provider = value
+	}
+	recognizer, enabled, err := NewRecognizerForProvider(provider)
+	if err != nil {
+		return Result{}, err
+	}
+	if !enabled {
+		return Result{}, errors.New("channel ai recognizer is not configured")
+	}
+	return recognizer.Recognize(ctx, imageURL)
+}
+
 func NewRecognizerFromEnv() (Recognizer, bool, error) {
-	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CHANNEL_AI_PROVIDER")))
+	return NewRecognizerForProvider(os.Getenv("CHANNEL_AI_PROVIDER"))
+}
+
+func NewRecognizerForProvider(provider string) (Recognizer, bool, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
 	switch provider {
 	case "", "openai", "responses", "openai-responses":
 		recognizer, enabled := NewOpenAIRecognizerFromEnv()
 		return recognizer, enabled, nil
 	case "external-command", "command", "script":
 		return NewCommandRecognizerFromEnv()
-	case "minimax", "minimax-script", "minimax-understand-image":
+	case "minimax":
+		return NewMiniMaxRecognizerFromEnv()
+	case "minimax-script", "minimax-understand-image":
 		return NewMiniMaxCommandRecognizerFromEnv()
 	default:
 		return nil, false, fmt.Errorf("unsupported CHANNEL_AI_PROVIDER %q", provider)

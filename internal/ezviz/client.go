@@ -58,6 +58,21 @@ type CaptureResult struct {
 	PicURL string `json:"picUrl"`
 }
 
+type LiveAddressRequest struct {
+	DeviceSerial string
+	ChannelNo    int
+	Protocol     int
+	Quality      int
+	ExpireTime   int
+	Code         string
+}
+
+type LiveAddressResult struct {
+	ID         string `json:"id"`
+	URL        string `json:"url"`
+	ExpireTime string `json:"expireTime"`
+}
+
 type apiResponse[T any] struct {
 	Code string `json:"code"`
 	Msg  string `json:"msg"`
@@ -163,6 +178,36 @@ func (c *Client) Capture(ctx context.Context, account Account, deviceSerial stri
 	return response.Data, nil
 }
 
+func (c *Client) LiveAddress(ctx context.Context, account Account, input LiveAddressRequest) (LiveAddressResult, error) {
+	token, err := c.accessToken(ctx, account)
+	if err != nil {
+		return LiveAddressResult{}, err
+	}
+
+	values := liveAddressValues(token, input)
+	var response apiResponse[LiveAddressResult]
+	if err := c.postForm(ctx, "/api/lapp/v2/live/address/get", values, &response); err != nil {
+		return LiveAddressResult{}, err
+	}
+	if isExpiredTokenCode(response.Code) {
+		token, err = c.refreshToken(ctx, account)
+		if err != nil {
+			return LiveAddressResult{}, err
+		}
+		values = liveAddressValues(token, input)
+		if err := c.postForm(ctx, "/api/lapp/v2/live/address/get", values, &response); err != nil {
+			return LiveAddressResult{}, err
+		}
+	}
+	if response.Code != "200" {
+		return LiveAddressResult{}, &Error{Code: response.Code, Msg: redact(response.Msg, account)}
+	}
+	if strings.TrimSpace(response.Data.URL) == "" {
+		return LiveAddressResult{}, errors.New("ezviz live address response missing url")
+	}
+	return response.Data, nil
+}
+
 func (c *Client) accessToken(ctx context.Context, account Account) (string, error) {
 	accountName := strings.TrimSpace(account.Name)
 	if accountName == "" {
@@ -214,6 +259,34 @@ func (c *Client) refreshToken(ctx context.Context, account Account) (string, err
 	c.mu.Unlock()
 
 	return response.Data.AccessToken, nil
+}
+
+func liveAddressValues(token string, input LiveAddressRequest) url.Values {
+	protocol := input.Protocol
+	if protocol == 0 {
+		protocol = 2
+	}
+	quality := input.Quality
+	if quality == 0 {
+		quality = 2
+	}
+	expireTime := input.ExpireTime
+	if expireTime == 0 {
+		expireTime = 600
+	}
+	values := url.Values{}
+	values.Set("accessToken", token)
+	values.Set("deviceSerial", strings.ToUpper(strings.TrimSpace(input.DeviceSerial)))
+	values.Set("channelNo", strconv.Itoa(input.ChannelNo))
+	values.Set("protocol", strconv.Itoa(protocol))
+	values.Set("type", "1")
+	values.Set("quality", strconv.Itoa(quality))
+	values.Set("expireTime", strconv.Itoa(expireTime))
+	values.Set("supportH265", "0")
+	if code := strings.TrimSpace(input.Code); code != "" {
+		values.Set("code", code)
+	}
+	return values
 }
 
 func (c *Client) postForm(ctx context.Context, path string, values url.Values, target any) error {

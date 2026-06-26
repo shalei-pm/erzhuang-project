@@ -2,6 +2,8 @@
 
 ## 发布术语速查
 
+默认规则：除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，所有已确认准备发布的代码都先提交并推送到 GitHub `origin/main` 作为主代码备份，再按目标环境执行公司或韩国服务器发布。
+
 用户说“发布到公司”时，固定执行公司 GitLab 自动发布链路：
 
 1. 将当前已确认代码 merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。

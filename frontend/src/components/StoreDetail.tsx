@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { EzvizAccount, StoreDetail as StoreDetailType, VideoRecorder } from "../api";
+import type { AISettings, EzvizAccount, StoreDetail as StoreDetailType, VideoRecorder } from "../api";
 import { DesignPlanTab } from "./DesignPlanTab";
 import { VideoChannelTab } from "./VideoChannelTab";
 
@@ -10,12 +10,26 @@ type StoreDetailProps = {
   initialTab: StoreDetailTab;
   saving: boolean;
   accounts: EzvizAccount[];
+  aiSettings: AISettings | null;
+  switchingAIModel: boolean;
   onBack: () => void;
+  onToggleAIModel: () => void;
   onStoreUpdated: (update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType)) => void;
   onToast: (message: string) => void;
 };
 
-export function StoreDetail({ store, initialTab, saving, accounts, onBack, onStoreUpdated, onToast }: StoreDetailProps) {
+export function StoreDetail({
+  store,
+  initialTab,
+  saving,
+  accounts,
+  aiSettings,
+  switchingAIModel,
+  onBack,
+  onToggleAIModel,
+  onStoreUpdated,
+  onToast,
+}: StoreDetailProps) {
   const [activeTab, setActiveTab] = useState<StoreDetailTab>(initialTab);
 
   useEffect(() => {
@@ -65,14 +79,22 @@ export function StoreDetail({ store, initialTab, saving, accounts, onBack, onSto
         </div>
       </header>
 
-      <nav className="tabs" aria-label="门店详情 Tab">
-        <button className={activeTab === "design-plan" ? "is-active" : ""} onClick={() => setActiveTab("design-plan")}>
-          设计图标注
-        </button>
-        <button className={activeTab === "channels" ? "is-active" : ""} onClick={() => setActiveTab("channels")}>
-          通道映射
-        </button>
-      </nav>
+      <div className="detail-tabs-row">
+        <nav className="tabs" aria-label="门店详情 Tab">
+          <button className={activeTab === "design-plan" ? "is-active" : ""} onClick={() => setActiveTab("design-plan")}>
+            设计图标注
+          </button>
+          <button className={activeTab === "channels" ? "is-active" : ""} onClick={() => setActiveTab("channels")}>
+            通道映射
+          </button>
+        </nav>
+        <div className="ai-model-switcher" aria-label="识别模型设置">
+          <span>当前识别模型：{aiSettings?.label ?? "加载中"}</span>
+          <button type="button" className="secondary-action-button" disabled={switchingAIModel || !aiSettings} onClick={onToggleAIModel}>
+            {switchingAIModel ? "切换中" : "切换识别模型"}
+          </button>
+        </div>
+      </div>
 
       <div hidden={activeTab !== "design-plan"}>
         <DesignPlanTab store={store} saving={saving} onStoreUpdated={onStoreUpdated} onToast={onToast} />

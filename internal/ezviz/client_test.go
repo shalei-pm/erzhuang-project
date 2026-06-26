@@ -95,6 +95,86 @@ func TestClientDoesNotExposeSecretsInErrors(t *testing.T) {
 	}
 }
 
+func TestClientLiveAddressRequestsHLSAndRefreshesToken(t *testing.T) {
+	var tokenRequests int
+	var liveAddressRequests int
+
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+
+		switch r.URL.Path {
+		case "/api/lapp/v2/live/address/get":
+			liveAddressRequests++
+			if r.Form.Get("accessToken") == "expired-token" {
+				return jsonResponse(`{"code":"10002","msg":"access token expired"}`), nil
+			}
+			if r.Form.Get("accessToken") != "fresh-token" {
+				t.Fatalf("unexpected accessToken %q", r.Form.Get("accessToken"))
+			}
+			if r.Form.Get("deviceSerial") != "GN0941203" {
+				t.Fatalf("unexpected deviceSerial %q", r.Form.Get("deviceSerial"))
+			}
+			if r.Form.Get("channelNo") != "2" {
+				t.Fatalf("unexpected channelNo %q", r.Form.Get("channelNo"))
+			}
+			if r.Form.Get("protocol") != "2" {
+				t.Fatalf("unexpected protocol %q", r.Form.Get("protocol"))
+			}
+			if r.Form.Get("type") != "1" {
+				t.Fatalf("unexpected type %q", r.Form.Get("type"))
+			}
+			if r.Form.Get("quality") != "2" {
+				t.Fatalf("unexpected quality %q", r.Form.Get("quality"))
+			}
+			if r.Form.Get("expireTime") != "600" {
+				t.Fatalf("unexpected expireTime %q", r.Form.Get("expireTime"))
+			}
+			if r.Form.Get("supportH265") != "0" {
+				t.Fatalf("unexpected supportH265 %q", r.Form.Get("supportH265"))
+			}
+			if r.Form.Get("code") != "verify-code" {
+				t.Fatalf("unexpected code %q", r.Form.Get("code"))
+			}
+			return jsonResponse(`{"code":"200","msg":"操作成功","data":{"id":"url-id-1","url":"https://open.ys7.com/v3/openlive/GN0941203_2_1.m3u8","expireTime":"2026-06-24 12:00:00"}}`), nil
+		case "/api/lapp/token/get":
+			tokenRequests++
+			return jsonResponse(`{"code":"200","msg":"操作成功!","data":{"accessToken":"fresh-token","expireTime":1999999999000}}`), nil
+		default:
+			return jsonResponse(`{"code":"404","msg":"not found"}`), nil
+		}
+	})
+
+	client := NewClient(ClientOptions{BaseURL: "https://ezviz.test", HTTPClient: &http.Client{Transport: transport}})
+	result, err := client.LiveAddress(context.Background(), Account{
+		Name:        "华北",
+		AppKey:      "app-key",
+		AppSecret:   "app-secret",
+		AccessToken: "expired-token",
+	}, LiveAddressRequest{
+		DeviceSerial: "gn0941203",
+		ChannelNo:    2,
+		Protocol:     2,
+		Quality:      2,
+		ExpireTime:   600,
+		Code:         "verify-code",
+	})
+	if err != nil {
+		t.Fatalf("live address: %v", err)
+	}
+
+	if tokenRequests != 1 {
+		t.Fatalf("expected one token refresh, got %d", tokenRequests)
+	}
+	if liveAddressRequests != 2 {
+		t.Fatalf("expected two live address requests, got %d", liveAddressRequests)
+	}
+	if result.ID != "url-id-1" || result.URL == "" || result.ExpireTime != "2026-06-24 12:00:00" {
+		t.Fatalf("unexpected live address result: %#v", result)
+	}
+}
+
 func TestParseAccountsMarkdownSelectsNorthChina(t *testing.T) {
 	source := []byte(`
 | 大区 | 账户名 | appKey | appSecret | accessToken | 测试录像机设备编码 |

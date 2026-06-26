@@ -26,6 +26,7 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	handler := NewHandler(service)
 	mux.HandleFunc("GET /api/store-space/ezviz-accounts", handler.listEzvizAccounts)
 	mux.HandleFunc("POST /api/store-space/ezviz-accounts", handler.createEzvizAccount)
+	mux.HandleFunc("POST /api/store-space/diagnostics/ezviz/live-address", handler.getEzvizLiveAddress)
 	mux.HandleFunc("GET /api/store-space/stores", handler.listStores)
 	mux.HandleFunc("POST /api/store-space/stores", handler.createStore)
 	mux.HandleFunc("POST /api/store-space/stores/check-duplicate", handler.checkDuplicate)
@@ -68,6 +69,19 @@ func (h *Handler) createEzvizAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, account)
+}
+
+func (h *Handler) getEzvizLiveAddress(w http.ResponseWriter, r *http.Request) {
+	var input LiveAddressInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	result, err := h.service.GetLiveAddress(r.Context(), input)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {

@@ -86,6 +86,49 @@ func TestTasks(t *testing.T) {
 	}
 }
 
+func TestAISettingsToggle(t *testing.T) {
+	handler := NewHandler()
+
+	getRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(getRecorder, httptest.NewRequest(http.MethodGet, "/api/ai-settings", nil))
+	if getRecorder.Code != http.StatusOK {
+		t.Fatalf("expected get status %d, got %d", http.StatusOK, getRecorder.Code)
+	}
+	var initial AISettings
+	if err := json.NewDecoder(getRecorder.Body).Decode(&initial); err != nil {
+		t.Fatalf("decode initial settings: %v", err)
+	}
+	if initial.Provider != "openai" {
+		t.Fatalf("expected default openai provider, got %#v", initial)
+	}
+
+	toggleRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(toggleRecorder, httptest.NewRequest(http.MethodPost, "/api/ai-settings/toggle", nil))
+	if toggleRecorder.Code != http.StatusOK {
+		t.Fatalf("expected toggle status %d, got %d", http.StatusOK, toggleRecorder.Code)
+	}
+	var toggled AISettings
+	if err := json.NewDecoder(toggleRecorder.Body).Decode(&toggled); err != nil {
+		t.Fatalf("decode toggled settings: %v", err)
+	}
+	if toggled.Provider != "minimax" {
+		t.Fatalf("expected minimax provider after toggle, got %#v", toggled)
+	}
+
+	secondToggleRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(secondToggleRecorder, httptest.NewRequest(http.MethodPost, "/api/ai-settings/toggle", nil))
+	if secondToggleRecorder.Code != http.StatusOK {
+		t.Fatalf("expected second toggle status %d, got %d", http.StatusOK, secondToggleRecorder.Code)
+	}
+	var secondToggled AISettings
+	if err := json.NewDecoder(secondToggleRecorder.Body).Decode(&secondToggled); err != nil {
+		t.Fatalf("decode second toggled settings: %v", err)
+	}
+	if secondToggled.Provider != "openai" {
+		t.Fatalf("expected openai provider after second toggle, got %#v", secondToggled)
+	}
+}
+
 type failingStore struct{}
 
 func (failingStore) Name() string {
@@ -98,4 +141,12 @@ func (failingStore) Ping(ctx context.Context) error {
 
 func (failingStore) ListTasks(ctx context.Context) ([]Task, error) {
 	return nil, errors.New("list failed")
+}
+
+func (failingStore) GetAIProvider(ctx context.Context) (string, error) {
+	return "", errors.New("settings failed")
+}
+
+func (failingStore) SetAIProvider(ctx context.Context, provider string) error {
+	return errors.New("settings failed")
 }

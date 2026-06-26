@@ -32,14 +32,15 @@ func main() {
 			log.Fatalf("asset store setup failed: %v", err)
 		}
 
+		appStore := app.NewPostgresStore(db)
 		storeSpaceRepo := storespace.NewPostgresStore(db)
 		storeSpaceService := storespace.NewService(storeSpaceRepo)
 		storeSpaceService.UseSnapshotStore(storespace.NewAssetSnapshotStore(assetStore))
 		var channelRecognizer storespace.ChannelRecognizer
-		if recognizer, enabled, err := channelai.NewRecognizerFromEnv(); err != nil {
+		if _, enabled, err := channelai.NewRecognizerFromEnv(); err != nil {
 			log.Printf("channel ai recognizer disabled: %v", err)
 		} else if enabled {
-			channelRecognizer = storespace.NewChannelAIAdapter(recognizer)
+			channelRecognizer = storespace.NewChannelAIAdapter(channelai.NewDynamicRecognizer(appStore))
 			log.Print("channel ai recognizer enabled")
 		}
 		if ezvizAccounts, enabled, err := storespace.EzvizAccountsFromEnv(); err != nil {
@@ -53,7 +54,7 @@ func main() {
 			storeSpaceService.UseSnapshotStore(storespace.NewAssetSnapshotStore(assetStore))
 			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
-		handler = app.NewHandlerWithServices(app.NewPostgresStore(db), designplan.NewServiceWithAssetStore(designplan.NewPostgresStore(db), assetStore), storeSpaceService)
+		handler = app.NewHandlerWithServices(appStore, designplan.NewServiceWithAssetStoreAndAIProvider(designplan.NewPostgresStore(db), assetStore, appStore), storeSpaceService)
 		log.Print("database store enabled: postgres")
 	} else {
 		log.Print("database store disabled: using memory store")

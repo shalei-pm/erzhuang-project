@@ -2,6 +2,7 @@ package channelai
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -76,6 +77,119 @@ func TestNewRecognizerFromEnvUsesMiniMaxScriptDefaultPath(t *testing.T) {
 	}
 }
 
+func TestNewRecognizerFromEnvUsesMiniMaxHTTPProvider(t *testing.T) {
+	t.Setenv("CHANNEL_AI_PROVIDER", "minimax")
+	t.Setenv("MINIMAX_API_KEY", "minimax-key")
+	t.Setenv("MINIMAX_BASE_URL", "https://api.minimaxi.com")
+	t.Setenv("MINIMAX_MODEL", "MiniMax-M1")
+
+	recognizer, enabled, err := NewRecognizerFromEnv()
+	if err != nil {
+		t.Fatalf("new recognizer: %v", err)
+	}
+	if !enabled {
+		t.Fatalf("expected recognizer to be enabled")
+	}
+	minimaxRecognizer, ok := recognizer.(*MiniMaxRecognizer)
+	if !ok {
+		t.Fatalf("expected minimax recognizer, got %T", recognizer)
+	}
+	if minimaxRecognizer.apiKey != "minimax-key" {
+		t.Fatalf("unexpected api key")
+	}
+	if minimaxRecognizer.model != "MiniMax-M1" {
+		t.Fatalf("unexpected model %q", minimaxRecognizer.model)
+	}
+}
+
+func TestNewRecognizerFromEnvUsesSmokeTestedMiniMaxDefaultModel(t *testing.T) {
+	t.Setenv("CHANNEL_AI_PROVIDER", "minimax")
+	t.Setenv("MINIMAX_API_KEY", "minimax-key")
+	t.Setenv("MINIMAX_MODEL", "")
+
+	recognizer, enabled, err := NewRecognizerFromEnv()
+	if err != nil {
+		t.Fatalf("new recognizer: %v", err)
+	}
+	if !enabled {
+		t.Fatalf("expected recognizer to be enabled")
+	}
+	minimaxRecognizer, ok := recognizer.(*MiniMaxRecognizer)
+	if !ok {
+		t.Fatalf("expected minimax recognizer, got %T", recognizer)
+	}
+	if minimaxRecognizer.model != "MiniMax-M3" {
+		t.Fatalf("unexpected default model %q", minimaxRecognizer.model)
+	}
+}
+
+func TestNewRecognizerFromEnvRejectsMiniMaxHTTPWithoutKey(t *testing.T) {
+	t.Setenv("CHANNEL_AI_PROVIDER", "minimax")
+	t.Setenv("MINIMAX_API_KEY", "")
+	t.Setenv("VISION_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+
+	_, _, err := NewRecognizerFromEnv()
+	if err == nil {
+		t.Fatalf("expected missing minimax key error")
+	}
+}
+
+func TestNewRecognizerFromEnvDoesNotUseOpenAIKeyForMiniMax(t *testing.T) {
+	t.Setenv("CHANNEL_AI_PROVIDER", "minimax")
+	t.Setenv("MINIMAX_API_KEY", "")
+	t.Setenv("VISION_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "openai-key")
+
+	_, _, err := NewRecognizerFromEnv()
+	if err == nil {
+		t.Fatalf("expected missing minimax key error")
+	}
+}
+
+func TestMiniMaxRecognizerDoesNotDuplicateV1Path(t *testing.T) {
+	var requestedPath string
+	recognizer := &MiniMaxRecognizer{
+		apiKey:  "test-key",
+		baseURL: "https://api.minimaxi.com/v1",
+		model:   "MiniMax-M1",
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			requestedPath = r.URL.Path
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{
+					"choices": [{
+						"message": {
+							"content": "{\"scene_type\":\"treatment\",\"area_type\":\"treatment\",\"area_number\":\"1\",\"card_text\":\"治疗室 1\",\"decision_source\":\"number_card\",\"confidence\":\"high\",\"needs_review\":false,\"raw_notes\":\"测试\"}"
+						}
+					}]
+				}`)),
+			}, nil
+		})},
+	}
+	if _, err := recognizer.Recognize(context.Background(), "https://example.test/channel.jpg"); err != nil {
+		t.Fatalf("recognize: %v", err)
+	}
+	if strings.Count(requestedPath, "/v1") != 1 || requestedPath != "/v1/chat/completions" {
+		t.Fatalf("expected /v1/chat/completions without duplicate v1, got %q", requestedPath)
+	}
+}
+
+func TestExtractModelJSONTextSkipsThinkPrefix(t *testing.T) {
+	text := `<think>我先分析图片。</think>
+这里是说明文字
+{"scene_type":"machine_room","area_type":"","area_number":"机房","card_text":"","decision_source":"scene","confidence":"high","needs_review":false,"raw_notes":"画面为机房"}`
+
+	var result Result
+	if err := json.Unmarshal([]byte(extractModelJSONText(text)), &result); err != nil {
+		t.Fatalf("extract model json: %v", err)
+	}
+	if result.SceneType != "machine_room" || result.AreaNumber != "机房" {
+		t.Fatalf("unexpected result %#v", result)
+	}
+}
+
 func TestParseCommandRecognitionOutputAcceptsWrappedResult(t *testing.T) {
 	result, err := parseCommandRecognitionOutput([]byte(`{
 		"result": {
@@ -136,7 +250,7 @@ func TestOpenAIRecognizerParsesMarkdownWrappedJSON(t *testing.T) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body: io.NopCloser(strings.NewReader("{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"```json\\n{\\\"scene_type\\\":\\\"machine_room\\\",\\\"area_type\\\":\\\"\\\",\\\"area_number\\\":\\\"机房\\\",\\\"card_text\\\":\\\"\\\",\\\"decision_source\\\":\\\"scene\\\",\\\"confidence\\\":\\\"high\\\",\\\"needs_review\\\":false,\\\"raw_notes\\\":\\\"画面是机房\\\"}\\n```\"}]}]}")),
+				Body:       io.NopCloser(strings.NewReader("{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"```json\\n{\\\"scene_type\\\":\\\"machine_room\\\",\\\"area_type\\\":\\\"\\\",\\\"area_number\\\":\\\"机房\\\",\\\"card_text\\\":\\\"\\\",\\\"decision_source\\\":\\\"scene\\\",\\\"confidence\\\":\\\"high\\\",\\\"needs_review\\\":false,\\\"raw_notes\\\":\\\"画面是机房\\\"}\\n```\"}]}]}")),
 			}, nil
 		})},
 	}

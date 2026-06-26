@@ -365,6 +365,9 @@
 
 用户已明确两套发布口径，后续跨会话按固定语义执行：
 
+- 默认 GitHub 备份：
+  - 除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，所有已确认准备发布的代码都先提交并推送到 GitHub `origin/main`。
+  - GitHub 是主代码备份；是否发布韩国服务器是另一件事，需要用户明确目标或沿用当次发布指令。
 - “发布到公司”：
   - merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
   - 推送 remote `gitlab`。
@@ -2492,3 +2495,45 @@ git pull --ff-only
 - v1：`/health` 返回 version `v1`
 - v2：已练习发布
 - rollback：已从 v2 回滚到 v1
+
+## 2026-06-26 AI 模型 provider 切换开发记录
+
+- 目标：
+  - 解决 OpenAI 接口限流时项目识别能力不稳定的问题。
+  - 通道截图识别和设计图识别都支持通过环境变量切换 OpenAI / MiniMax。
+  - MiniMax HTTP 调用内置到 Go 代码中，避免正式服务依赖 OpenClaw 外部脚本。
+- 关键改动：
+  - `CHANNEL_AI_PROVIDER=openai|minimax|minimax-script` 控制通道截图识别。
+  - `DESIGN_PLAN_AI_PROVIDER=openai|minimax` 控制设计图识别；不设置时跟随 `CHANNEL_AI_PROVIDER`。
+  - `MINIMAX_API_KEY` 是 MiniMax 唯一 key 来源，不复用 `OPENAI_API_KEY` 或 `VISION_API_KEY`。
+  - 设计图识别增加 markdown 代码块包裹 JSON 的解析兼容。
+  - MiniMax/OpenAI base URL 带 `/v1` 时避免重复拼接 `/v1/v1/...`。
+  - 新增 `cmd/ai-smoke`，用于 provider/key/model 切换后的真实冒烟验证。
+  - 新增 `docs/model-provider-switching.md`，记录换 provider、换 key、换模型和冒烟步骤。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/channelai/... ./internal/designplan/... ./cmd/ai-smoke` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+- 真实 MiniMax 冒烟：
+  - `https://api.minimaxi.com/v1/models` 可用，当前 key 返回模型列表：`MiniMax-M3`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed`、`MiniMax-M2.5`、`MiniMax-M2.5-highspeed`、`MiniMax-M2.1`、`MiniMax-M2.1-highspeed`、`MiniMax-M2`。
+  - `MiniMax-01-vision` 返回 `unknown model`；`MiniMax-M1` 返回 `not support img`。
+  - `MiniMax-M3` 设计图 smoke 成功，耗时约 `4557ms`。
+  - `MiniMax-M3` 通道截图 smoke 成功，耗时约 `3027ms`。
+- 后续：
+  - `minimax-script` 仍作为短期兜底保留；MiniMax HTTP 在线上环境验证稳定后再删除，彻底解耦 OpenClaw。
+
+## 2026-06-26 详情页识别模型切换按钮开发记录
+
+- 目标：
+  - 在机构详情页「设计图标注 / 通道映射」Tab 行最右侧增加「切换识别模型」按钮。
+  - 按钮后展示当前识别模型，例如 `当前识别模型：OpenAI / gpt-5.5` 或 `MiniMax / MiniMax-M3`。
+  - 点击按钮在 OpenAI 和 MiniMax 之间切换，同时影响设计图识别和通道截图识别。
+- 实现：
+  - 新增后端 `GET /api/ai-settings` 和 `POST /api/ai-settings/toggle`。
+  - 新增 `app_settings` 表保存 `ai_provider`，并开启 RLS + 拒绝前端直连策略。
+  - 识别服务改为运行时读取当前 provider，不需要重启服务。
+  - API key 仍只来自运行时环境变量，不进入数据库、前端或仓库。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+- 未完成：
+  - 当前沙箱无法用 Playwright/Computer Use 完成页面截图验收；本地 dev server 已启动在 `http://127.0.0.1:5177/erzhuang/`，需要浏览器人工确认按钮位置。

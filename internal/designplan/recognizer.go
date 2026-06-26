@@ -147,7 +147,7 @@ func (r *OpenAIRecognizer) callResponsesAPI(ctx context.Context, imageBytes []by
 		return recognizerOutput{}, nil, errors.New("openai recognition returned empty output")
 	}
 	var output recognizerOutput
-	if err := json.Unmarshal([]byte(text), &output); err != nil {
+	if err := json.Unmarshal([]byte(extractRecognitionJSONText(text)), &output); err != nil {
 		return recognizerOutput{}, nil, fmt.Errorf("parse recognition json: %w", err)
 	}
 	return output, json.RawMessage(responseBody), nil
@@ -207,7 +207,7 @@ func (r *OpenAIRecognizer) callChatCompletionsAPI(ctx context.Context, imageByte
 		return recognizerOutput{}, nil, errors.New("openai chat recognition returned empty output")
 	}
 	var output recognizerOutput
-	if err := json.Unmarshal([]byte(text), &output); err != nil {
+	if err := json.Unmarshal([]byte(extractRecognitionJSONText(text)), &output); err != nil {
 		return recognizerOutput{}, nil, fmt.Errorf("parse chat recognition json: %w", err)
 	}
 	return output, json.RawMessage(responseBody), nil
@@ -308,6 +308,28 @@ func (r responsesResponse) firstOutputText() string {
 		}
 	}
 	return ""
+}
+
+func extractRecognitionJSONText(value string) string {
+	text := strings.TrimSpace(value)
+	if !strings.HasPrefix(text, "```") {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) < 3 || !strings.HasPrefix(strings.TrimSpace(lines[0]), "```") {
+		return text
+	}
+	end := len(lines)
+	for index := len(lines) - 1; index > 0; index-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[index]), "```") {
+			end = index
+			break
+		}
+	}
+	if end <= 1 {
+		return text
+	}
+	return strings.TrimSpace(strings.Join(lines[1:end], "\n"))
 }
 
 type recognizerOutput struct {
@@ -453,7 +475,16 @@ func filepathFromStoredUpload(value string) string {
 }
 
 func (r *OpenAIRecognizer) endpoint(path string) string {
-	return strings.TrimRight(r.baseURL, "/") + path
+	return apiEndpoint(r.baseURL, path)
+}
+
+func apiEndpoint(baseURL string, path string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	path = "/" + strings.TrimLeft(path, "/")
+	if strings.HasSuffix(baseURL, "/v1") && strings.HasPrefix(path, "/v1/") {
+		path = strings.TrimPrefix(path, "/v1")
+	}
+	return baseURL + path
 }
 
 func normalizeOpenAIAPIStyle(value string) string {
