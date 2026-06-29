@@ -22,7 +22,6 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	handler := NewHandler(service)
 	mux.HandleFunc("GET /api/h5/orgs/{externalOrgId}/monitor", handler.getMonitorHome)
 	mux.HandleFunc("POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/live-url", handler.getLiveURL)
-	mux.HandleFunc("POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/snapshot", handler.refreshSnapshot)
 	mux.HandleFunc("GET /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/record-segments", handler.getRecordSegments)
 	mux.HandleFunc("POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/playback-url", handler.getPlaybackURL)
 	mux.HandleFunc("POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/disable-url", handler.disableURL)
@@ -50,20 +49,6 @@ func (h *Handler) getLiveURL(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	result, err := h.service.GetLiveURL(r.Context(), r.PathValue("externalOrgId"), channelID, request.UserID, request.IsAdmin, request.Protocol)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
-func (h *Handler) refreshSnapshot(w http.ResponseWriter, r *http.Request) {
-	channelID, err := parseChannelID(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid channel id", nil)
-		return
-	}
-	result, err := h.service.RefreshSnapshot(r.Context(), r.PathValue("externalOrgId"), channelID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -169,10 +154,6 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, ErrConcurrencyLimit) {
 		writeError(w, http.StatusTooManyRequests, err.Error(), nil)
-		return
-	}
-	if errors.Is(err, ErrNotImplemented) {
-		writeError(w, http.StatusNotImplemented, err.Error(), nil)
 		return
 	}
 	writeError(w, http.StatusInternalServerError, err.Error(), nil)

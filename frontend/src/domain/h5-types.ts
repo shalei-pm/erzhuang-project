@@ -33,10 +33,6 @@ export interface H5LiveURLResponse {
   protocol?: string;
 }
 
-export interface H5SnapshotRefreshResponse {
-  thumbnail_url: string;
-}
-
 export interface H5RecordSegment {
   start_time: number;
   end_time: number;

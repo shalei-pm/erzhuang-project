@@ -43,10 +43,6 @@ type LiveURLResponse struct {
 	Protocol   string `json:"protocol"`
 }
 
-type SnapshotRefreshResponse struct {
-	ThumbnailURL string `json:"thumbnail_url"`
-}
-
 type RecordSegmentResponse struct {
 	StartTime int64  `json:"start_time"`
 	EndTime   int64  `json:"end_time"`
@@ -81,11 +77,6 @@ type concurrencyState struct {
 	ActiveCount int
 	MaxCount    int
 	AcquiredAt  time.Time
-}
-
-type snapshotRefreshState struct {
-	thumbnailURL string
-	refreshedAt  time.Time
 }
 
 func channelCategoryLabel(category string) string {

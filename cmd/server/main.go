@@ -56,7 +56,6 @@ func main() {
 			storeSpaceService = storespace.NewServiceWithScannerAndRecognizer(storeSpaceRepo, scanner, channelRecognizer)
 			storeSpaceService.UseSnapshotStore(storespace.NewAssetSnapshotStore(assetStore))
 			h5MonitorService = h5monitor.NewService(storespace.NewH5MonitorRepository(storeSpaceRepo, ezvizAccounts), ezviz.NewClient(ezviz.ClientOptions{}))
-			h5MonitorService.UseSnapshotRefresher(h5monitor.SnapshotRefreshFunc(storeSpaceService.RefreshH5ChannelSnapshot))
 			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
 		handler = app.NewHandlerWithServicesAndH5Monitor(appStore, designplan.NewServiceWithAssetStoreAndAIProvider(designplan.NewPostgresStore(db), assetStore, appStore), storeSpaceService, h5MonitorService)
