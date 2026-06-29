@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { h5Api, H5ApiError } from "../api-h5";
-import { H5FlvPlayer } from "../components/H5FlvPlayer";
+import { H5FlvPlayer, type H5PlayerStatus } from "../components/H5FlvPlayer";
 import type {
   H5LiveURLResponse,
   H5PlaybackURLResponse,
@@ -31,6 +31,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const [selectedSegment, setSelectedSegment] = useState<H5RecordSegment | null>(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState("");
+  const [playerStatus, setPlayerStatus] = useState<H5PlayerStatus | null>(null);
 
   const userId = useRef(`h5-user-${Date.now()}`);
   const isAdmin = false;
@@ -44,16 +45,45 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const currentPlayerUrl = currentPlayer?.url;
   const selectedDate = selectedDateTime.slice(0, 10);
 
+  const handlePlayerError = useCallback((message: string) => {
+    setToast(message);
+  }, []);
+
+  const handlePlayerStatus = useCallback((status: H5PlayerStatus) => {
+    setPlayerStatus(status);
+  }, []);
+
   useEffect(() => {
     if (mode !== "live" || liveUrl) return;
     setLoading(true);
+    setPlayerStatus({
+      stage: "live-url-request",
+      message: "正在获取直播播放地址",
+      details: [`protocol=${preferredLiveProtocol()}`, `channel=${channelId}`],
+      severity: "info",
+    });
     h5Api
       .getLiveUrl(externalOrgId, channelId, userId.current, isAdmin, preferredLiveProtocol())
       .then((resp) => {
         setLiveUrl(resp);
         setToast("");
+        setPlayerStatus({
+          stage: "live-url-ready",
+          message: "直播播放地址已返回，准备初始化播放器",
+          details: [`protocol=${resp.protocol || "unknown"}`, `urlId=${resp.url_id || "-"}`],
+          severity: "info",
+        });
       })
-      .catch((err) => setToast(errMessage(err, "直播地址获取失败")))
+      .catch((err) => {
+        const message = errMessage(err, "直播地址获取失败");
+        setToast(message);
+        setPlayerStatus({
+          stage: "live-url-error",
+          message,
+          details: [`channel=${channelId}`],
+          severity: "error",
+        });
+      })
       .finally(() => setLoading(false));
   }, [mode, liveUrl, externalOrgId, channelId]);
 
@@ -85,13 +115,34 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     setSelectedSegment(seg);
     setPlaybackUrl(null);
     setLoading(true);
+    setPlayerStatus({
+      stage: "playback-url-request",
+      message: "正在获取回放播放地址",
+      details: [`start=${startTime}`, `end=${endTime}`],
+      severity: "info",
+    });
     h5Api
       .getPlaybackUrl(externalOrgId, channelId, startTime, endTime, userId.current, isAdmin)
       .then((resp) => {
         setPlaybackUrl(resp);
         setToast("");
+        setPlayerStatus({
+          stage: "playback-url-ready",
+          message: "回放播放地址已返回，准备初始化播放器",
+          details: [`protocol=${resp.protocol || "unknown"}`, `urlId=${resp.url_id || "-"}`],
+          severity: "info",
+        });
       })
-      .catch((err) => setToast(errMessage(err, "回放地址获取失败")))
+      .catch((err) => {
+        const message = errMessage(err, "回放地址获取失败");
+        setToast(message);
+        setPlayerStatus({
+          stage: "playback-url-error",
+          message,
+          details: [`start=${startTime}`, `end=${endTime}`],
+          severity: "error",
+        });
+      })
       .finally(() => setLoading(false));
   }
 
@@ -136,6 +187,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     }
     setMode(next);
     setToast("");
+    setPlayerStatus(null);
     if (next === "live") {
       setLiveUrl(null);
       return;
@@ -162,13 +214,21 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
         <section className="h5-viewer-player" aria-label="监控画面">
           {currentPlayerUrl ? (
-            <H5FlvPlayer url={currentPlayerUrl} protocol={currentPlayer?.protocol} isLive={mode === "live"} onError={setToast} />
+            <H5FlvPlayer
+              url={currentPlayerUrl}
+              protocol={currentPlayer?.protocol}
+              isLive={mode === "live"}
+              onError={handlePlayerError}
+              onStatus={handlePlayerStatus}
+            />
           ) : (
             <div className="h5-player-placeholder">
               <span>{loading ? "加载中..." : mode === "live" ? "正在获取直播画面" : "请选择录像片段"}</span>
             </div>
           )}
         </section>
+
+        <PlayerStatusPanel status={playerStatus} loading={loading} mode={mode} channelId={channelId} />
 
         {toast && <div className="h5-toast">{toast}</div>}
 
@@ -211,6 +271,40 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         </button>
       </nav>
     </div>
+  );
+}
+
+function PlayerStatusPanel({
+  status,
+  loading,
+  mode,
+  channelId,
+}: {
+  status: H5PlayerStatus | null;
+  loading: boolean;
+  mode: Mode;
+  channelId: number;
+}) {
+  const fallback: H5PlayerStatus = {
+    stage: loading ? "requesting" : "idle",
+    message: loading ? "正在准备播放资源" : mode === "live" ? "等待直播播放器状态" : "等待选择录像片段",
+    details: [`channel=${channelId}`, `mode=${mode}`],
+    severity: "info",
+  };
+  const current = status || fallback;
+
+  return (
+    <section className={`h5-player-status-panel ${current.severity}`} aria-label="播放器状态">
+      <div>
+        <strong>{current.stage}</strong>
+        <span>{current.message}</span>
+      </div>
+      <div className="h5-player-status-details">
+        {current.details.map((item) => (
+          <code key={item}>{item}</code>
+        ))}
+      </div>
+    </section>
   );
 }
 

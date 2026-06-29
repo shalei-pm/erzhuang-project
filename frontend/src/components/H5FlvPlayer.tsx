@@ -40,6 +40,13 @@ type PlayerDiagnostic = {
   severity: "error" | "warning";
 };
 
+export type H5PlayerStatus = {
+  stage: string;
+  message: string;
+  details: string[];
+  severity: "info" | "warning" | "error";
+};
+
 let playerLib: EzuikitFlvConstructor | null = null;
 let playerLibPromise: Promise<{ ctor: EzuikitFlvConstructor | null; diagnostics: string[] }> | null = null;
 const DECODER_PATH = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/assets/ezuikit-flv/decoder.js`;
@@ -97,9 +104,10 @@ export interface H5FlvPlayerProps {
   protocol?: string;
   isLive: boolean;
   onError?: (message: string) => void;
+  onStatus?: (status: H5PlayerStatus) => void;
 }
 
-export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps) {
+export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvPlayerProps) {
   const containerId = useMemo(
     () => `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     [url, isLive],
@@ -124,6 +132,12 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
       setLoading(false);
       setLoadFailed(false);
       setDiagnostic(null);
+      reportStatus(onStatus, {
+        stage: "mock-ready",
+        message: "模拟画面已就绪",
+        details: [`mode=${isLive ? "live" : "playback"}`],
+        severity: "info",
+      });
       return;
     }
     if (isNativeVideo) {
@@ -132,6 +146,12 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
       setLoading(true);
       setLoadFailed(false);
       setDiagnostic(null);
+      reportStatus(onStatus, {
+        stage: "native-video-init",
+        message: "使用原生 video 播放",
+        details: buildCommonDetails(url, protocol, isLive, decodePath, ["native-video"]),
+        severity: "info",
+      });
       return;
     }
     let cancelled = false;
@@ -146,13 +166,15 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
       if (cancelled) return;
 
       const commonDetails = [
-        `url=${summarizeUrl(url)}`,
-        `decoder=${DECODER_PATH}`,
-        `mode=${isLive ? "live" : "playback"}`,
-        `protocol=${protocol || inferProtocol(url) || "unknown"}`,
-        `decode=${decodePath}`,
+        ...buildCommonDetails(url, protocol, isLive, decodePath, []),
         `lib=${loaded.diagnostics.join(",")}`,
       ];
+      reportStatus(onStatus, {
+        stage: "player-init",
+        message: "播放器初始化中，等待首帧事件",
+        details: commonDetails,
+        severity: "info",
+      });
       const Ctor = loaded.ctor;
       if (!Ctor) {
         setLoadFailed(true);
@@ -164,6 +186,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
           severity: "error" as const,
         };
         setDiagnostic(nextDiagnostic);
+        reportDiagnostic(onStatus, nextDiagnostic);
         onError?.(formatDiagnostic(nextDiagnostic));
         return;
       }
@@ -196,6 +219,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
             severity,
           };
           setDiagnostic(nextDiagnostic);
+          reportDiagnostic(onStatus, nextDiagnostic);
           if (severity === "error") {
             onError?.(formatDiagnostic(nextDiagnostic));
           } else {
@@ -203,11 +227,23 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
           }
         }, (eventName, payload) => {
           notePlayerEvent(playerEventsRef, eventName, payload);
+          reportStatus(onStatus, {
+            stage: "player-event",
+            message: `播放器事件：${eventName}`,
+            details: [...commonDetails, `events=${playerEventsRef.current.join(" > ")}`],
+            severity: "info",
+          });
           if (isH5FirstFrameEvent(eventName, decodePath)) {
             clearFirstFrameTimer(firstFrameTimerRef);
             setLoading(false);
             setLoadFailed(false);
             setDiagnostic((current) => (current?.stage === "first-frame-timeout" ? null : current));
+            reportStatus(onStatus, {
+              stage: "first-frame-ready",
+              message: `已收到可视播放事件：${eventName}`,
+              details: [...commonDetails, `events=${playerEventsRef.current.join(" > ")}`],
+              severity: "info",
+            });
           }
         });
         startFirstFrameTimer(firstFrameTimerRef, () => {
@@ -225,6 +261,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
             severity: "error" as const,
           };
           setDiagnostic(nextDiagnostic);
+          reportDiagnostic(onStatus, nextDiagnostic);
           onError?.(formatDiagnostic(nextDiagnostic));
         });
       } catch (err) {
@@ -238,6 +275,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
           severity: "error" as const,
         };
         setDiagnostic(nextDiagnostic);
+        reportDiagnostic(onStatus, nextDiagnostic);
         onError?.(formatDiagnostic(nextDiagnostic));
       }
     }
@@ -253,7 +291,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
         playerRef.current = null;
       }
     };
-  }, [url, isLive, onError, isMock, isNativeVideo, containerId, protocol, preferSoftDecode, decodePath]);
+  }, [url, isLive, onError, onStatus, isMock, isNativeVideo, containerId, protocol, preferSoftDecode, decodePath]);
 
   function toggleMute() {
     const next = !muted;
@@ -299,6 +337,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
               severity: "error" as const,
             };
             setDiagnostic(nextDiagnostic);
+            reportDiagnostic(onStatus, nextDiagnostic);
             onError?.(formatDiagnostic(nextDiagnostic));
           }}
         />
@@ -458,6 +497,41 @@ function destroyPlayer(player: EzuikitFlvPlayer, containerId: string) {
 
 function formatDiagnostic(diagnostic: PlayerDiagnostic) {
   return [diagnostic.message, `stage=${diagnostic.stage}`, ...diagnostic.details].join(" · ");
+}
+
+function buildCommonDetails(
+  url: string,
+  protocol: string | undefined,
+  isLive: boolean,
+  decodePath: H5DecodePath,
+  extra: string[],
+) {
+  return [
+    `app=${import.meta.env.VITE_APP_VERSION || "local-dev"}`,
+    `url=${summarizeUrl(url)}`,
+    `decoder=${DECODER_PATH}`,
+    `mode=${isLive ? "live" : "playback"}`,
+    `protocol=${protocol || inferProtocol(url) || "unknown"}`,
+    `decode=${decodePath}`,
+    `ua=${summarizeUserAgent()}`,
+    ...extra,
+  ];
+}
+
+function reportDiagnostic(onStatus: H5FlvPlayerProps["onStatus"], diagnostic: PlayerDiagnostic) {
+  reportStatus(onStatus, {
+    ...diagnostic,
+    severity: diagnostic.severity,
+  });
+}
+
+function reportStatus(onStatus: H5FlvPlayerProps["onStatus"], status: H5PlayerStatus) {
+  onStatus?.(status);
+}
+
+function summarizeUserAgent() {
+  if (typeof navigator === "undefined") return "server";
+  return navigator.userAgent.slice(0, 120);
 }
 
 function summarizeUrl(value: string) {
