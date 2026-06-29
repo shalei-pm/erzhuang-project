@@ -8,7 +8,13 @@ import {
 } from "../components/H5FlvPlayer";
 import { H5PlayerControls, type H5PlayerControlState } from "../components/H5PlayerControls";
 import { PlaybackSegmentSlider } from "../components/PlaybackSegmentSlider";
-import { dataUrlToFile, estimatePlaybackUnixAt, shouldFallbackToInlineFullscreen, type PlaybackSession } from "../domain/h5-playback";
+import {
+  dataUrlToFile,
+  estimatePlaybackUnixAt,
+  playbackUnixFromPlayerTime,
+  shouldFallbackToInlineFullscreen,
+  type PlaybackSession,
+} from "../domain/h5-playback";
 import type {
   H5LiveURLResponse,
   H5PlaybackURLResponse,
@@ -55,6 +61,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const [guardPausedAt, setGuardPausedAt] = useState<number | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [inlineFullscreen, setInlineFullscreen] = useState(false);
+  const [frozenFrame, setFrozenFrame] = useState<string | null>(null);
 
   const userId = useRef(`h5-user-${Date.now()}`);
   const playerRef = useRef<H5PlayerHandle | null>(null);
@@ -108,6 +115,9 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
   const handlePlayerStatus = useCallback((status: H5PlayerStatus) => {
     setPlayerStatus(status);
+    if (status.stage === "first-frame-ready" || status.stage === "mock-ready") {
+      setFrozenFrame(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -232,22 +242,26 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     startTime: number,
     endTime: number,
     seg: H5RecordSegment | null,
-    options: { previousUrlId?: string | null } = {},
+    options: { previousUrlId?: string | null; preserveCurrentFrame?: boolean; reason?: "segment" | "slider" | "resume" | "guard" } = {},
   ) {
     const requestSeq = nextPlaybackRequestSeq();
     const previousUrlId = options.previousUrlId === undefined ? playbackUrl?.url_id : options.previousUrlId;
     setSelectedSegment(seg);
-    setPlaybackUrl(null);
+    if (!options.preserveCurrentFrame) {
+      setPlaybackUrl(null);
+    }
     setLoading(true);
     setPlayerStatus({
       stage: "playback-url-request",
       message: "正在获取回放播放地址",
-      details: [`start=${startTime}`, `end=${endTime}`],
+      details: [`start=${startTime}`, `end=${endTime}`, options.reason ? `reason=${options.reason}` : ""].filter(Boolean),
       severity: "info",
     });
     void (async () => {
       try {
-        void releaseUrl(previousUrlId);
+        if (!options.preserveCurrentFrame) {
+          void releaseUrl(previousUrlId);
+        }
         if (!isCurrentPlaybackRequest(requestSeq)) {
           return;
         }
@@ -258,11 +272,20 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         }
         setPlaybackUrl(resp);
         playbackSessionRef.current = { startTime, endTime, startedAtMs: Date.now() };
+        if (options.preserveCurrentFrame) {
+          void releaseUrl(previousUrlId);
+        } else {
+          setFrozenFrame(null);
+        }
         setToast("");
         setPlayerStatus({
           stage: "playback-url-ready",
           message: "回放播放地址已返回，准备初始化播放器",
-          details: [`protocol=${resp.protocol || "unknown"}`, `urlId=${resp.url_id || "-"}`],
+          details: [
+            `protocol=${resp.protocol || "unknown"}`,
+            `urlId=${resp.url_id || "-"}`,
+            options.reason === "resume" ? `resumeFrom=${formatTime(startTime)}` : "",
+          ].filter(Boolean),
           severity: "info",
         });
       } catch (err) {
@@ -286,7 +309,8 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   }
 
   function playSegment(seg: H5RecordSegment) {
-    playRange(seg.start_time, seg.end_time, seg);
+    setFrozenFrame(null);
+    playRange(seg.start_time, seg.end_time, seg, { reason: "segment" });
   }
 
   function handleDateTimeChange(nextValue: string) {
@@ -331,6 +355,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     if (next === "live") {
       setPlaybackUrl(null);
       playbackSessionRef.current = null;
+      setFrozenFrame(null);
       setLiveUrl(null);
       return;
     }
@@ -338,6 +363,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     setPlaybackUrl(null);
     setSelectedSegment(null);
     playbackSessionRef.current = null;
+    setFrozenFrame(null);
     if (!segments) {
       loadSegments(selectedDate);
     }
@@ -346,14 +372,44 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   async function handleTogglePlay() {
     try {
       if (playbackState.playing) {
+        const pausedAtMs = Date.now();
+        const pausedAtUnix =
+          playbackUnixFromPlayerTime(playerRef.current?.getCurrentTime() ?? null, playbackSessionRef.current) ??
+          estimatePlaybackUnixAt(pausedAtMs, playbackSessionRef.current);
+        playbackSessionRef.current = playbackSessionRef.current
+          ? { ...playbackSessionRef.current, pausedAtMs, pausedAtUnix: pausedAtUnix ?? undefined }
+          : null;
+        await captureFrozenFrame();
         await playerRef.current?.pause();
         setPlaybackState((current) => ({ ...current, playing: false }));
         return;
+      }
+      if (mode === "playback" && selectedSegment) {
+        const pausedUnix = estimatePlaybackUnixAt(Date.now(), playbackSessionRef.current);
+        if (pausedUnix !== null) {
+          playRange(pausedUnix, selectedSegment.end_time, selectedSegment, {
+            previousUrlId: playbackUrl?.url_id,
+            preserveCurrentFrame: true,
+            reason: "resume",
+          });
+          return;
+        }
       }
       await playerRef.current?.play();
       setPlaybackState((current) => ({ ...current, playing: true }));
     } catch (err) {
       setToast(`播放控制失败 · ${errMessage(err, "播放器返回异常")}`);
+    }
+  }
+
+  async function captureFrozenFrame() {
+    try {
+      const shot = await playerRef.current?.screenshot();
+      if (shot?.dataUrl) {
+        setFrozenFrame(shot.dataUrl);
+      }
+    } catch {
+      // Screenshot is best-effort here; playback resume still uses the recorded timestamp.
     }
   }
 
@@ -468,7 +524,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     const currentUrlId = playbackUrl?.url_id;
     await releaseUrl(currentUrlId);
     setPlaybackUrl(null);
-    playRange(nextStart, selectedSegment.end_time, selectedSegment, { previousUrlId: null });
+    playRange(nextStart, selectedSegment.end_time, selectedSegment, { previousUrlId: null, reason: "guard" });
   }
 
   async function stopAfterLongPlayPrompt() {
@@ -510,6 +566,12 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
                   onStatus={handlePlayerStatus}
                   onPlaybackStateChange={setPlaybackState}
                 />
+                {frozenFrame && loading && (
+                  <div className="h5-frozen-frame" aria-label="正在从暂停位置恢复回放">
+                    <img src={frozenFrame} alt="" />
+                    <span>正在从暂停位置恢复...</span>
+                  </div>
+                )}
                 <button
                   type="button"
                   className="h5-player-surface-toggle"
@@ -522,7 +584,10 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
                     disabled={loading}
                     overlay
                     visible={controlsVisible || loading || playbackState.failed || !playbackState.playing}
-                    onCommit={(startTime) => playRange(startTime, selectedSegment.end_time, selectedSegment)}
+                    onCommit={(startTime) => {
+                      setFrozenFrame(null);
+                      playRange(startTime, selectedSegment.end_time, selectedSegment, { reason: "slider" });
+                    }}
                   />
                 )}
                 <H5PlayerControls

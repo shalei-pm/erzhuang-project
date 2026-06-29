@@ -3115,3 +3115,25 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
   - 本地 demo 页面验证：暂停后播放器容器未卸载、未出现回放占位；移动视口点击全屏后进入 `is-inline-fullscreen`，按钮变为“退出全屏”。
+
+## 2026-06-29 H5 Monitor 回放暂停续播体验修复 2.20.3 开发记录
+
+- 背景：
+  - 用户在线上验收 2.20.2 后反馈：PC 和手机端录像回放里暂停后再点播放，仍不是继续播放，而是从当前回放 URL 的起点重新播放。
+- 调研结论：
+  - 当前跑通手机 H265 的 `ezuikit-flv@2.1.1` 更适合 FLV 流播放，不适合把 `pause()` / `play()` 当成原生 video 的精确真暂停/续播。
+  - 该库 API 有 `currentTime`、`pause()`、`play()`，但没有明确 `seek()` / `resume()`；README 也提示因解码资源异步加载，不推荐直接外部调用 `play()`。
+  - 因此短期不声称实现“同一条流原地真暂停”，而是实现“暂停点续看”：暂停时记录播放器 `currentTime`，恢复时从暂停点重新获取回放 URL。
+- 实现：
+  - `H5FlvPlayer` 通过 ref 暴露 `getCurrentTime()`，优先读取播放器 `currentTime`，兼容内部 video/canvas loader 的当前时间。
+  - 回放暂停时记录 `pausedAtUnix`，并尽量截取当前画面作为冻结帧。
+  - 回放恢复时从 `pausedAtUnix` 重新请求回放 URL，不再从原始片段起点播放；状态卡会显示 `reason=resume` 和 `resumeFrom=HH:mm:ss`。
+  - 恢复加载期间保留旧 URL，等新 URL 成功返回后再释放旧 URL；冻结帧持续到新播放器首帧 ready，降低黑屏体感。
+  - 录像片段点击、滑块定位、长时间播放保护继续走原有重新取 URL 流程。
+- 验证：
+  - `cd frontend && npm run test` 通过，13 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地移动视口 demo 验证：H5 详情页、录像 tab、录像片段播放、overlay 滑块和控制条均正常渲染；控制台无 error/warn。
+- 后续建议：
+  - 如果产品要求严格意义的真暂停、seek、resume，应单独验证萤石 `EZUIKit-JavaScript-npm` 或其他官方播放器方案是否能同时满足 H265、手机 WebView、回放控制和自定义 UI。

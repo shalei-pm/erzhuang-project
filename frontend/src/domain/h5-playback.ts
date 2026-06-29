@@ -20,11 +20,22 @@ export type PlaybackSession = {
   startTime: number;
   endTime: number;
   startedAtMs: number;
+  pausedAtMs?: number;
+  pausedAtUnix?: number;
 };
 
 export function estimatePlaybackUnixAt(pausedAtMs: number, session: PlaybackSession | null): number | null {
   if (!session) return null;
+  if (session.pausedAtUnix !== undefined) {
+    return clampUnix(session.pausedAtUnix, session.startTime, Math.max(session.startTime, session.endTime - 1));
+  }
   const elapsedSeconds = Math.max(0, Math.floor((pausedAtMs - session.startedAtMs) / 1000));
+  return clampUnix(session.startTime + elapsedSeconds, session.startTime, Math.max(session.startTime, session.endTime - 1));
+}
+
+export function playbackUnixFromPlayerTime(currentTime: number | null, session: PlaybackSession | null): number | null {
+  if (!session || currentTime === null || !Number.isFinite(currentTime)) return null;
+  const elapsedSeconds = Math.max(0, Math.floor(currentTime));
   return clampUnix(session.startTime + elapsedSeconds, session.startTime, Math.max(session.startTime, session.endTime - 1));
 }
 

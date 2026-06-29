@@ -2711,6 +2711,35 @@ td:nth-child(10) {
   background: rgba(0, 0, 0, 0.8);
 }
 
+.h5-frozen-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #000;
+}
+
+.h5-frozen-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.h5-frozen-frame span {
+  position: absolute;
+  left: 50%;
+  bottom: 68px;
+  padding: 6px 10px;
+  border-radius: var(--button-radius);
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.74);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .h5-player-loading {
   color: #fff;
   font-size: 14px;

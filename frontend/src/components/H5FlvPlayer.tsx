@@ -20,6 +20,7 @@ interface EzuikitFlvPlayer {
   openSound: () => void;
   play: () => unknown;
   pause: () => unknown;
+  currentTime?: number;
   getState?: () => unknown;
   screenshot?: (filename?: string, format?: string, quality?: number, type?: "download" | "base64" | "blob") => unknown;
   capturePicture?: () => unknown;
@@ -81,6 +82,7 @@ export type H5PlayerHandle = {
   openSound: () => Promise<void>;
   closeSound: () => Promise<void>;
   screenshot: () => Promise<H5PlayerScreenshot>;
+  getCurrentTime: () => number | null;
   enterFullscreen: () => Promise<void>;
   exitFullscreen: () => Promise<void>;
 };
@@ -430,6 +432,9 @@ export const H5FlvPlayer = forwardRef<H5PlayerHandle, H5FlvPlayerProps>(function
       const result = await Promise.resolve(candidate.call(player, `monitor-snapshot-${Date.now()}`, "png", 0.92, "base64"));
       return normalizeScreenshotResult(result);
     },
+    getCurrentTime() {
+      return readPlayerCurrentTime(playerRef.current, nativeVideoRef.current);
+    },
     async enterFullscreen() {
       await requestElementFullscreen(wrapperRef.current);
     },
@@ -550,6 +555,37 @@ function normalizeScreenshotResult(result: unknown): H5PlayerScreenshot {
     return { dataUrl: String((result as { dataUrl?: unknown }).dataUrl || "") };
   }
   return {};
+}
+
+function readPlayerCurrentTime(player: EzuikitFlvPlayer | null, video: HTMLVideoElement | null) {
+  if (player && typeof player.currentTime === "number" && Number.isFinite(player.currentTime)) {
+    return player.currentTime;
+  }
+  const nestedTime = readNestedCurrentTime(player);
+  if (nestedTime !== null) {
+    return nestedTime;
+  }
+  if (video && Number.isFinite(video.currentTime)) {
+    return video.currentTime;
+  }
+  return null;
+}
+
+function readNestedCurrentTime(player: EzuikitFlvPlayer | null) {
+  const maybePlayer = player as unknown as {
+    player?: {
+      video?: {
+        currentTime?: number;
+        $videoElement?: { currentTime?: number };
+      };
+    };
+  } | null;
+  const candidates = [
+    maybePlayer?.player?.video?.currentTime,
+    maybePlayer?.player?.video?.$videoElement?.currentTime,
+  ];
+  const match = candidates.find((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return match ?? null;
 }
 
 function isRecoverablePlayerEvent(message: string) {

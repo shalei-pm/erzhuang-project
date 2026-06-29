@@ -6,6 +6,7 @@ import {
   clampSegmentOffset,
   dataUrlToFile,
   estimatePlaybackUnixAt,
+  playbackUnixFromPlayerTime,
   segmentDurationSeconds,
   segmentOffsetToUnix,
   shouldFallbackToInlineFullscreen,
@@ -89,6 +90,14 @@ describe("H5 playback segment slider helpers", () => {
     expect(estimatePlaybackUnixAt(11_500, { startTime: 100, endTime: 130, startedAtMs: 1_000 })).toBe(110);
     expect(estimatePlaybackUnixAt(99_000, { startTime: 100, endTime: 130, startedAtMs: 1_000 })).toBe(129);
     expect(estimatePlaybackUnixAt(11_500, null)).toBe(null);
+  });
+
+  it("uses player current time when resuming playback from pause", () => {
+    const session = { startTime: 100, endTime: 130, startedAtMs: 1_000 };
+    expect(playbackUnixFromPlayerTime(12.8, session)).toBe(112);
+    expect(playbackUnixFromPlayerTime(99, session)).toBe(129);
+    expect(playbackUnixFromPlayerTime(Number.NaN, session)).toBe(null);
+    expect(estimatePlaybackUnixAt(20_000, { ...session, pausedAtUnix: 115 })).toBe(115);
   });
 
   it("converts screenshot data url into a shareable file", async () => {
