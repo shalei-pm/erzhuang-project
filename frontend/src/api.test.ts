@@ -47,12 +47,14 @@ describe("H5 monitor trial entry", () => {
 });
 
 describe("H5 player diagnostics", () => {
-  it("does not treat generic loaded events as mobile wasm first frame", () => {
+  it("only treats real render events as mobile wasm first frame", () => {
     expect(isH5FirstFrameEvent("loaded", "mobile-wasm")).toBe(false);
     expect(isH5FirstFrameEvent("playing", "mobile-wasm")).toBe(false);
+    expect(isH5FirstFrameEvent("streamSuccess", "mobile-wasm")).toBe(false);
+    expect(isH5FirstFrameEvent("videoInfo", "mobile-wasm")).toBe(false);
     expect(isH5FirstFrameEvent("videoFrame", "mobile-wasm")).toBe(true);
-    expect(isH5FirstFrameEvent("videoInfo", "mobile-wasm")).toBe(true);
-    expect(isH5FirstFrameEvent("streamSuccess", "mobile-wasm")).toBe(true);
+    expect(isH5FirstFrameEvent("firstFrameDisplay", "mobile-wasm")).toBe(true);
+    expect(isH5FirstFrameEvent("playToRenderTimes", "mobile-wasm")).toBe(true);
   });
 
   it("keeps desktop mse first-frame detection compatible with existing events", () => {
