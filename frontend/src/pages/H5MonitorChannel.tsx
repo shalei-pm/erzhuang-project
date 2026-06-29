@@ -8,6 +8,7 @@ import {
 } from "../components/H5FlvPlayer";
 import { H5PlayerControls, type H5PlayerControlState } from "../components/H5PlayerControls";
 import { PlaybackSegmentSlider } from "../components/PlaybackSegmentSlider";
+import { dataUrlToFile, estimatePlaybackUnixAt, type PlaybackSession } from "../domain/h5-playback";
 import type {
   H5LiveURLResponse,
   H5PlaybackURLResponse,
@@ -52,14 +53,16 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const [screenshotNotice, setScreenshotNotice] = useState("");
   const [longPlayPromptOpen, setLongPlayPromptOpen] = useState(false);
   const [guardPausedAt, setGuardPausedAt] = useState<number | null>(null);
+  const [controlsVisible, setControlsVisible] = useState(true);
 
   const userId = useRef(`h5-user-${Date.now()}`);
   const playerRef = useRef<H5PlayerHandle | null>(null);
   const latestUrlIdsRef = useRef<{ live?: string; playback?: string }>({});
   const screenshotNoticeTimerRef = useRef<number | null>(null);
   const longPlayTimerRef = useRef<number | null>(null);
-  const playbackSessionRef = useRef<{ startTime: number; endTime: number; startedAtMs: number } | null>(null);
+  const playbackSessionRef = useRef<PlaybackSession | null>(null);
   const guardPlaybackStartRef = useRef<number | null>(null);
+  const playbackResumeStartRef = useRef<number | null>(null);
   const playbackRequestSeqRef = useRef(0);
   const isAdmin = false;
 
@@ -200,6 +203,10 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     };
   }, [currentPlayerUrl, playbackState.playing, loading, longPlayPromptOpen]);
 
+  useEffect(() => {
+    setControlsVisible(true);
+  }, [currentPlayerUrl, mode, loading, playbackState.failed]);
+
   function loadSegments(date: string) {
     invalidatePlaybackRequest();
     setSelectedDateTime((prev) => `${date}T${timePart(prev)}`);
@@ -247,6 +254,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         }
         setPlaybackUrl(resp);
         playbackSessionRef.current = { startTime, endTime, startedAtMs: Date.now() };
+        playbackResumeStartRef.current = null;
         setToast("");
         setPlayerStatus({
           stage: "playback-url-ready",
@@ -317,6 +325,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     setPlayerStatus(null);
     setLongPlayPromptOpen(false);
     setPlaybackState((current) => ({ ...current, playing: false }));
+    playbackResumeStartRef.current = null;
     if (next === "live") {
       setPlaybackUrl(null);
       playbackSessionRef.current = null;
@@ -335,8 +344,20 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   async function handleTogglePlay() {
     try {
       if (playbackState.playing) {
+        if (mode === "playback") {
+          playbackResumeStartRef.current = estimatePlaybackUnixAt(Date.now(), playbackSessionRef.current);
+        }
         await playerRef.current?.pause();
         setPlaybackState((current) => ({ ...current, playing: false }));
+        return;
+      }
+      if (mode === "playback" && selectedSegment && playbackResumeStartRef.current) {
+        const resumeStart = Math.min(
+          Math.max(playbackResumeStartRef.current, selectedSegment.start_time),
+          Math.max(selectedSegment.start_time, selectedSegment.end_time - 1),
+        );
+        playbackResumeStartRef.current = null;
+        playRange(resumeStart, selectedSegment.end_time, selectedSegment);
         return;
       }
       await playerRef.current?.play();
@@ -364,14 +385,14 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         throw new Error("player handle is not ready");
       }
       const shot = await playerRef.current.screenshot();
-      setScreenshotNotice(shot?.dataUrl ? "截图已生成" : "截图已触发");
-      if (screenshotNoticeTimerRef.current !== null) {
-        window.clearTimeout(screenshotNoticeTimerRef.current);
+      if (shot?.dataUrl) {
+        const shared = await shareScreenshot(shot.dataUrl);
+        if (!shared) {
+          showScreenshotNotice("截图已取消");
+          return;
+        }
       }
-      screenshotNoticeTimerRef.current = window.setTimeout(() => {
-        setScreenshotNotice("");
-        screenshotNoticeTimerRef.current = null;
-      }, 2600);
+      showScreenshotNotice(shot?.dataUrl ? "截图已准备" : "截图已触发");
     } catch (err) {
       setToast(`当前浏览器暂不支持截图 · ${errMessage(err, "播放器返回异常")}`);
     }
@@ -379,6 +400,18 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
   function handleToggleLandscape() {
     setLandscape((current) => !current);
+    setControlsVisible(true);
+  }
+
+  function showScreenshotNotice(message: string) {
+    setScreenshotNotice(message);
+    if (screenshotNoticeTimerRef.current !== null) {
+      window.clearTimeout(screenshotNoticeTimerRef.current);
+    }
+    screenshotNoticeTimerRef.current = window.setTimeout(() => {
+      setScreenshotNotice("");
+      screenshotNoticeTimerRef.current = null;
+    }, 2600);
   }
 
   async function handleToggleFullscreen() {
@@ -393,6 +426,14 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     } catch (err) {
       setToast(`当前浏览器暂不支持全屏 · ${errMessage(err, "播放器返回异常")}`);
     }
+  }
+
+  function handlePlayerSurfaceClick() {
+    if (loading || playbackState.failed) {
+      setControlsVisible(true);
+      return;
+    }
+    setControlsVisible((current) => !current);
   }
 
   async function continueAfterLongPlayPrompt() {
@@ -436,6 +477,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     } else {
       setPlaybackUrl(null);
       playbackSessionRef.current = null;
+      playbackResumeStartRef.current = null;
     }
   }
 
@@ -455,24 +497,42 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         <section className="h5-viewer-player" aria-label="监控画面">
           {currentPlayerUrl ? (
             <div className={`h5-player-shell ${landscape ? "is-landscape" : ""}`}>
-              <H5FlvPlayer
-                ref={playerRef}
-                url={currentPlayerUrl}
-                protocol={currentPlayer?.protocol}
-                isLive={mode === "live"}
-                onError={handlePlayerError}
-                onStatus={handlePlayerStatus}
-                onPlaybackStateChange={setPlaybackState}
-              />
-              <H5PlayerControls
-                state={controlState}
-                onTogglePlay={handleTogglePlay}
-                onToggleSound={handleToggleSound}
-                onScreenshot={handleScreenshot}
-                onToggleLandscape={handleToggleLandscape}
-                onToggleFullscreen={handleToggleFullscreen}
-              />
-              {screenshotNotice && <div className="h5-screenshot-notice">{screenshotNotice}</div>}
+              <div className="h5-player-rotator">
+                <H5FlvPlayer
+                  ref={playerRef}
+                  url={currentPlayerUrl}
+                  protocol={currentPlayer?.protocol}
+                  isLive={mode === "live"}
+                  onError={handlePlayerError}
+                  onStatus={handlePlayerStatus}
+                  onPlaybackStateChange={setPlaybackState}
+                />
+                <button
+                  type="button"
+                  className="h5-player-surface-toggle"
+                  onClick={handlePlayerSurfaceClick}
+                  aria-label={controlsVisible ? "隐藏播放控件" : "显示播放控件"}
+                />
+                {mode === "playback" && selectedSegment && (
+                  <PlaybackSegmentSlider
+                    segment={selectedSegment}
+                    disabled={loading}
+                    overlay
+                    visible={controlsVisible || loading || playbackState.failed || !playbackState.playing}
+                    onCommit={(startTime) => playRange(startTime, selectedSegment.end_time, selectedSegment)}
+                  />
+                )}
+                <H5PlayerControls
+                  state={controlState}
+                  visible={controlsVisible}
+                  onTogglePlay={handleTogglePlay}
+                  onToggleSound={handleToggleSound}
+                  onScreenshot={handleScreenshot}
+                  onToggleLandscape={handleToggleLandscape}
+                  onToggleFullscreen={handleToggleFullscreen}
+                />
+                {screenshotNotice && <div className="h5-screenshot-notice">{screenshotNotice}</div>}
+              </div>
             </div>
           ) : (
             <div className="h5-player-placeholder">
@@ -509,14 +569,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
               onChange={handleDateTimeChange}
               onConfirm={playFromDateTime}
             />
-
-            {selectedSegment && (
-              <PlaybackSegmentSlider
-                segment={selectedSegment}
-                disabled={loading}
-                onCommit={(startTime) => playRange(startTime, selectedSegment.end_time, selectedSegment)}
-              />
-            )}
 
             {segments && segments.segments.length > 0 && (
               <div className="h5-segment-list" aria-label="录像片段">
@@ -596,6 +648,42 @@ function BackIcon() {
 
 function preferredLiveProtocol(): "hls" | "flv" {
   return "flv";
+}
+
+async function shareScreenshot(dataUrl: string): Promise<boolean> {
+  const file = await dataUrlToFile(dataUrl, `monitor-snapshot-${Date.now()}.png`);
+  const shareData = {
+    files: [file],
+    title: "监控截图",
+    text: "监控截图",
+  };
+  const maybeNavigator = navigator as Navigator & {
+    canShare?: (data: ShareData) => boolean;
+    share?: (data: ShareData) => Promise<void>;
+  };
+  if (typeof maybeNavigator.share === "function" && maybeNavigator.canShare?.(shareData)) {
+    try {
+      await maybeNavigator.share(shareData);
+      return true;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return false;
+      }
+      throw err;
+    }
+  }
+  downloadDataUrl(dataUrl, file.name);
+  return true;
+}
+
+function downloadDataUrl(dataUrl: string, filename: string) {
+  const anchor = document.createElement("a");
+  anchor.href = dataUrl;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 function PlaybackDatePicker({
@@ -879,15 +967,6 @@ function clamp(value: number, min: number, max: number): number {
 
 function clampUnix(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-function estimatePlaybackUnixAt(
-  pausedAtMs: number,
-  session: { startTime: number; endTime: number; startedAtMs: number } | null,
-): number | null {
-  if (!session) return null;
-  const elapsedSeconds = Math.max(0, Math.floor((pausedAtMs - session.startedAtMs) / 1000));
-  return clampUnix(session.startTime + elapsedSeconds, session.startTime, Math.max(session.startTime, session.endTime - 1));
 }
 
 function pad2(value: number): string {

@@ -5,10 +5,14 @@ import { segmentDurationSeconds, segmentOffsetToUnix, shouldShowSegmentSlider } 
 export function PlaybackSegmentSlider({
   segment,
   disabled,
+  overlay = false,
+  visible = true,
   onCommit,
 }: {
   segment: H5RecordSegment;
   disabled: boolean;
+  overlay?: boolean;
+  visible?: boolean;
   onCommit: (startTime: number) => void;
 }) {
   const duration = segmentDurationSeconds(segment.start_time, segment.end_time);
@@ -21,7 +25,11 @@ export function PlaybackSegmentSlider({
 
   if (!shouldShowSegmentSlider(segment.start_time, segment.end_time)) {
     return (
-      <div className="h5-playback-slider compact">
+      <div
+        className={`h5-playback-slider compact ${overlay ? "is-overlay" : ""} ${visible ? "is-visible" : ""}`}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
         片段较短：{formatDateTime(segment.start_time)} - {formatDateTime(segment.end_time)}
       </div>
     );
@@ -32,7 +40,12 @@ export function PlaybackSegmentSlider({
   }
 
   return (
-    <div className="h5-playback-slider" aria-label="片段内定位">
+    <div
+      className={`h5-playback-slider ${overlay ? "is-overlay" : ""} ${visible ? "is-visible" : ""}`}
+      aria-label="片段内定位"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
       <div className="h5-playback-slider-head">
         <span>{formatTime(segment.start_time)}</span>
         <strong>当前：{formatDateTime(currentUnix)}</strong>

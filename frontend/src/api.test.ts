@@ -4,6 +4,8 @@ import { __testing } from "./api";
 import { isH5FirstFrameEvent } from "./domain/h5-player-diagnostics";
 import {
   clampSegmentOffset,
+  dataUrlToFile,
+  estimatePlaybackUnixAt,
   segmentDurationSeconds,
   segmentOffsetToUnix,
   shouldShowSegmentSlider,
@@ -80,5 +82,18 @@ describe("H5 playback segment slider helpers", () => {
     expect(clampSegmentOffset(-5, 100, 130)).toBe(0);
     expect(clampSegmentOffset(35, 100, 130)).toBe(30);
     expect(segmentOffsetToUnix(100, 130, 12.8)).toBe(112);
+  });
+
+  it("estimates playback unix time from a session start and elapsed wall time", () => {
+    expect(estimatePlaybackUnixAt(11_500, { startTime: 100, endTime: 130, startedAtMs: 1_000 })).toBe(110);
+    expect(estimatePlaybackUnixAt(99_000, { startTime: 100, endTime: 130, startedAtMs: 1_000 })).toBe(129);
+    expect(estimatePlaybackUnixAt(11_500, null)).toBe(null);
+  });
+
+  it("converts screenshot data url into a shareable file", async () => {
+    const file = await dataUrlToFile("data:image/png;base64,aGVsbG8=", "snapshot.png");
+    expect(file.name).toBe("snapshot.png");
+    expect(file.type).toBe("image/png");
+    expect(file.size).toBe(5);
   });
 });

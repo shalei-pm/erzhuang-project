@@ -1,5 +1,3 @@
-import { useEffect, useRef, useState, type FocusEvent } from "react";
-
 export type H5PlayerControlState = {
   playing: boolean;
   muted: boolean;
@@ -11,6 +9,7 @@ export type H5PlayerControlState = {
 
 export type H5PlayerControlsProps = {
   state: H5PlayerControlState;
+  visible: boolean;
   onTogglePlay: () => void;
   onToggleSound: () => void;
   onScreenshot: () => void;
@@ -20,6 +19,7 @@ export type H5PlayerControlsProps = {
 
 export function H5PlayerControls({
   state,
+  visible,
   onTogglePlay,
   onToggleSound,
   onScreenshot,
@@ -27,58 +27,13 @@ export function H5PlayerControls({
   onToggleFullscreen,
 }: H5PlayerControlsProps) {
   const { playing, muted, loading, failed, fullscreen, landscape } = state;
-  const [visible, setVisible] = useState(true);
-  const timerRef = useRef<number | null>(null);
   const pinned = loading || failed || !playing;
-
-  function clearHideTimer() {
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }
-
-  function scheduleHide() {
-    clearHideTimer();
-    if (!pinned) {
-      timerRef.current = window.setTimeout(() => {
-        setVisible(false);
-        timerRef.current = null;
-      }, 3600);
-    }
-  }
-
-  function keepVisible() {
-    clearHideTimer();
-    setVisible(true);
-  }
-
-  function revealThenSchedule() {
-    setVisible(true);
-    scheduleHide();
-  }
-
-  useEffect(() => {
-    setVisible(true);
-    scheduleHide();
-    return clearHideTimer;
-  }, [loading, failed, playing, muted, fullscreen, landscape]);
-
-  function handleBlur(event: FocusEvent<HTMLDivElement>) {
-    if (!event.currentTarget.contains(event.relatedTarget)) {
-      revealThenSchedule();
-    }
-  }
 
   return (
     <div
       className={`h5-player-controls ${visible || pinned ? "is-visible" : ""}`}
-      onPointerDown={revealThenSchedule}
-      onPointerMove={revealThenSchedule}
-      onMouseEnter={keepVisible}
-      onMouseLeave={revealThenSchedule}
-      onFocus={keepVisible}
-      onBlur={handleBlur}
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
     >
       <button
         type="button"
