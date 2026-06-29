@@ -2973,3 +2973,21 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `cd frontend && npm run test` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+
+## 2026-06-29 H5 Monitor 移动端首帧判断修正 2.19.10 开发记录
+
+- 背景：
+  - 用户反馈 2.19.9 手机端仍然黑屏，且没有错误信息显示。
+  - 复查代码发现移动端 wasm 路径下，`loaded/playing` 被当作首帧成功事件，可能导致 12 秒超时诊断被提前清除，但视频尚未真正渲染。
+- 结论：
+  - 对移动端软解路径，`loaded/playing` 只能说明播放器状态推进，不能证明已经有视频帧。
+  - 移动端应该只把 `streamSuccess/videoInfo/videoFrame` 视为首帧或流成功信号。
+- 实现：
+  - 新增 `domain/h5-player-diagnostics.ts`，集中定义首帧事件判断。
+  - 移动端 `mobile-wasm` 路径不再把 `loaded/playing` 视为首帧成功，保留计时器直到真正的视频事件到达。
+  - 桌面 `desktop-mse` 路径保留原兼容判断，避免影响现有桌面播放。
+  - 增加 vitest 覆盖移动端和桌面端首帧事件差异。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `git diff --check` 通过。
