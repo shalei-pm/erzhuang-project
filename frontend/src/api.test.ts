@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { __testing } from "./api";
+import { h5CameraColumnCount, h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from "./domain/h5-channel-display";
 import { isH5FirstFrameEvent } from "./domain/h5-player-diagnostics";
 import {
   clampSegmentOffset,
@@ -55,6 +56,64 @@ describe("H5 monitor trial entry", () => {
 
   it("builds the H5 monitor path with the current project base", () => {
     expect(h5MonitorPath("10030")).toBe("/erzhuang-project/h5/orgs/10030/monitor");
+  });
+});
+
+describe("H5 monitor channel display text", () => {
+  it("uses area and number as the primary title and channel number as the subtitle", () => {
+    expect(
+      h5ChannelDisplayText({
+        id: 1,
+        channel_no: 12,
+        channel_name: "通道12",
+        category: "treatment",
+        area_type: "treatment",
+        scene_type: "",
+        area_number: 1,
+        area_note: "",
+        thumbnail_url: "",
+      }),
+    ).toEqual({ title: "治疗室1号", subtitle: "通道12" });
+  });
+
+  it("uses area note as the business suffix before falling back to raw channel name", () => {
+    expect(
+      h5ChannelDisplayText({
+        id: 2,
+        channel_no: 17,
+        channel_name: "通道17",
+        category: "treatment",
+        area_type: "treatment",
+        scene_type: "",
+        area_number: 0,
+        area_note: "401号",
+        thumbnail_url: "",
+      }).title,
+    ).toBe("治疗室401号");
+
+    expect(
+      h5ChannelDisplayText({
+        id: 3,
+        channel_no: 16,
+        channel_name: "通道16",
+        category: "front_waiting",
+        area_type: "",
+        scene_type: "",
+        area_number: 0,
+        area_note: "护士站",
+        thumbnail_url: "",
+      }),
+    ).toEqual({ title: "护士站", subtitle: "通道16" });
+  });
+
+  it("loads camera bubbles in complete rows based on the current grid columns", () => {
+    expect(h5CameraColumnCount(1360, 1440)).toBe(7);
+    expect(h5InitialVisibleCount(1360, 1440)).toBe(21);
+    expect(h5NextVisibleCount({ containerWidth: 1360, viewportWidth: 1440, visibleCount: 21, totalCount: 26 })).toBe(26);
+
+    expect(h5CameraColumnCount(390, 390)).toBe(3);
+    expect(h5InitialVisibleCount(390, 390)).toBe(9);
+    expect(h5NextVisibleCount({ containerWidth: 390, viewportWidth: 390, visibleCount: 9, totalCount: 26 })).toBe(15);
   });
 });
 

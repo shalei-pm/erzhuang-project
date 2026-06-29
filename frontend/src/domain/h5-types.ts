@@ -1,5 +1,5 @@
 export type MonitorCategory = "consultation" | "treatment" | "beauty" | "front_waiting" | "other";
-export type AreaType = "consultation" | "treatment" | "beauty" | "";
+export type AreaType = "consultation" | "treatment" | "vip_treatment" | "beauty" | "";
 
 export interface H5MonitorChannel {
   id: number;

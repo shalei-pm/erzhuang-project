@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { h5Api, H5ApiError } from "../api-h5";
+import { h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from "../domain/h5-channel-display";
 import type { H5MonitorChannel, H5MonitorHomeResponse, MonitorCategory } from "../domain/h5-types";
 
 interface H5MonitorProps {
@@ -8,8 +9,6 @@ interface H5MonitorProps {
 }
 
 type TabKey = "all" | MonitorCategory;
-
-const PAGE_SIZE = 24;
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "all", label: "全部" },
@@ -23,9 +22,16 @@ const TABS: Array<{ key: TabKey; label: string }> = [
 export function H5Monitor({ externalOrgId, onOpenChannel }: H5MonitorProps) {
   const [data, setData] = useState<H5MonitorHomeResponse | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [visibleCount, setVisibleCount] = useState(() => h5InitialVisibleCount(0, 0));
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
+  const cameraWallRef = useRef<HTMLElement | null>(null);
+
+  const measureInitialVisibleCount = useCallback(() => {
+    const containerWidth = cameraWallRef.current?.clientWidth ?? 0;
+    const viewportWidth = typeof window === "undefined" ? 0 : window.innerWidth;
+    return h5InitialVisibleCount(containerWidth, viewportWidth);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,8 +56,20 @@ export function H5Monitor({ externalOrgId, onOpenChannel }: H5MonitorProps) {
   }, [externalOrgId]);
 
   useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [activeTab]);
+    const frame = window.requestAnimationFrame(() => {
+      setVisibleCount(measureInitialVisibleCount());
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTab, data?.external_org_id, measureInitialVisibleCount]);
+
+  useEffect(() => {
+    const updateVisibleRows = () => {
+      setVisibleCount((count) => Math.max(measureInitialVisibleCount(), count));
+    };
+    updateVisibleRows();
+    window.addEventListener("resize", updateVisibleRows);
+    return () => window.removeEventListener("resize", updateVisibleRows);
+  }, [measureInitialVisibleCount]);
 
   const allChannels = useMemo(() => {
     if (!data) return [];
@@ -125,13 +143,13 @@ export function H5Monitor({ externalOrgId, onOpenChannel }: H5MonitorProps) {
         ))}
       </nav>
 
-      <main className="h5-camera-wall">
+      <main className="h5-camera-wall" ref={cameraWallRef}>
         {shownChannels.map((channel) => (
           <CameraBubble
             key={channel.id}
             channel={channel}
             onClick={() => {
-              sessionStorage.setItem("h5-monitor-active-channel-name", channelName(channel));
+              sessionStorage.setItem("h5-monitor-active-channel-name", h5ChannelDisplayText(channel).title);
               onOpenChannel(channel.id);
             }}
           />
@@ -140,7 +158,21 @@ export function H5Monitor({ externalOrgId, onOpenChannel }: H5MonitorProps) {
 
       {hasMore && (
         <div className="h5-load-more-row">
-          <button className="h5-load-more" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
+          <button
+            className="h5-load-more"
+            onClick={() => {
+              const containerWidth = cameraWallRef.current?.clientWidth ?? 0;
+              const viewportWidth = typeof window === "undefined" ? 0 : window.innerWidth;
+              setVisibleCount((count) =>
+                h5NextVisibleCount({
+                  containerWidth,
+                  viewportWidth,
+                  visibleCount: count,
+                  totalCount: filteredChannels.length,
+                }),
+              );
+            }}
+          >
             加载更多
           </button>
         </div>
@@ -150,28 +182,21 @@ export function H5Monitor({ externalOrgId, onOpenChannel }: H5MonitorProps) {
 }
 
 function CameraBubble({ channel, onClick }: { channel: H5MonitorChannel; onClick: () => void }) {
-  const displayName = channelName(channel);
-  const subText = channel.area_number > 0 ? `${channel.area_number}号` : channel.area_note;
+  const displayText = h5ChannelDisplayText(channel);
 
   return (
-    <button className="h5-camera-bubble" onClick={onClick} aria-label={`查看${displayName}`}>
+    <button className="h5-camera-bubble" onClick={onClick} aria-label={`查看${displayText.title}`}>
       <span className="h5-camera-frame">
         {channel.thumbnail_url ? (
-          <img src={displayImageURL(channel.thumbnail_url)} alt={displayName} loading="lazy" />
+          <img src={displayImageURL(channel.thumbnail_url)} alt={displayText.title} loading="lazy" />
         ) : (
           <span className="h5-camera-placeholder">暂无画面</span>
         )}
       </span>
-      <span className="h5-camera-title">{displayName}</span>
-      {subText && <span className="h5-camera-subtitle">{subText}</span>}
+      <span className="h5-camera-title">{displayText.title}</span>
+      <span className="h5-camera-subtitle">{displayText.subtitle}</span>
     </button>
   );
-}
-
-function channelName(channel: H5MonitorChannel): string {
-  if (channel.channel_name.trim()) return channel.channel_name;
-  if (channel.area_note.trim()) return channel.area_note;
-  return `通道${channel.channel_no}`;
 }
 
 function displayImageURL(value: string): string {
