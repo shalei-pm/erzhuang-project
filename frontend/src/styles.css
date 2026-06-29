@@ -2346,6 +2346,65 @@ td:nth-child(10) {
   color: var(--danger);
 }
 
+.h5-player-status-panel {
+  width: min(100%, calc(var(--h5-player-max-height) * 16 / 9));
+  margin: 0 auto;
+  padding: 10px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-card);
+  background: #eff6ff;
+  color: var(--text-main);
+  box-shadow: var(--shadow-panel);
+}
+
+.h5-player-status-panel.warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.h5-player-status-panel.error {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.h5-player-status-panel > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.h5-player-status-panel strong {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.h5-player-status-panel span {
+  color: var(--text-main);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.h5-player-status-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.h5-player-status-details code {
+  max-width: 100%;
+  padding: 2px 5px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .h5-empty {
   display: flex;
   align-items: center;
