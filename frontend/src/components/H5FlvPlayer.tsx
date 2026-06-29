@@ -426,11 +426,18 @@ export const H5FlvPlayer = forwardRef<H5PlayerHandle, H5FlvPlayerProps>(function
     async screenshot() {
       const player = playerRef.current;
       const candidate = player?.screenshot ?? player?.capturePicture;
-      if (typeof candidate !== "function") {
-        throw new Error("screenshot is not supported by current player");
+      if (typeof candidate === "function") {
+        const result = await Promise.resolve(candidate.call(player, `monitor-snapshot-${Date.now()}`, "png", 0.92, "base64"));
+        const normalized = await normalizeScreenshotResult(result);
+        if (normalized.dataUrl) {
+          return normalized;
+        }
       }
-      const result = await Promise.resolve(candidate.call(player, `monitor-snapshot-${Date.now()}`, "png", 0.92, "base64"));
-      return normalizeScreenshotResult(result);
+      const fallback = captureRenderedFrame(wrapperRef.current);
+      if (fallback) {
+        return { dataUrl: fallback };
+      }
+      throw new Error("screenshot is not supported by current player");
     },
     getCurrentTime() {
       return readPlayerCurrentTime(playerRef.current, nativeVideoRef.current);
@@ -544,17 +551,55 @@ async function requestElementFullscreen(element: HTMLElement | null) {
   await element.requestFullscreen();
 }
 
-function normalizeScreenshotResult(result: unknown): H5PlayerScreenshot {
+async function normalizeScreenshotResult(result: unknown): Promise<H5PlayerScreenshot> {
   if (typeof result === "string") {
     if (result.startsWith("data:")) {
       return { dataUrl: result };
     }
     return { dataUrl: `data:image/png;base64,${result}` };
   }
+  if (typeof Blob !== "undefined" && result instanceof Blob) {
+    return { dataUrl: await blobToDataUrl(result) };
+  }
   if (result && typeof result === "object" && "dataUrl" in result) {
     return { dataUrl: String((result as { dataUrl?: unknown }).dataUrl || "") };
   }
   return {};
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("blob read failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function captureRenderedFrame(wrapper: HTMLElement | null): string | null {
+  if (!wrapper) return null;
+  const canvas = wrapper.querySelector("canvas");
+  if (canvas && canvas.width > 0 && canvas.height > 0) {
+    try {
+      return canvas.toDataURL("image/png");
+    } catch {
+      // Cross-origin or WebGL contexts may reject readback.
+    }
+  }
+  const video = wrapper.querySelector("video");
+  if (video && video.videoWidth > 0 && video.videoHeight > 0) {
+    try {
+      const captureCanvas = document.createElement("canvas");
+      captureCanvas.width = video.videoWidth;
+      captureCanvas.height = video.videoHeight;
+      const context = captureCanvas.getContext("2d");
+      context?.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+      return captureCanvas.toDataURL("image/png");
+    } catch {
+      // Browser security rules can block drawing signed remote streams.
+    }
+  }
+  return null;
 }
 
 function readPlayerCurrentTime(player: EzuikitFlvPlayer | null, video: HTMLVideoElement | null) {

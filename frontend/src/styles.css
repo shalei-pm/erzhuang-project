@@ -2718,7 +2718,11 @@ td:nth-child(10) {
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: #000;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.h5-frozen-frame.is-empty {
+  background: rgba(15, 23, 42, 0.52);
 }
 
 .h5-frozen-frame img {

@@ -3137,3 +3137,20 @@ git pull --ff-only
   - 本地移动视口 demo 验证：H5 详情页、录像 tab、录像片段播放、overlay 滑块和控制条均正常渲染；控制台无 error/warn。
 - 后续建议：
   - 如果产品要求严格意义的真暂停、seek、resume，应单独验证萤石 `EZUIKit-JavaScript-npm` 或其他官方播放器方案是否能同时满足 H265、手机 WebView、回放控制和自定义 UI。
+
+## 2026-06-29 H5 Monitor 回放恢复遮罩与滑块位置修复 2.20.4 开发记录
+
+- 背景：
+  - 用户验收 2.20.3 后确认回放已经能从暂停点继续，但恢复时仍会黑屏一下；拖动回放滑块能定位成功，但滑块 UI 会回到拖动前位置。
+- 根因：
+  - 恢复遮罩依赖播放器截图返回 `dataUrl`，部分环境下 `ezuikit-flv` 可能返回 Blob/File 或无法通过播放器 API 截图，导致没有冻结帧可显示。
+  - `PlaybackSegmentSlider` 之前只维护内部 offset，外层重新取回放 URL 后没有把新的起播时间回传给滑块，导致 UI 位置不同步。
+- 实现：
+  - 播放器截图归一化支持 base64、data URL、Blob/File；播放器 API 无结果时，尝试从当前 canvas/video 抓取一帧。
+  - 恢复播放时即使没有冻结帧，也显示轻量恢复遮罩，避免用户只看到纯黑屏。
+  - 回放页新增 `playbackCursorUnix`，每次 `playRange(startTime...)` 都同步当前起播点，并把它传给滑块。
+  - `PlaybackSegmentSlider` 改为支持 `currentStartTime`，根据外层起播点更新当前位置，避免拖动后回弹。
+- 验证：
+  - `cd frontend && npm run test` 通过，13 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。

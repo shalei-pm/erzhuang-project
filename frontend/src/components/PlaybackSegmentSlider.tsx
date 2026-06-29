@@ -1,27 +1,30 @@
 import { useEffect, useState } from "react";
 import type { H5RecordSegment } from "../domain/h5-types";
-import { segmentDurationSeconds, segmentOffsetToUnix, shouldShowSegmentSlider } from "../domain/h5-playback";
+import { clampSegmentOffset, segmentDurationSeconds, segmentOffsetToUnix, shouldShowSegmentSlider } from "../domain/h5-playback";
 
 export function PlaybackSegmentSlider({
   segment,
   disabled,
+  currentStartTime,
   overlay = false,
   visible = true,
   onCommit,
 }: {
   segment: H5RecordSegment;
   disabled: boolean;
+  currentStartTime?: number | null;
   overlay?: boolean;
   visible?: boolean;
   onCommit: (startTime: number) => void;
 }) {
   const duration = segmentDurationSeconds(segment.start_time, segment.end_time);
-  const [offset, setOffset] = useState(0);
+  const initialOffset = currentStartTime ? currentStartTime - segment.start_time : 0;
+  const [offset, setOffset] = useState(() => clampSegmentOffset(initialOffset, segment.start_time, segment.end_time));
   const currentUnix = segmentOffsetToUnix(segment.start_time, segment.end_time, offset);
 
   useEffect(() => {
-    setOffset(0);
-  }, [segment.start_time, segment.end_time]);
+    setOffset(clampSegmentOffset(currentStartTime ? currentStartTime - segment.start_time : 0, segment.start_time, segment.end_time));
+  }, [currentStartTime, segment.start_time, segment.end_time]);
 
   if (!shouldShowSegmentSlider(segment.start_time, segment.end_time)) {
     return (

@@ -62,6 +62,8 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const [controlsVisible, setControlsVisible] = useState(true);
   const [inlineFullscreen, setInlineFullscreen] = useState(false);
   const [frozenFrame, setFrozenFrame] = useState<string | null>(null);
+  const [playbackCursorUnix, setPlaybackCursorUnix] = useState<number | null>(null);
+  const [resumeCoverVisible, setResumeCoverVisible] = useState(false);
 
   const userId = useRef(`h5-user-${Date.now()}`);
   const playerRef = useRef<H5PlayerHandle | null>(null);
@@ -117,6 +119,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     setPlayerStatus(status);
     if (status.stage === "first-frame-ready" || status.stage === "mock-ready") {
       setFrozenFrame(null);
+      setResumeCoverVisible(false);
     }
   }, []);
 
@@ -225,6 +228,8 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     invalidatePlaybackRequest();
     setSelectedDateTime((prev) => `${date}T${timePart(prev)}`);
     setSelectedSegment(null);
+    setPlaybackCursorUnix(null);
+    setResumeCoverVisible(false);
     void releaseUrl(playbackUrl?.url_id);
     setPlaybackUrl(null);
     setLoading(true);
@@ -247,8 +252,12 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     const requestSeq = nextPlaybackRequestSeq();
     const previousUrlId = options.previousUrlId === undefined ? playbackUrl?.url_id : options.previousUrlId;
     setSelectedSegment(seg);
+    setPlaybackCursorUnix(startTime);
     if (!options.preserveCurrentFrame) {
       setPlaybackUrl(null);
+    }
+    if (options.reason === "resume") {
+      setResumeCoverVisible(true);
     }
     setLoading(true);
     setPlayerStatus({
@@ -276,6 +285,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
           void releaseUrl(previousUrlId);
         } else {
           setFrozenFrame(null);
+          setResumeCoverVisible(false);
         }
         setToast("");
         setPlayerStatus({
@@ -310,6 +320,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
   function playSegment(seg: H5RecordSegment) {
     setFrozenFrame(null);
+    setResumeCoverVisible(false);
     playRange(seg.start_time, seg.end_time, seg, { reason: "segment" });
   }
 
@@ -356,6 +367,8 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       setPlaybackUrl(null);
       playbackSessionRef.current = null;
       setFrozenFrame(null);
+      setPlaybackCursorUnix(null);
+      setResumeCoverVisible(false);
       setLiveUrl(null);
       return;
     }
@@ -364,6 +377,8 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     setSelectedSegment(null);
     playbackSessionRef.current = null;
     setFrozenFrame(null);
+    setPlaybackCursorUnix(null);
+    setResumeCoverVisible(false);
     if (!segments) {
       loadSegments(selectedDate);
     }
@@ -537,6 +552,8 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     } else {
       setPlaybackUrl(null);
       playbackSessionRef.current = null;
+      setPlaybackCursorUnix(null);
+      setResumeCoverVisible(false);
     }
   }
 
@@ -566,9 +583,9 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
                   onStatus={handlePlayerStatus}
                   onPlaybackStateChange={setPlaybackState}
                 />
-                {frozenFrame && loading && (
-                  <div className="h5-frozen-frame" aria-label="正在从暂停位置恢复回放">
-                    <img src={frozenFrame} alt="" />
+                {resumeCoverVisible && loading && (
+                  <div className={`h5-frozen-frame ${frozenFrame ? "" : "is-empty"}`} aria-label="正在从暂停位置恢复回放">
+                    {frozenFrame ? <img src={frozenFrame} alt="" /> : null}
                     <span>正在从暂停位置恢复...</span>
                   </div>
                 )}
@@ -582,10 +599,12 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
                   <PlaybackSegmentSlider
                     segment={selectedSegment}
                     disabled={loading}
+                    currentStartTime={playbackCursorUnix}
                     overlay
                     visible={controlsVisible || loading || playbackState.failed || !playbackState.playing}
                     onCommit={(startTime) => {
                       setFrozenFrame(null);
+                      setResumeCoverVisible(false);
                       playRange(startTime, selectedSegment.end_time, selectedSegment, { reason: "slider" });
                     }}
                   />
