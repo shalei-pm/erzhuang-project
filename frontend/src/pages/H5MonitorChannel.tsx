@@ -70,6 +70,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const latestUrlIdsRef = useRef<{ live?: string; playback?: string }>({});
   const screenshotNoticeTimerRef = useRef<number | null>(null);
   const longPlayTimerRef = useRef<number | null>(null);
+  const resumeCoverTimerRef = useRef<number | null>(null);
   const playbackSessionRef = useRef<PlaybackSession | null>(null);
   const guardPlaybackStartRef = useRef<number | null>(null);
   const playbackRequestSeqRef = useRef(0);
@@ -118,8 +119,14 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const handlePlayerStatus = useCallback((status: H5PlayerStatus) => {
     setPlayerStatus(status);
     if (status.stage === "first-frame-ready" || status.stage === "mock-ready") {
-      setFrozenFrame(null);
-      setResumeCoverVisible(false);
+      if (resumeCoverTimerRef.current !== null) {
+        window.clearTimeout(resumeCoverTimerRef.current);
+      }
+      resumeCoverTimerRef.current = window.setTimeout(() => {
+        setFrozenFrame(null);
+        setResumeCoverVisible(false);
+        resumeCoverTimerRef.current = null;
+      }, 250);
     }
   }, []);
 
@@ -179,6 +186,9 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       }
       if (longPlayTimerRef.current !== null) {
         window.clearTimeout(longPlayTimerRef.current);
+      }
+      if (resumeCoverTimerRef.current !== null) {
+        window.clearTimeout(resumeCoverTimerRef.current);
       }
     };
   }, [releaseUrl]);

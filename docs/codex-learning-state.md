@@ -3169,3 +3169,17 @@ git pull --ff-only
   - `cd frontend && npm run test` 通过，13 tests passed。
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 回放恢复闪屏抛光 2.20.6 开发记录
+
+- 背景：
+  - 用户验收 2.20.5 后认为当前体验可以忍受，但暂停后继续播放仍能看到很短的黑色闪屏，希望再尝试一次低风险抛光。
+- 判断：
+  - 遮罩已经持续到播放器上报 `first-frame-ready`，仍有闪屏说明黑色暴露点大概率发生在首帧事件和真实画面稳定绘制之间。
+- 实现：
+  - 收到 `first-frame-ready` / `mock-ready` 后不再立刻关闭恢复遮罩，而是延迟 250ms 再移除。
+  - 恢复遮罩增加短过渡，避免硬切换。
+- 验证：
+  - `cd frontend && npm run test` 通过，13 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。

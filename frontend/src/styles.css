@@ -2719,6 +2719,8 @@ td:nth-child(10) {
   place-items: center;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.22);
+  opacity: 1;
+  transition: opacity 0.16s ease;
 }
 
 .h5-frozen-frame.is-empty {
