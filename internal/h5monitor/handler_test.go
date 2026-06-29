@@ -146,6 +146,43 @@ func TestMonitorHomeRejectsNonPilotOrg(t *testing.T) {
 	}
 }
 
+func TestShanghaiKaidePilotUsesStoreOwnChannels(t *testing.T) {
+	channels := []ChannelInfo{
+		{ID: 11, StoreID: 47, ChannelNo: 1, ChannelName: "上海通道1", Status: "confirmed_business", IsActive: true, AreaType: "consultation", AreaNumber: 1, DeviceSerial: "SHANGHAI001", AccountName: "华东", AppKey: "east-key", AppSecret: "east-secret", AccessToken: "east-token"},
+	}
+	repo := &fakeRepo{
+		store:    &StoreInfo{ID: 47, Name: "新氧青春诊所(上海凯德晶萃店)", City: "上海", ExternalOrgID: "10047"},
+		channels: channels,
+		byID:     map[int64]ChannelInfo{11: channels[0]},
+	}
+	player := &fakePlayer{}
+	service := NewService(repo, player)
+	handler := NewHandler(service)
+
+	homeRequest := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/10047/monitor", nil)
+	homeRequest.SetPathValue("externalOrgId", "10047")
+	homeResponse := httptest.NewRecorder()
+	handler.getMonitorHome(homeResponse, homeRequest)
+	if homeResponse.Code != http.StatusOK {
+		t.Fatalf("home status = %d body=%s", homeResponse.Code, homeResponse.Body.String())
+	}
+	if !strings.Contains(homeResponse.Body.String(), `"store_name":"新氧青春诊所(上海凯德晶萃店)"`) || !strings.Contains(homeResponse.Body.String(), `"id":11`) {
+		t.Fatalf("home response did not use Shanghai store channels: %s", homeResponse.Body.String())
+	}
+
+	playRequest := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10047/monitor/channels/11/live-url", strings.NewReader(`{"user_id":"u1"}`))
+	playRequest.SetPathValue("externalOrgId", "10047")
+	playRequest.SetPathValue("channelId", "11")
+	playResponse := httptest.NewRecorder()
+	handler.getLiveURL(playResponse, playRequest)
+	if playResponse.Code != http.StatusOK {
+		t.Fatalf("play status = %d body=%s", playResponse.Code, playResponse.Body.String())
+	}
+	if player.liveInput.DeviceSerial != "SHANGHAI001" || player.liveInput.ChannelNo != 1 {
+		t.Fatalf("unexpected Shanghai live input: %#v", player.liveInput)
+	}
+}
+
 func TestPilotHomeAndPlaybackRejectNonPilotDevice(t *testing.T) {
 	service, _ := newFakeService()
 	handler := NewHandler(service)

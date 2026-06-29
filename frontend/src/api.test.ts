@@ -45,8 +45,9 @@ describe("design plan API path helpers", () => {
 });
 
 describe("H5 monitor trial entry", () => {
-  it("only allows the pilot org 10030 to open H5 monitor", () => {
+  it("only allows H5 monitor pilot orgs to open H5 monitor", () => {
     expect(canOpenH5Monitor({ externalOrgId: "10030" })).toBe(true);
+    expect(canOpenH5Monitor({ externalOrgId: "10047" })).toBe(true);
     expect(canOpenH5Monitor({ externalOrgId: "010030" })).toBe(false);
     expect(canOpenH5Monitor({ externalOrgId: "10031" })).toBe(false);
     expect(canOpenH5Monitor({ externalOrgId: "" })).toBe(false);

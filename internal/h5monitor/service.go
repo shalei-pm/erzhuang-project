@@ -56,25 +56,31 @@ type EzvizPlayer interface {
 }
 
 const (
-	defaultPilotExternalOrgID = "10030"
-	defaultPilotDeviceSerial  = "GN0941203"
+	beijingPilotExternalOrgID  = "10030"
+	beijingPilotDeviceSerial   = "GN0941203"
+	shanghaiKaideExternalOrgID = "10047"
 )
 
 type Service struct {
-	repo        StoreRepository
-	player      EzvizPlayer
-	pilotOrgID  string
-	pilotDevice string
-	mu          sync.Mutex
-	concurrency map[string]*concurrencyState
+	repo         StoreRepository
+	player       EzvizPlayer
+	pilotOrgIDs  map[string]struct{}
+	pilotDevices map[string]string
+	mu           sync.Mutex
+	concurrency  map[string]*concurrencyState
 }
 
 func NewService(repo StoreRepository, player EzvizPlayer) *Service {
 	return &Service{
-		repo:        repo,
-		player:      player,
-		pilotOrgID:  defaultPilotExternalOrgID,
-		pilotDevice: defaultPilotDeviceSerial,
+		repo:   repo,
+		player: player,
+		pilotOrgIDs: map[string]struct{}{
+			beijingPilotExternalOrgID:  {},
+			shanghaiKaideExternalOrgID: {},
+		},
+		pilotDevices: map[string]string{
+			beijingPilotExternalOrgID: beijingPilotDeviceSerial,
+		},
 		concurrency: map[string]*concurrencyState{},
 	}
 }
@@ -248,7 +254,8 @@ func (s *Service) validateChannel(ctx context.Context, externalOrgID string, cha
 }
 
 func (s *Service) isPilotAllowedOrg(externalOrgID string) bool {
-	return strings.TrimSpace(externalOrgID) == s.pilotOrgID
+	_, ok := s.pilotOrgIDs[strings.TrimSpace(externalOrgID)]
+	return ok
 }
 
 func (s *Service) filterPilotChannels(externalOrgID string, channels []ChannelInfo) []ChannelInfo {
@@ -262,7 +269,15 @@ func (s *Service) filterPilotChannels(externalOrgID string, channels []ChannelIn
 }
 
 func (s *Service) isPilotAllowedChannel(externalOrgID string, channel ChannelInfo) bool {
-	return s.isPilotAllowedOrg(externalOrgID) && strings.EqualFold(strings.TrimSpace(channel.DeviceSerial), s.pilotDevice)
+	orgID := strings.TrimSpace(externalOrgID)
+	if !s.isPilotAllowedOrg(orgID) {
+		return false
+	}
+	deviceSerial, requiresDeviceMatch := s.pilotDevices[orgID]
+	if !requiresDeviceMatch {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(channel.DeviceSerial), deviceSerial)
 }
 
 func (s *Service) acquireConcurrency(userID string, isAdmin bool) error {

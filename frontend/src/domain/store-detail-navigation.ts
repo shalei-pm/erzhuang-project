@@ -3,7 +3,7 @@ import type { StoreDetail, StoreSummary } from "../api";
 export type StoreDetailNavigationTab = "design-plan" | "channels";
 
 export const storeDetailCacheTTL = 60_000;
-export const h5MonitorPilotExternalOrgId = "10030";
+export const h5MonitorPilotExternalOrgIds = ["10030", "10047"] as const;
 
 type CacheEntry = {
   detail: StoreDetail;
@@ -38,7 +38,7 @@ export function storeDetailTabFromDetail(store: StoreDetail): StoreDetailNavigat
 }
 
 export function canOpenH5Monitor(store: Pick<StoreSummary, "externalOrgId">): boolean {
-  return store.externalOrgId === h5MonitorPilotExternalOrgId;
+  return h5MonitorPilotExternalOrgIds.includes(store.externalOrgId as (typeof h5MonitorPilotExternalOrgIds)[number]);
 }
 
 export function h5MonitorPath(externalOrgId: string, configuredBase = import.meta.env.BASE_URL || "/erzhuang-project/"): string {
