@@ -3362,3 +3362,13 @@ git pull --ff-only
 - 验证：
   - `cd frontend && npm run test` 通过，18 tests passed。
   - `cd frontend && npm run build` 通过。
+
+## 2026-06-29 H5 Monitor 2.21.9 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`1a702b6 fix: refresh H5 thumbnails only after live close`。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端版本从 `2.21.8 (container)` 更新到 `2.21.9`。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
