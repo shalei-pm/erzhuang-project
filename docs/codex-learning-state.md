@@ -3214,3 +3214,15 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
   - 本地 Vite dev demo 验证：桌面和 390px 移动视口下，按钮均无中文文本，滑块居中整合到同一控制条，未出现明显挤压或重叠。
+
+## 2026-06-29 H5 Monitor 横竖屏 icon 微调 2.21.1 开发记录
+
+- 背景：
+  - 用户反馈横屏/竖屏切换 icon 希望更接近“两块横竖屏幕叠放”的识别方式，确认去掉旋转箭头，只保留两个矩形。
+- 实现：
+  - 将横竖屏切换按钮的旋转箭头 icon 替换为双矩形线性 icon：后层竖向矩形、前层横向矩形。
+  - 保持原有按钮行为、active 态、无中文显示和 `aria-label` 不变。
+- 验证：
+  - `cd frontend && npm run test` 通过，14 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。

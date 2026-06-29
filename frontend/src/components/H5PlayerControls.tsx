@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 export type H5PlayerControlState = {
   playing: boolean;
   muted: boolean;
@@ -70,7 +72,7 @@ export function H5PlayerControls({
           aria-label={landscape ? "退出横屏" : "横屏查看"}
           aria-pressed={landscape}
         >
-          {landscape ? <RotateCcwIcon /> : <RotateCwIcon />}
+          <OrientationToggleIcon />
         </button>
         <button
           type="button"
@@ -129,20 +131,11 @@ function CameraIcon() {
   );
 }
 
-function RotateCwIcon() {
+function OrientationToggleIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M20 11a8 8 0 1 1-2.35-5.65L20 8" />
-      <path d="M20 4v4h-4" />
-    </svg>
-  );
-}
-
-function RotateCcwIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M4 11a8 8 0 1 0 2.35-5.65L4 8" />
-      <path d="M4 4v4h4" />
+      <rect x="5" y="3.5" width="8" height="13" rx="1.8" />
+      <rect x="8" y="8" width="11" height="7.5" rx="1.8" />
     </svg>
   );
 }
@@ -162,4 +155,3 @@ function MinimizeIcon() {
     </svg>
   );
 }
-import type { ReactNode } from "react";
