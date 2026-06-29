@@ -3251,3 +3251,18 @@ git pull --ff-only
 - 验证：
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor icon 视觉尺寸修正 2.21.4 开发记录
+
+- 背景：
+  - 用户线上验收 2.21.3 后反馈返回按钮仍然显小，并指出播放器右侧截图、横竖屏、全屏三个 icon 视觉大小和高度不一致。
+- 根因：
+  - 返回按钮继承了全局 `button` 的左右 padding，导致 32px 按钮内 SVG 被 flex 压缩，虽然 CSS 设置了 21px，但实际渲染宽度只有约 6px。
+  - 播放器右侧三个 SVG 虽然外框一致，但图形路径在 24x24 viewBox 中占比和视觉重心不同。
+- 实现：
+  - 返回按钮补充 `padding: 0`、`min-width: 32px`，并让 `.h5-back-icon` 固定 `flex-basis: 21px`；返回箭头路径改为更饱满的 24px viewBox chevron。
+  - 微调相机、横竖屏、全屏/退出全屏 icon 的路径尺寸和坐标，让 30px 按钮内 17px SVG 的视觉高度更一致。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite dev demo 移动视口验证：返回按钮 SVG 实际渲染为 21x21，按钮 padding 为 0；右侧三个控制按钮均为 30x30，SVG 均为 17x17 且居中。

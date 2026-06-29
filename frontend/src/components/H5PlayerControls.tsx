@@ -125,8 +125,8 @@ function VolumeOffIcon() {
 function CameraIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M4 8h4l2-3h4l2 3h4v11H4z" />
-      <circle cx="12" cy="13.5" r="3.5" />
+      <path d="M3.8 8.2h4.2l1.9-2.7h4.2l1.9 2.7h4.2v10.3H3.8z" />
+      <circle cx="12" cy="13.6" r="3.25" />
     </svg>
   );
 }
@@ -134,8 +134,8 @@ function CameraIcon() {
 function OrientationToggleIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <rect x="5" y="3.5" width="8" height="13" rx="1.8" />
-      <rect x="8" y="8" width="11" height="7.5" rx="1.8" />
+      <rect x="4.6" y="3.8" width="8.1" height="13.2" rx="1.7" />
+      <rect x="7.6" y="7.8" width="11.8" height="8.4" rx="1.7" />
     </svg>
   );
 }
@@ -143,7 +143,7 @@ function OrientationToggleIcon() {
 function MaximizeIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M8 4H4v4M16 4h4v4M4 16v4h4M20 16v4h-4" />
+      <path d="M8.8 4.8H4.8v4M15.2 4.8h4v4M4.8 15.2v4h4M19.2 15.2v4h-4" />
     </svg>
   );
 }
@@ -151,7 +151,7 @@ function MaximizeIcon() {
 function MinimizeIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M8 4v4H4M16 4v4h4M8 20v-4H4M16 20v-4h4" />
+      <path d="M8.8 4.8v4h-4M15.2 4.8v4h4M8.8 19.2v-4h-4M15.2 19.2v-4h4" />
     </svg>
   );
 }

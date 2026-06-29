@@ -818,8 +818,8 @@ function PlayerStatusPanel({
 
 function BackIcon() {
   return (
-    <svg className="h5-back-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path d="M10 3.5 5.5 8l4.5 4.5" />
+    <svg className="h5-back-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M18 4 6 12l12 8" />
     </svg>
   );
 }
