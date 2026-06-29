@@ -34,6 +34,17 @@ export async function dataUrlToFile(dataUrl: string, filename: string): Promise<
   return new File([blob], filename, { type: blob.type || "image/png" });
 }
 
+export function shouldFallbackToInlineFullscreen(
+  doc: Pick<Document, "fullscreenEnabled">,
+  nav: Pick<Navigator, "maxTouchPoints" | "userAgent">,
+): boolean {
+  const ua = nav.userAgent.toLowerCase();
+  const isTouchMobile =
+    nav.maxTouchPoints > 0 &&
+    /android|iphone|ipad|ipod|mobile|micromessenger|lark|feishu|bytedancewebview/.test(ua);
+  return isTouchMobile && !doc.fullscreenEnabled;
+}
+
 function clampUnix(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }

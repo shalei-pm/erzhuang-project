@@ -3097,3 +3097,21 @@ git pull --ff-only
   - `git diff --check` 通过。
   - 本地浏览器用 `externalOrgId=demo` mock 页面验证：控件点击显隐、回放滑块 overlay、移动端按钮尺寸、移动端横屏旋转；控制台无 error/warn。
   - `go test ./...` 未通过本机环境验证：全局 `go` 不存在；使用 `./.tools/go/bin/go` 后测试二进制被 macOS `dyld missing LC_UUID load command` 拦截，未出现业务断言失败。
+
+## 2026-06-29 H5 Monitor 播放器暂停、全屏、截图修复 2.20.2 开发记录
+
+- 背景：
+  - 用户在线上验收 2.20.1 后反馈：回放暂停再恢复会黑屏重建且 PC 端仍可能回到片段起点；手机侧全屏按钮失效；手机侧截图没有进入系统相册保存流程。
+- 根因：
+  - 2.20.1 为解决“回放恢复不回起点”选择了重新请求回放 URL，实际带来播放器重建和黑屏体验，不符合“真暂停/真恢复”的产品预期。
+  - 移动浏览器或飞书 WebView 常不开放普通元素 `requestFullscreen`，原逻辑只提示失败，没有降级体验。
+  - `ezuikit-flv` 截图 API 默认类型可能直接走 `download`，前端拿不到图片数据就无法调起 Web Share API。
+- 实现：
+  - 普通播放/暂停改为只调用播放器实例 `pause()` / `play()`，不再在恢复播放时重新 `playRange()` 取回放 URL。
+  - 手机全屏在原生 Fullscreen API 不可用或失败时，降级为页面内全屏横置模式，并使用简短提示“已切换为页面内全屏”。
+  - 播放器截图调用显式传入 `base64`，前端拿到 data URL 后继续走 Web Share API；H5 仍不能静默写入系统相册，需要用户在系统面板选择保存。
+- 验证：
+  - `cd frontend && npm run test` 通过，12 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地 demo 页面验证：暂停后播放器容器未卸载、未出现回放占位；移动视口点击全屏后进入 `is-inline-fullscreen`，按钮变为“退出全屏”。

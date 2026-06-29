@@ -8,6 +8,7 @@ import {
   estimatePlaybackUnixAt,
   segmentDurationSeconds,
   segmentOffsetToUnix,
+  shouldFallbackToInlineFullscreen,
   shouldShowSegmentSlider,
 } from "./domain/h5-playback";
 import { canOpenH5Monitor, h5MonitorPath } from "./domain/store-detail-navigation";
@@ -95,5 +96,26 @@ describe("H5 playback segment slider helpers", () => {
     expect(file.name).toBe("snapshot.png");
     expect(file.type).toBe("image/png");
     expect(file.size).toBe(5);
+  });
+
+  it("falls back to inline fullscreen on mobile browsers without fullscreen api", () => {
+    expect(
+      shouldFallbackToInlineFullscreen(
+        { fullscreenEnabled: false },
+        { maxTouchPoints: 5, userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS) Lark" },
+      ),
+    ).toBe(true);
+    expect(
+      shouldFallbackToInlineFullscreen(
+        { fullscreenEnabled: true },
+        { maxTouchPoints: 5, userAgent: "Mozilla/5.0 (Linux; Android 14; Mobile)" },
+      ),
+    ).toBe(false);
+    expect(
+      shouldFallbackToInlineFullscreen(
+        { fullscreenEnabled: false },
+        { maxTouchPoints: 0, userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)" },
+      ),
+    ).toBe(false);
   });
 });

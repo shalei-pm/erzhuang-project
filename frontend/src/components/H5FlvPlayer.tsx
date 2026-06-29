@@ -21,7 +21,7 @@ interface EzuikitFlvPlayer {
   play: () => unknown;
   pause: () => unknown;
   getState?: () => unknown;
-  screenshot?: () => unknown;
+  screenshot?: (filename?: string, format?: string, quality?: number, type?: "download" | "base64" | "blob") => unknown;
   capturePicture?: () => unknown;
 }
 
@@ -427,7 +427,7 @@ export const H5FlvPlayer = forwardRef<H5PlayerHandle, H5FlvPlayerProps>(function
       if (typeof candidate !== "function") {
         throw new Error("screenshot is not supported by current player");
       }
-      const result = await Promise.resolve(candidate.call(player));
+      const result = await Promise.resolve(candidate.call(player, `monitor-snapshot-${Date.now()}`, "png", 0.92, "base64"));
       return normalizeScreenshotResult(result);
     },
     async enterFullscreen() {
@@ -541,7 +541,10 @@ async function requestElementFullscreen(element: HTMLElement | null) {
 
 function normalizeScreenshotResult(result: unknown): H5PlayerScreenshot {
   if (typeof result === "string") {
-    return { dataUrl: result };
+    if (result.startsWith("data:")) {
+      return { dataUrl: result };
+    }
+    return { dataUrl: `data:image/png;base64,${result}` };
   }
   if (result && typeof result === "object" && "dataUrl" in result) {
     return { dataUrl: String((result as { dataUrl?: unknown }).dataUrl || "") };

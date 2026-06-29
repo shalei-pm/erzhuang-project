@@ -8,7 +8,7 @@ import {
 } from "../components/H5FlvPlayer";
 import { H5PlayerControls, type H5PlayerControlState } from "../components/H5PlayerControls";
 import { PlaybackSegmentSlider } from "../components/PlaybackSegmentSlider";
-import { dataUrlToFile, estimatePlaybackUnixAt, type PlaybackSession } from "../domain/h5-playback";
+import { dataUrlToFile, estimatePlaybackUnixAt, shouldFallbackToInlineFullscreen, type PlaybackSession } from "../domain/h5-playback";
 import type {
   H5LiveURLResponse,
   H5PlaybackURLResponse,
@@ -54,6 +54,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const [longPlayPromptOpen, setLongPlayPromptOpen] = useState(false);
   const [guardPausedAt, setGuardPausedAt] = useState<number | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [inlineFullscreen, setInlineFullscreen] = useState(false);
 
   const userId = useRef(`h5-user-${Date.now()}`);
   const playerRef = useRef<H5PlayerHandle | null>(null);
@@ -62,7 +63,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const longPlayTimerRef = useRef<number | null>(null);
   const playbackSessionRef = useRef<PlaybackSession | null>(null);
   const guardPlaybackStartRef = useRef<number | null>(null);
-  const playbackResumeStartRef = useRef<number | null>(null);
   const playbackRequestSeqRef = useRef(0);
   const isAdmin = false;
 
@@ -77,8 +77,8 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const controlState: H5PlayerControlState = {
     ...playbackState,
     loading: loading || playbackState.loading,
-    fullscreen,
-    landscape,
+    fullscreen: fullscreen || inlineFullscreen,
+    landscape: landscape || inlineFullscreen,
   };
 
   const releaseUrl = useCallback(
@@ -172,7 +172,11 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
   useEffect(() => {
     function handleFullscreenChange() {
-      setFullscreen(Boolean(document.fullscreenElement));
+      const isFullscreen = Boolean(document.fullscreenElement);
+      setFullscreen(isFullscreen);
+      if (!isFullscreen) {
+        setInlineFullscreen(false);
+      }
     }
 
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -254,7 +258,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         }
         setPlaybackUrl(resp);
         playbackSessionRef.current = { startTime, endTime, startedAtMs: Date.now() };
-        playbackResumeStartRef.current = null;
         setToast("");
         setPlayerStatus({
           stage: "playback-url-ready",
@@ -325,7 +328,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     setPlayerStatus(null);
     setLongPlayPromptOpen(false);
     setPlaybackState((current) => ({ ...current, playing: false }));
-    playbackResumeStartRef.current = null;
     if (next === "live") {
       setPlaybackUrl(null);
       playbackSessionRef.current = null;
@@ -344,20 +346,8 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   async function handleTogglePlay() {
     try {
       if (playbackState.playing) {
-        if (mode === "playback") {
-          playbackResumeStartRef.current = estimatePlaybackUnixAt(Date.now(), playbackSessionRef.current);
-        }
         await playerRef.current?.pause();
         setPlaybackState((current) => ({ ...current, playing: false }));
-        return;
-      }
-      if (mode === "playback" && selectedSegment && playbackResumeStartRef.current) {
-        const resumeStart = Math.min(
-          Math.max(playbackResumeStartRef.current, selectedSegment.start_time),
-          Math.max(selectedSegment.start_time, selectedSegment.end_time - 1),
-        );
-        playbackResumeStartRef.current = null;
-        playRange(resumeStart, selectedSegment.end_time, selectedSegment);
         return;
       }
       await playerRef.current?.play();
@@ -416,15 +406,29 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
   async function handleToggleFullscreen() {
     try {
-      if (fullscreen) {
+      if (fullscreen || inlineFullscreen) {
+        if (inlineFullscreen) {
+          setLandscape(false);
+        }
+        setInlineFullscreen(false);
         await playerRef.current?.exitFullscreen();
         setFullscreen(false);
+        return;
+      }
+      if (shouldFallbackToInlineFullscreen(document, navigator)) {
+        setInlineFullscreen(true);
+        setLandscape(true);
+        setControlsVisible(true);
         return;
       }
       await playerRef.current?.enterFullscreen();
       setFullscreen(true);
     } catch (err) {
-      setToast(`当前浏览器暂不支持全屏 · ${errMessage(err, "播放器返回异常")}`);
+      void err;
+      setInlineFullscreen(true);
+      setLandscape(true);
+      setControlsVisible(true);
+      setToast("已切换为页面内全屏");
     }
   }
 
@@ -477,7 +481,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     } else {
       setPlaybackUrl(null);
       playbackSessionRef.current = null;
-      playbackResumeStartRef.current = null;
     }
   }
 
@@ -496,7 +499,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
         <section className="h5-viewer-player" aria-label="监控画面">
           {currentPlayerUrl ? (
-            <div className={`h5-player-shell ${landscape ? "is-landscape" : ""}`}>
+            <div className={`h5-player-shell ${landscape || inlineFullscreen ? "is-landscape" : ""} ${inlineFullscreen ? "is-inline-fullscreen" : ""}`}>
               <div className="h5-player-rotator">
                 <H5FlvPlayer
                   ref={playerRef}
