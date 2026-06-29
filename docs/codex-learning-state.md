@@ -3226,3 +3226,18 @@ git pull --ff-only
   - `cd frontend && npm run test` 通过，14 tests passed。
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 暂停态控制条显隐修复 2.21.2 开发记录
+
+- 背景：
+  - 用户反馈播放中点击画面可隐藏/显示控制条，但暂停后点击画面无法隐藏控制条；暂停截图时控制条会遮挡画面。
+- 根因：
+  - `H5PlayerControls` 将 `!playing` 纳入 `pinned` 强制显示条件，导致暂停态即使外层 `controlsVisible=false`，控制条仍会保持 `is-visible`。
+- 实现：
+  - 控制条强制显示条件改为仅 `loading || failed`；暂停态不再强制显示，点击画面可按同一规则隐藏/显示。
+  - 播放、暂停、截图、取流逻辑不变。
+- 验证：
+  - `cd frontend && npm run test` 通过，14 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite dev demo 验证：暂停后点击画面控制条隐藏，再次点击恢复显示；控制台无 error/warn。

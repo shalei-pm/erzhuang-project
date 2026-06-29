@@ -31,7 +31,7 @@ export function H5PlayerControls({
   onToggleFullscreen,
 }: H5PlayerControlsProps) {
   const { playing, muted, loading, failed, fullscreen, landscape } = state;
-  const pinned = loading || failed || !playing;
+  const pinned = loading || failed;
 
   return (
     <div
