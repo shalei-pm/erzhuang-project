@@ -3266,3 +3266,15 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
   - 本地 Vite dev demo 移动视口验证：返回按钮 SVG 实际渲染为 21x21，按钮 padding 为 0；右侧三个控制按钮均为 30x30，SVG 均为 17x17 且居中。
+
+## 2026-06-29 H5 Monitor 返回按钮 icon 尺寸回调 2.21.5 开发记录
+
+- 背景：
+  - 用户线上验收 2.21.4 后认为返回箭头反而偏大，希望回到最初经验尺寸，只保留 padding 挤压问题的修复。
+- 实现：
+  - 返回箭头恢复为原始 16px chevron 和 2px 线宽。
+  - 保留 `.h5-back-btn { padding: 0; min-width: 32px; }` 与 `.h5-back-icon { flex: 0 0 16px; }`，避免再次被全局 button padding 压缩。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地移动端 demo 验证：返回按钮 padding 为 0，SVG 实际渲染为 16x16。
