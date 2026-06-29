@@ -6,6 +6,7 @@ import {
   clampSegmentOffset,
   dataUrlToFile,
   estimatePlaybackUnixAt,
+  nextRecordSegmentIndex,
   playbackUnixFromPlayerTime,
   segmentDurationSeconds,
   segmentOffsetToUnix,
@@ -98,6 +99,18 @@ describe("H5 playback segment slider helpers", () => {
     expect(playbackUnixFromPlayerTime(99, session)).toBe(129);
     expect(playbackUnixFromPlayerTime(Number.NaN, session)).toBe(null);
     expect(estimatePlaybackUnixAt(20_000, { ...session, pausedAtUnix: 115 })).toBe(115);
+  });
+
+  it("finds the next record segment for auto-advance", () => {
+    const segments = [
+      { start_time: 100, end_time: 130 },
+      { start_time: 140, end_time: 160 },
+      { start_time: 160, end_time: 190 },
+    ];
+    expect(nextRecordSegmentIndex(segments, segments[0])).toBe(1);
+    expect(nextRecordSegmentIndex(segments, segments[2])).toBe(null);
+    expect(nextRecordSegmentIndex(segments, { start_time: 101, end_time: 130 })).toBe(1);
+    expect(nextRecordSegmentIndex(segments, null)).toBe(null);
   });
 
   it("converts screenshot data url into a shareable file", async () => {

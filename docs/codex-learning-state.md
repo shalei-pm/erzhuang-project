@@ -3183,3 +3183,19 @@ git pull --ff-only
   - `cd frontend && npm run test` 通过，13 tests passed。
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 回放进度自动推进 2.20.7 开发记录
+
+- 背景：
+  - 用户验收 2.20.6 后确认暂停续播问题基本可接受，继续反馈两个回放体验问题：播放滑块不会随着播放自动往后移动；播放到当前录像片段最后一秒后，应该自动关闭当前片段并进入下一个录像片段。
+- 实现：
+  - 回放播放中新增 1 秒 tick，同步读取播放器 `currentTime`，无法读取时退回到 `PlaybackSession` 的墙钟估算时间，并实时更新 `playbackCursorUnix`，驱动 overlay 滑块自动前进。
+  - 新增 `nextRecordSegmentIndex`，按当前片段对象或时间边界查找下一个录像片段；当前片段到达末尾前 1 秒时自动触发下一段播放。
+  - 自动切片段复用现有“保留当前画面”的恢复遮罩逻辑：切段前尽量截取当前帧，新 URL 首帧稳定后再移除遮罩，减少段间黑屏。
+  - 将片段列表、当前片段、当前回放 URL、loading 状态同步到 ref，避免定时器闭包读到旧状态导致重复切段或释放错误 URL。
+  - 滑块手动拖动时暂停外部自动位置同步，松手或失焦后再提交定位，避免用户拖动过程中被 tick 拉回。
+- 验证：
+  - `cd frontend && npm run test` 通过，14 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite preview 页面 smoke 验证：应用可正常渲染，控制台无 error/warn；本地无后端数据导致列表接口 HTTP 500，属本地预览环境限制，未进行真实萤石播放流验证。

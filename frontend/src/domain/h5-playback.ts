@@ -39,6 +39,19 @@ export function playbackUnixFromPlayerTime(currentTime: number | null, session: 
   return clampUnix(session.startTime + elapsedSeconds, session.startTime, Math.max(session.startTime, session.endTime - 1));
 }
 
+export function nextRecordSegmentIndex<T extends { start_time: number; end_time: number }>(
+  segments: T[],
+  current: T | null,
+): number | null {
+  if (!current) return null;
+  const exactIndex = segments.findIndex((segment) => segment === current);
+  if (exactIndex >= 0 && exactIndex + 1 < segments.length) {
+    return exactIndex + 1;
+  }
+  const nextIndex = segments.findIndex((segment) => segment.start_time >= current.end_time);
+  return nextIndex >= 0 ? nextIndex : null;
+}
+
 export async function dataUrlToFile(dataUrl: string, filename: string): Promise<File> {
   const response = await fetch(dataUrl);
   const blob = await response.blob();

@@ -11,6 +11,7 @@ import { PlaybackSegmentSlider } from "../components/PlaybackSegmentSlider";
 import {
   dataUrlToFile,
   estimatePlaybackUnixAt,
+  nextRecordSegmentIndex,
   playbackUnixFromPlayerTime,
   shouldFallbackToInlineFullscreen,
   type PlaybackSession,
@@ -71,7 +72,12 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const screenshotNoticeTimerRef = useRef<number | null>(null);
   const longPlayTimerRef = useRef<number | null>(null);
   const resumeCoverTimerRef = useRef<number | null>(null);
+  const playbackTickTimerRef = useRef<number | null>(null);
   const playbackSessionRef = useRef<PlaybackSession | null>(null);
+  const segmentsRef = useRef<H5RecordSegmentsResponse | null>(null);
+  const selectedSegmentRef = useRef<H5RecordSegment | null>(null);
+  const playbackUrlRef = useRef<H5PlaybackURLResponse | null>(null);
+  const loadingRef = useRef(false);
   const guardPlaybackStartRef = useRef<number | null>(null);
   const playbackRequestSeqRef = useRef(0);
   const isAdmin = false;
@@ -135,7 +141,20 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       live: liveUrl?.url_id,
       playback: playbackUrl?.url_id,
     };
+    playbackUrlRef.current = playbackUrl;
   }, [liveUrl?.url_id, playbackUrl?.url_id]);
+
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
+
+  useEffect(() => {
+    selectedSegmentRef.current = selectedSegment;
+  }, [selectedSegment]);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   useEffect(() => {
     if (mode !== "live" || liveUrl) return;
@@ -190,6 +209,9 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       if (resumeCoverTimerRef.current !== null) {
         window.clearTimeout(resumeCoverTimerRef.current);
       }
+      if (playbackTickTimerRef.current !== null) {
+        window.clearInterval(playbackTickTimerRef.current);
+      }
     };
   }, [releaseUrl]);
 
@@ -231,6 +253,35 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   }, [currentPlayerUrl, playbackState.playing, loading, longPlayPromptOpen]);
 
   useEffect(() => {
+    if (mode !== "playback" || !playbackState.playing || loading || !selectedSegment || !playbackSessionRef.current) {
+      if (playbackTickTimerRef.current !== null) {
+        window.clearInterval(playbackTickTimerRef.current);
+        playbackTickTimerRef.current = null;
+      }
+      return;
+    }
+
+    playbackTickTimerRef.current = window.setInterval(() => {
+      const nowUnix =
+        playbackUnixFromPlayerTime(playerRef.current?.getCurrentTime() ?? null, playbackSessionRef.current) ??
+        estimatePlaybackUnixAt(Date.now(), playbackSessionRef.current);
+      if (nowUnix === null) return;
+      setPlaybackCursorUnix(nowUnix);
+      const currentSegment = selectedSegmentRef.current;
+      if (currentSegment && nowUnix >= currentSegment.end_time - 1) {
+        void advanceToNextSegment();
+      }
+    }, 1000);
+
+    return () => {
+      if (playbackTickTimerRef.current !== null) {
+        window.clearInterval(playbackTickTimerRef.current);
+        playbackTickTimerRef.current = null;
+      }
+    };
+  }, [mode, playbackState.playing, loading, selectedSegment]);
+
+  useEffect(() => {
     setControlsVisible(true);
   }, [currentPlayerUrl, mode, loading, playbackState.failed]);
 
@@ -266,7 +317,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     if (!options.preserveCurrentFrame) {
       setPlaybackUrl(null);
     }
-    if (options.reason === "resume") {
+    if (options.preserveCurrentFrame) {
       setResumeCoverVisible(true);
     }
     setLoading(true);
@@ -332,6 +383,35 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     setFrozenFrame(null);
     setResumeCoverVisible(false);
     playRange(seg.start_time, seg.end_time, seg, { reason: "segment" });
+  }
+
+  async function advanceToNextSegment() {
+    const currentSegments = segmentsRef.current;
+    const currentSegment = selectedSegmentRef.current;
+    const currentPlaybackUrl = playbackUrlRef.current;
+    if (!currentSegments || !currentSegment || loadingRef.current) return;
+    if (playbackTickTimerRef.current !== null) {
+      window.clearInterval(playbackTickTimerRef.current);
+      playbackTickTimerRef.current = null;
+    }
+    const nextIndex = nextRecordSegmentIndex(currentSegments.segments, currentSegment);
+    if (nextIndex === null) {
+      invalidatePlaybackRequest();
+      await releaseUrl(currentPlaybackUrl?.url_id);
+      setPlaybackUrl(null);
+      setPlaybackState((current) => ({ ...current, playing: false }));
+      setPlaybackCursorUnix(null);
+      playbackSessionRef.current = null;
+      setToast("当前录像片段已播放完毕。");
+      return;
+    }
+    const nextSegment = currentSegments.segments[nextIndex];
+    await captureFrozenFrame();
+    playRange(nextSegment.start_time, nextSegment.end_time, nextSegment, {
+      previousUrlId: currentPlaybackUrl?.url_id,
+      preserveCurrentFrame: true,
+      reason: "segment",
+    });
   }
 
   function handleDateTimeChange(nextValue: string) {

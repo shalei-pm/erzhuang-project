@@ -20,11 +20,13 @@ export function PlaybackSegmentSlider({
   const duration = segmentDurationSeconds(segment.start_time, segment.end_time);
   const initialOffset = currentStartTime ? currentStartTime - segment.start_time : 0;
   const [offset, setOffset] = useState(() => clampSegmentOffset(initialOffset, segment.start_time, segment.end_time));
+  const [interacting, setInteracting] = useState(false);
   const currentUnix = segmentOffsetToUnix(segment.start_time, segment.end_time, offset);
 
   useEffect(() => {
+    if (interacting) return;
     setOffset(clampSegmentOffset(currentStartTime ? currentStartTime - segment.start_time : 0, segment.start_time, segment.end_time));
-  }, [currentStartTime, segment.start_time, segment.end_time]);
+  }, [currentStartTime, interacting, segment.start_time, segment.end_time]);
 
   if (!shouldShowSegmentSlider(segment.start_time, segment.end_time)) {
     return (
@@ -39,6 +41,7 @@ export function PlaybackSegmentSlider({
   }
 
   function commit() {
+    setInteracting(false);
     onCommit(currentUnix);
   }
 
@@ -61,7 +64,12 @@ export function PlaybackSegmentSlider({
         step={1}
         value={offset}
         disabled={disabled}
-        onChange={(event) => setOffset(Number(event.target.value))}
+        onPointerDown={() => setInteracting(true)}
+        onFocus={() => setInteracting(true)}
+        onChange={(event) => {
+          setInteracting(true);
+          setOffset(Number(event.target.value));
+        }}
         onPointerUp={commit}
         onBlur={commit}
         onKeyUp={(event) => {
