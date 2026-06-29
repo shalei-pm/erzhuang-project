@@ -594,6 +594,14 @@ func (s *Service) RefreshChannelSnapshot(ctx context.Context, channelID int64) (
 	return s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
 }
 
+func (s *Service) RefreshH5ChannelSnapshot(ctx context.Context, channelID int64) (string, error) {
+	channel, err := s.RefreshChannelSnapshot(ctx, channelID)
+	if err != nil {
+		return "", err
+	}
+	return firstNonEmpty(channel.ThumbnailURL, channel.FullImageURL), nil
+}
+
 var ErrNotImplemented = errors.New("not implemented")
 
 func channelRecognitionStatusJSON(status string, message string, captureMS int64, recognitionMS int64, totalMS int64) string {

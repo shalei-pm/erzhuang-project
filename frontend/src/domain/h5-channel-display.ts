@@ -35,7 +35,7 @@ const desktopMinColumnWidth = 160;
 const desktopColumnGap = 22;
 const mobileBreakpoint = 640;
 const mobileColumnCount = 3;
-const initialVisibleRows = 3;
+const initialVisibleRows = 4;
 const loadMoreRows = 2;
 
 export function h5ChannelDisplayText(channel: H5MonitorChannel): H5ChannelDisplayText {

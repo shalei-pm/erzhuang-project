@@ -108,12 +108,12 @@ describe("H5 monitor channel display text", () => {
 
   it("loads camera bubbles in complete rows based on the current grid columns", () => {
     expect(h5CameraColumnCount(1360, 1440)).toBe(7);
-    expect(h5InitialVisibleCount(1360, 1440)).toBe(21);
-    expect(h5NextVisibleCount({ containerWidth: 1360, viewportWidth: 1440, visibleCount: 21, totalCount: 26 })).toBe(26);
+    expect(h5InitialVisibleCount(1360, 1440)).toBe(28);
+    expect(h5NextVisibleCount({ containerWidth: 1360, viewportWidth: 1440, visibleCount: 28, totalCount: 36 })).toBe(36);
 
     expect(h5CameraColumnCount(390, 390)).toBe(3);
-    expect(h5InitialVisibleCount(390, 390)).toBe(9);
-    expect(h5NextVisibleCount({ containerWidth: 390, viewportWidth: 390, visibleCount: 9, totalCount: 26 })).toBe(15);
+    expect(h5InitialVisibleCount(390, 390)).toBe(12);
+    expect(h5NextVisibleCount({ containerWidth: 390, viewportWidth: 390, visibleCount: 12, totalCount: 26 })).toBe(18);
   });
 });
 

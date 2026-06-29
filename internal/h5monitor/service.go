@@ -55,6 +55,16 @@ type EzvizPlayer interface {
 	DisableLiveAddress(ctx context.Context, account ezviz.Account, input ezviz.DisableLiveAddressRequest) error
 }
 
+type SnapshotRefreshFunc func(ctx context.Context, channelID int64) (string, error)
+
+func (fn SnapshotRefreshFunc) RefreshChannelSnapshot(ctx context.Context, channelID int64) (string, error) {
+	return fn(ctx, channelID)
+}
+
+type SnapshotRefresher interface {
+	RefreshChannelSnapshot(ctx context.Context, channelID int64) (string, error)
+}
+
 const (
 	beijingPilotExternalOrgID  = "10030"
 	beijingPilotDeviceSerial   = "GN0941203"
@@ -64,10 +74,12 @@ const (
 type Service struct {
 	repo         StoreRepository
 	player       EzvizPlayer
+	refresher    SnapshotRefresher
 	pilotOrgIDs  map[string]struct{}
 	pilotDevices map[string]string
 	mu           sync.Mutex
 	concurrency  map[string]*concurrencyState
+	snapshots    map[int64]snapshotRefreshState
 }
 
 func NewService(repo StoreRepository, player EzvizPlayer) *Service {
@@ -82,11 +94,15 @@ func NewService(repo StoreRepository, player EzvizPlayer) *Service {
 			beijingPilotExternalOrgID: beijingPilotDeviceSerial,
 		},
 		concurrency: map[string]*concurrencyState{},
+		snapshots:   map[int64]snapshotRefreshState{},
 	}
 }
 
 var ErrNotFound = errors.New("h5monitor: not found")
 var ErrConcurrencyLimit = errors.New("h5monitor: concurrency limit reached")
+var ErrNotImplemented = errors.New("h5monitor: not implemented")
+
+const snapshotRefreshCooldown = 10 * time.Minute
 
 type ValidationError struct {
 	Fields map[string]string
@@ -94,6 +110,10 @@ type ValidationError struct {
 
 func (e *ValidationError) Error() string {
 	return "validation error"
+}
+
+func (s *Service) UseSnapshotRefresher(refresher SnapshotRefresher) {
+	s.refresher = refresher
 }
 
 func (s *Service) GetMonitorHome(ctx context.Context, externalOrgID string) (MonitorHomeResponse, error) {
@@ -146,6 +166,43 @@ func (s *Service) GetLiveURL(ctx context.Context, externalOrgID string, channelI
 		return LiveURLResponse{}, err
 	}
 	return LiveURLResponse{URL: result.URL, ExpireTime: result.ExpireTime, URLID: result.ID, Protocol: protocol}, nil
+}
+
+func (s *Service) RefreshSnapshot(ctx context.Context, externalOrgID string, channelID int64) (SnapshotRefreshResponse, error) {
+	if _, err := s.validateChannel(ctx, externalOrgID, channelID); err != nil {
+		return SnapshotRefreshResponse{}, err
+	}
+	if s.refresher == nil {
+		return SnapshotRefreshResponse{}, ErrNotImplemented
+	}
+	if cached, ok := s.snapshotRefreshResult(channelID); ok {
+		return SnapshotRefreshResponse{ThumbnailURL: cached}, nil
+	}
+	thumbnailURL, err := s.refresher.RefreshChannelSnapshot(ctx, channelID)
+	if err != nil {
+		return SnapshotRefreshResponse{}, err
+	}
+	s.rememberSnapshotRefresh(channelID, thumbnailURL)
+	return SnapshotRefreshResponse{ThumbnailURL: thumbnailURL}, nil
+}
+
+func (s *Service) snapshotRefreshResult(channelID int64) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, ok := s.snapshots[channelID]
+	if !ok || time.Since(state.refreshedAt) >= snapshotRefreshCooldown {
+		return "", false
+	}
+	return state.thumbnailURL, true
+}
+
+func (s *Service) rememberSnapshotRefresh(channelID int64, thumbnailURL string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.snapshots[channelID] = snapshotRefreshState{
+		thumbnailURL: thumbnailURL,
+		refreshedAt:  time.Now(),
+	}
 }
 
 func (s *Service) GetRecordSegments(ctx context.Context, externalOrgID string, channelID int64, dateValue string) (RecordSegmentsResponse, error) {

@@ -1,6 +1,7 @@
 import type {
   H5MonitorHomeResponse,
   H5LiveURLResponse,
+  H5SnapshotRefreshResponse,
   H5RecordSegmentsResponse,
   H5PlaybackURLResponse,
 } from "./domain/h5-types";
@@ -95,6 +96,15 @@ export const h5Api = {
     return requestJSON(`${API_BASE}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor/channels/${channelId}/live-url`, {
       method: "POST",
       body: JSON.stringify({ user_id: userId, is_admin: isAdmin, protocol }),
+    });
+  },
+
+  async refreshSnapshot(externalOrgId: string, channelId: number): Promise<H5SnapshotRefreshResponse> {
+    if (import.meta.env.DEV && externalOrgId === "demo") {
+      return { thumbnail_url: `https://picsum.photos/seed/h5-monitor-refreshed-${channelId}-${Date.now()}/320/320` };
+    }
+    return requestJSON(`${API_BASE}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor/channels/${channelId}/snapshot`, {
+      method: "POST",
     });
   },
 

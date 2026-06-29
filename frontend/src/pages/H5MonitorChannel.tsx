@@ -27,6 +27,7 @@ interface H5MonitorChannelProps {
   externalOrgId: string;
   channelId: number;
   onBack: () => void;
+  onSnapshotRefreshed?: () => void;
 }
 
 type Mode = "live" | "playback";
@@ -38,8 +39,10 @@ type DateTimeParts = {
 };
 
 const LONG_PLAY_LIMIT_MS = 15 * 60 * 1000;
+const SNAPSHOT_REFRESH_COOLDOWN_MS = 10 * 60 * 1000;
+const snapshotRefreshCooldown = new Map<string, number>();
 
-export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5MonitorChannelProps) {
+export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotRefreshed }: H5MonitorChannelProps) {
   const [mode, setMode] = useState<Mode>("live");
   const [liveUrl, setLiveUrl] = useState<H5LiveURLResponse | null>(null);
   const [playbackUrl, setPlaybackUrl] = useState<H5PlaybackURLResponse | null>(null);
@@ -80,6 +83,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const loadingRef = useRef(false);
   const guardPlaybackStartRef = useRef<number | null>(null);
   const playbackRequestSeqRef = useRef(0);
+  const refreshedCurrentPlayerRef = useRef("");
   const isAdmin = false;
 
   const channelTitle = useMemo(() => {
@@ -125,6 +129,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const handlePlayerStatus = useCallback((status: H5PlayerStatus) => {
     setPlayerStatus(status);
     if (status.stage === "first-frame-ready" || status.stage === "mock-ready") {
+      maybeRefreshSnapshotAfterFirstFrame(status.stage);
       if (resumeCoverTimerRef.current !== null) {
         window.clearTimeout(resumeCoverTimerRef.current);
       }
@@ -134,7 +139,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         resumeCoverTimerRef.current = null;
       }, 250);
     }
-  }, []);
+  }, [channelId, currentPlayerUrl, externalOrgId, mode, onSnapshotRefreshed]);
 
   useEffect(() => {
     latestUrlIdsRef.current = {
@@ -283,6 +288,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
   useEffect(() => {
     setControlsVisible(true);
+    refreshedCurrentPlayerRef.current = "";
   }, [currentPlayerUrl, mode, loading, playbackState.failed]);
 
   function loadSegments(date: string) {
@@ -516,6 +522,25 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     } catch {
       // Screenshot is best-effort here; playback resume still uses the recorded timestamp.
     }
+  }
+
+  function maybeRefreshSnapshotAfterFirstFrame(stage: string) {
+    if (!currentPlayerUrl) return;
+    if (stage === "mock-ready") return;
+    const playerKey = `${mode}:${currentPlayerUrl}`;
+    if (refreshedCurrentPlayerRef.current === playerKey) return;
+    const cooldownKey = `${externalOrgId}:${channelId}`;
+    const now = Date.now();
+    const refreshedAt = snapshotRefreshCooldown.get(cooldownKey) ?? 0;
+    if (now - refreshedAt < SNAPSHOT_REFRESH_COOLDOWN_MS) return;
+    refreshedCurrentPlayerRef.current = playerKey;
+    snapshotRefreshCooldown.set(cooldownKey, now);
+    void h5Api
+      .refreshSnapshot(externalOrgId, channelId)
+      .then(() => onSnapshotRefreshed?.())
+      .catch(() => {
+        snapshotRefreshCooldown.delete(cooldownKey);
+      });
   }
 
   async function handleToggleSound() {

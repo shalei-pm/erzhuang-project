@@ -6,6 +6,7 @@ import type { H5MonitorChannel, H5MonitorHomeResponse, MonitorCategory } from ".
 interface H5MonitorProps {
   externalOrgId: string;
   onOpenChannel: (channelId: number) => void;
+  refreshKey?: number;
 }
 
 type TabKey = "all" | MonitorCategory;
@@ -19,7 +20,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "other", label: "过道/其他" },
 ];
 
-export function H5Monitor({ externalOrgId, onOpenChannel }: H5MonitorProps) {
+export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5MonitorProps) {
   const [data, setData] = useState<H5MonitorHomeResponse | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [visibleCount, setVisibleCount] = useState(() => h5InitialVisibleCount(0, 0));
@@ -53,7 +54,7 @@ export function H5Monitor({ externalOrgId, onOpenChannel }: H5MonitorProps) {
     return () => {
       cancelled = true;
     };
-  }, [externalOrgId]);
+  }, [externalOrgId, refreshKey]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {

@@ -76,6 +76,19 @@ func (p *fakePlayer) DisableLiveAddress(ctx context.Context, account ezviz.Accou
 	return p.disableErr
 }
 
+type fakeSnapshotRefresher struct {
+	channelID int64
+	calls     int
+	url       string
+	err       error
+}
+
+func (r *fakeSnapshotRefresher) RefreshChannelSnapshot(ctx context.Context, channelID int64) (string, error) {
+	r.channelID = channelID
+	r.calls++
+	return r.url, r.err
+}
+
 func newFakeService() (*Service, *fakePlayer) {
 	channels := []ChannelInfo{
 		{ID: 1, StoreID: 10, ChannelNo: 6, ChannelName: "治疗6", Status: "confirmed_business", IsActive: true, AreaType: "treatment", AreaNumber: 6, DeviceSerial: "GN0941203", AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
@@ -95,6 +108,70 @@ func newFakeService() (*Service, *fakePlayer) {
 	}
 	player := &fakePlayer{}
 	return NewService(repo, player), player
+}
+
+func TestRefreshSnapshotUsesH5GateAndReturnsThumbnailURL(t *testing.T) {
+	service, _ := newFakeService()
+	refresher := &fakeSnapshotRefresher{url: "/api/store-space/channel-snapshots/fresh.jpg"}
+	service.UseSnapshotRefresher(refresher)
+	handler := NewHandler(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/snapshot", nil)
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.refreshSnapshot(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if refresher.channelID != 2 {
+		t.Fatalf("refreshed channel id = %d, want 2", refresher.channelID)
+	}
+	if refresher.calls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refresher.calls)
+	}
+	if !strings.Contains(response.Body.String(), `"thumbnail_url":"/api/store-space/channel-snapshots/fresh.jpg"`) {
+		t.Fatalf("unexpected response: %s", response.Body.String())
+	}
+}
+
+func TestRefreshSnapshotReusesRecentSnapshotWithinCooldown(t *testing.T) {
+	service, _ := newFakeService()
+	refresher := &fakeSnapshotRefresher{url: "/api/store-space/channel-snapshots/fresh.jpg"}
+	service.UseSnapshotRefresher(refresher)
+
+	first, err := service.RefreshSnapshot(context.Background(), "10030", 2)
+	if err != nil {
+		t.Fatalf("first refresh failed: %v", err)
+	}
+	refresher.url = "/api/store-space/channel-snapshots/second.jpg"
+	second, err := service.RefreshSnapshot(context.Background(), "10030", 2)
+	if err != nil {
+		t.Fatalf("second refresh failed: %v", err)
+	}
+
+	if first.ThumbnailURL != second.ThumbnailURL {
+		t.Fatalf("second thumbnail = %q, want cached %q", second.ThumbnailURL, first.ThumbnailURL)
+	}
+	if refresher.calls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refresher.calls)
+	}
+}
+
+func TestRefreshSnapshotRequiresConfiguredRefresher(t *testing.T) {
+	service, _ := newFakeService()
+	handler := NewHandler(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/snapshot", nil)
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.refreshSnapshot(response, request)
+
+	if response.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d body=%s, want 501", response.Code, response.Body.String())
+	}
 }
 
 func TestMonitorHomeGroupsChannelsAndDoesNotLeakSecrets(t *testing.T) {

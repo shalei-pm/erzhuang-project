@@ -460,6 +460,7 @@ function AdminApp() {
 
 function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
   const [route, setRoute] = useState<H5Route>(initialRoute);
+  const [monitorRefreshKey, setMonitorRefreshKey] = useState(0);
 
   useEffect(() => {
     const onPopState = () => setRoute(parseH5Route());
@@ -480,6 +481,7 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
       <Suspense fallback={<div className="h5-loading">加载中...</div>}>
         <H5MonitorPage
           externalOrgId={route.externalOrgId}
+          refreshKey={monitorRefreshKey}
           onOpenChannel={(channelId) => {
             const url = `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(route.externalOrgId)}/monitor/channels/${channelId}`;
             window.history.pushState({}, "", url);
@@ -495,6 +497,7 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
       <H5MonitorChannelPage
         externalOrgId={route.externalOrgId}
         channelId={route.channelId}
+        onSnapshotRefreshed={() => setMonitorRefreshKey((value) => value + 1)}
         onBack={() => {
           const url = `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(route.externalOrgId)}/monitor`;
           window.history.pushState({}, "", url);
