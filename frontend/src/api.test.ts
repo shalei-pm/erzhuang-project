@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { __testing } from "./api";
 import { isH5FirstFrameEvent } from "./domain/h5-player-diagnostics";
+import {
+  clampSegmentOffset,
+  segmentDurationSeconds,
+  segmentOffsetToUnix,
+  shouldShowSegmentSlider,
+} from "./domain/h5-playback";
 import { canOpenH5Monitor, h5MonitorPath } from "./domain/store-detail-navigation";
 
 describe("design plan API path helpers", () => {
@@ -62,5 +68,17 @@ describe("H5 player diagnostics", () => {
     expect(isH5FirstFrameEvent("videoInfo", "desktop-mse")).toBe(true);
     expect(isH5FirstFrameEvent("loaded", "desktop-mse")).toBe(true);
     expect(isH5FirstFrameEvent("playing", "desktop-mse")).toBe(true);
+  });
+});
+
+describe("H5 playback segment slider helpers", () => {
+  it("calculates segment slider bounds and selected unix time", () => {
+    expect(segmentDurationSeconds(100, 130)).toBe(30);
+    expect(segmentDurationSeconds(130, 100)).toBe(0);
+    expect(shouldShowSegmentSlider(100, 101)).toBe(false);
+    expect(shouldShowSegmentSlider(100, 102)).toBe(true);
+    expect(clampSegmentOffset(-5, 100, 130)).toBe(0);
+    expect(clampSegmentOffset(35, 100, 130)).toBe(30);
+    expect(segmentOffsetToUnix(100, 130, 12.8)).toBe(112);
   });
 });

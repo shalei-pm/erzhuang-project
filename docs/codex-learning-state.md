@@ -3057,3 +3057,25 @@ git pull --ff-only
   - `desktop-mse` 路径恢复接受 `streamSuccess`、`videoInfo`、`loaded`、`playing` 作为首帧/播放就绪信号。
   - `mobile-wasm` 路径仍只接受 `videoFrame`、`firstFrameDisplay`、`playToRenderTimes`。
   - 补充前端单测覆盖桌面和移动端差异。
+
+## 2026-06-29 H5 Monitor 播放器控制控件 2.20.0 开发记录
+
+- 背景：
+  - H5 Monitor 直播链路已在试点门店移动端和 PC 端跑通，进入播放器产品化阶段。
+  - 用户确认本轮只做基础单路查看能力，不做刷新流、异常自动重试、多画面、云台、倍速、下载、复杂时间轴。
+- 实现：
+  - `H5FlvPlayer` 改为 `forwardRef`，通过 `H5PlayerHandle` 暴露播放、暂停、声音、截图、全屏等受控方法。
+  - 新增 `H5PlayerControls`，在播放器底部提供播放/暂停、静音/开声音、截图、横屏/竖屏、全屏/退出全屏。
+  - 新增 15 分钟长时间播放保护：到时暂停并提示是否继续，停止时释放当前播放 URL，继续时重新取直播或回放 URL。
+  - 新增 `PlaybackSegmentSlider` 和 `domain/h5-playback.ts`，支持在单个录像片段内拖动定位，拖动过程中只预览，提交后才重新请求回放 URL。
+  - 回放 URL 请求增加序列号保护，旧请求返回时不会覆盖新 URL；旧响应如果已经拿到 URL，会立即释放，降低萤石资源泄漏风险。
+  - 原生 video fallback 不再展示浏览器内建 controls，避免暴露下载、倍速、复杂时间轴等本轮明确不做的能力。
+- 样式原则：
+  - 控制条保持 H5 工具风格：底部轻量暗色半透明浮层、按钮尺寸克制、移动端可横向滚动且触控面积足够。
+  - 诊断状态卡继续常驻显示，等用户明确要求“收起来”后再做折叠入口。
+- 验证：
+  - `cd frontend && npm run test` 通过，9 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - `go test ./...` 未执行：当前本机环境没有 `go` 命令。
+  - Playwright 可视验收未执行：本机缺少 Playwright Chromium 浏览器二进制。

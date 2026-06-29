@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { h5Api, H5ApiError } from "../api-h5";
-import { H5FlvPlayer, type H5PlayerStatus } from "../components/H5FlvPlayer";
+import {
+  H5FlvPlayer,
+  type H5PlaybackState,
+  type H5PlayerHandle,
+  type H5PlayerStatus,
+} from "../components/H5FlvPlayer";
+import { H5PlayerControls, type H5PlayerControlState } from "../components/H5PlayerControls";
+import { PlaybackSegmentSlider } from "../components/PlaybackSegmentSlider";
 import type {
   H5LiveURLResponse,
   H5PlaybackURLResponse,
@@ -22,6 +29,8 @@ type DateTimeParts = {
   minute: number;
 };
 
+const LONG_PLAY_LIMIT_MS = 15 * 60 * 1000;
+
 export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5MonitorChannelProps) {
   const [mode, setMode] = useState<Mode>("live");
   const [liveUrl, setLiveUrl] = useState<H5LiveURLResponse | null>(null);
@@ -32,8 +41,26 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState("");
   const [playerStatus, setPlayerStatus] = useState<H5PlayerStatus | null>(null);
+  const [playbackState, setPlaybackState] = useState<H5PlaybackState>({
+    playing: false,
+    muted: true,
+    loading: false,
+    failed: false,
+  });
+  const [fullscreen, setFullscreen] = useState(false);
+  const [landscape, setLandscape] = useState(false);
+  const [screenshotNotice, setScreenshotNotice] = useState("");
+  const [longPlayPromptOpen, setLongPlayPromptOpen] = useState(false);
+  const [guardPausedAt, setGuardPausedAt] = useState<number | null>(null);
 
   const userId = useRef(`h5-user-${Date.now()}`);
+  const playerRef = useRef<H5PlayerHandle | null>(null);
+  const latestUrlIdsRef = useRef<{ live?: string; playback?: string }>({});
+  const screenshotNoticeTimerRef = useRef<number | null>(null);
+  const longPlayTimerRef = useRef<number | null>(null);
+  const playbackSessionRef = useRef<{ startTime: number; endTime: number; startedAtMs: number } | null>(null);
+  const guardPlaybackStartRef = useRef<number | null>(null);
+  const playbackRequestSeqRef = useRef(0);
   const isAdmin = false;
 
   const channelTitle = useMemo(() => {
@@ -44,6 +71,33 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const currentPlayer = mode === "live" ? liveUrl : playbackUrl;
   const currentPlayerUrl = currentPlayer?.url;
   const selectedDate = selectedDateTime.slice(0, 10);
+  const controlState: H5PlayerControlState = {
+    ...playbackState,
+    loading: loading || playbackState.loading,
+    fullscreen,
+    landscape,
+  };
+
+  const releaseUrl = useCallback(
+    (urlId: string | undefined | null) => {
+      if (!urlId) return Promise.resolve();
+      return h5Api.disableUrl(externalOrgId, channelId, urlId, userId.current).catch(() => {});
+    },
+    [channelId, externalOrgId],
+  );
+
+  function nextPlaybackRequestSeq() {
+    playbackRequestSeqRef.current += 1;
+    return playbackRequestSeqRef.current;
+  }
+
+  function invalidatePlaybackRequest() {
+    playbackRequestSeqRef.current += 1;
+  }
+
+  function isCurrentPlaybackRequest(seq: number) {
+    return playbackRequestSeqRef.current === seq;
+  }
 
   const handlePlayerError = useCallback((message: string) => {
     setToast(message);
@@ -54,7 +108,15 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   }, []);
 
   useEffect(() => {
+    latestUrlIdsRef.current = {
+      live: liveUrl?.url_id,
+      playback: playbackUrl?.url_id,
+    };
+  }, [liveUrl?.url_id, playbackUrl?.url_id]);
+
+  useEffect(() => {
     if (mode !== "live" || liveUrl) return;
+    const previousLiveUrlId = latestUrlIdsRef.current.live;
     setLoading(true);
     setPlayerStatus({
       stage: "live-url-request",
@@ -64,7 +126,8 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     });
     h5Api
       .getLiveUrl(externalOrgId, channelId, userId.current, isAdmin, preferredLiveProtocol())
-      .then((resp) => {
+      .then(async (resp) => {
+        await releaseUrl(previousLiveUrlId);
         setLiveUrl(resp);
         setToast("");
         setPlayerStatus({
@@ -85,20 +148,63 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         });
       })
       .finally(() => setLoading(false));
-  }, [mode, liveUrl, externalOrgId, channelId]);
+  }, [mode, liveUrl, externalOrgId, channelId, releaseUrl]);
 
   useEffect(() => {
     return () => {
-      const urlId = liveUrl?.url_id || playbackUrl?.url_id;
-      if (urlId) {
-        h5Api.disableUrl(externalOrgId, channelId, urlId, userId.current).catch(() => {});
+      invalidatePlaybackRequest();
+      const { live, playback } = latestUrlIdsRef.current;
+      void releaseUrl(live);
+      if (playback && playback !== live) {
+        void releaseUrl(playback);
+      }
+      if (screenshotNoticeTimerRef.current !== null) {
+        window.clearTimeout(screenshotNoticeTimerRef.current);
+      }
+      if (longPlayTimerRef.current !== null) {
+        window.clearTimeout(longPlayTimerRef.current);
       }
     };
-  }, [channelId, externalOrgId, liveUrl?.url_id, playbackUrl?.url_id]);
+  }, [releaseUrl]);
+
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setFullscreen(Boolean(document.fullscreenElement));
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    if (!currentPlayerUrl || !playbackState.playing || loading || longPlayPromptOpen) return;
+
+    longPlayTimerRef.current = window.setTimeout(async () => {
+      const pausedAt = Date.now();
+      setGuardPausedAt(pausedAt);
+      guardPlaybackStartRef.current = estimatePlaybackUnixAt(pausedAt, playbackSessionRef.current);
+      setLongPlayPromptOpen(true);
+      try {
+        await playerRef.current?.pause();
+      } catch {
+        // The prompt still protects URL resources even if the player refuses pause.
+      }
+      setPlaybackState((current) => ({ ...current, playing: false }));
+    }, LONG_PLAY_LIMIT_MS);
+
+    return () => {
+      if (longPlayTimerRef.current !== null) {
+        window.clearTimeout(longPlayTimerRef.current);
+        longPlayTimerRef.current = null;
+      }
+    };
+  }, [currentPlayerUrl, playbackState.playing, loading, longPlayPromptOpen]);
 
   function loadSegments(date: string) {
+    invalidatePlaybackRequest();
     setSelectedDateTime((prev) => `${date}T${timePart(prev)}`);
     setSelectedSegment(null);
+    void releaseUrl(playbackUrl?.url_id);
     setPlaybackUrl(null);
     setLoading(true);
     h5Api
@@ -111,7 +217,14 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       .finally(() => setLoading(false));
   }
 
-  function playRange(startTime: number, endTime: number, seg: H5RecordSegment | null) {
+  function playRange(
+    startTime: number,
+    endTime: number,
+    seg: H5RecordSegment | null,
+    options: { previousUrlId?: string | null } = {},
+  ) {
+    const requestSeq = nextPlaybackRequestSeq();
+    const previousUrlId = options.previousUrlId === undefined ? playbackUrl?.url_id : options.previousUrlId;
     setSelectedSegment(seg);
     setPlaybackUrl(null);
     setLoading(true);
@@ -121,10 +234,19 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       details: [`start=${startTime}`, `end=${endTime}`],
       severity: "info",
     });
-    h5Api
-      .getPlaybackUrl(externalOrgId, channelId, startTime, endTime, userId.current, isAdmin)
-      .then((resp) => {
+    void (async () => {
+      try {
+        void releaseUrl(previousUrlId);
+        if (!isCurrentPlaybackRequest(requestSeq)) {
+          return;
+        }
+        const resp = await h5Api.getPlaybackUrl(externalOrgId, channelId, startTime, endTime, userId.current, isAdmin);
+        if (!isCurrentPlaybackRequest(requestSeq)) {
+          await releaseUrl(resp.url_id);
+          return;
+        }
         setPlaybackUrl(resp);
+        playbackSessionRef.current = { startTime, endTime, startedAtMs: Date.now() };
         setToast("");
         setPlayerStatus({
           stage: "playback-url-ready",
@@ -132,8 +254,10 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
           details: [`protocol=${resp.protocol || "unknown"}`, `urlId=${resp.url_id || "-"}`],
           severity: "info",
         });
-      })
-      .catch((err) => {
+      } catch (err) {
+        if (!isCurrentPlaybackRequest(requestSeq)) {
+          return;
+        }
         const message = errMessage(err, "回放地址获取失败");
         setToast(message);
         setPlayerStatus({
@@ -142,8 +266,12 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
           details: [`start=${startTime}`, `end=${endTime}`],
           severity: "error",
         });
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        if (isCurrentPlaybackRequest(requestSeq)) {
+          setLoading(false);
+        }
+      }
+    })();
   }
 
   function playSegment(seg: H5RecordSegment) {
@@ -182,20 +310,132 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
   function switchMode(next: Mode) {
     if (next === mode) return;
-    if (activeUrlId) {
-      h5Api.disableUrl(externalOrgId, channelId, activeUrlId, userId.current).catch(() => {});
-    }
+    invalidatePlaybackRequest();
+    void releaseUrl(activeUrlId);
     setMode(next);
     setToast("");
     setPlayerStatus(null);
+    setLongPlayPromptOpen(false);
+    setPlaybackState((current) => ({ ...current, playing: false }));
     if (next === "live") {
+      setPlaybackUrl(null);
+      playbackSessionRef.current = null;
       setLiveUrl(null);
       return;
     }
+    setLiveUrl(null);
     setPlaybackUrl(null);
     setSelectedSegment(null);
+    playbackSessionRef.current = null;
     if (!segments) {
       loadSegments(selectedDate);
+    }
+  }
+
+  async function handleTogglePlay() {
+    try {
+      if (playbackState.playing) {
+        await playerRef.current?.pause();
+        setPlaybackState((current) => ({ ...current, playing: false }));
+        return;
+      }
+      await playerRef.current?.play();
+      setPlaybackState((current) => ({ ...current, playing: true }));
+    } catch (err) {
+      setToast(`播放控制失败 · ${errMessage(err, "播放器返回异常")}`);
+    }
+  }
+
+  async function handleToggleSound() {
+    try {
+      if (playbackState.muted) {
+        await playerRef.current?.openSound();
+      } else {
+        await playerRef.current?.closeSound();
+      }
+    } catch (err) {
+      setToast(`当前浏览器暂无法切换声音 · ${errMessage(err, "播放器返回异常")}`);
+    }
+  }
+
+  async function handleScreenshot() {
+    try {
+      if (!playerRef.current) {
+        throw new Error("player handle is not ready");
+      }
+      const shot = await playerRef.current.screenshot();
+      setScreenshotNotice(shot?.dataUrl ? "截图已生成" : "截图已触发");
+      if (screenshotNoticeTimerRef.current !== null) {
+        window.clearTimeout(screenshotNoticeTimerRef.current);
+      }
+      screenshotNoticeTimerRef.current = window.setTimeout(() => {
+        setScreenshotNotice("");
+        screenshotNoticeTimerRef.current = null;
+      }, 2600);
+    } catch (err) {
+      setToast(`当前浏览器暂不支持截图 · ${errMessage(err, "播放器返回异常")}`);
+    }
+  }
+
+  function handleToggleLandscape() {
+    setLandscape((current) => !current);
+  }
+
+  async function handleToggleFullscreen() {
+    try {
+      if (fullscreen) {
+        await playerRef.current?.exitFullscreen();
+        setFullscreen(false);
+        return;
+      }
+      await playerRef.current?.enterFullscreen();
+      setFullscreen(true);
+    } catch (err) {
+      setToast(`当前浏览器暂不支持全屏 · ${errMessage(err, "播放器返回异常")}`);
+    }
+  }
+
+  async function continueAfterLongPlayPrompt() {
+    setLongPlayPromptOpen(false);
+    if (mode === "live") {
+      await releaseUrl(liveUrl?.url_id);
+      setPlaybackState((current) => ({ ...current, playing: false, loading: true }));
+      setPlayerStatus({
+        stage: "live-url-request",
+        message: "正在重新获取直播播放地址",
+        details: [`protocol=${preferredLiveProtocol()}`, `channel=${channelId}`],
+        severity: "info",
+      });
+      setLiveUrl(null);
+      return;
+    }
+    if (!selectedSegment) {
+      setToast("未找到当前回放片段，请重新选择录像片段");
+      return;
+    }
+    const fallbackElapsedSeconds = guardPausedAt ? Math.floor((Date.now() - guardPausedAt) / 1000) : 0;
+    const fallbackStart = selectedSegment.start_time + fallbackElapsedSeconds;
+    const nextStart = clampUnix(
+      guardPlaybackStartRef.current ?? fallbackStart,
+      selectedSegment.start_time,
+      Math.max(selectedSegment.start_time, selectedSegment.end_time - 1),
+    );
+    const currentUrlId = playbackUrl?.url_id;
+    await releaseUrl(currentUrlId);
+    setPlaybackUrl(null);
+    playRange(nextStart, selectedSegment.end_time, selectedSegment, { previousUrlId: null });
+  }
+
+  async function stopAfterLongPlayPrompt() {
+    invalidatePlaybackRequest();
+    setLongPlayPromptOpen(false);
+    await releaseUrl(activeUrlId);
+    setPlaybackState((current) => ({ ...current, playing: false }));
+    if (mode === "live") {
+      setLiveUrl(null);
+    } else {
+      setPlaybackUrl(null);
+      playbackSessionRef.current = null;
     }
   }
 
@@ -214,13 +454,26 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
         <section className="h5-viewer-player" aria-label="监控画面">
           {currentPlayerUrl ? (
-            <H5FlvPlayer
-              url={currentPlayerUrl}
-              protocol={currentPlayer?.protocol}
-              isLive={mode === "live"}
-              onError={handlePlayerError}
-              onStatus={handlePlayerStatus}
-            />
+            <div className={`h5-player-shell ${landscape ? "is-landscape" : ""}`}>
+              <H5FlvPlayer
+                ref={playerRef}
+                url={currentPlayerUrl}
+                protocol={currentPlayer?.protocol}
+                isLive={mode === "live"}
+                onError={handlePlayerError}
+                onStatus={handlePlayerStatus}
+                onPlaybackStateChange={setPlaybackState}
+              />
+              <H5PlayerControls
+                state={controlState}
+                onTogglePlay={handleTogglePlay}
+                onToggleSound={handleToggleSound}
+                onScreenshot={handleScreenshot}
+                onToggleLandscape={handleToggleLandscape}
+                onToggleFullscreen={handleToggleFullscreen}
+              />
+              {screenshotNotice && <div className="h5-screenshot-notice">{screenshotNotice}</div>}
+            </div>
           ) : (
             <div className="h5-player-placeholder">
               <span>{loading ? "加载中..." : mode === "live" ? "正在获取直播画面" : "请选择录像片段"}</span>
@@ -232,6 +485,23 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
         {toast && <div className="h5-toast">{toast}</div>}
 
+        {longPlayPromptOpen && (
+          <div className="h5-long-play-backdrop" role="dialog" aria-modal="true" aria-label="继续观看确认">
+            <div className="h5-long-play-modal">
+              <strong>已连续播放较长时间</strong>
+              <p>为避免长时间占用播放资源，请确认是否继续观看。</p>
+              <div>
+                <button type="button" onClick={stopAfterLongPlayPrompt}>
+                  停止观看
+                </button>
+                <button type="button" className="primary" onClick={continueAfterLongPlayPrompt}>
+                  继续观看
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {mode === "playback" && (
           <section className="h5-playback-panel">
             <PlaybackDatePicker
@@ -239,6 +509,14 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
               onChange={handleDateTimeChange}
               onConfirm={playFromDateTime}
             />
+
+            {selectedSegment && (
+              <PlaybackSegmentSlider
+                segment={selectedSegment}
+                disabled={loading}
+                onCommit={(startTime) => playRange(startTime, selectedSegment.end_time, selectedSegment)}
+              />
+            )}
 
             {segments && segments.segments.length > 0 && (
               <div className="h5-segment-list" aria-label="录像片段">
@@ -597,6 +875,19 @@ function range(start: number, end: number): number[] {
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
+}
+
+function clampUnix(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function estimatePlaybackUnixAt(
+  pausedAtMs: number,
+  session: { startTime: number; endTime: number; startedAtMs: number } | null,
+): number | null {
+  if (!session) return null;
+  const elapsedSeconds = Math.max(0, Math.floor((pausedAtMs - session.startedAtMs) / 1000));
+  return clampUnix(session.startTime + elapsedSeconds, session.startTime, Math.max(session.startTime, session.endTime - 1));
 }
 
 function pad2(value: number): string {
