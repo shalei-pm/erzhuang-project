@@ -3241,3 +3241,13 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
   - 本地 Vite dev demo 验证：暂停后点击画面控制条隐藏，再次点击恢复显示；控制台无 error/warn。
+
+## 2026-06-29 H5 Monitor 返回按钮 icon 尺寸微调 2.21.3 开发记录
+
+- 背景：
+  - 用户反馈 H5 监控详情页左上返回按钮里的左箭头偏小，需要适当放大。
+- 实现：
+  - 保持返回按钮外圈 32px 和点击区域不变，仅将 `.h5-back-icon` 从 16px 调整为 19px，线宽从 2 调整为 2.2。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
