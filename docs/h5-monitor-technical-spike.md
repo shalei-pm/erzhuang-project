@@ -1655,3 +1655,69 @@ concurrencyControl(userId, externalOrgId)
   - 普通用户上限 15，管理员上限 20
   - 离开页面或主动失效时释放计数
 ```
+
+## 12. 移动端 H5 直播调通结论（2026-06-29）
+
+### 12.1 验证结果
+
+公司线上试点门店移动端复测通过：实时视频可以在 iPhone 微信 H5 内显示。
+
+已跑通链路：
+
+```text
+萤石云 live/address/get
+-> protocol=4 FLV URL
+-> ezuikit-flv@2.1.1
+-> mobile wasm decode
+-> canvas render
+-> iPhone 微信 H5 可见画面
+```
+
+这说明第一版 H5 监控查看端可以继续沿用 `ezuikit-flv`，暂不需要因为移动端黑屏立刻切到萤石完整 UIKit 或公司 ISAPI 代理。
+
+### 12.2 关键播放器配置
+
+移动端不要走 HLS/native video，也不要依赖 MSE/WebCodecs：
+
+```ts
+{
+  autoPlay: true,
+  muted: true,
+  isLive: true,
+  autoWasm: true,
+  useMSE: false,
+  useWCS: false,
+  forceNoOffscreen: true,
+  hasVideo: true,
+  hasAudio: true,
+  keepScreenOn: true,
+  wasmDecodeErrorReplay: true,
+  wasmDecodeAudioSyncVideo: true,
+  scaleMode: 2,
+  videoBuffer: 1,
+  themeData: null,
+  mutedShowAutoReload: false
+}
+```
+
+桌面端仍可保留 MSE 路径，移动端使用 `mobile-wasm`。
+
+### 12.3 诊断经验
+
+黑屏排查必须分层，不要把“流连接成功”误判为“画面成功”：
+
+| 阶段 | 可信信号 | 说明 |
+|---|---|---|
+| 播放地址返回 | H5 API 返回 FLV URL | 只说明后端取流地址成功 |
+| decoder 资源加载 | `decoder.js` 200、`decoder.wasm` 200 且 MIME 为 `application/wasm` | 排除 wasm 资源部署问题 |
+| 流连接成功 | `streamSuccess` | 只说明 FLV 流连接成功，不代表画面可见 |
+| 视频解析/渲染 | `videoFrame`、`firstFrameDisplay`、`playToRenderTimes` | 才能视为首帧/画面渲染成功 |
+
+页面级诊断必须放在播放器黑框外。播放器内部 canvas/video/第三方 DOM 可能遮挡自定义错误层，导致手机端看起来没有任何提示。
+
+### 12.4 后续产品化建议
+
+- 试点期保留状态卡或折叠式诊断入口，便于现场截图定位。
+- 回放播放也复用同一套 `stream-connected` 与 `first-frame-ready` 拆分逻辑。
+- 如果扩门店后个别通道黑屏，优先看状态卡事件停在哪一层，再决定是账号/取流、decoder、编码、播放器渲染还是设备端问题。
+- 不建议为了移动端播放统一关闭录像机 H265；当前已经证明 H265 + wasm 软解路径可跑通。
