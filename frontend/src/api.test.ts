@@ -14,6 +14,7 @@ import {
   shouldFallbackToInlineFullscreen,
   shouldShowSegmentSlider,
 } from "./domain/h5-playback";
+import { shouldRefreshSnapshotBeforeRelease } from "./domain/h5-snapshot-refresh";
 import { canOpenH5Monitor, h5MonitorPath } from "./domain/store-detail-navigation";
 
 describe("design plan API path helpers", () => {
@@ -199,5 +200,16 @@ describe("H5 playback segment slider helpers", () => {
         { maxTouchPoints: 0, userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)" },
       ),
     ).toBe(false);
+  });
+});
+
+describe("H5 snapshot refresh timing", () => {
+  it("refreshes thumbnails only when a live stream url is ending", () => {
+    expect(shouldRefreshSnapshotBeforeRelease("live", "live-url-id", "exit")).toBe(true);
+    expect(shouldRefreshSnapshotBeforeRelease("live", "live-url-id", "switch")).toBe(true);
+    expect(shouldRefreshSnapshotBeforeRelease("live", "live-url-id", "stop")).toBe(true);
+    expect(shouldRefreshSnapshotBeforeRelease("live", "live-url-id", "replace")).toBe(false);
+    expect(shouldRefreshSnapshotBeforeRelease("live", "", "exit")).toBe(false);
+    expect(shouldRefreshSnapshotBeforeRelease("playback", "playback-url-id", "exit")).toBe(false);
   });
 });

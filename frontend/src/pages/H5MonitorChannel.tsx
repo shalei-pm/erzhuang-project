@@ -22,6 +22,11 @@ import type {
   H5RecordSegment,
   H5RecordSegmentsResponse,
 } from "../domain/h5-types";
+import {
+  shouldRefreshSnapshotBeforeRelease,
+  type H5StreamMode,
+  type H5StreamReleaseReason,
+} from "../domain/h5-snapshot-refresh";
 
 interface H5MonitorChannelProps {
   externalOrgId: string;
@@ -83,7 +88,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
   const loadingRef = useRef(false);
   const guardPlaybackStartRef = useRef<number | null>(null);
   const playbackRequestSeqRef = useRef(0);
-  const refreshedCurrentPlayerRef = useRef("");
   const isAdmin = false;
 
   const channelTitle = useMemo(() => {
@@ -109,6 +113,30 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
     [channelId, externalOrgId],
   );
 
+  const refreshSnapshotForReleasedLive = useCallback(async () => {
+    const cooldownKey = `${externalOrgId}:${channelId}`;
+    const now = Date.now();
+    const refreshedAt = snapshotRefreshCooldown.get(cooldownKey) ?? 0;
+    if (now - refreshedAt < SNAPSHOT_REFRESH_COOLDOWN_MS) return;
+    snapshotRefreshCooldown.set(cooldownKey, now);
+    try {
+      await h5Api.refreshSnapshot(externalOrgId, channelId);
+      onSnapshotRefreshed?.();
+    } catch {
+      snapshotRefreshCooldown.delete(cooldownKey);
+    }
+  }, [channelId, externalOrgId, onSnapshotRefreshed]);
+
+  const releaseStream = useCallback(
+    async (modeValue: H5StreamMode, urlId: string | undefined | null, reason: H5StreamReleaseReason) => {
+      if (shouldRefreshSnapshotBeforeRelease(modeValue, urlId, reason)) {
+        await refreshSnapshotForReleasedLive();
+      }
+      return releaseUrl(urlId);
+    },
+    [refreshSnapshotForReleasedLive, releaseUrl],
+  );
+
   function nextPlaybackRequestSeq() {
     playbackRequestSeqRef.current += 1;
     return playbackRequestSeqRef.current;
@@ -129,7 +157,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
   const handlePlayerStatus = useCallback((status: H5PlayerStatus) => {
     setPlayerStatus(status);
     if (status.stage === "first-frame-ready" || status.stage === "mock-ready") {
-      maybeRefreshSnapshotAfterFirstFrame(status.stage);
       if (resumeCoverTimerRef.current !== null) {
         window.clearTimeout(resumeCoverTimerRef.current);
       }
@@ -139,7 +166,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
         resumeCoverTimerRef.current = null;
       }, 250);
     }
-  }, [channelId, currentPlayerUrl, externalOrgId, mode, onSnapshotRefreshed]);
+  }, []);
 
   useEffect(() => {
     latestUrlIdsRef.current = {
@@ -174,7 +201,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
     h5Api
       .getLiveUrl(externalOrgId, channelId, userId.current, isAdmin, preferredLiveProtocol())
       .then(async (resp) => {
-        await releaseUrl(previousLiveUrlId);
+        await releaseStream("live", previousLiveUrlId, "replace");
         setLiveUrl(resp);
         setToast("");
         setPlayerStatus({
@@ -195,15 +222,15 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
         });
       })
       .finally(() => setLoading(false));
-  }, [mode, liveUrl, externalOrgId, channelId, releaseUrl]);
+  }, [mode, liveUrl, externalOrgId, channelId, releaseStream]);
 
   useEffect(() => {
     return () => {
       invalidatePlaybackRequest();
       const { live, playback } = latestUrlIdsRef.current;
-      void releaseUrl(live);
+      void releaseStream("live", live, "exit");
       if (playback && playback !== live) {
-        void releaseUrl(playback);
+        void releaseStream("playback", playback, "exit");
       }
       if (screenshotNoticeTimerRef.current !== null) {
         window.clearTimeout(screenshotNoticeTimerRef.current);
@@ -218,7 +245,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
         window.clearInterval(playbackTickTimerRef.current);
       }
     };
-  }, [releaseUrl]);
+  }, [releaseStream]);
 
   useEffect(() => {
     function handleFullscreenChange() {
@@ -288,7 +315,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
 
   useEffect(() => {
     setControlsVisible(true);
-    refreshedCurrentPlayerRef.current = "";
   }, [currentPlayerUrl, mode, loading, playbackState.failed]);
 
   function loadSegments(date: string) {
@@ -297,7 +323,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
     setSelectedSegment(null);
     setPlaybackCursorUnix(null);
     setResumeCoverVisible(false);
-    void releaseUrl(playbackUrl?.url_id);
+    void releaseStream("playback", playbackUrl?.url_id, "replace");
     setPlaybackUrl(null);
     setLoading(true);
     h5Api
@@ -336,20 +362,20 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
     void (async () => {
       try {
         if (!options.preserveCurrentFrame) {
-          void releaseUrl(previousUrlId);
+          void releaseStream("playback", previousUrlId, "replace");
         }
         if (!isCurrentPlaybackRequest(requestSeq)) {
           return;
         }
         const resp = await h5Api.getPlaybackUrl(externalOrgId, channelId, startTime, endTime, userId.current, isAdmin);
         if (!isCurrentPlaybackRequest(requestSeq)) {
-          await releaseUrl(resp.url_id);
+          await releaseStream("playback", resp.url_id, "replace");
           return;
         }
         setPlaybackUrl(resp);
         playbackSessionRef.current = { startTime, endTime, startedAtMs: Date.now() };
         if (options.preserveCurrentFrame) {
-          void releaseUrl(previousUrlId);
+          void releaseStream("playback", previousUrlId, "replace");
         } else {
           setFrozenFrame(null);
           setResumeCoverVisible(false);
@@ -403,7 +429,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
     const nextIndex = nextRecordSegmentIndex(currentSegments.segments, currentSegment);
     if (nextIndex === null) {
       invalidatePlaybackRequest();
-      await releaseUrl(currentPlaybackUrl?.url_id);
+      await releaseStream("playback", currentPlaybackUrl?.url_id, "stop");
       setPlaybackUrl(null);
       setPlaybackState((current) => ({ ...current, playing: false }));
       setPlaybackCursorUnix(null);
@@ -453,7 +479,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
   function switchMode(next: Mode) {
     if (next === mode) return;
     invalidatePlaybackRequest();
-    void releaseUrl(activeUrlId);
+    void releaseStream(mode, activeUrlId, "switch");
     setMode(next);
     setToast("");
     setPlayerStatus(null);
@@ -522,25 +548,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
     } catch {
       // Screenshot is best-effort here; playback resume still uses the recorded timestamp.
     }
-  }
-
-  function maybeRefreshSnapshotAfterFirstFrame(stage: string) {
-    if (!currentPlayerUrl) return;
-    if (stage === "mock-ready") return;
-    const playerKey = `${mode}:${currentPlayerUrl}`;
-    if (refreshedCurrentPlayerRef.current === playerKey) return;
-    const cooldownKey = `${externalOrgId}:${channelId}`;
-    const now = Date.now();
-    const refreshedAt = snapshotRefreshCooldown.get(cooldownKey) ?? 0;
-    if (now - refreshedAt < SNAPSHOT_REFRESH_COOLDOWN_MS) return;
-    refreshedCurrentPlayerRef.current = playerKey;
-    snapshotRefreshCooldown.set(cooldownKey, now);
-    void h5Api
-      .refreshSnapshot(externalOrgId, channelId)
-      .then(() => onSnapshotRefreshed?.())
-      .catch(() => {
-        snapshotRefreshCooldown.delete(cooldownKey);
-      });
   }
 
   async function handleToggleSound() {
@@ -629,7 +636,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
   async function continueAfterLongPlayPrompt() {
     setLongPlayPromptOpen(false);
     if (mode === "live") {
-      await releaseUrl(liveUrl?.url_id);
+      await releaseStream("live", liveUrl?.url_id, "replace");
       setPlaybackState((current) => ({ ...current, playing: false, loading: true }));
       setPlayerStatus({
         stage: "live-url-request",
@@ -652,7 +659,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
       Math.max(selectedSegment.start_time, selectedSegment.end_time - 1),
     );
     const currentUrlId = playbackUrl?.url_id;
-    await releaseUrl(currentUrlId);
+    await releaseStream("playback", currentUrlId, "replace");
     setPlaybackUrl(null);
     playRange(nextStart, selectedSegment.end_time, selectedSegment, { previousUrlId: null, reason: "guard" });
   }
@@ -660,7 +667,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack, onSnapshotR
   async function stopAfterLongPlayPrompt() {
     invalidatePlaybackRequest();
     setLongPlayPromptOpen(false);
-    await releaseUrl(activeUrlId);
+    await releaseStream(mode, activeUrlId, "stop");
     setPlaybackState((current) => ({ ...current, playing: false }));
     if (mode === "live") {
       setLiveUrl(null);
