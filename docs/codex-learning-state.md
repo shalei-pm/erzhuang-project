@@ -3333,3 +3333,16 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 2.21.8 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 业务 commit：`a642e4a feat: refresh H5 monitor thumbnails after playback`。
+- 推送结果：
+  - GitLab remote 已从 `2c67c8f` 更新到 `a642e4a`。
+  - 公司线上前端静态资源已探测到 `2.21.8`。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端版本从 `2.21.7 (container)` 更新到 `2.21.8`。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
