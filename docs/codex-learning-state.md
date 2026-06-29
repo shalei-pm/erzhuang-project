@@ -3389,3 +3389,16 @@ git pull --ff-only
   - 新增后端测试确认 H5 snapshot 路由不再注册，避免后续误恢复。
 - 风险说明：
   - H5 首页缩略图不会因为用户观看视频而自动更新；如果后续确实需要更新，应作为单独的播放器截图实验重新评估 PC、手机浏览器和飞书 WebView 能力。
+
+## 2026-06-29 H5 Monitor 2.21.10 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`f59be65`，其中包含业务修复 `13a0506 fix: disable automatic H5 thumbnail refresh`，并正常合并远端 MySQL 迁移交接文档提交 `66e8eba`。
+- 推送结果：
+  - GitLab remote 已从 `66e8eba` 更新到 `f59be65`。
+  - 公司线上前端静态资源已探测到 `2.21.10 (container)`。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端版本从 `2.21.9 (container)` 更新到 `2.21.10 (container)`。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
