@@ -10,6 +10,7 @@ export type H5PlayerControlState = {
 export type H5PlayerControlsProps = {
   state: H5PlayerControlState;
   visible: boolean;
+  center?: ReactNode;
   onTogglePlay: () => void;
   onToggleSound: () => void;
   onScreenshot: () => void;
@@ -20,6 +21,7 @@ export type H5PlayerControlsProps = {
 export function H5PlayerControls({
   state,
   visible,
+  center,
   onTogglePlay,
   onToggleSound,
   onScreenshot,
@@ -35,43 +37,129 @@ export function H5PlayerControls({
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <button
-        type="button"
-        onClick={onTogglePlay}
-        disabled={loading || failed}
-        aria-label={playing ? "暂停" : "播放"}
-        aria-pressed={playing}
-      >
-        {playing ? "暂停" : "播放"}
-      </button>
-      <button
-        type="button"
-        onClick={onToggleSound}
-        disabled={loading || failed}
-        aria-label={muted ? "开启声音" : "关闭声音"}
-        aria-pressed={!muted}
-      >
-        {muted ? "开声音" : "静音"}
-      </button>
-      <button type="button" onClick={onScreenshot} disabled={loading || failed} aria-label="截图">
-        截图
-      </button>
-      <button
-        type="button"
-        onClick={onToggleLandscape}
-        aria-label={landscape ? "退出横屏" : "横屏查看"}
-        aria-pressed={landscape}
-      >
-        {landscape ? "竖屏" : "横屏"}
-      </button>
-      <button
-        type="button"
-        onClick={onToggleFullscreen}
-        aria-label={fullscreen ? "退出全屏" : "全屏"}
-        aria-pressed={fullscreen}
-      >
-        {fullscreen ? "退出全屏" : "全屏"}
-      </button>
+      <div className="h5-player-control-group left">
+        <button
+          type="button"
+          onClick={onTogglePlay}
+          disabled={loading || failed}
+          aria-label={playing ? "暂停" : "播放"}
+          aria-pressed={playing}
+        >
+          {playing ? <PauseIcon /> : <PlayIcon />}
+        </button>
+        <button
+          type="button"
+          onClick={onToggleSound}
+          disabled={loading || failed}
+          aria-label={muted ? "开启声音" : "关闭声音"}
+          aria-pressed={!muted}
+        >
+          {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
+        </button>
+      </div>
+
+      <div className="h5-player-control-center">{center || <span>实时视频</span>}</div>
+
+      <div className="h5-player-control-group right">
+        <button type="button" onClick={onScreenshot} disabled={loading || failed} aria-label="截图">
+          <CameraIcon />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleLandscape}
+          aria-label={landscape ? "退出横屏" : "横屏查看"}
+          aria-pressed={landscape}
+        >
+          {landscape ? <RotateCcwIcon /> : <RotateCwIcon />}
+        </button>
+        <button
+          type="button"
+          onClick={onToggleFullscreen}
+          aria-label={fullscreen ? "退出全屏" : "全屏"}
+          aria-pressed={fullscreen}
+        >
+          {fullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
+        </button>
+      </div>
     </div>
   );
 }
+
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+    </svg>
+  );
+}
+
+function VolumeOnIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 9v6h4l5 4V5L8 9H4z" />
+      <path d="M16 8.5a5 5 0 0 1 0 7" />
+      <path d="M18.5 6a8 8 0 0 1 0 12" />
+    </svg>
+  );
+}
+
+function VolumeOffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 9v6h4l5 4V5L8 9H4z" />
+      <path d="m17 9 4 4M21 9l-4 4" />
+    </svg>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 8h4l2-3h4l2 3h4v11H4z" />
+      <circle cx="12" cy="13.5" r="3.5" />
+    </svg>
+  );
+}
+
+function RotateCwIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M20 11a8 8 0 1 1-2.35-5.65L20 8" />
+      <path d="M20 4v4h-4" />
+    </svg>
+  );
+}
+
+function RotateCcwIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 11a8 8 0 1 0 2.35-5.65L4 8" />
+      <path d="M4 4v4h4" />
+    </svg>
+  );
+}
+
+function MaximizeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M8 4H4v4M16 4h4v4M4 16v4h4M20 16v4h-4" />
+    </svg>
+  );
+}
+
+function MinimizeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M8 4v4H4M16 4v4h4M8 20v-4H4M16 20v-4h4" />
+    </svg>
+  );
+}
+import type { ReactNode } from "react";

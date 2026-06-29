@@ -7,6 +7,7 @@ export function PlaybackSegmentSlider({
   disabled,
   currentStartTime,
   overlay = false,
+  compactControls = false,
   visible = true,
   onCommit,
 }: {
@@ -14,6 +15,7 @@ export function PlaybackSegmentSlider({
   disabled: boolean;
   currentStartTime?: number | null;
   overlay?: boolean;
+  compactControls?: boolean;
   visible?: boolean;
   onCommit: (startTime: number) => void;
 }) {
@@ -31,11 +33,11 @@ export function PlaybackSegmentSlider({
   if (!shouldShowSegmentSlider(segment.start_time, segment.end_time)) {
     return (
       <div
-        className={`h5-playback-slider compact ${overlay ? "is-overlay" : ""} ${visible ? "is-visible" : ""}`}
+        className={`h5-playback-slider compact ${compactControls ? "is-control-center" : ""} ${overlay ? "is-overlay" : ""} ${visible ? "is-visible" : ""}`}
         onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        片段较短：{formatDateTime(segment.start_time)} - {formatDateTime(segment.end_time)}
+        <span>{formatDateTime(currentUnix)}</span>
       </div>
     );
   }
@@ -47,16 +49,18 @@ export function PlaybackSegmentSlider({
 
   return (
     <div
-      className={`h5-playback-slider ${overlay ? "is-overlay" : ""} ${visible ? "is-visible" : ""}`}
+      className={`h5-playback-slider ${compactControls ? "is-control-center" : ""} ${overlay ? "is-overlay" : ""} ${visible ? "is-visible" : ""}`}
       aria-label="片段内定位"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="h5-playback-slider-head">
-        <span>{formatTime(segment.start_time)}</span>
-        <strong>当前：{formatDateTime(currentUnix)}</strong>
-        <span>{formatTime(segment.end_time)}</span>
-      </div>
+      {!compactControls && (
+        <div className="h5-playback-slider-head">
+          <span>{formatTime(segment.start_time)}</span>
+          <strong>当前：{formatDateTime(currentUnix)}</strong>
+          <span>{formatTime(segment.end_time)}</span>
+        </div>
+      )}
       <input
         type="range"
         min={0}

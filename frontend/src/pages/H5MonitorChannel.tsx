@@ -685,23 +685,24 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
                   onClick={handlePlayerSurfaceClick}
                   aria-label={controlsVisible ? "隐藏播放控件" : "显示播放控件"}
                 />
-                {mode === "playback" && selectedSegment && (
-                  <PlaybackSegmentSlider
-                    segment={selectedSegment}
-                    disabled={loading}
-                    currentStartTime={playbackCursorUnix}
-                    overlay
-                    visible={controlsVisible || loading || playbackState.failed || !playbackState.playing}
-                    onCommit={(startTime) => {
-                      setFrozenFrame(null);
-                      setResumeCoverVisible(false);
-                      playRange(startTime, selectedSegment.end_time, selectedSegment, { reason: "slider" });
-                    }}
-                  />
-                )}
                 <H5PlayerControls
                   state={controlState}
                   visible={controlsVisible}
+                  center={
+                    mode === "playback" && selectedSegment ? (
+                      <PlaybackSegmentSlider
+                        segment={selectedSegment}
+                        disabled={loading}
+                        currentStartTime={playbackCursorUnix}
+                        compactControls
+                        onCommit={(startTime) => {
+                          setFrozenFrame(null);
+                          setResumeCoverVisible(false);
+                          playRange(startTime, selectedSegment.end_time, selectedSegment, { reason: "slider" });
+                        }}
+                      />
+                    ) : null
+                  }
                   onTogglePlay={handleTogglePlay}
                   onToggleSound={handleToggleSound}
                   onScreenshot={handleScreenshot}

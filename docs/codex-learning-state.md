@@ -3199,3 +3199,18 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
   - 本地 Vite preview 页面 smoke 验证：应用可正常渲染，控制台无 error/warn；本地无后端数据导致列表接口 HTTP 500，属本地预览环境限制，未进行真实萤石播放流验证。
+
+## 2026-06-29 H5 Monitor 播放器控制条样式优化 2.21.0 开发记录
+
+- 背景：
+  - 用户确认 H5 Monitor 播放功能基本满足后，提出纯样式优化：播放/暂停、声音、截图、横竖屏、全屏控件改为 icon，不显示中文；控制按钮与回放滑块进一步整合，降低播放器 overlay 高度。
+- 实现：
+  - `H5PlayerControls` 改为三列控制条：左侧播放/暂停与声音，中央承载回放滑块，右侧截图、横竖屏、全屏。
+  - 控制按钮从中文文字改为无边框 icon，仅保留 `aria-label` 用于可访问性和调试识别。
+  - `PlaybackSegmentSlider` 新增 `compactControls` 形态，嵌入控制条中间时不显示起始/结束时间，也不显示当前时间文案，仅保留滑块本体。
+  - 控制条改为低高度半透明浮层，桌面回放态高度约 50px，移动端约 46px，减少对监控画面的遮挡。
+- 验证：
+  - `cd frontend && npm run test` 通过，14 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite dev demo 验证：桌面和 390px 移动视口下，按钮均无中文文本，滑块居中整合到同一控制条，未出现明显挤压或重叠。

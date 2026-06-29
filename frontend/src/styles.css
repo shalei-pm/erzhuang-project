@@ -2803,18 +2803,21 @@ td:nth-child(10) {
   right: 10px;
   bottom: 10px;
   z-index: 8;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 8px;
+  gap: 10px;
+  min-height: 44px;
+  padding: 7px 10px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: var(--radius-card);
-  background: rgba(15, 23, 42, 0.72);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.52), rgba(15, 23, 42, 0.82));
+  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.26);
   opacity: 0;
   transform: translateY(8px);
   transition: opacity 0.18s, transform 0.18s;
   pointer-events: none;
+  backdrop-filter: blur(10px);
 }
 
 .h5-player-controls.is-visible {
@@ -2823,28 +2826,77 @@ td:nth-child(10) {
   pointer-events: auto;
 }
 
+.h5-player-control-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.h5-player-control-center {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.h5-player-control-center > span {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+}
+
 .h5-player-controls button {
   flex: 0 0 auto;
-  min-width: 50px;
-  min-height: 30px;
-  padding: 0 9px;
-  border-color: rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.12);
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
   color: #fff;
-  font-size: 13px;
-  font-weight: 600;
   line-height: 1;
 }
 
 .h5-player-controls button:hover:not(:disabled),
 .h5-player-controls button:focus-visible {
-  border-color: rgba(255, 255, 255, 0.38);
+  border-color: transparent;
   background: rgba(255, 255, 255, 0.18);
+}
+
+.h5-player-controls button[aria-pressed="true"] {
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.18);
 }
 
 .h5-player-controls button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.h5-player-controls svg {
+  width: 19px;
+  height: 19px;
+  display: block;
+  margin: 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.h5-player-controls svg circle {
+  fill: none;
+}
+
+.h5-player-controls svg path {
+  vector-effect: non-scaling-stroke;
+}
+
+.h5-player-controls button[aria-label="播放"] svg path,
+.h5-player-controls button[aria-label="暂停"] svg path {
+  fill: currentColor;
+  stroke: none;
 }
 
 .h5-screenshot-notice {
@@ -3177,6 +3229,18 @@ td:nth-child(10) {
   box-shadow: var(--shadow-panel);
 }
 
+.h5-playback-slider.is-control-center {
+  width: 100%;
+  min-width: 0;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #fff;
+}
+
 .h5-playback-slider.is-overlay {
   position: absolute;
   left: 10px;
@@ -3234,6 +3298,11 @@ td:nth-child(10) {
 .h5-playback-slider input[type="range"] {
   width: 100%;
   accent-color: var(--brand);
+}
+
+.h5-playback-slider.is-control-center input[type="range"] {
+  height: 16px;
+  margin: 0;
 }
 
 .h5-segment-list {
@@ -3372,22 +3441,26 @@ td:nth-child(10) {
     left: 8px;
     right: 8px;
     bottom: 8px;
-    justify-content: flex-start;
+    grid-template-columns: auto minmax(64px, 1fr) auto;
     gap: 6px;
-    padding: 6px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .h5-player-controls::-webkit-scrollbar {
-    display: none;
+    min-height: 40px;
+    padding: 5px 7px;
   }
 
   .h5-player-controls button {
-    min-width: 44px;
-    min-height: 34px;
-    padding: 0 8px;
-    font-size: 12px;
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+  }
+
+  .h5-player-controls svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .h5-player-control-group {
+    gap: 0;
   }
 
   .h5-playback-slider.is-overlay {
