@@ -3154,3 +3154,18 @@ git pull --ff-only
   - `cd frontend && npm run test` 通过，13 tests passed。
   - `cd frontend && npm run build` 通过。
   - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 回放恢复黑屏遮罩修复 2.20.5 开发记录
+
+- 背景：
+  - 用户验收 2.20.4 后确认滑块位置问题已解决，但暂停后点击播放时仍能看到明显黑屏和“加载中”，像刷新了一下。
+- 根因：
+  - 恢复遮罩之前同时依赖 `resumeCoverVisible && loading`。
+  - `loading` 是回放 URL 接口请求状态，请求完成后会立即变为 false；但播放器重建和首帧渲染还没有完成，导致遮罩提前消失，播放器内部黑色 loading 层暴露。
+- 实现：
+  - 恢复遮罩改为只依赖 `resumeCoverVisible`，生命周期延长到播放器回调 `first-frame-ready` / `mock-ready` 后再关闭。
+  - 恢复遮罩层级提高到播放器控件之上，避免被播放器内部黑底、loading 或 canvas 层覆盖。
+- 验证：
+  - `cd frontend && npm run test` 通过，13 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。

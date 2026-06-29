@@ -583,7 +583,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
                   onStatus={handlePlayerStatus}
                   onPlaybackStateChange={setPlaybackState}
                 />
-                {resumeCoverVisible && loading && (
+                {resumeCoverVisible && (
                   <div className={`h5-frozen-frame ${frozenFrame ? "" : "is-empty"}`} aria-label="正在从暂停位置恢复回放">
                     {frozenFrame ? <img src={frozenFrame} alt="" /> : null}
                     <span>正在从暂停位置恢复...</span>

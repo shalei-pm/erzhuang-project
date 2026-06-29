@@ -2714,7 +2714,7 @@ td:nth-child(10) {
 .h5-frozen-frame {
   position: absolute;
   inset: 0;
-  z-index: 7;
+  z-index: 9;
   display: grid;
   place-items: center;
   overflow: hidden;
