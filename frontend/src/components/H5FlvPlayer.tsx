@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import "ezuikit-flv/style.css";
+import { isH5FirstFrameEvent, type H5DecodePath } from "../domain/h5-player-diagnostics";
 
 // ezuikit-flv is loaded dynamically to avoid SSR issues and to keep
 // the decoder path configurable.
@@ -113,6 +114,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
   const [diagnostic, setDiagnostic] = useState<PlayerDiagnostic | null>(null);
   const isMock = url.startsWith("mock-");
   const preferSoftDecode = isMobilePlaybackContext();
+  const decodePath: H5DecodePath = preferSoftDecode ? "mobile-wasm" : "desktop-mse";
   const isNativeVideo = !isMock && shouldUseNativeVideo(url, protocol) && !preferSoftDecode;
 
   useEffect(() => {
@@ -148,7 +150,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
         `decoder=${DECODER_PATH}`,
         `mode=${isLive ? "live" : "playback"}`,
         `protocol=${protocol || inferProtocol(url) || "unknown"}`,
-        `decode=${preferSoftDecode ? "mobile-wasm" : "desktop-mse"}`,
+        `decode=${decodePath}`,
         `lib=${loaded.diagnostics.join(",")}`,
       ];
       const Ctor = loaded.ctor;
@@ -201,7 +203,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
           }
         }, (eventName, payload) => {
           notePlayerEvent(playerEventsRef, eventName, payload);
-          if (isFirstFrameEvent(eventName)) {
+          if (isH5FirstFrameEvent(eventName, decodePath)) {
             clearFirstFrameTimer(firstFrameTimerRef);
             setLoading(false);
             setLoadFailed(false);
@@ -251,7 +253,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError }: H5FlvPlayerProps
         playerRef.current = null;
       }
     };
-  }, [url, isLive, onError, isMock, isNativeVideo, containerId, protocol, preferSoftDecode]);
+  }, [url, isLive, onError, isMock, isNativeVideo, containerId, protocol, preferSoftDecode, decodePath]);
 
   function toggleMute() {
     const next = !muted;
@@ -367,10 +369,6 @@ function PlayerDiagnosticPanel({ diagnostic }: { diagnostic: PlayerDiagnostic })
 function isRecoverablePlayerEvent(message: string) {
   const text = message.toLowerCase();
   return text.includes("mediasource") || text.includes("sourcebuffer") || text.includes("mse");
-}
-
-function isFirstFrameEvent(eventName: string) {
-  return ["streamSuccess", "videoInfo", "videoFrame", "playing", "loaded"].includes(eventName);
 }
 
 function notePlayerEvent(eventRef: MutableRefObject<string[]>, eventName: string, payload: unknown) {
