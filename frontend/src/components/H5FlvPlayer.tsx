@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import "ezuikit-flv/style.css";
-import { isH5FirstFrameEvent, type H5DecodePath } from "../domain/h5-player-diagnostics";
+import { isH5FirstFrameEvent, isH5StreamConnectedEvent, type H5DecodePath } from "../domain/h5-player-diagnostics";
 
 // ezuikit-flv is loaded dynamically to avoid SSR issues and to keep
 // the decoder path configurable.
@@ -24,6 +24,11 @@ interface EzuikitFlvConstructor {
     autoWasm: boolean;
     useMSE: boolean;
     useWCS: boolean;
+    forceNoOffscreen: boolean;
+    wasmDecodeErrorReplay: boolean;
+    wasmDecodeAudioSyncVideo: boolean;
+    hasVideo: boolean;
+    debug: boolean;
     hasAudio: boolean;
     keepScreenOn: boolean;
     scaleMode: 0 | 1 | 2;
@@ -63,13 +68,23 @@ const PLAYER_ERROR_EVENTS = [
   "mediaSourceH265NotSupport",
   "mseSourceBufferError",
   "unrecoverableEarlyEof",
+  "webglAlignmentError",
 ];
 const PLAYER_PROGRESS_EVENTS = [
   "streamSuccess",
   "videoInfo",
   "videoFrame",
+  "firstFrameDisplay",
+  "playToRenderTimes",
+  "stats",
+  "kBps",
   "playing",
   "loaded",
+  "loading",
+  "load",
+  "start",
+  "metadata",
+  "mseSourceOpen",
   "decoderWorkerInit",
   "decoderLoaded",
 ];
@@ -201,7 +216,12 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
           muted: true,
           autoWasm: true,
           useMSE: !preferSoftDecode,
-          useWCS: true,
+          useWCS: !preferSoftDecode,
+          forceNoOffscreen: preferSoftDecode,
+          wasmDecodeErrorReplay: true,
+          wasmDecodeAudioSyncVideo: true,
+          hasVideo: true,
+          debug: true,
           hasAudio: true,
           keepScreenOn: preferSoftDecode,
           scaleMode: 2,
@@ -227,12 +247,22 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
           }
         }, (eventName, payload) => {
           notePlayerEvent(playerEventsRef, eventName, payload);
+          const currentEvents = `events=${playerEventsRef.current.join(" > ")}`;
           reportStatus(onStatus, {
             stage: "player-event",
             message: `播放器事件：${eventName}`,
-            details: [...commonDetails, `events=${playerEventsRef.current.join(" > ")}`],
+            details: [...commonDetails, currentEvents],
             severity: "info",
           });
+          if (isH5StreamConnectedEvent(eventName)) {
+            reportStatus(onStatus, {
+              stage: "stream-connected",
+              message: "直播流已连接，继续等待视频帧渲染",
+              details: [...commonDetails, currentEvents],
+              severity: "info",
+            });
+            return;
+          }
           if (isH5FirstFrameEvent(eventName, decodePath)) {
             clearFirstFrameTimer(firstFrameTimerRef);
             setLoading(false);
@@ -240,8 +270,8 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
             setDiagnostic((current) => (current?.stage === "first-frame-timeout" ? null : current));
             reportStatus(onStatus, {
               stage: "first-frame-ready",
-              message: `已收到可视播放事件：${eventName}`,
-              details: [...commonDetails, `events=${playerEventsRef.current.join(" > ")}`],
+              message: `已收到视频渲染事件：${eventName}`,
+              details: [...commonDetails, currentEvents],
               severity: "info",
             });
           }
@@ -252,7 +282,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
           setLoadFailed(true);
           const nextDiagnostic = {
             stage: "first-frame-timeout",
-            message: `播放器已初始化，但 ${FIRST_FRAME_TIMEOUT_MS / 1000} 秒内没有收到首帧/流成功事件`,
+            message: firstFrameTimeoutMessage(playerEventsRef.current),
             details: [
               ...commonDetails,
               `events=${playerEventsRef.current.length > 0 ? playerEventsRef.current.join(" > ") : "none"}`,
@@ -497,6 +527,14 @@ function destroyPlayer(player: EzuikitFlvPlayer, containerId: string) {
 
 function formatDiagnostic(diagnostic: PlayerDiagnostic) {
   return [diagnostic.message, `stage=${diagnostic.stage}`, ...diagnostic.details].join(" · ");
+}
+
+function firstFrameTimeoutMessage(events: string[]) {
+  const seconds = FIRST_FRAME_TIMEOUT_MS / 1000;
+  const streamConnected = events.some((event) => event.startsWith("streamSuccess"));
+  return streamConnected
+    ? `直播流已连接，但 ${seconds} 秒内没有收到视频帧渲染事件`
+    : `播放器已初始化，但 ${seconds} 秒内没有收到流连接或视频帧渲染事件`;
 }
 
 function buildCommonDetails(

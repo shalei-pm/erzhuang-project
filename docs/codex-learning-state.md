@@ -3006,3 +3006,20 @@ git pull --ff-only
   - 继续保留播放器内部诊断和 toast，但页面级状态卡作为手机端排查的主证据。
 - 验收目标：
   - 如果移动端继续黑屏，页面必须在黑框下方显示 `player-init`、`player-event` 或 `first-frame-timeout` 等状态，便于继续判断卡在取流、解码还是渲染。
+
+## 2026-06-29 H5 Monitor 流连接与首帧渲染拆分 2.19.12 开发记录
+
+- 背景：
+  - 用户反馈 2.19.11 手机端仍黑屏，但页面级状态卡显示 `streamSuccess`。
+  - 截图确认播放地址、decoder 路径、版本、UA、`decode=mobile-wasm` 均已暴露；萤石 FLV 流已经连接成功，但没有看到画面。
+- 结论：
+  - `streamSuccess` 只能代表流连接成功，不能代表画面已经渲染。
+  - 之前把 `streamSuccess` 归入首帧成功事件是误判，导致黑屏时显示 `first-frame-ready`。
+  - 线上 `decoder.js` 和 `decoder.wasm` 均可访问，`decoder.wasm` 的 Content-Type 为 `application/wasm`，暂不支持“wasm 资源未部署/MIME 错误”这个假设。
+- 实现：
+  - 移动端首帧成功只认 `videoFrame`、`firstFrameDisplay`、`playToRenderTimes` 这类视频渲染事件。
+  - `streamSuccess` 单独显示为 `stream-connected`，继续等待视频帧，不再清除首帧超时计时器。
+  - 移动端播放参数改为 `useWCS:false`、`forceNoOffscreen:true`，明确走 wasm + 普通 canvas 渲染路径。
+  - 增加 `wasmDecodeErrorReplay:true`、`wasmDecodeAudioSyncVideo:true`、`debug:true`，并监听更多播放器事件，便于下一轮截图继续定位。
+- 验收目标：
+  - 如果仍黑屏，状态卡应显示 `stream-connected` 后是否出现 `videoInfo/videoFrame/firstFrameDisplay/playToRenderTimes`，或最终 `first-frame-timeout`。
