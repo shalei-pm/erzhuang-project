@@ -1,4 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react";
 import "ezuikit-flv/style.css";
 import { isH5FirstFrameEvent, isH5StreamConnectedEvent, type H5DecodePath } from "../domain/h5-player-diagnostics";
 
@@ -11,6 +21,8 @@ interface EzuikitFlvPlayer {
   play: () => unknown;
   pause: () => unknown;
   getState?: () => unknown;
+  screenshot?: () => unknown;
+  capturePicture?: () => unknown;
 }
 
 interface EzuikitFlvConstructor {
@@ -50,6 +62,27 @@ export type H5PlayerStatus = {
   message: string;
   details: string[];
   severity: "info" | "warning" | "error";
+};
+
+export type H5PlaybackState = {
+  playing: boolean;
+  muted: boolean;
+  loading: boolean;
+  failed: boolean;
+};
+
+export type H5PlayerScreenshot = {
+  dataUrl?: string;
+};
+
+export type H5PlayerHandle = {
+  play: () => Promise<void>;
+  pause: () => Promise<void>;
+  openSound: () => Promise<void>;
+  closeSound: () => Promise<void>;
+  screenshot: () => Promise<H5PlayerScreenshot>;
+  enterFullscreen: () => Promise<void>;
+  exitFullscreen: () => Promise<void>;
 };
 
 let playerLib: EzuikitFlvConstructor | null = null;
@@ -120,17 +153,24 @@ export interface H5FlvPlayerProps {
   isLive: boolean;
   onError?: (message: string) => void;
   onStatus?: (status: H5PlayerStatus) => void;
+  onPlaybackStateChange?: (state: H5PlaybackState) => void;
 }
 
-export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvPlayerProps) {
+export const H5FlvPlayer = forwardRef<H5PlayerHandle, H5FlvPlayerProps>(function H5FlvPlayer(
+  { url, protocol, isLive, onError, onStatus, onPlaybackStateChange },
+  ref,
+) {
   const containerId = useMemo(
     () => `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     [url, isLive],
   );
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<EzuikitFlvPlayer | null>(null);
+  const nativeVideoRef = useRef<HTMLVideoElement | null>(null);
   const warningTimerRef = useRef<number | null>(null);
   const firstFrameTimerRef = useRef<number | null>(null);
   const playerEventsRef = useRef<string[]>([]);
+  const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -141,9 +181,14 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
   const isNativeVideo = !isMock && shouldUseNativeVideo(url, protocol) && !preferSoftDecode;
 
   useEffect(() => {
+    onPlaybackStateChange?.({ playing, muted, loading, failed: loadFailed });
+  }, [playing, muted, loading, loadFailed, onPlaybackStateChange]);
+
+  useEffect(() => {
     if (isMock) {
       clearFirstFrameTimer(firstFrameTimerRef);
       playerEventsRef.current = [];
+      setPlaying(true);
       setLoading(false);
       setLoadFailed(false);
       setDiagnostic(null);
@@ -158,6 +203,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
     if (isNativeVideo) {
       clearFirstFrameTimer(firstFrameTimerRef);
       playerEventsRef.current = [];
+      setPlaying(false);
       setLoading(true);
       setLoadFailed(false);
       setDiagnostic(null);
@@ -167,13 +213,17 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
         details: buildCommonDetails(url, protocol, isLive, decodePath, ["native-video"]),
         severity: "info",
       });
-      return;
+      return () => {
+        nativeVideoRef.current = null;
+        setPlaying(false);
+      };
     }
     let cancelled = false;
 
     async function init() {
       clearFirstFrameTimer(firstFrameTimerRef);
       playerEventsRef.current = [];
+      setPlaying(false);
       setLoading(true);
       setLoadFailed(false);
       setDiagnostic(null);
@@ -192,6 +242,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
       });
       const Ctor = loaded.ctor;
       if (!Ctor) {
+        setPlaying(false);
         setLoadFailed(true);
         setLoading(false);
         const nextDiagnostic = {
@@ -241,6 +292,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
           setDiagnostic(nextDiagnostic);
           reportDiagnostic(onStatus, nextDiagnostic);
           if (severity === "error") {
+            setPlaying(false);
             onError?.(formatDiagnostic(nextDiagnostic));
           } else {
             scheduleWarningClear(warningTimerRef, setDiagnostic);
@@ -265,6 +317,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
           }
           if (isH5FirstFrameEvent(eventName, decodePath)) {
             clearFirstFrameTimer(firstFrameTimerRef);
+            setPlaying(true);
             setLoading(false);
             setLoadFailed(false);
             setDiagnostic((current) => (current?.stage === "first-frame-timeout" ? null : current));
@@ -278,6 +331,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
         });
         startFirstFrameTimer(firstFrameTimerRef, () => {
           if (cancelled) return;
+          setPlaying(false);
           setLoading(false);
           setLoadFailed(true);
           const nextDiagnostic = {
@@ -296,6 +350,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
         });
       } catch (err) {
         if (cancelled) return;
+        setPlaying(false);
         setLoading(false);
         setLoadFailed(true);
         const nextDiagnostic = {
@@ -316,6 +371,7 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
       cancelled = true;
       clearWarningTimer(warningTimerRef);
       clearFirstFrameTimer(firstFrameTimerRef);
+      setPlaying(false);
       if (playerRef.current) {
         stopPlayer(playerRef.current, containerId);
         playerRef.current = null;
@@ -323,24 +379,69 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
     };
   }, [url, isLive, onError, onStatus, isMock, isNativeVideo, containerId, protocol, preferSoftDecode, decodePath]);
 
-  function toggleMute() {
-    const next = !muted;
-    setMuted(next);
+  function callPlayer(action: "play" | "pause" | "openSound" | "closeSound") {
     if (playerRef.current) {
       try {
-        if (next) {
-          playerRef.current.closeSound();
-        } else {
-          playerRef.current.openSound();
-        }
-      } catch {
-        // ignore
+        return Promise.resolve(playerRef.current[action]());
+      } catch (err) {
+        return Promise.reject(err);
       }
     }
+    const video = isNativeVideo ? nativeVideoRef.current : null;
+    if (video) {
+      if (action === "play") {
+        return Promise.resolve(video.play());
+      }
+      if (action === "pause") {
+        video.pause();
+      } else if (action === "openSound") {
+        video.muted = false;
+      } else {
+        video.muted = true;
+      }
+    }
+    return Promise.resolve();
   }
 
+  useImperativeHandle(ref, () => ({
+    async play() {
+      await callPlayer("play");
+      setPlaying(true);
+      setLoading(false);
+    },
+    async pause() {
+      await callPlayer("pause");
+      setPlaying(false);
+    },
+    async openSound() {
+      await callPlayer("openSound");
+      setMuted(false);
+    },
+    async closeSound() {
+      await callPlayer("closeSound");
+      setMuted(true);
+    },
+    async screenshot() {
+      const player = playerRef.current;
+      const candidate = player?.screenshot ?? player?.capturePicture;
+      if (typeof candidate !== "function") {
+        throw new Error("screenshot is not supported by current player");
+      }
+      const result = await Promise.resolve(candidate.call(player));
+      return normalizeScreenshotResult(result);
+    },
+    async enterFullscreen() {
+      await requestElementFullscreen(wrapperRef.current);
+    },
+    async exitFullscreen() {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+    },
+  }));
+
   return (
-    <div className="h5-player-wrapper">
+    <div className="h5-player-wrapper" ref={wrapperRef}>
       {isMock ? (
         <div className="h5-player-container h5-player-mock">
           <img src={`https://picsum.photos/seed/${encodeURIComponent(url)}/960/540`} alt="模拟监控画面" />
@@ -348,16 +449,21 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
         </div>
       ) : isNativeVideo ? (
         <video
+          ref={nativeVideoRef}
           className="h5-player-container h5-native-video"
           src={url}
-          controls
           playsInline
           autoPlay
           muted={muted}
           onLoadedMetadata={() => setLoading(false)}
           onCanPlay={() => setLoading(false)}
-          onPlaying={() => setLoading(false)}
+          onPlaying={() => {
+            setPlaying(true);
+            setLoading(false);
+          }}
+          onPause={() => setPlaying(false)}
           onError={() => {
+            setPlaying(false);
             setLoading(false);
             setLoadFailed(true);
             const nextDiagnostic = {
@@ -385,18 +491,9 @@ export function H5FlvPlayer({ url, protocol, isLive, onError, onStatus }: H5FlvP
         </div>
       )}
       {diagnostic && <PlayerDiagnosticPanel diagnostic={diagnostic} />}
-      {!loading && !loadFailed && (
-        <button
-          className={`h5-sound-toggle ${muted ? "muted" : "unmuted"}`}
-          onClick={toggleMute}
-          aria-label={muted ? "点击开启声音" : "点击关闭声音"}
-        >
-          {muted ? "点击开启声音" : "声音已开启"}
-        </button>
-      )}
     </div>
   );
-}
+});
 
 function attachPlayerDiagnostics(
   player: EzuikitFlvPlayer,
@@ -433,6 +530,23 @@ function PlayerDiagnosticPanel({ diagnostic }: { diagnostic: PlayerDiagnostic })
       ))}
     </div>
   );
+}
+
+async function requestElementFullscreen(element: HTMLElement | null) {
+  if (!element || typeof element.requestFullscreen !== "function") {
+    throw new Error("fullscreen is not supported by current browser");
+  }
+  await element.requestFullscreen();
+}
+
+function normalizeScreenshotResult(result: unknown): H5PlayerScreenshot {
+  if (typeof result === "string") {
+    return { dataUrl: result };
+  }
+  if (result && typeof result === "object" && "dataUrl" in result) {
+    return { dataUrl: String((result as { dataUrl?: unknown }).dataUrl || "") };
+  }
+  return {};
 }
 
 function isRecoverablePlayerEvent(message: string) {
