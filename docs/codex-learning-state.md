@@ -3023,3 +3023,37 @@ git pull --ff-only
   - 增加 `wasmDecodeErrorReplay:true`、`wasmDecodeAudioSyncVideo:true`、`debug:true`，并监听更多播放器事件，便于下一轮截图继续定位。
 - 验收目标：
   - 如果仍黑屏，状态卡应显示 `stream-connected` 后是否出现 `videoInfo/videoFrame/firstFrameDisplay/playToRenderTimes`，或最终 `first-frame-timeout`。
+
+## 2026-06-29 H5 Monitor 移动端直播调通里程碑 2.19.12 验收记录
+
+- 结果：
+  - 用户在公司线上移动端复测后确认：实时视频终于可以显示。
+  - 这标志着“萤石云 FLV 取流 + iPhone/微信 H5 + H265 视频 + `ezuikit-flv` wasm 软解”链路在试点门店真实环境下跑通。
+- 本次调通的关键经验：
+  - 不能把 `streamSuccess` 当作画面可见。它只代表 FLV 流连接成功，首帧/画面可见必须看 `videoFrame`、`firstFrameDisplay`、`playToRenderTimes` 这类渲染事件。
+  - 黑屏排查要把链路拆层：播放地址获取 -> decoder 资源加载 -> 流连接 -> 视频信息解析 -> wasm 解码 -> canvas 渲染。
+  - 页面级诊断必须放在播放器黑框外。第三方播放器内部 DOM/canvas 可能遮挡自定义提示，导致手机端看起来“没有任何错误”。
+  - iPhone/微信 H5 环境下，移动端播放应明确走 wasm + 普通 canvas 路径：`useMSE:false`、`useWCS:false`、`forceNoOffscreen:true`、`autoWasm:true`。
+  - 线上 `decoder.js` 与 `decoder.wasm` 需要可访问，且 `decoder.wasm` 应返回 `Content-Type: application/wasm`；本次已排除 decoder 部署/MIME 错误。
+- 当前可复用配置：
+  - 直播地址：萤石 `/api/lapp/v2/live/address/get`，`protocol=4` FLV。
+  - 前端播放器：`ezuikit-flv@2.1.1`。
+  - 移动端解码路径：`decode=mobile-wasm`。
+  - 移动端关键参数：`useMSE:false`、`useWCS:false`、`forceNoOffscreen:true`、`wasmDecodeErrorReplay:true`、`wasmDecodeAudioSyncVideo:true`、`keepScreenOn:true`。
+- 后续注意：
+  - 继续保留状态卡或等价诊断能力，至少在试点期不要过早隐藏。
+  - 回放页也应复用同一套“流连接”和“首帧渲染”拆分逻辑，不要只看播放地址是否返回。
+  - 后续扩门店时，如果某通道再次黑屏，优先截图状态卡，根据事件停在哪一层判断，而不是先改播放器参数。
+
+## 2026-06-29 H5 Monitor PC 首帧误报修复 2.19.13 开发记录
+
+- 背景：
+  - 2.19.12 移动端直播跑通后，用户反馈 PC 端画面已经显示，但页面仍覆盖 `first-frame-timeout` 错误层。
+  - 截图显示 PC 端 `decode=desktop-mse`，事件为 `start > videoInfo > streamSuccess`，画面实际可见。
+- 结论：
+  - 2.19.12 为移动端修正首帧判断时，把 `streamSuccess/videoInfo` 从所有路径的首帧成功信号里移除，误伤了 PC。
+  - PC 的 MSE 路径可以继续使用宽松判断；移动端 wasm 路径必须保持严格，避免再次误判黑屏为成功。
+- 实现：
+  - `desktop-mse` 路径恢复接受 `streamSuccess`、`videoInfo`、`loaded`、`playing` 作为首帧/播放就绪信号。
+  - `mobile-wasm` 路径仍只接受 `videoFrame`、`firstFrameDisplay`、`playToRenderTimes`。
+  - 补充前端单测覆盖桌面和移动端差异。

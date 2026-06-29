@@ -58,6 +58,8 @@ describe("H5 player diagnostics", () => {
   });
 
   it("keeps desktop mse first-frame detection compatible with existing events", () => {
+    expect(isH5FirstFrameEvent("streamSuccess", "desktop-mse")).toBe(true);
+    expect(isH5FirstFrameEvent("videoInfo", "desktop-mse")).toBe(true);
     expect(isH5FirstFrameEvent("loaded", "desktop-mse")).toBe(true);
     expect(isH5FirstFrameEvent("playing", "desktop-mse")).toBe(true);
   });
