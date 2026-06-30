@@ -3682,3 +3682,18 @@ git pull --ff-only
   - 新增 `TestOpenAIRecognizerParsesThinkWrappedJSON`，覆盖 GPT/OpenAI 兼容“think 文本 + JSON”。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/channelai -count=1` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+
+## 2026-06-30 MiniMax 通道识别 JSON 解析容错 2.22.8 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`5959144 fix: tolerate minimax channel reasoning output`。
+- 推送结果：
+  - GitLab remote 已从 `37e9f94` 更新到 `5959144`。
+  - 使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 无缓存请求首页已更新为 `/erzhuang-project/assets/index-C65y8J1h.js`。
+  - 线上前端 bundle 已包含 `2.22.8`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 入口 HTML 存在短暂缓存，普通请求一度仍显示旧资源 `index-CH0SPpGz.js`，无缓存请求已确认新构建生效。
