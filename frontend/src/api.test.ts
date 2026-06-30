@@ -62,12 +62,14 @@ describe("store list summary", () => {
 });
 
 describe("H5 monitor trial entry", () => {
-  it("only allows H5 monitor pilot orgs to open H5 monitor", () => {
+  it("allows stores with an external org id to open H5 monitor", () => {
     expect(canOpenH5Monitor({ externalOrgId: "10030" })).toBe(true);
     expect(canOpenH5Monitor({ externalOrgId: "10047" })).toBe(true);
-    expect(canOpenH5Monitor({ externalOrgId: "010030" })).toBe(false);
-    expect(canOpenH5Monitor({ externalOrgId: "10031" })).toBe(false);
+    expect(canOpenH5Monitor({ externalOrgId: "010030" })).toBe(true);
+    expect(canOpenH5Monitor({ externalOrgId: "10031" })).toBe(true);
+    expect(canOpenH5Monitor({ externalOrgId: " 10031 " })).toBe(true);
     expect(canOpenH5Monitor({ externalOrgId: "" })).toBe(false);
+    expect(canOpenH5Monitor({ externalOrgId: "   " })).toBe(false);
   });
 
   it("builds the H5 monitor path with the current project base", () => {
