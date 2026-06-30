@@ -3747,3 +3747,18 @@ git pull --ff-only
   - `cd frontend && npm test` 通过，18 tests passed。
   - `cd frontend && npm run build` 通过。
   - 本次未改变按钮样式和页面布局，仅改变入口可见性判断。
+
+## 2026-06-30 H5 Monitor 入口默认开放 2.22.10 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`25352b7 feat: open H5 monitor entry for all org stores`。
+- 推送结果：
+  - GitLab remote 已从 `6100917` 更新到 `25352b7`。
+  - 使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 无缓存请求首页已更新为 `/erzhuang-project/assets/index-LEvpVOuF.js`。
+  - 线上前端 bundle 已包含 `2.22.10`。
+  - 线上前端 bundle 已包含 `externalOrgId.trim()!==""`，确认入口判断不再使用试点白名单。
+- 备注：
+  - 本次未发布韩国服务器。
