@@ -11,7 +11,7 @@ import {
 } from "../api";
 import { areaTypeLabels, isAreaNumberOptional } from "../domain/areas";
 import { channelListFilters, filterAndSortChannels, type ChannelListFilter } from "../domain/channel-filters";
-import { channelMappingTargetLabel, requiresBedSplit } from "../domain/channel-mapping-target";
+import { requiresBedSplit } from "../domain/channel-mapping-target";
 import { channelRecognitionMessage, recorderRecognitionToast } from "../domain/channel-recognition";
 import { channelSceneLabel } from "../domain/channel-labels";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
@@ -563,6 +563,16 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
               </div>
             </div>
             <table className="channel-table">
+              <colgroup>
+                <col className="channel-col-recorder" />
+                <col className="channel-col-number" />
+                <col className="channel-col-snapshot" />
+                <col className="channel-col-area-type" />
+                <col className="channel-col-area-number" />
+                <col className="channel-col-bed" />
+                <col className="channel-col-status" />
+                <col className="channel-col-actions" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>录像机</th>
@@ -640,6 +650,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                           onChange={(event) =>
                             updateChannelDraft(channel.id, {
                               areaType: event.target.value as AreaType | "",
+                              bedLabel: requiresBedSplit(event.target.value as AreaType | "") ? selectedBedLabel : "",
                               areaNote: event.target.value ? "" : channel.areaNote || draft.areaNumber || "",
                               sceneType: event.target.value ? (event.target.value as AreaType) : "unknown",
                             })
@@ -675,25 +686,16 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                     </td>
                     <td>
                       {isEditable ? (
-                        showBedLabel ? (
-                          <input
-                            value={selectedBedLabel}
-                            inputMode="text"
-                            onChange={(event) => updateChannelDraft(channel.id, { bedLabel: event.target.value })}
-                            placeholder="单床可不填"
-                            aria-label="床位拆分"
-                          />
-                        ) : (
-                          <span className="muted-cell">-</span>
-                        )
+                        <input
+                          value={showBedLabel ? selectedBedLabel : ""}
+                          inputMode="text"
+                          disabled={!showBedLabel}
+                          onChange={(event) => updateChannelDraft(channel.id, { bedLabel: event.target.value })}
+                          placeholder={showBedLabel ? "单床可不填" : "选治疗类后填"}
+                          aria-label="床位拆分"
+                        />
                       ) : (
-                        channel.areaType
-                          ? channelMappingTargetLabel({
-                              areaType: channel.areaType,
-                              areaNumber: channel.areaNumber,
-                              bedLabel: channel.bedLabel,
-                            }) || "-"
-                          : "-"
+                        channelBedLabelText(channel)
                       )}
                     </td>
                     <td>
@@ -1022,6 +1024,11 @@ function channelDraftFromChannel(channel: VideoChannel): Partial<VideoChannel> {
     sceneType: channel.sceneType,
     status: "pending_confirmation",
   };
+}
+
+function channelBedLabelText(channel: VideoChannel) {
+  if (!requiresBedSplit(channel.areaType)) return "-";
+  return channel.bedLabel.trim() || "-";
 }
 
 function isConfirmedChannel(channel: VideoChannel) {

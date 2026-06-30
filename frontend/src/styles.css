@@ -1270,6 +1270,8 @@ td:nth-child(10) {
 }
 
 .channel-table {
+  width: 100%;
+  table-layout: fixed;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
   background: var(--surface);
@@ -1282,25 +1284,53 @@ td:nth-child(10) {
   text-align: center;
 }
 
-.channel-table th:nth-child(1),
-.channel-table td:nth-child(1) {
-  width: 150px;
+.channel-table th,
+.channel-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.channel-table th:nth-child(2),
-.channel-table td:nth-child(2),
-.channel-table th:nth-child(3),
-.channel-table td:nth-child(3),
-.channel-table th:nth-child(5),
-.channel-table td:nth-child(5) {
-  width: 94px;
+.channel-col-recorder {
+  width: 118px;
 }
 
-.channel-table th:nth-child(6),
-.channel-table td:nth-child(6),
-.channel-table th:nth-child(7),
-.channel-table td:nth-child(7) {
-  width: 150px;
+.channel-col-number {
+  width: 56px;
+}
+
+.channel-col-snapshot {
+  width: 120px;
+}
+
+.channel-col-area-type {
+  width: 126px;
+}
+
+.channel-col-area-number {
+  width: 126px;
+}
+
+.channel-col-bed {
+  width: 128px;
+}
+
+.channel-col-status {
+  width: 96px;
+}
+
+.channel-col-actions {
+  width: 218px;
+}
+
+.channel-table .row-actions {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.channel-table .row-actions button,
+.channel-table .row-actions .danger-link {
+  min-width: 52px;
+  padding: 0 8px;
 }
 
 .channel-thumb {
