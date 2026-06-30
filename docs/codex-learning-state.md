@@ -3762,3 +3762,22 @@ git pull --ff-only
   - 线上前端 bundle 已包含 `externalOrgId.trim()!==""`，确认入口判断不再使用试点白名单。
 - 备注：
   - 本次未发布韩国服务器。
+
+## 2026-06-30 H5 Monitor 后端机构白名单移除 2.22.11 开发记录
+
+- 背景：
+  - `2.22.10` 已将机构详情右上角“查看监控”入口从前端白名单改为“有新氧机构 ID 即显示”。
+  - 用户反馈点击其它门店入口后 H5 页面显示 `not found`。
+- 根因：
+  - 前端入口已放开，但后端 H5 Monitor 服务仍保留试点机构白名单，只允许 `10030`、`10047`。
+  - 非试点机构请求 `/api/h5/orgs/{externalOrgId}/monitor` 时被 `isPilotAllowedOrg` 拦截为 404。
+- 实现：
+  - 移除后端 H5 Monitor 机构级试点白名单。
+  - `GetMonitorHome` 和播放/回放通道校验改为：只要数据库中能按新氧机构 ID 找到门店，即允许访问。
+  - 保留北京实验门店 `10030` 对设备 `GN0941203` 的历史过滤，避免该实验门店误展示其它录像机。
+  - 更新测试：非试点机构 `10031` 有门店和通道数据时，H5 Monitor 首页返回 200 和对应通道。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/h5monitor -count=1` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `cd frontend && npm run build` 通过。

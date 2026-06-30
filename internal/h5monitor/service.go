@@ -58,15 +58,13 @@ type EzvizPlayer interface {
 }
 
 const (
-	beijingPilotExternalOrgID  = "10030"
-	beijingPilotDeviceSerial   = "GN0941203"
-	shanghaiKaideExternalOrgID = "10047"
+	beijingPilotExternalOrgID = "10030"
+	beijingPilotDeviceSerial  = "GN0941203"
 )
 
 type Service struct {
 	repo         StoreRepository
 	player       EzvizPlayer
-	pilotOrgIDs  map[string]struct{}
 	pilotDevices map[string]string
 	mu           sync.Mutex
 	concurrency  map[string]*concurrencyState
@@ -76,10 +74,6 @@ func NewService(repo StoreRepository, player EzvizPlayer) *Service {
 	return &Service{
 		repo:   repo,
 		player: player,
-		pilotOrgIDs: map[string]struct{}{
-			beijingPilotExternalOrgID:  {},
-			shanghaiKaideExternalOrgID: {},
-		},
 		pilotDevices: map[string]string{
 			beijingPilotExternalOrgID: beijingPilotDeviceSerial,
 		},
@@ -102,9 +96,6 @@ func (s *Service) GetMonitorHome(ctx context.Context, externalOrgID string) (Mon
 	orgID := strings.TrimSpace(externalOrgID)
 	if orgID == "" {
 		return MonitorHomeResponse{}, &ValidationError{Fields: map[string]string{"external_org_id": "机构 ID 不能为空"}}
-	}
-	if !s.isPilotAllowedOrg(orgID) {
-		return MonitorHomeResponse{}, ErrNotFound
 	}
 	store, err := s.repo.GetStoreByExternalOrgID(ctx, orgID)
 	if err != nil {
@@ -271,9 +262,6 @@ func (s *Service) validateChannel(ctx context.Context, externalOrgID string, cha
 	if orgID == "" {
 		return nil, &ValidationError{Fields: map[string]string{"external_org_id": "机构 ID 不能为空"}}
 	}
-	if !s.isPilotAllowedOrg(orgID) {
-		return nil, ErrNotFound
-	}
 	store, err := s.repo.GetStoreByExternalOrgID(ctx, orgID)
 	if err != nil {
 		return nil, err
@@ -291,11 +279,6 @@ func (s *Service) validateChannel(ctx context.Context, externalOrgID string, cha
 	return channel, nil
 }
 
-func (s *Service) isPilotAllowedOrg(externalOrgID string) bool {
-	_, ok := s.pilotOrgIDs[strings.TrimSpace(externalOrgID)]
-	return ok
-}
-
 func (s *Service) filterPilotChannels(externalOrgID string, channels []ChannelInfo) []ChannelInfo {
 	result := make([]ChannelInfo, 0, len(channels))
 	for _, channel := range channels {
@@ -308,9 +291,6 @@ func (s *Service) filterPilotChannels(externalOrgID string, channels []ChannelIn
 
 func (s *Service) isPilotAllowedChannel(externalOrgID string, channel ChannelInfo) bool {
 	orgID := strings.TrimSpace(externalOrgID)
-	if !s.isPilotAllowedOrg(orgID) {
-		return false
-	}
 	deviceSerial, requiresDeviceMatch := s.pilotDevices[orgID]
 	if !requiresDeviceMatch {
 		return true

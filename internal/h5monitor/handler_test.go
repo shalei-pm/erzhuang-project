@@ -146,8 +146,16 @@ func TestMonitorHomeGroupsChannelsAndDoesNotLeakSecrets(t *testing.T) {
 	}
 }
 
-func TestMonitorHomeRejectsNonPilotOrg(t *testing.T) {
-	service, _ := newFakeService()
+func TestMonitorHomeAllowsAnyStoreWithExternalOrgID(t *testing.T) {
+	channels := []ChannelInfo{
+		{ID: 31, StoreID: 31, ChannelNo: 1, ChannelName: "治疗1", Status: "confirmed_business", IsActive: true, AreaType: "treatment", AreaNumber: 1, DeviceSerial: "ANY001", AccountName: "华东", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
+	}
+	repo := &fakeRepo{
+		store:    &StoreInfo{ID: 31, Name: "非试点门店", City: "上海", ExternalOrgID: "10031"},
+		channels: channels,
+		byID:     map[int64]ChannelInfo{31: channels[0]},
+	}
+	service := NewService(repo, &fakePlayer{})
 	handler := NewHandler(service)
 	request := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/10031/monitor", nil)
 	request.SetPathValue("externalOrgId", "10031")
@@ -155,8 +163,11 @@ func TestMonitorHomeRejectsNonPilotOrg(t *testing.T) {
 
 	handler.getMonitorHome(response, request)
 
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("status = %d body=%s, want 404", response.Code, response.Body.String())
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"store_name":"非试点门店"`) || !strings.Contains(response.Body.String(), `"id":31`) {
+		t.Fatalf("home response did not use non-pilot store channels: %s", response.Body.String())
 	}
 }
 
