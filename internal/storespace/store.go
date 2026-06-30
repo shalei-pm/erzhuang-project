@@ -150,8 +150,13 @@ func (s *MemoryStore) ListStores(ctx context.Context, filters StoreFilters) (Sto
 
 	filters = normalizeFilters(filters)
 	items := []StoreListItem{}
+	citySet := map[string]struct{}{}
 	for _, store := range s.stores {
 		if !MatchesStoreSearch(store.Name, store.NormalizedName, filters.Query) {
+			continue
+		}
+		citySet[storeCityOption(store.City)] = struct{}{}
+		if !matchesStoreCity(store.City, filters.City) {
 			continue
 		}
 		items = append(items, storeListItem(*store))
@@ -177,6 +182,7 @@ func (s *MemoryStore) ListStores(ctx context.Context, filters StoreFilters) (Sto
 		PageSize: filters.PageSize,
 		Total:    total,
 		Summary:  summary,
+		Cities:   sortedCityOptions(citySet),
 	}, nil
 }
 
@@ -1108,35 +1114,72 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 	filters = normalizeFilters(filters)
 	rawLike := "%" + strings.ToLower(strings.ReplaceAll(strings.TrimSpace(filters.Query), " ", "")) + "%"
 	normalizedLike := "%" + NormalizeStoreName(filters.Query) + "%"
+	city := strings.TrimSpace(filters.City)
 	offset := (filters.Page - 1) * filters.PageSize
 
 	var total int
 	if err := s.db.QueryRowContext(ctx, `
 		select count(*)
 		from stores
-		where $1 = '%%'
-			or replace(lower(name), ' ', '') like $1
-			or ($2 <> '%%' and normalized_name like $2)
-	`, rawLike, normalizedLike).Scan(&total); err != nil {
+		where ($3 = '' or city = $3)
+			and (
+				$1 = '%%'
+				or replace(lower(name), ' ', '') like $1
+				or ($2 <> '%%' and normalized_name like $2)
+			)
+	`, rawLike, normalizedLike, city).Scan(&total); err != nil {
 		return StoreListResult{}, err
 	}
+	var cities []string
+	cityRows, err := s.db.QueryContext(ctx, `
+		select distinct coalesce(nullif(trim(city), ''), '未设置') as city_option
+		from stores s
+		where $1 = '%%'
+			or replace(lower(s.name), ' ', '') like $1
+			or ($2 <> '%%' and s.normalized_name like $2)
+		order by city_option
+	`, rawLike, normalizedLike)
+	if err != nil {
+		return StoreListResult{}, err
+	}
+	for cityRows.Next() {
+		var value string
+		if err := cityRows.Scan(&value); err != nil {
+			cityRows.Close()
+			return StoreListResult{}, err
+		}
+		cities = append(cities, value)
+	}
+	if err := cityRows.Close(); err != nil {
+		return StoreListResult{}, err
+	}
+	if err := cityRows.Err(); err != nil {
+		return StoreListResult{}, err
+	}
+
 	var summary StoreListSummary
 	if err := s.db.QueryRowContext(ctx, `
 		select
 			(select count(*)
 				from stores s
-				where $1 = '%%'
-					or replace(lower(s.name), ' ', '') like $1
-					or ($2 <> '%%' and s.normalized_name like $2)
+				where ($3 = '' or s.city = $3)
+					and (
+						$1 = '%%'
+						or replace(lower(s.name), ' ', '') like $1
+						or ($2 <> '%%' and s.normalized_name like $2)
+					)
 			) as store_count,
 			(select count(*)
 				from store_areas a
 				where a.area_type in ('treatment', 'vip_treatment')
 					and a.store_id in (
 						select s.id from stores s
-						where $1 = '%%'
-							or replace(lower(s.name), ' ', '') like $1
-							or ($2 <> '%%' and s.normalized_name like $2)
+						where ($3 = '' or s.city = $3)
+							and (
+								$1 = '%%'
+								or replace(lower(s.name), ' ', '') like $1
+								or ($2 <> '%%' and s.normalized_name like $2)
+							)
 					)
 			) as treatment_count,
 			(select count(*)
@@ -1144,9 +1187,12 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 				where a.area_type = 'consultation'
 					and a.store_id in (
 						select s.id from stores s
-						where $1 = '%%'
-							or replace(lower(s.name), ' ', '') like $1
-							or ($2 <> '%%' and s.normalized_name like $2)
+						where ($3 = '' or s.city = $3)
+							and (
+								$1 = '%%'
+								or replace(lower(s.name), ' ', '') like $1
+								or ($2 <> '%%' and s.normalized_name like $2)
+							)
 					)
 			) as consultation_count,
 			(select count(*)
@@ -1154,12 +1200,15 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 				where a.area_type = 'beauty'
 					and a.store_id in (
 						select s.id from stores s
-						where $1 = '%%'
-							or replace(lower(s.name), ' ', '') like $1
-							or ($2 <> '%%' and s.normalized_name like $2)
+						where ($3 = '' or s.city = $3)
+							and (
+								$1 = '%%'
+								or replace(lower(s.name), ' ', '') like $1
+								or ($2 <> '%%' and s.normalized_name like $2)
+							)
 					)
 			) as beauty_count
-	`, rawLike, normalizedLike).Scan(
+	`, rawLike, normalizedLike, city).Scan(
 		&summary.StoreCount,
 		&summary.TreatmentCount,
 		&summary.ConsultationCount,
@@ -1193,13 +1242,16 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 		left join store_areas a on a.store_id = s.id
 		left join video_recorders r on r.store_id = s.id
 		left join video_channels c on c.recorder_id = r.id
-		where $1 = '%%'
-			or replace(lower(s.name), ' ', '') like $1
-			or ($2 <> '%%' and s.normalized_name like $2)
+		where ($5 = '' or s.city = $5)
+			and (
+				$1 = '%%'
+				or replace(lower(s.name), ' ', '') like $1
+				or ($2 <> '%%' and s.normalized_name like $2)
+			)
 		group by s.id
 		order by s.updated_at desc
 		limit $3 offset $4
-	`, rawLike, normalizedLike, filters.PageSize, offset)
+	`, rawLike, normalizedLike, filters.PageSize, offset, city)
 	if err != nil {
 		return StoreListResult{}, err
 	}
@@ -1232,7 +1284,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 	if err := rows.Err(); err != nil {
 		return StoreListResult{}, err
 	}
-	return StoreListResult{Items: items, Page: filters.Page, PageSize: filters.PageSize, Total: total, Summary: summary}, nil
+	return StoreListResult{Items: items, Page: filters.Page, PageSize: filters.PageSize, Total: total, Summary: summary, Cities: cities}, nil
 }
 
 func (s *PostgresStore) GetStore(ctx context.Context, id int64) (*Store, error) {
@@ -2933,6 +2985,8 @@ func insertOperationLog(ctx context.Context, tx queryRunner, action string, enti
 }
 
 func normalizeFilters(filters StoreFilters) StoreFilters {
+	filters.Query = strings.TrimSpace(filters.Query)
+	filters.City = strings.TrimSpace(filters.City)
 	if filters.Page <= 0 {
 		filters.Page = 1
 	}
@@ -2943,6 +2997,33 @@ func normalizeFilters(filters StoreFilters) StoreFilters {
 		filters.PageSize = 100
 	}
 	return filters
+}
+
+func matchesStoreCity(storeCity string, filterCity string) bool {
+	filterCity = strings.TrimSpace(filterCity)
+	if filterCity == "" {
+		return true
+	}
+	return storeCityOption(storeCity) == filterCity
+}
+
+func storeCityOption(city string) string {
+	city = strings.TrimSpace(city)
+	if city == "" {
+		return "未设置"
+	}
+	return city
+}
+
+func sortedCityOptions(citySet map[string]struct{}) []string {
+	cities := make([]string, 0, len(citySet))
+	for city := range citySet {
+		cities = append(cities, city)
+	}
+	sort.Slice(cities, func(i, j int) bool {
+		return cities[i] < cities[j]
+	})
+	return cities
 }
 
 func storeListItem(store Store) StoreListItem {

@@ -89,6 +89,7 @@ func (h *Handler) getEzvizLiveAddress(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.ListStores(r.Context(), StoreFilters{
 		Query:    r.URL.Query().Get("q"),
+		City:     r.URL.Query().Get("city"),
 		Page:     parsePositiveInt(r.URL.Query().Get("page"), 1),
 		PageSize: parsePositiveInt(r.URL.Query().Get("page_size"), 20),
 	})

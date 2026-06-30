@@ -3624,3 +3624,25 @@ git pull --ff-only
 - 备注：
   - 本次未发布韩国服务器。
   - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
+
+## 2026-06-30 机构列表城市筛选分页修复 2.22.7 开发记录
+
+- 背景：
+  - 用户反馈机构列表选择“上海”后，只筛出当前页里的上海机构，而不是全部上海机构；需要往后翻多页才能看到其它上海门店。
+  - 线上只读复现：请求 `GET /api/store-space/stores?page=1&page_size=5&city=上海` 仍返回深圳门店，说明生产后端尚未支持 `city` 参数。
+- 根因：
+  - 前端原逻辑先请求分页后的当前页门店，再用 `stores.filter(city)` 做城市筛选。
+  - 这导致城市筛选只作用于当前页，分页总数、统计、城市按钮都不是“该城市全集”。
+- 实现：
+  - 后端 `StoreFilters` 新增 `City`，`GET /api/store-space/stores?city=上海` 在分页前按 `stores.city` 精确过滤。
+  - 后端列表响应新增 `cities`，按当前搜索关键词返回可选城市全集，避免城市按钮依赖当前页数据。
+  - `MemoryStore` 与 `PostgresStore` 均支持 city 过滤、全量城市选项、分页前 total/summary 计算。
+  - 前端新增 `store-list-query` helper，统一生成列表查询参数；城市筛选会请求服务端并重置到第一页。
+  - 前端移除当前页二次城市过滤，列表、分页、统计全部使用后端过滤结果。
+- 验证：
+  - 新增后端测试 `TestListStoresFiltersCityBeforePagination`，覆盖 city 过滤在分页前发生。
+  - 新增前端 domain 测试 `store-list-query.test.ts`，覆盖 `city=上海` 查询参数。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-store-query-test src/domain/store-list-query.ts src/domain/store-list-query.test.ts && node /tmp/erzhuang-store-query-test/store-list-query.test.js` 通过。
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `cd frontend && npm run build` 通过。

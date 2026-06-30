@@ -93,6 +93,7 @@ const (
 
 type StoreFilters struct {
 	Query    string
+	City     string
 	Page     int
 	PageSize int
 }
@@ -267,11 +268,12 @@ type StoreListItem struct {
 }
 
 type StoreListResult struct {
-	Items    []StoreListItem `json:"items"`
-	Page     int             `json:"page"`
-	PageSize int             `json:"page_size"`
-	Total    int             `json:"total"`
+	Items    []StoreListItem  `json:"items"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+	Total    int              `json:"total"`
 	Summary  StoreListSummary `json:"summary"`
+	Cities   []string         `json:"cities"`
 }
 
 type StoreListSummary struct {

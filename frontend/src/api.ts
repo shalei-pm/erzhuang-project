@@ -1,5 +1,6 @@
 import sampleStoreFloorPlanUrl from "../../testdata/design-plans/generated/sample-store-floor-plan.png";
 import { isTreatmentAreaType } from "./domain/areas";
+import { normalizeCityFilter, storeListSearchParams } from "./domain/store-list-query";
 import { defaultApiBase, displayImageUrl, storedImagePath, trimTrailingSlash } from "./url-utils";
 
 export type AreaType = "treatment" | "vip_treatment" | "consultation" | "beauty";
@@ -164,6 +165,7 @@ export type StoreListResponse = {
   pageSize: number;
   total: number;
   summary: StoreListSummary;
+  cities: string[];
 };
 
 export type StoreListSummary = {
@@ -245,6 +247,8 @@ type BackendStoreListResponse = {
   page: number;
   page_size: number;
   total: number;
+  cities?: string[];
+  cityOptions?: string[];
 };
 
 type BackendStoreSummary = {
@@ -439,6 +443,8 @@ type BackendStoreSpaceListResponse = {
   pageSize?: number;
   total: number;
   summary?: BackendStoreListSummary;
+  cities?: string[];
+  cityOptions?: string[];
 };
 
 type BackendStoreListSummary = {
@@ -635,11 +641,14 @@ let mockStores: StoreDetail[] = [
 ];
 
 const mockAdapter = {
-  async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
+  async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {
     await delay(160);
+    const city = normalizeCityFilter(cityFilter);
     const filtered = mockStores
       .filter((store) => matchesStoreSearch(store.name, query))
+      .filter((store) => !city || storeCityName(store.city) === city)
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    const cityOptions = mockStores.filter((store) => matchesStoreSearch(store.name, query)).map((store) => storeCityName(store.city));
     const start = (page - 1) * pageSize;
 
     return {
@@ -648,6 +657,7 @@ const mockAdapter = {
       pageSize,
       total: filtered.length,
       summary: summarizeStoreSummaries(filtered.map(toSummary)),
+      cities: uniqueSorted(cityOptions),
     };
   },
 
@@ -1089,12 +1099,8 @@ const mockAdapter = {
 };
 
 const httpAdapter = {
-  async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
-    const search = new URLSearchParams({
-      q: query,
-      page: String(page),
-      page_size: String(pageSize),
-    });
+  async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {
+    const search = storeListSearchParams({ query, cityFilter, page, pageSize });
     const response = await requestJSON<BackendStoreListResponse>(`${API_BASE}/stores?${search.toString()}`);
     const items = response.items.map(mapBackendSummary);
     return {
@@ -1103,6 +1109,7 @@ const httpAdapter = {
       pageSize: response.page_size,
       total: response.total,
       summary: summarizeStoreSummaries(items),
+      cities: response.cities ?? response.cityOptions ?? uniqueSorted(items.map((item) => storeCityName(item.city))),
     };
   },
 
@@ -1203,12 +1210,8 @@ const storeSpaceHttpAdapter = {
     };
   },
 
-  async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
-    const search = new URLSearchParams({
-      q: query,
-      page: String(page),
-      page_size: String(pageSize),
-    });
+  async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {
+    const search = storeListSearchParams({ query, cityFilter, page, pageSize });
     const response = await requestJSON<BackendStoreSpaceListResponse>(`${STORE_SPACE_API_BASE}/stores?${search.toString()}`);
     const items = response.items.map(mapStoreSpaceSummary);
     return {
@@ -1217,6 +1220,7 @@ const storeSpaceHttpAdapter = {
       pageSize: response.page_size ?? response.pageSize ?? pageSize,
       total: response.total,
       summary: response.summary ? mapStoreListSummary(response.summary) : summarizeStoreSummaries(items),
+      cities: response.cities ?? response.cityOptions ?? uniqueSorted(items.map((item) => storeCityName(item.city))),
     };
   },
 
@@ -1375,8 +1379,11 @@ export const designPlanApi = {
     checkDuplicate: `${API_BASE}/stores/check-duplicate`,
   },
 
-  async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
-    return withFallback(() => httpAdapter.listStores(query, page, pageSize), () => mockAdapter.listStores(query, page, pageSize));
+  async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {
+    return withFallback(
+      () => httpAdapter.listStores(query, page, pageSize, cityFilter),
+      () => mockAdapter.listStores(query, page, pageSize, cityFilter),
+    );
   },
 
   async getStore(id: number): Promise<StoreDetail> {
@@ -1436,11 +1443,11 @@ export const storeSpaceApi = {
     return storeSpaceHttpAdapter.toggleAISettings();
   },
 
-  async listStores(query: string, page: number, pageSize = PAGE_SIZE): Promise<StoreListResponse> {
+  async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {
     if (API_MODE === "mock") {
-      return mockAdapter.listStores(query, page, pageSize);
+      return mockAdapter.listStores(query, page, pageSize, cityFilter);
     }
-    return storeSpaceHttpAdapter.listStores(query, page, pageSize);
+    return storeSpaceHttpAdapter.listStores(query, page, pageSize, cityFilter);
   },
 
   async getStore(id: number): Promise<StoreDetail> {
@@ -2432,6 +2439,14 @@ function countAreas(areas: StoreArea[]) {
 function toSummary(store: StoreDetail): StoreSummary {
   const { areas: _areas, fileName: _fileName, previewUrl: _previewUrl, ...summary } = store;
   return { ...summary };
+}
+
+function storeCityName(city: string) {
+  return city.trim() || "未设置";
+}
+
+function uniqueSorted(values: string[]) {
+  return Array.from(new Set(values.map(storeCityName))).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
 }
 
 function normalizeApiMode(value: string | undefined): ApiMode {

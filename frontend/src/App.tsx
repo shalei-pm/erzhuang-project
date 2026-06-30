@@ -54,6 +54,7 @@ function AdminApp() {
   const [accounts, setAccounts] = useState<EzvizAccount[]>([]);
   const [query, setQuery] = useState("");
   const [cityFilter, setCityFilter] = useState("all");
+  const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [listSummary, setListSummary] = useState<StoreListSummary>(EMPTY_STORE_LIST_SUMMARY);
@@ -81,15 +82,14 @@ function AdminApp() {
   }
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const cityOptions = uniqueCities(stores);
-  const visibleStores = cityFilter === "all" ? stores : stores.filter((store) => storeCity(store) === cityFilter);
-  const visibleSummary = cityFilter === "all" ? listSummary : summarizeStores(visibleStores);
-  const visibleFirstIndex = visibleStores.length === 0 ? 0 : 1;
-  const visibleLastIndex = visibleStores.length;
+  const visibleStores = stores;
+  const visibleSummary = listSummary;
+  const visibleFirstIndex = visibleStores.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const visibleLastIndex = visibleStores.length === 0 ? 0 : visibleFirstIndex + visibleStores.length - 1;
 
   useEffect(() => {
-    void loadStores(query, page);
-  }, [page, query]);
+    void loadStores(query, cityFilter, page);
+  }, [page, query, cityFilter]);
 
   useEffect(() => {
     activeStoreRef.current = activeStore;
@@ -106,21 +106,23 @@ function AdminApp() {
     void loadAISettings();
   }, []);
 
-  async function loadStores(nextQuery = query, nextPage = page) {
+  async function loadStores(nextQuery = query, nextCityFilter = cityFilter, nextPage = page) {
     const requestId = listRequestIdRef.current + 1;
     listRequestIdRef.current = requestId;
     setLoading(true);
     try {
-      const response = await storeSpaceApi.listStores(nextQuery.trim(), nextPage, PAGE_SIZE);
+      const response = await storeSpaceApi.listStores(nextQuery.trim(), nextPage, PAGE_SIZE, nextCityFilter);
       if (listRequestIdRef.current !== requestId) return;
       setStores(response.items);
       setTotal(response.total);
       setListSummary(response.summary);
+      setCityOptions(response.cities);
     } catch (error) {
       if (listRequestIdRef.current !== requestId) return;
       setStores([]);
       setTotal(0);
       setListSummary(EMPTY_STORE_LIST_SUMMARY);
+      setCityOptions([]);
       setToast(errorMessage(error, "门店列表加载失败，请稍后重试。"));
     } finally {
       if (listRequestIdRef.current === requestId) {
@@ -132,6 +134,11 @@ function AdminApp() {
   function handleSearch(value: string) {
     setQuery(value);
     setCityFilter("all");
+    setPage(1);
+  }
+
+  function handleCityFilter(value: string) {
+    setCityFilter(value);
     setPage(1);
   }
 
@@ -393,7 +400,7 @@ function AdminApp() {
           </div>
         </div>
         <div className="city-filter" role="radiogroup" aria-label="城市筛选">
-          <button type="button" role="radio" aria-checked={cityFilter === "all"} className={cityFilter === "all" ? "is-active" : ""} onClick={() => setCityFilter("all")}>
+          <button type="button" role="radio" aria-checked={cityFilter === "all"} className={cityFilter === "all" ? "is-active" : ""} onClick={() => handleCityFilter("all")}>
             全部
           </button>
           {cityOptions.map((city) => (
@@ -403,7 +410,7 @@ function AdminApp() {
               aria-checked={cityFilter === city}
               className={cityFilter === city ? "is-active" : ""}
               key={city}
-              onClick={() => setCityFilter(city)}
+              onClick={() => handleCityFilter(city)}
             >
               {city}
             </button>
@@ -416,7 +423,7 @@ function AdminApp() {
       <StoreList
         stores={visibleStores}
         loading={loading}
-        page={cityFilter === "all" ? page : 1}
+        page={page}
         pageSize={PAGE_SIZE}
         deletingStoreIds={deletingStoreIds}
         openingStoreIds={openingStoreIds}
@@ -554,26 +561,6 @@ function normalizeBasePrefix(value: string) {
   const normalized = value.startsWith("/") ? value : `/${value}`;
   const firstSegment = normalized.split("/").filter(Boolean)[0];
   return firstSegment ? `/${firstSegment}` : "";
-}
-
-function storeCity(store: StoreSummary) {
-  return store.city || "未设置";
-}
-
-function uniqueCities(stores: StoreSummary[]) {
-  return Array.from(new Set(stores.map(storeCity))).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
-}
-
-function summarizeStores(stores: StoreSummary[]) {
-  return stores.reduce(
-    (summary, store) => ({
-      storeCount: summary.storeCount + 1,
-      consultationCount: summary.consultationCount + (store.consultationCount ?? 0),
-      treatmentCount: summary.treatmentCount + (store.treatmentCount ?? 0),
-      beautyCount: summary.beautyCount + (store.beautyCount ?? 0),
-    }),
-    { storeCount: 0, consultationCount: 0, treatmentCount: 0, beautyCount: 0 },
-  );
 }
 
 function removeIdFromSet(current: Set<number>, id: number) {

@@ -626,6 +626,49 @@ func TestListStoresSummaryCountsAllFilteredStoresAcrossPages(t *testing.T) {
 	}
 }
 
+func TestListStoresFiltersCityBeforePagination(t *testing.T) {
+	repo := NewMemoryStore()
+	service := NewService(repo)
+	handler := newTestHandlerWithService(service)
+	for _, input := range []CreateStoreInput{
+		{City: "北京", Name: "北京一号店", DesignPlanUploadID: "upload_123"},
+		{City: "上海", Name: "上海一号店", DesignPlanUploadID: "upload_123"},
+		{City: "上海", Name: "上海二号店", DesignPlanUploadID: "upload_123"},
+	} {
+		if _, err := service.CreateStore(context.Background(), input); err != nil {
+			t.Fatalf("create store %s: %v", input.Name, err)
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores?page=1&page_size=1&city=%E4%B8%8A%E6%B5%B7", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, response.Code, response.Body.String())
+	}
+	var result StoreListResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode list stores: %v", err)
+	}
+	if result.Total != 2 || result.Summary.StoreCount != 2 {
+		t.Fatalf("expected all Shanghai stores to be counted before pagination, total=%d summary=%#v", result.Total, result.Summary)
+	}
+	cityOptions := map[string]bool{}
+	for _, city := range result.Cities {
+		cityOptions[city] = true
+	}
+	if !cityOptions["北京"] || !cityOptions["上海"] {
+		t.Fatalf("expected city options to include all cities for the current search before city filter, got %q", strings.Join(result.Cities, ","))
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one paged item, got %d", len(result.Items))
+	}
+	if result.Items[0].City != "上海" {
+		t.Fatalf("expected paged item city 上海, got %q", result.Items[0].City)
+	}
+}
+
 func listStoresForTest(t *testing.T, handler http.Handler) StoreListResult {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores?page=1&page_size=20", nil)
