@@ -4,7 +4,7 @@
 
 **Goal:** Add store short names and channel bed split metadata while keeping existing data compatible and preparing MySQL/image/OSD follow-up work.
 
-**Architecture:** Extend the existing store-space data model without changing existing enum values. Keep `beauty` as the internal area type and only change display labels to `美容室`; add `short_name` on stores and `bed_label` on video channels with empty-string defaults. Update backend schema/repositories/API first, then frontend forms/display/export/H5, then MySQL DDL and documentation.
+**Architecture:** Extend the existing store-space data model without changing existing enum values. Keep `beauty` as the internal area type and only change display labels to `美容室`; add `short_name` on stores and `bed_label` on video channels with empty-string defaults. Treat `areaType + areaNumber + bedLabel` as a temporary local channel mapping target so it can later be replaced by a company business-system region/bed catalog. Update backend schema/repositories/API first, then frontend forms/display/export/H5, then MySQL DDL and documentation.
 
 **Tech Stack:** Go backend with PostgreSQL repository and memory store, Vite React TypeScript frontend, Supabase/local asset storage, MySQL DDL handoff file.
 
@@ -25,6 +25,7 @@
 - `frontend/src/components/StoreList.tsx` — rename `生美` table header to `美容室`.
 - `frontend/src/components/AreaCardList.tsx` — rename area option label to `美容室`.
 - `frontend/src/components/VideoChannelTab.tsx` — add bed split input and display, plus label changes.
+- `frontend/src/domain/channel-mapping-target.ts` — create display/visibility helpers for the temporary local mapping target.
 - `frontend/src/domain/h5-channel-display.ts` — include bed label in H5 camera titles.
 - `frontend/src/domain/h5-types.ts` — add `bed_label` to H5 channel type.
 - `frontend/src/api.test.ts` — add frontend display helper tests.
@@ -545,6 +546,7 @@ Expected: PASS.
 
 **Files:**
 - Modify: `frontend/src/api.ts`
+- Create: `frontend/src/domain/channel-mapping-target.ts`
 - Modify: `frontend/src/components/VideoChannelTab.tsx`
 - Modify: `frontend/src/domain/h5-channel-display.ts`
 - Modify: `frontend/src/domain/h5-types.ts`
@@ -578,12 +580,44 @@ bedLabel: isBusiness ? String(patch.bedLabel ?? "").trim() : "",
 
 - [ ] **Step 2: Add bed input to channel confirmation UI**
 
-In `VideoChannelTab.tsx`, wherever area type/number are edited, add a field visible when:
+Create `frontend/src/domain/channel-mapping-target.ts`:
 
 ```ts
-function shouldShowBedLabel(areaType: AreaType | "") {
+import type { AreaType } from "../api";
+
+export type LocalChannelMappingTarget = {
+  areaType: AreaType | "";
+  areaNumber: string;
+  bedLabel?: string;
+};
+
+export function shouldShowBedLabel(areaType: AreaType | "") {
   return areaType === "treatment" || areaType === "vip_treatment" || areaType === "beauty";
 }
+
+export function areaTypeDisplayLabel(areaType: AreaType | "") {
+  const labels: Record<AreaType, string> = {
+    treatment: "治疗室",
+    vip_treatment: "VIP治疗室",
+    consultation: "面诊室",
+    beauty: "美容室",
+  };
+  return areaType ? labels[areaType] : "";
+}
+
+export function channelMappingTargetTitle(target: LocalChannelMappingTarget) {
+  const label = areaTypeDisplayLabel(target.areaType);
+  const number = String(target.areaNumber ?? "").trim();
+  const bed = String(target.bedLabel ?? "").trim();
+  const base = `${label}${number ? `${number}号` : ""}`;
+  return bed ? `${base.replace(/号$/, "")}-${bed}` : base;
+}
+```
+
+In `VideoChannelTab.tsx`, wherever area type/number are edited, add a field visible when calling `shouldShowBedLabel(draft.areaType ?? "")`:
+
+```ts
+shouldShowBedLabel(draft.areaType ?? "")
 ```
 
 Input:
@@ -620,13 +654,14 @@ Update call sites to pass draft bed label.
 
 - [ ] **Step 4: Update display helpers**
 
-Add:
+Replace local string concatenation with `channelMappingTargetTitle`:
 
 ```ts
-function channelAreaDisplayTitle(areaType: AreaType | "", areaNumber: string, bedLabel: string) {
-  const base = areaDisplayNameFromParts(areaType, areaNumber).replace(/\s+/g, "");
-  return bedLabel.trim() ? `${base}-${bedLabel.trim()}` : base;
-}
+channelMappingTargetTitle({
+  areaType: channel.areaType,
+  areaNumber: channel.areaNumber,
+  bedLabel: channel.bedLabel,
+})
 ```
 
 Use this in channel table display where business area name is shown.
@@ -649,6 +684,8 @@ if (bedLabel) return `${baseTitle}-${bedLabel}`;
 Add test in `frontend/src/api.test.ts`:
 
 ```ts
+expect(channelMappingTargetTitle({ areaType: "beauty", areaNumber: "3", bedLabel: "2" })).toBe("美容室3-2");
+
 expect(
   h5ChannelDisplayText({
     id: 1,
@@ -706,6 +743,7 @@ Add note:
 - `tb_stores.short_name`：机构简称，空字符串兼容老数据。
 - `tb_video_channels.bed_label`：床位拆分，空字符串兼容老数据。
 - `beauty` 仍是内部枚举值，前端展示为“美容室”，迁移时不要改成中文枚举。
+- `area_type + area_number + bed_label` 是当前隔离阶段的本地区域/床位映射目标；未来接公司业务系统目录时，应优先新增外部目录 ID 字段，不要把中文展示文案写入这些字段。
 ```
 
 - [ ] **Step 3: Run diff check**

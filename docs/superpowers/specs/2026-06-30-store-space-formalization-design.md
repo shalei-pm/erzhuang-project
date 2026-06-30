@@ -34,6 +34,7 @@ Out of scope for this pass:
 - Full image migration away from Supabase Storage.
 - OSD refresh implementation.
 - A separate normalized bed entity/table.
+- Direct integration with the company business system's room/bed dictionary.
 
 ## Data Model Decisions
 
@@ -67,6 +68,31 @@ Compatibility rule:
   - `治疗室6-1`
   - `VIP治疗室2-1`
   - `美容室3-2`
+
+### Future Region/Bed Catalog Boundary
+
+The long-term model is not “free text channel fields”. The long-term model is:
+
+```text
+video channel -> business region/bed target
+```
+
+In the formal company system, the region type, room number, and bed split should come from a business-system catalog or database table. This pass keeps manual fields only as a temporary isolated data source.
+
+To make replacement easier later:
+
+- Treat `area_type + area_number + bed_label` as a local `ChannelMappingTarget`.
+- Keep display/validation logic behind helper functions instead of duplicating string concatenation in each component.
+- Do not bake Chinese labels into stored values.
+- Keep `bed_label` separate from `area_note`.
+- When the external catalog is ready, replace the manual input source with a catalog selector while keeping the channel confirmation payload conceptually the same: “this channel maps to this target”.
+
+Likely future fields, not implemented in this pass:
+
+- `business_region_id`
+- `business_bed_id`
+- `business_catalog_source`
+- `business_catalog_synced_at`
 
 ### Beauty Wording
 
@@ -120,6 +146,7 @@ This avoids blocking old data and avoids forcing the system to know total bed co
 - Preserve bed label when scanning refreshes existing confirmed channels.
 - Clear bed label when a channel is unlocked or changed to non-business if that matches current unlock behavior.
 - Include bed label in display helpers and channel mapping export.
+- Add a small frontend domain helper for channel mapping target display so future external catalog values can be swapped in one place.
 
 ### H5 Monitor
 
