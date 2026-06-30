@@ -3715,3 +3715,17 @@ git pull --ff-only
   - 新增 `TestMiniMaxRecognizerFallsBackFromDoctorOfficeExplanation`，覆盖本次 `FW4529752` 通道 `16` 同类返回。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/channelai -run 'TestMiniMaxRecognizerFallsBackFrom(WeakCurrentRoom|DoctorOffice)Explanation' -count=1` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+
+## 2026-06-30 MiniMax 医生办公室解释文本兜底 2.22.9 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`686675b fix: tolerate doctor office minimax reasoning output`。
+- 推送结果：
+  - GitLab remote 已从 `611d29b` 更新到 `686675b`。
+  - 使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 无缓存请求首页已更新为 `/erzhuang-project/assets/index-Bca1GPCX.js`。
+  - 线上前端 bundle 已包含 `2.22.9`。
+- 备注：
+  - 本次未发布韩国服务器。
