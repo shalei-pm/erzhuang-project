@@ -12,7 +12,13 @@ import {
 import { areaTypeLabels, isAreaNumberOptional } from "../domain/areas";
 import { channelListFilters, filterAndSortChannels, type ChannelListFilter } from "../domain/channel-filters";
 import { requiresBedSplit } from "../domain/channel-mapping-target";
-import { channelRecognitionMessage, recorderRecognitionToast } from "../domain/channel-recognition";
+import {
+  channelNetworkErrorMessage,
+  channelRecognitionMessage,
+  isChannelRecognitionFailed,
+  recorderRecognitionRunToast,
+  shouldBatchRecognizeChannel,
+} from "../domain/channel-recognition";
 import { channelSceneLabel } from "../domain/channel-labels";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
 import { fallbackProbeChannelNumbers, fallbackProbeMaxChannelNo, shouldStopFallbackProbe } from "../domain/fallback-probe";
@@ -126,9 +132,11 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   }
 
   async function recognizeRecorder(recorder: VideoRecorder) {
-    const targetChannels = recorder.channels.filter((channel) => channel.status !== "inactive" && !isConfirmedChannel(channel));
+    const targetChannels = recorder.channels
+      .filter((channel) => !isConfirmedChannel(channel) && shouldBatchRecognizeChannel(channel))
+      .sort((left, right) => left.channelNo - right.channelNo);
     if (targetChannels.length === 0) {
-      onToast("暂无可识别通道，已确认通道需先点击编辑后再重新识别。");
+      onToast(`暂无需要识别的通道，${recorder.deviceCode} 已识别成功的通道不会重复消耗模型。`);
       return;
     }
     setWorkingRecorderId(recorder.id);
@@ -140,21 +148,49 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       targetChannels.forEach((channel) => next.add(channel.id));
       return next;
     });
+    const summary = {
+      total: targetChannels.length,
+      completed: 0,
+      failed: 0,
+      interrupted: 0,
+      firstError: "",
+    };
     try {
-      const updatedChannels: VideoChannel[] = [];
       for (let index = 0; index < targetChannels.length; index++) {
         const channel = targetChannels[index];
-        const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
-        updatedChannels.push(updatedChannel);
-        onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
-        setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
-        setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
-        setRecognizingChannelIds((current) => {
-          const next = new Set(current);
-          next.delete(channel.id);
-          return next;
-        });
-        setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: index + 1, total: targetChannels.length } }));
+        try {
+          const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
+          if (isChannelRecognitionFailed(updatedChannel)) {
+            summary.failed += 1;
+            const message = channelRecognitionMessage(updatedChannel) || "识别失败，请稍后重试。";
+            if (!summary.firstError) {
+              summary.firstError = `通道 ${channel.channelNo}：${message}`;
+            }
+          } else {
+            summary.completed += 1;
+          }
+          onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
+          setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
+          setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
+        } catch (error) {
+          const networkMessage = channelNetworkErrorMessage(error);
+          const message = networkMessage || channelErrorMessage(error, "截图识别失败，请稍后重试。");
+          if (networkMessage) {
+            summary.interrupted += 1;
+          } else {
+            summary.failed += 1;
+          }
+          if (!summary.firstError) {
+            summary.firstError = `通道 ${channel.channelNo}：${message}`;
+          }
+        } finally {
+          setRecognizingChannelIds((current) => {
+            const next = new Set(current);
+            next.delete(channel.id);
+            return next;
+          });
+          setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: index + 1, total: targetChannels.length } }));
+        }
       }
       setCompletedRecorderProgressId(recorder.id);
       if (completionTimerRef.current !== null) {
@@ -164,10 +200,10 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         setCompletedRecorderProgressId(null);
         completionTimerRef.current = null;
       }, 900);
-      onToast(recorderRecognitionToast(recorder.deviceCode, updatedChannels));
-    } catch (error) {
-      const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
-      setChannelError(`录像机 ${recorder.deviceCode} 识别失败：${message}`);
+      const message = recorderRecognitionRunToast(recorder.deviceCode, summary);
+      if (summary.failed > 0 || summary.interrupted > 0) {
+        setChannelError(message);
+      }
       onToast(message);
     } finally {
       setWorkingRecorderId(null);
@@ -1089,6 +1125,10 @@ function channelStatusLabel(status: VideoChannel["status"]) {
 }
 
 function channelErrorMessage(error: unknown, fallback: string) {
+  const networkMessage = channelNetworkErrorMessage(error);
+  if (networkMessage) {
+    return networkMessage;
+  }
   if (error instanceof ApiError && error.status === 404) {
     return "通道映射接口未就绪或资源不存在，请确认后端服务状态。";
   }

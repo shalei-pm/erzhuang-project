@@ -3586,3 +3586,26 @@ git pull --ff-only
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `cd frontend && npm test` 通过，18 tests passed。
   - `cd frontend && npm run build` 通过。
+
+## 2026-06-30 通道批量识别抗中断优化 2.22.6 开发记录
+
+- 背景：
+  - 用户反馈 `新氧青春诊所(上海正大广场店)`，业务机构 ID `10011`，录像机 `FK8984413` 页面报 `识别失败：Failed to fetch`。
+  - 线上只读排查确认系统内部 store id 为 `12`，recorder id 为 `14`，该录像机有 `43` 个有效通道。
+  - `2.22.5` 已修复 MiniMax 相对快照 URL 问题；本次线上数据中通道 `1-20` 已在 `2026-06-30 15:29-15:35` 成功识别为 `provider=minimax`，通道 `21-44` 仍停留在旧失败记录。
+- 根因判断：
+  - MiniMax 单通道识别耗时普遍约 `12-27s`，大量通道连续识别时，某一路可能被浏览器/公司网关/Ingress 中断。
+  - 前端原逻辑在任一通道 `fetch` 抛错后直接中断整台录像机识别，导致后续通道不再继续。
+  - 前端还会把已成功识别但待人工确认的通道重新加入批量识别，造成重复消耗模型和额外超时风险。
+- 实现：
+  - 新增 `shouldBatchRecognizeChannel`，批量识别只处理未识别、识别失败或半截状态的未确认通道；已成功识别待确认通道不重复跑。
+  - 录像机级识别队列改为单通道容错：某一路请求失败、网络中断或模型识别失败，只记录该通道结果并继续后续通道。
+  - `TypeError: Failed to fetch` 统一转成中文提示：`识别请求中断，可能是单路识别耗时过长或公司网关超时，已继续识别后续通道。`
+  - 识别完成 toast/页面错误区展示本轮总数、成功数、失败数、中断数和首个失败通道，方便运营和 Codex 对齐问题。
+  - 后端 `recognizeChannel` 增加请求上下文取消日志：`storespace: channel-recognize interrupted ... error="context canceled"`，便于后续让运维按 recorder/channel/time 查 K8s 日志。
+- 验证：
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-channel-test src/domain/channel-recognition.ts src/domain/channel-recognition.test.ts && node /tmp/erzhuang-channel-test/channel-recognition.test.js` 通过。
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - 本地 Vite dev server 可启动；Playwright 浏览器二进制未安装，未做截图式浏览器验收。

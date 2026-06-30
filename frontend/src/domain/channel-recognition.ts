@@ -1,4 +1,5 @@
 type ChannelRecognitionLike = {
+  status?: string;
   recognitionResult?: unknown;
 };
 
@@ -8,6 +9,14 @@ type ChannelRecognitionResult = {
   confidence?: string;
   recognition_ms?: number;
   total_ms?: number;
+};
+
+export type ChannelRecognitionRunSummary = {
+  total: number;
+  completed: number;
+  failed: number;
+  interrupted: number;
+  firstError?: string;
 };
 
 export function channelRecognitionMessage(channel: ChannelRecognitionLike) {
@@ -24,6 +33,39 @@ export function channelRecognitionMessage(channel: ChannelRecognitionLike) {
     return channelRecognitionMessageFromObject(result);
   }
   return "";
+}
+
+export function shouldBatchRecognizeChannel(channel: ChannelRecognitionLike) {
+  if (channel.status === "inactive") return false;
+  const result = parseRecognitionResult(channel.recognitionResult);
+  if (!result) return true;
+  if (result.status === "recognized") return false;
+  return true;
+}
+
+export function isChannelRecognitionFailed(channel: ChannelRecognitionLike) {
+  if (channel.status === "recognition_failed") return true;
+  const result = parseRecognitionResult(channel.recognitionResult);
+  return result?.status === "capture_failed" || result?.status === "recognition_failed";
+}
+
+export function channelNetworkErrorMessage(error: unknown) {
+  if (!isNetworkFetchError(error)) return "";
+  return "识别请求中断，可能是单路识别耗时过长或公司网关超时，已继续识别后续通道。";
+}
+
+export function recorderRecognitionRunToast(deviceCode: string, summary: ChannelRecognitionRunSummary) {
+  if (summary.total === 0) {
+    return `暂无需要识别的通道，${deviceCode} 已识别成功的通道不会重复消耗模型。`;
+  }
+  if (summary.failed === 0 && summary.interrupted === 0) {
+    return `已完成 ${deviceCode} 的通道识别，共 ${summary.completed}/${summary.total} 个。`;
+  }
+  const parts = [`${deviceCode} 识别完成 ${summary.completed}/${summary.total}`];
+  if (summary.failed > 0) parts.push(`失败 ${summary.failed} 个`);
+  if (summary.interrupted > 0) parts.push(`请求中断 ${summary.interrupted} 个`);
+  if (summary.firstError) parts.push(summary.firstError);
+  return parts.join("，");
 }
 
 export function recorderRecognitionToast(deviceCode: string, channels: ChannelRecognitionLike[]) {
@@ -67,7 +109,7 @@ function channelRecognitionFailureMessage(channel: ChannelRecognitionLike) {
   return result.message || channelRecognitionMessageFromObject(result);
 }
 
-function parseRecognitionResult(result: unknown): ChannelRecognitionResult | null {
+export function parseRecognitionResult(result: unknown): ChannelRecognitionResult | null {
   if (!result) return null;
   if (typeof result === "string") {
     try {
@@ -80,6 +122,11 @@ function parseRecognitionResult(result: unknown): ChannelRecognitionResult | nul
     return result as ChannelRecognitionResult;
   }
   return null;
+}
+
+function isNetworkFetchError(error: unknown) {
+  if (!(error instanceof TypeError)) return false;
+  return error.message.trim().toLowerCase() === "failed to fetch";
 }
 
 function recognitionTimingLabel(result: { recognition_ms?: number; total_ms?: number }) {

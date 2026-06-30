@@ -543,6 +543,11 @@ func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, re
 	startedAt := time.Now()
 	channelStarted := time.Now()
 	captureStarted := time.Now()
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			log.Printf("storespace: channel-recognize interrupted recorder_id=%d channel_id=%d device=%s channel_no=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, elapsedMilliseconds(startedAt), safeErrorText(err))
+		}
+	}()
 	log.Printf("storespace: channel-recognize started recorder_id=%d channel_id=%d device=%s channel_no=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo)
 	snapshot, err := s.scanner.CaptureChannel(ctx, account, recorder, channel)
 	captureMS := elapsedMilliseconds(captureStarted)
