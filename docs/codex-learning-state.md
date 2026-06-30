@@ -3661,3 +3661,24 @@ git pull --ff-only
 - 备注：
   - 本次未发布韩国服务器。
   - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
+
+## 2026-06-30 MiniMax 通道识别 JSON 解析容错 2.22.8 开发记录
+
+- 背景：
+  - 用户反馈 `新氧青春诊所(上海正大广场店)` 录像机 `FK8984413` 识别完成 `8/10`，剩余通道 `39` 报错：
+    `parse minimax recognition json: invalid character '<' looking for beginning of value: <think> ... 弱电室 ...`。
+  - 该报错说明抓图和 MiniMax HTTP 请求已经成功，失败点在模型返回内容解析：模型没有严格按 JSON schema 只输出 JSON，而是混入了 `<think>` 分析文字。
+- 根因判断：
+  - MiniMax 偶发返回“思考/解释文本 + JSON”，或极端情况下只返回解释文本。
+  - 旧解析器只处理纯 JSON、Markdown fenced JSON、以及第一个合法 `{...}`；如果分析文本里先出现了非法花括号片段，或完全没有 JSON，就会把全文交给 `json.Unmarshal`，触发 `<think>` 解析失败。
+  - OpenAI/GPT 路径也存在类似风险，之前只暴露在 MiniMax 上。
+- 实现：
+  - 通道识别 JSON 提取器改为扫描整段文本中的每一个 `{` 起点，跳过分析文字里的非法花括号，直到找到第一个可解析 JSON 对象。
+  - OpenAI/GPT 通道识别路径复用同一套模型 JSON 提取器，兼容“解释文本 + JSON”输出。
+  - MiniMax 如果完全没有返回 JSON，但文本明确包含“弱电室 / 弱电间 / 机房 / machine room / weak current room”，则生成低置信度、需人工复核的 `machine_room` 结果，避免该类非业务区域卡住整批识别。
+- 验证：
+  - 新增 `TestExtractModelJSONTextSkipsInvalidBraceBeforeResult`，覆盖分析文本里先出现非法 `{...}` 后再输出合法 JSON。
+  - 新增 `TestMiniMaxRecognizerFallsBackFromWeakCurrentRoomExplanation`，覆盖 MiniMax 只返回弱电室解释文本时的低置信度兜底。
+  - 新增 `TestOpenAIRecognizerParsesThinkWrappedJSON`，覆盖 GPT/OpenAI 兼容“think 文本 + JSON”。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/channelai -count=1` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。

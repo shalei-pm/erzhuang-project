@@ -190,6 +190,52 @@ func TestExtractModelJSONTextSkipsThinkPrefix(t *testing.T) {
 	}
 }
 
+func TestExtractModelJSONTextSkipsInvalidBraceBeforeResult(t *testing.T) {
+	text := `<think>The image has text {weak current room}, but this is analysis, not JSON.
+The final answer is below.</think>
+{"scene_type":"machine_room","area_type":"","area_number":"弱电室","card_text":"","decision_source":"scene","confidence":"high","needs_review":false,"raw_notes":"画面右下角文字为弱电室"}`
+
+	var result Result
+	if err := json.Unmarshal([]byte(extractModelJSONText(text)), &result); err != nil {
+		t.Fatalf("extract model json: %v", err)
+	}
+	if result.SceneType != "machine_room" || result.AreaNumber != "弱电室" {
+		t.Fatalf("unexpected result %#v", result)
+	}
+}
+
+func TestMiniMaxRecognizerFallsBackFromWeakCurrentRoomExplanation(t *testing.T) {
+	recognizer := &MiniMaxRecognizer{
+		apiKey:  "test-key",
+		baseURL: "https://api.minimaxi.com/v1",
+		model:   "MiniMax-M3",
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{
+					"choices": [{
+						"message": {
+							"content": "<think>The image shows a surveillance screenshot. In the bottom right, there is text that reads \"弱电室\" which means weak current room or machine room. This is not a business area like treatment, consultation, or beauty.</think>"
+						}
+					}]
+				}`)),
+			}, nil
+		})},
+	}
+
+	result, err := recognizer.Recognize(context.Background(), "https://example.test/channel.jpg")
+	if err != nil {
+		t.Fatalf("recognize: %v", err)
+	}
+	if result.SceneType != "machine_room" || result.AreaNumber != "弱电室" {
+		t.Fatalf("unexpected result %#v", result)
+	}
+	if !result.NeedsReview || result.Confidence != "low" {
+		t.Fatalf("expected fallback result to require review, got %#v", result)
+	}
+}
+
 func TestParseCommandRecognitionOutputAcceptsWrappedResult(t *testing.T) {
 	result, err := parseCommandRecognitionOutput([]byte(`{
 		"result": {
@@ -260,6 +306,29 @@ func TestOpenAIRecognizerParsesMarkdownWrappedJSON(t *testing.T) {
 		t.Fatalf("recognize: %v", err)
 	}
 	if result.SceneType != "machine_room" || result.AreaNumber != "机房" {
+		t.Fatalf("unexpected result %#v", result)
+	}
+}
+
+func TestOpenAIRecognizerParsesThinkWrappedJSON(t *testing.T) {
+	recognizer := &OpenAIRecognizer{
+		apiKey:  "test-key",
+		baseURL: "https://example.test/v1",
+		model:   "gpt-5.5",
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader("{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"<think>analysis {not json}</think>\\n{\\\"scene_type\\\":\\\"machine_room\\\",\\\"area_type\\\":\\\"\\\",\\\"area_number\\\":\\\"弱电室\\\",\\\"card_text\\\":\\\"\\\",\\\"decision_source\\\":\\\"scene\\\",\\\"confidence\\\":\\\"high\\\",\\\"needs_review\\\":false,\\\"raw_notes\\\":\\\"画面为弱电室\\\"}\"}]}]}")),
+			}, nil
+		})},
+	}
+
+	result, err := recognizer.Recognize(context.Background(), "https://example.test/channel.jpg")
+	if err != nil {
+		t.Fatalf("recognize: %v", err)
+	}
+	if result.SceneType != "machine_room" || result.AreaNumber != "弱电室" {
 		t.Fatalf("unexpected result %#v", result)
 	}
 }

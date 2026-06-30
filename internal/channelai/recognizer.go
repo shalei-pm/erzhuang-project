@@ -215,7 +215,7 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, imageURL string) (Resu
 		return Result{}, errors.New("vision recognition returned empty output")
 	}
 	var output Result
-	if err := json.Unmarshal([]byte(extractJSONText(text)), &output); err != nil {
+	if err := json.Unmarshal([]byte(extractModelJSONText(text)), &output); err != nil {
 		return Result{}, fmt.Errorf("parse channel recognition json: %w", err)
 	}
 	output.RawResult = json.RawMessage(responseBody)

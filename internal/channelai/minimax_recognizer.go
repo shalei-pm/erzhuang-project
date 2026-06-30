@@ -103,7 +103,11 @@ func (r *MiniMaxRecognizer) Recognize(ctx context.Context, imageURL string) (Res
 	}
 	var output Result
 	if err := json.Unmarshal([]byte(extractModelJSONText(text)), &output); err != nil {
-		return Result{}, fmt.Errorf("parse minimax recognition json: %w: %s", err, compactModelText(text))
+		fallback, ok := fallbackMiniMaxTextResult(text)
+		if !ok {
+			return Result{}, fmt.Errorf("parse minimax recognition json: %w: %s", err, compactModelText(text))
+		}
+		output = fallback
 	}
 	output.RawResult = json.RawMessage(responseBody)
 	output.Provider = "minimax"
@@ -185,46 +189,78 @@ func extractModelJSONText(value string) string {
 
 func firstJSONObject(value string) (string, bool) {
 	text := strings.TrimSpace(value)
-	start := strings.Index(text, "{")
-	if start < 0 {
-		return "", false
-	}
-	depth := 0
-	inString := false
-	escaped := false
-	for index := start; index < len(text); index++ {
-		character := text[index]
-		if inString {
-			if escaped {
-				escaped = false
-				continue
-			}
-			if character == '\\' {
-				escaped = true
-				continue
-			}
-			if character == '"' {
-				inString = false
-			}
-			continue
+	offset := 0
+	for offset < len(text) {
+		relativeStart := strings.Index(text[offset:], "{")
+		if relativeStart < 0 {
+			return "", false
 		}
-		switch character {
-		case '"':
-			inString = true
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				candidate := text[start : index+1]
-				if json.Valid([]byte(candidate)) {
-					return candidate, true
+		start := offset + relativeStart
+		depth := 0
+		inString := false
+		escaped := false
+	scanCandidate:
+		for index := start; index < len(text); index++ {
+			character := text[index]
+			if inString {
+				if escaped {
+					escaped = false
+					continue
 				}
-				return "", false
+				if character == '\\' {
+					escaped = true
+					continue
+				}
+				if character == '"' {
+					inString = false
+				}
+				continue
+			}
+			switch character {
+			case '"':
+				inString = true
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					candidate := text[start : index+1]
+					if json.Valid([]byte(candidate)) {
+						return candidate, true
+					}
+					break scanCandidate
+				}
 			}
 		}
+		offset = start + 1
 	}
 	return "", false
+}
+
+func fallbackMiniMaxTextResult(value string) (Result, bool) {
+	text := strings.ToLower(strings.TrimSpace(value))
+	if text == "" {
+		return Result{}, false
+	}
+	for _, marker := range []string{"弱电室", "弱电间", "机房", "machine room", "weak current room"} {
+		if strings.Contains(text, marker) {
+			areaNumber := "机房"
+			if strings.Contains(value, "弱电室") {
+				areaNumber = "弱电室"
+			} else if strings.Contains(value, "弱电间") {
+				areaNumber = "弱电间"
+			}
+			return Result{
+				SceneType:      "machine_room",
+				AreaNumber:     areaNumber,
+				DecisionSource: "scene",
+				Confidence:     "low",
+				NeedsReview:    true,
+				RawNotes:       "模型未返回合法 JSON，已根据文本描述识别为非业务区域，需人工复核。",
+			}, true
+		}
+	}
+	return Result{}, false
 }
 
 func minimaxPrompt(base string) string {
