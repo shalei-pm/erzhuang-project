@@ -906,7 +906,11 @@ func TestProbeRecognizeChannelUsesStoredSnapshotForRecognition(t *testing.T) {
 			1: "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
 		},
 	}, recognizer)
-	service.UseSnapshotStore(staticRemoteSnapshotStore{localURL: "/api/store-space/channel-snapshots/stored.jpg"})
+	service.UseSnapshotStore(staticRemoteSnapshotStore{
+		localURL:    "/api/store-space/channel-snapshots/00000000000000000000000000000001.jpg",
+		contentType: "image/jpeg",
+		files:       map[string][]byte{"00000000000000000000000000000001.jpg": []byte("jpg-data")},
+	})
 	store, err := service.CreateStore(context.Background(), CreateStoreInput{
 		City: "上海",
 		Name: "上海测试店",
@@ -922,8 +926,52 @@ func TestProbeRecognizeChannelUsesStoredSnapshotForRecognition(t *testing.T) {
 		t.Fatalf("probe recognize channel: %v", err)
 	}
 
-	if recognizer.imageURL != "/api/store-space/channel-snapshots/stored.jpg" {
-		t.Fatalf("recognizer image url = %q, want stored snapshot URL", recognizer.imageURL)
+	if !strings.HasPrefix(recognizer.imageURL, "data:image/jpeg;base64,") {
+		t.Fatalf("recognizer image url = %q, want stored snapshot data URL", recognizer.imageURL)
+	}
+}
+
+func TestProbeRecognizeChannelConvertsStoredSnapshotToDataURLForRecognition(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华东"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	recognizer := &recordingChannelRecognizer{
+		result: ChannelRecognitionResult{
+			SceneType:  string(SceneTypeTreatment),
+			AreaType:   string(AreaTypeTreatment),
+			AreaNumber: "3",
+			Confidence: "high",
+		},
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, fakeChannelScanner{
+		snapshots: map[int]string{
+			1: "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
+		},
+	}, recognizer)
+	service.UseSnapshotStore(staticRemoteSnapshotStore{
+		localURL:    "/api/store-space/channel-snapshots/00000000000000000000000000000001.jpg",
+		contentType: "image/jpeg",
+		files:       map[string][]byte{"00000000000000000000000000000001.jpg": []byte("jpg-data")},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "上海",
+		Name: "上海测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "FK8984413"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	if _, err := service.ProbeRecognizeChannel(context.Background(), store.Recorders[0].ID, ProbeRecognizeChannelInput{ChannelNo: 43}); err != nil {
+		t.Fatalf("probe recognize channel: %v", err)
+	}
+
+	if !strings.HasPrefix(recognizer.imageURL, "data:image/jpeg;base64,") {
+		t.Fatalf("recognizer image url = %q, want data URL", recognizer.imageURL)
 	}
 }
 
@@ -1043,7 +1091,11 @@ func TestRecognizeRecorderChannelsUsesStoredSnapshotForRecognition(t *testing.T)
 			1: "https://opencapture.ys7.com/batch.jpg?Expires=1",
 		},
 	}, recognizer)
-	service.UseSnapshotStore(staticRemoteSnapshotStore{localURL: "/api/store-space/channel-snapshots/batch-stored.jpg"})
+	service.UseSnapshotStore(staticRemoteSnapshotStore{
+		localURL:    "/api/store-space/channel-snapshots/00000000000000000000000000000002.jpg",
+		contentType: "image/jpeg",
+		files:       map[string][]byte{"00000000000000000000000000000002.jpg": []byte("jpg-data")},
+	})
 	store, err := service.CreateStore(context.Background(), CreateStoreInput{
 		City: "北京",
 		Name: "北京测试店",
@@ -1063,8 +1115,8 @@ func TestRecognizeRecorderChannelsUsesStoredSnapshotForRecognition(t *testing.T)
 		t.Fatalf("recognize recorder channels: %v", err)
 	}
 
-	if recognizer.imageURL != "/api/store-space/channel-snapshots/batch-stored.jpg" {
-		t.Fatalf("recognizer image url = %q, want stored snapshot URL", recognizer.imageURL)
+	if !strings.HasPrefix(recognizer.imageURL, "data:image/jpeg;base64,") {
+		t.Fatalf("recognizer image url = %q, want stored snapshot data URL", recognizer.imageURL)
 	}
 }
 
@@ -1815,7 +1867,9 @@ func (s memorySnapshotStore) Open(ctx context.Context, name string) (io.ReadClos
 }
 
 type staticRemoteSnapshotStore struct {
-	localURL string
+	localURL    string
+	contentType string
+	files       map[string][]byte
 }
 
 func (s staticRemoteSnapshotStore) SaveRemote(ctx context.Context, imageURL string) (string, error) {
@@ -1823,7 +1877,15 @@ func (s staticRemoteSnapshotStore) SaveRemote(ctx context.Context, imageURL stri
 }
 
 func (s staticRemoteSnapshotStore) Open(ctx context.Context, name string) (io.ReadCloser, string, error) {
-	return nil, "", ErrNotFound
+	data, ok := s.files[name]
+	if !ok {
+		return nil, "", ErrNotFound
+	}
+	contentType := s.contentType
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	return io.NopCloser(bytes.NewReader(data)), contentType, nil
 }
 
 func unzipExcelFiles(t *testing.T, payload []byte) map[string]string {

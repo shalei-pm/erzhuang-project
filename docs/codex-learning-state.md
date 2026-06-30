@@ -3564,3 +3564,25 @@ git pull --ff-only
 - 备注：
   - 本次未发布韩国服务器。
   - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
+
+## 2026-06-30 MiniMax 相对快照 URL 修复 2.22.5 开发记录
+
+- 背景：
+  - 用户反馈报错门店：`新氧青春诊所(上海正大广场店)`。
+  - 录像机 `FK8984413` 识别完成，但 `43` 个通道抓图/识别失败。
+  - MiniMax 返回：`invalid param: image url must be http(s):// or data:...;base64 (2013)`。
+- 根因：
+  - `2.22.4` 已把萤石 `opencapture.ys7.com` 临时图保存到本地快照存储后再传给模型，但传给模型的仍是前端可访问的相对路径 `/api/store-space/channel-snapshots/{name}.jpg`。
+  - 前端和后台页面可以使用该相对路径，但 MiniMax/GPT 服务端无法解析相对 URL；MiniMax 明确要求 `http(s)://` 或 `data:...;base64`。
+- 实现：
+  - 模型识别前新增 `prepareRecognitionImageURL`。
+  - 如果识别图片已经是 `http(s)` 或 `data:`，保持原样。
+  - 如果识别图片是本地快照 API 路径，则从 `SnapshotStore.Open` 读取图片内容并转换为 `data:image/...;base64,...` 后传给 MiniMax/GPT。
+  - 数据库和前端仍保存、展示原来的 `/api/store-space/channel-snapshots/{name}.jpg`，只改变模型调用入参。
+  - 诊断日志中对 data URL 做摘要显示为 `data:image/...;base64,[redacted]`，避免日志写入整张图片 base64。
+- 验证：
+  - 新增 `TestProbeRecognizeChannelConvertsStoredSnapshotToDataURLForRecognition`，覆盖本次 `FK8984413` 同类报错。
+  - 更新 probe 和批量识别用例，确认识别器最终收到 `data:image/jpeg;base64,...`。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `cd frontend && npm run build` 通过。

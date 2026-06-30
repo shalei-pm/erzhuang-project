@@ -2,11 +2,13 @@ package storespace
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/url"
 	"regexp"
 	"sort"
@@ -429,16 +431,23 @@ func (s *Service) ProbeRecognizeChannel(ctx context.Context, recorderID int64, i
 	snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
 	if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
 		recognitionStarted := time.Now()
-		log.Printf("storespace: probe-recognize ai-request recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, safeImageRef(recognitionImageURL))
-		result, err := s.recognizer.RecognizeChannel(ctx, recognitionImageURL)
-		recognitionMS := elapsedMilliseconds(recognitionStarted)
-		if err != nil {
+		recognizerImageURL, prepareErr := s.prepareRecognitionImageURL(ctx, recognitionImageURL)
+		if prepareErr != nil {
 			snapshot.Status = ChannelStatusRecognitionFailed
-			snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
-			log.Printf("storespace: probe-recognize ai-failed recorder_id=%d channel_id=%d device=%s channel_no=%d capture_ms=%d recognition_ms=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, captureMS, recognitionMS, elapsedMilliseconds(startedAt), safeErrorText(err))
+			snapshot.RecognitionResult = channelRecognitionErrorJSON(prepareErr, captureMS, 0, elapsedMilliseconds(channelStarted))
+			log.Printf("storespace: probe-recognize failed stage=prepare-ai-image recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, safeImageRef(recognitionImageURL), elapsedMilliseconds(startedAt), safeErrorText(prepareErr))
 		} else {
-			applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
-			log.Printf("storespace: probe-recognize ai-completed recorder_id=%d channel_id=%d device=%s channel_no=%d area_type=%s scene_type=%s capture_ms=%d recognition_ms=%d duration_ms=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, result.AreaType, result.SceneType, captureMS, recognitionMS, elapsedMilliseconds(startedAt))
+			log.Printf("storespace: probe-recognize ai-request recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, safeImageRef(recognizerImageURL))
+			result, err := s.recognizer.RecognizeChannel(ctx, recognizerImageURL)
+			recognitionMS := elapsedMilliseconds(recognitionStarted)
+			if err != nil {
+				snapshot.Status = ChannelStatusRecognitionFailed
+				snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+				log.Printf("storespace: probe-recognize ai-failed recorder_id=%d channel_id=%d device=%s channel_no=%d capture_ms=%d recognition_ms=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, captureMS, recognitionMS, elapsedMilliseconds(startedAt), safeErrorText(err))
+			} else {
+				applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+				log.Printf("storespace: probe-recognize ai-completed recorder_id=%d channel_id=%d device=%s channel_no=%d area_type=%s scene_type=%s capture_ms=%d recognition_ms=%d duration_ms=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, result.AreaType, result.SceneType, captureMS, recognitionMS, elapsedMilliseconds(startedAt))
+			}
 		}
 	}
 	updated, err := s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
@@ -565,16 +574,23 @@ func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, re
 	snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
 	if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
 		recognitionStarted := time.Now()
-		log.Printf("storespace: channel-recognize ai-request recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, safeImageRef(recognitionImageURL))
-		result, err := s.recognizer.RecognizeChannel(ctx, recognitionImageURL)
-		recognitionMS := elapsedMilliseconds(recognitionStarted)
-		if err != nil {
+		recognizerImageURL, prepareErr := s.prepareRecognitionImageURL(ctx, recognitionImageURL)
+		if prepareErr != nil {
 			snapshot.Status = ChannelStatusRecognitionFailed
-			snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
-			log.Printf("storespace: channel-recognize ai-failed recorder_id=%d channel_id=%d device=%s channel_no=%d capture_ms=%d recognition_ms=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, captureMS, recognitionMS, elapsedMilliseconds(startedAt), safeErrorText(err))
+			snapshot.RecognitionResult = channelRecognitionErrorJSON(prepareErr, captureMS, 0, elapsedMilliseconds(channelStarted))
+			log.Printf("storespace: channel-recognize failed stage=prepare-ai-image recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, safeImageRef(recognitionImageURL), elapsedMilliseconds(startedAt), safeErrorText(prepareErr))
 		} else {
-			applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
-			log.Printf("storespace: channel-recognize ai-completed recorder_id=%d channel_id=%d device=%s channel_no=%d area_type=%s scene_type=%s capture_ms=%d recognition_ms=%d duration_ms=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, result.AreaType, result.SceneType, captureMS, recognitionMS, elapsedMilliseconds(startedAt))
+			log.Printf("storespace: channel-recognize ai-request recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, safeImageRef(recognizerImageURL))
+			result, err := s.recognizer.RecognizeChannel(ctx, recognizerImageURL)
+			recognitionMS := elapsedMilliseconds(recognitionStarted)
+			if err != nil {
+				snapshot.Status = ChannelStatusRecognitionFailed
+				snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+				log.Printf("storespace: channel-recognize ai-failed recorder_id=%d channel_id=%d device=%s channel_no=%d capture_ms=%d recognition_ms=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, captureMS, recognitionMS, elapsedMilliseconds(startedAt), safeErrorText(err))
+			} else {
+				applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+				log.Printf("storespace: channel-recognize ai-completed recorder_id=%d channel_id=%d device=%s channel_no=%d area_type=%s scene_type=%s capture_ms=%d recognition_ms=%d duration_ms=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, result.AreaType, result.SceneType, captureMS, recognitionMS, elapsedMilliseconds(startedAt))
+			}
 		}
 	}
 	updated, err := s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
@@ -777,6 +793,74 @@ func elapsedMilliseconds(started time.Time) int64 {
 	return elapsed
 }
 
+func (s *Service) prepareRecognitionImageURL(ctx context.Context, imageURL string) (string, error) {
+	imageURL = strings.TrimSpace(imageURL)
+	if imageURL == "" {
+		return "", errors.New("missing channel snapshot image url")
+	}
+	lower := strings.ToLower(imageURL)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "data:") {
+		return imageURL, nil
+	}
+	name := snapshotNameFromAPIPath(imageURL)
+	if name == "" || s.snapshotStore == nil {
+		return imageURL, nil
+	}
+	reader, contentType, err := s.snapshotStore.Open(ctx, name)
+	if err != nil {
+		return "", fmt.Errorf("open stored snapshot for recognition: %w", err)
+	}
+	defer reader.Close()
+	payload, err := io.ReadAll(io.LimitReader(reader, maxSnapshotBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read stored snapshot for recognition: %w", err)
+	}
+	if len(payload) > maxSnapshotBytes {
+		return "", fmt.Errorf("stored snapshot exceeds %d bytes", maxSnapshotBytes)
+	}
+	contentType = normalizeImageContentType(contentType, name)
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(payload), nil
+}
+
+func snapshotNameFromAPIPath(value string) string {
+	value = strings.TrimSpace(value)
+	const marker = "/api/store-space/channel-snapshots/"
+	index := strings.Index(value, marker)
+	if index < 0 {
+		return ""
+	}
+	name := value[index+len(marker):]
+	if separator := strings.IndexAny(name, "?#"); separator >= 0 {
+		name = name[:separator]
+	}
+	if !validSnapshotName(name) {
+		return ""
+	}
+	return name
+}
+
+func normalizeImageContentType(contentType string, name string) string {
+	contentType = strings.TrimSpace(strings.ToLower(contentType))
+	if mediaType, _, err := mime.ParseMediaType(contentType); err == nil {
+		switch mediaType {
+		case "image/jpeg", "image/png", "image/webp":
+			return mediaType
+		}
+	}
+	extensionStart := strings.LastIndex(name, ".")
+	if extensionStart < 0 {
+		return "image/jpeg"
+	}
+	switch strings.ToLower(strings.TrimSpace(name[extensionStart:])) {
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -801,6 +885,19 @@ func safeImageRef(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "-"
+	}
+	lower := strings.ToLower(raw)
+	if strings.HasPrefix(lower, "data:") {
+		mediaType := "data"
+		if comma := strings.Index(raw, ","); comma > 0 {
+			header := raw[:comma]
+			if semicolon := strings.Index(header, ";"); semicolon > 0 {
+				mediaType = header[:semicolon]
+			} else {
+				mediaType = header
+			}
+		}
+		return mediaType + ";base64,[redacted]"
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Host == "" {
