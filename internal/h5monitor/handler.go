@@ -48,7 +48,7 @@ func (h *Handler) getLiveURL(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	result, err := h.service.GetLiveURL(r.Context(), r.PathValue("externalOrgId"), channelID, request.UserID, request.IsAdmin, request.Protocol)
+	result, err := h.service.GetLiveURL(r.Context(), r.PathValue("externalOrgId"), channelID, request.UserID, request.IsAdmin, request.Protocol, request.Quality)
 	if err != nil {
 		writeServiceError(w, err)
 		return

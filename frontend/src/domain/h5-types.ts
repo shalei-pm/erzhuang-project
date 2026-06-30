@@ -53,6 +53,8 @@ export interface H5PlaybackURLResponse {
   protocol?: string;
 }
 
+export type H5StreamQuality = "sd" | "hd";
+
 export interface H5ApiError {
   error: string;
   fields?: Record<string, string>;

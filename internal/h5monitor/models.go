@@ -35,6 +35,7 @@ type LiveURLRequest struct {
 	UserID   string `json:"user_id,omitempty"`
 	IsAdmin  bool   `json:"is_admin,omitempty"`
 	Protocol string `json:"protocol,omitempty"`
+	Quality  string `json:"quality,omitempty"`
 }
 
 type LiveURLResponse struct {
@@ -61,6 +62,7 @@ type PlaybackURLRequest struct {
 	StopTime  int64  `json:"stop_time"`
 	UserID    string `json:"user_id,omitempty"`
 	IsAdmin   bool   `json:"is_admin,omitempty"`
+	Quality   string `json:"quality,omitempty"`
 }
 
 type PlaybackURLResponse struct {

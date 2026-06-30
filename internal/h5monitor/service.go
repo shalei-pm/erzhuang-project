@@ -121,7 +121,7 @@ func (s *Service) GetMonitorHome(ctx context.Context, externalOrgID string) (Mon
 	}, nil
 }
 
-func (s *Service) GetLiveURL(ctx context.Context, externalOrgID string, channelID int64, userID string, isAdmin bool, protocolValue string) (LiveURLResponse, error) {
+func (s *Service) GetLiveURL(ctx context.Context, externalOrgID string, channelID int64, userID string, isAdmin bool, protocolValue string, qualityValue string) (LiveURLResponse, error) {
 	channel, err := s.validateChannel(ctx, externalOrgID, channelID)
 	if err != nil {
 		return LiveURLResponse{}, err
@@ -132,12 +132,13 @@ func (s *Service) GetLiveURL(ctx context.Context, externalOrgID string, channelI
 	account := channelToAccount(channel)
 	_ = s.player.EnsureAACTransfer(ctx, account, channel.DeviceSerial, channel.ChannelNo)
 	protocol, ezvizProtocol, supportH265 := normalizeLiveProtocol(protocolValue)
+	quality := normalizeStreamQuality(qualityValue)
 	result, err := s.player.LiveAddress(ctx, account, ezviz.LiveAddressRequest{
 		DeviceSerial: channel.DeviceSerial,
 		ChannelNo:    channel.ChannelNo,
 		Protocol:     ezvizProtocol,
 		Type:         1,
-		Quality:      2,
+		Quality:      quality,
 		ExpireTime:   600,
 		SupportH265:  supportH265,
 		Mute:         ezviz.IntPtr(0),
@@ -189,13 +190,14 @@ func (s *Service) GetPlaybackURL(ctx context.Context, externalOrgID string, chan
 	if err := s.acquireConcurrency(request.UserID, request.IsAdmin); err != nil {
 		return PlaybackURLResponse{}, err
 	}
+	quality := normalizeStreamQuality(request.Quality)
 	result, err := s.player.PlaybackAddress(ctx, channelToAccount(channel), ezviz.PlaybackRequest{
 		DeviceSerial: channel.DeviceSerial,
 		ChannelNo:    channel.ChannelNo,
 		StartTime:    time.Unix(request.StartTime, 0),
 		StopTime:     time.Unix(request.StopTime, 0),
 		Protocol:     4,
-		Quality:      2,
+		Quality:      quality,
 		ExpireTime:   600,
 	})
 	if err != nil {
@@ -226,6 +228,15 @@ func normalizeLiveProtocol(value string) (protocol string, ezvizProtocol int, su
 		return "hls", 2, false
 	default:
 		return "flv", 4, true
+	}
+}
+
+func normalizeStreamQuality(value string) int {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "hd", "high", "高清", "1":
+		return 1
+	default:
+		return 2
 	}
 }
 

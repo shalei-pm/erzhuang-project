@@ -2859,6 +2859,30 @@ td:nth-child(10) {
   pointer-events: auto;
 }
 
+.h5-quality-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 8;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--button-radius);
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.22);
+  backdrop-filter: blur(10px);
+}
+
+.h5-quality-toggle:hover,
+.h5-quality-toggle:focus-visible {
+  border-color: rgba(191, 219, 254, 0.5);
+  background: rgba(30, 41, 59, 0.82);
+}
+
 .h5-player-control-group {
   display: flex;
   align-items: center;
@@ -2935,7 +2959,7 @@ td:nth-child(10) {
 .h5-screenshot-notice {
   position: absolute;
   right: 12px;
-  top: 12px;
+  top: 50px;
   z-index: 8;
   padding: 6px 10px;
   border-radius: var(--button-radius);
@@ -3494,6 +3518,14 @@ td:nth-child(10) {
 
   .h5-player-control-group {
     gap: 0;
+  }
+
+  .h5-quality-toggle {
+    top: 8px;
+    right: 8px;
+    min-height: 28px;
+    padding: 0 9px;
+    font-size: 11px;
   }
 
   .h5-playback-slider.is-overlay {

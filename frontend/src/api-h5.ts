@@ -3,6 +3,7 @@ import type {
   H5LiveURLResponse,
   H5RecordSegmentsResponse,
   H5PlaybackURLResponse,
+  H5StreamQuality,
 } from "./domain/h5-types";
 
 function apiBase(): string {
@@ -86,7 +87,14 @@ export const h5Api = {
     return requestJSON(`${API_BASE}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor`);
   },
 
-  async getLiveUrl(externalOrgId: string, channelId: number, userId: string, isAdmin: boolean, protocol = "flv"): Promise<H5LiveURLResponse> {
+  async getLiveUrl(
+    externalOrgId: string,
+    channelId: number,
+    userId: string,
+    isAdmin: boolean,
+    protocol = "flv",
+    quality: H5StreamQuality = "sd",
+  ): Promise<H5LiveURLResponse> {
     if (import.meta.env.DEV && externalOrgId === "demo") {
       void userId;
       void isAdmin;
@@ -94,7 +102,7 @@ export const h5Api = {
     }
     return requestJSON(`${API_BASE}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor/channels/${channelId}/live-url`, {
       method: "POST",
-      body: JSON.stringify({ user_id: userId, is_admin: isAdmin, protocol }),
+      body: JSON.stringify({ user_id: userId, is_admin: isAdmin, protocol, quality }),
     });
   },
 
@@ -115,7 +123,15 @@ export const h5Api = {
     return requestJSON(`${API_BASE}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor/channels/${channelId}/record-segments?date=${encodeURIComponent(date)}`);
   },
 
-  async getPlaybackUrl(externalOrgId: string, channelId: number, startTime: number, stopTime: number, userId: string, isAdmin: boolean): Promise<H5PlaybackURLResponse> {
+  async getPlaybackUrl(
+    externalOrgId: string,
+    channelId: number,
+    startTime: number,
+    stopTime: number,
+    userId: string,
+    isAdmin: boolean,
+    quality: H5StreamQuality = "sd",
+  ): Promise<H5PlaybackURLResponse> {
     if (import.meta.env.DEV && externalOrgId === "demo") {
       void startTime;
       void stopTime;
@@ -125,7 +141,7 @@ export const h5Api = {
     }
     return requestJSON(`${API_BASE}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor/channels/${channelId}/playback-url`, {
       method: "POST",
-      body: JSON.stringify({ start_time: startTime, stop_time: stopTime, user_id: userId, is_admin: isAdmin }),
+      body: JSON.stringify({ start_time: startTime, stop_time: stopTime, user_id: userId, is_admin: isAdmin, quality }),
     });
   },
 

@@ -267,6 +267,24 @@ func TestLiveURLUsesRequestedFLVParameters(t *testing.T) {
 	}
 }
 
+func TestLiveURLUsesRequestedHDQuality(t *testing.T) {
+	service, player := newFakeService()
+	handler := NewHandler(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1","protocol":"flv","quality":"hd"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getLiveURL(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if player.liveInput.Quality != 1 {
+		t.Fatalf("live quality = %d, want 1 for hd", player.liveInput.Quality)
+	}
+}
+
 func TestPlaybackURLUsesRequestedTimeRange(t *testing.T) {
 	service, player := newFakeService()
 	handler := NewHandler(service)
@@ -285,6 +303,24 @@ func TestPlaybackURLUsesRequestedTimeRange(t *testing.T) {
 	}
 	if !player.playbackInput.StartTime.Equal(time.Unix(1731945592, 0)) || !player.playbackInput.StopTime.Equal(time.Unix(1731949200, 0)) {
 		t.Fatalf("unexpected playback range: %#v", player.playbackInput)
+	}
+}
+
+func TestPlaybackURLUsesRequestedHDQuality(t *testing.T) {
+	service, player := newFakeService()
+	handler := NewHandler(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/playback-url", strings.NewReader(`{"start_time":1731945592,"stop_time":1731949200,"user_id":"u1","quality":"hd"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getPlaybackURL(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if player.playbackInput.Quality != 1 {
+		t.Fatalf("playback quality = %d, want 1 for hd", player.playbackInput.Quality)
 	}
 }
 
