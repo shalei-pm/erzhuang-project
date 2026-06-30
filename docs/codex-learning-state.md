@@ -3549,3 +3549,18 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过。
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - 本地浏览器验收 H5 播放详情桌面和移动端：日志默认收起，信息 icon 可展开，复制/关闭按钮可见，控制台无新增错误。
+
+## 2026-06-30 H5 Monitor 2.22.4 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`15320c4 fix: improve H5 diagnostics and recognition image URLs`。
+- 推送结果：
+  - GitLab remote 已从 `f6d8681` 更新到 `15320c4`。
+  - 首次非交互 HTTPS 推送因本机未配置 GitLab credential helper 失败；随后使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端静态资源已探测到 `2.22.4 (container)`。
+  - H5 播放页懒加载资源 `H5MonitorChannel--vszTHZe.js` 已包含 `播放器日志`、`查看播放器日志`、`H5 Monitor 播放器诊断` 等新逻辑。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
