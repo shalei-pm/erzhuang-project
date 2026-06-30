@@ -3417,3 +3417,16 @@ git pull --ff-only
 - 验证：
   - 新增后端测试覆盖“分页只返回 1 家门店，但 summary 统计全部 2 家匹配门店”。
   - 新增前端测试覆盖门店 summary 汇总 helper。
+
+## 2026-06-30 门店列表统计修复 2.21.11 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`362e0a1 fix: count store list summary across pages`。
+- 推送结果：
+  - GitLab remote 已从 `076586e` 更新到 `362e0a1`。
+  - 首次推送被公司 GitLab hook 拒绝，原因是新增 SQL 包含 `join` 语法；已改为无 join 的子查询写法后重新验证并推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端版本从 `2.21.10 (container)` 更新到 `2.21.11 (container)`。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
