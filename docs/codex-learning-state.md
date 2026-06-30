@@ -3646,3 +3646,18 @@ git pull --ff-only
   - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-store-query-test src/domain/store-list-query.ts src/domain/store-list-query.test.ts && node /tmp/erzhuang-store-query-test/store-list-query.test.js` 通过。
   - `cd frontend && npm test` 通过，18 tests passed。
   - `cd frontend && npm run build` 通过。
+
+## 2026-06-30 机构列表城市筛选分页修复 2.22.7 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`4e94903 fix: apply city filter before store pagination`。
+- 推送结果：
+  - GitLab remote 已从 `15fde5c` 更新到 `4e94903`。
+  - 首次非交互 HTTPS 推送因本机未配置 GitLab credential helper 失败；随后使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端首页资源已更新为 `/erzhuang-project/assets/index-CH0SPpGz.js`，bundle 已包含 `2.22.7`。
+  - 线上接口 `GET /api/store-space/stores?page=1&page_size=5&city=上海` 返回 `total=8`，当前页 `5` 个 item 的 `city` 均为 `上海`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
