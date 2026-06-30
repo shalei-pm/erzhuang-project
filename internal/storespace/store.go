@@ -161,6 +161,7 @@ func (s *MemoryStore) ListStores(ctx context.Context, filters StoreFilters) (Sto
 	})
 
 	total := len(items)
+	summary := summarizeStoreListItems(items)
 	start := (filters.Page - 1) * filters.PageSize
 	if start > total {
 		start = total
@@ -175,6 +176,7 @@ func (s *MemoryStore) ListStores(ctx context.Context, filters StoreFilters) (Sto
 		Page:     filters.Page,
 		PageSize: filters.PageSize,
 		Total:    total,
+		Summary:  summary,
 	}, nil
 }
 
@@ -1113,6 +1115,53 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 	`, rawLike, normalizedLike).Scan(&total); err != nil {
 		return StoreListResult{}, err
 	}
+	var summary StoreListSummary
+	if err := s.db.QueryRowContext(ctx, `
+		select
+			(select count(*)
+				from stores s
+				where $1 = '%%'
+					or replace(lower(s.name), ' ', '') like $1
+					or ($2 <> '%%' and s.normalized_name like $2)
+			) as store_count,
+			(select count(*)
+				from store_areas a
+				where a.area_type in ('treatment', 'vip_treatment')
+					and a.store_id in (
+						select s.id from stores s
+						where $1 = '%%'
+							or replace(lower(s.name), ' ', '') like $1
+							or ($2 <> '%%' and s.normalized_name like $2)
+					)
+			) as treatment_count,
+			(select count(*)
+				from store_areas a
+				where a.area_type = 'consultation'
+					and a.store_id in (
+						select s.id from stores s
+						where $1 = '%%'
+							or replace(lower(s.name), ' ', '') like $1
+							or ($2 <> '%%' and s.normalized_name like $2)
+					)
+			) as consultation_count,
+			(select count(*)
+				from store_areas a
+				where a.area_type = 'beauty'
+					and a.store_id in (
+						select s.id from stores s
+						where $1 = '%%'
+							or replace(lower(s.name), ' ', '') like $1
+							or ($2 <> '%%' and s.normalized_name like $2)
+					)
+			) as beauty_count
+	`, rawLike, normalizedLike).Scan(
+		&summary.StoreCount,
+		&summary.TreatmentCount,
+		&summary.ConsultationCount,
+		&summary.BeautyCount,
+	); err != nil {
+		return StoreListResult{}, err
+	}
 
 	rows, err := s.db.QueryContext(ctx, `
 		select
@@ -1176,7 +1225,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 	if err := rows.Err(); err != nil {
 		return StoreListResult{}, err
 	}
-	return StoreListResult{Items: items, Page: filters.Page, PageSize: filters.PageSize, Total: total}, nil
+	return StoreListResult{Items: items, Page: filters.Page, PageSize: filters.PageSize, Total: total, Summary: summary}, nil
 }
 
 func (s *PostgresStore) GetStore(ctx context.Context, id int64) (*Store, error) {
@@ -2904,6 +2953,16 @@ func storeListItem(store Store) StoreListItem {
 		}
 	}
 	return item
+}
+
+func summarizeStoreListItems(items []StoreListItem) StoreListSummary {
+	summary := StoreListSummary{StoreCount: len(items)}
+	for _, item := range items {
+		summary.TreatmentCount += item.TreatmentCount
+		summary.ConsultationCount += item.ConsultationCount
+		summary.BeautyCount += item.BeautyCount
+	}
+	return summary
 }
 
 func activeChannelsFullyConfirmed(recorders []Recorder) bool {

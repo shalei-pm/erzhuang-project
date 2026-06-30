@@ -3402,3 +3402,18 @@ git pull --ff-only
   - 前端版本从 `2.21.9 (container)` 更新到 `2.21.10 (container)`。
 - 备注：
   - 本次未发布韩国服务器，未同步 GitHub。
+
+## 2026-06-30 门店列表全量统计修复 2.21.11 开发记录
+
+- 背景：
+  - 用户反馈门店列表右上角统计只统计当前分页页内门店，翻到没有已确认门店的页面时，面诊室、治疗室、生美统计会错误变为 0。
+- 根因：
+  - 前端 `App.tsx` 使用当前页 `stores` 计算右上角统计；`stores` 来自分页接口 `items`，不是全部门店。
+- 实现：
+  - 后端 `GET /api/store-space/stores` 返回新增 `summary` 字段，按当前搜索条件统计全部匹配门店，统计发生在分页前。
+  - MemoryStore 和 PostgresStore 均补齐同一口径：`store_count`、`treatment_count`、`consultation_count`、`beauty_count`。
+  - 前端 `StoreListResponse` 增加 `summary`，门店列表“全部”视图右上角统计改用后端全量 summary，不再受当前页影响。
+  - 城市筛选仍维持当前页前端筛选口径，后续如需要城市维度全量统计，需要另扩城市筛选参数或城市聚合接口。
+- 验证：
+  - 新增后端测试覆盖“分页只返回 1 家门店，但 summary 统计全部 2 家匹配门店”。
+  - 新增前端测试覆盖门店 summary 汇总 helper。

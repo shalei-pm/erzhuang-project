@@ -265,6 +265,14 @@ type StoreListResult struct {
 	Page     int             `json:"page"`
 	PageSize int             `json:"page_size"`
 	Total    int             `json:"total"`
+	Summary  StoreListSummary `json:"summary"`
+}
+
+type StoreListSummary struct {
+	StoreCount        int `json:"store_count"`
+	TreatmentCount    int `json:"treatment_count"`
+	ConsultationCount int `json:"consultation_count"`
+	BeautyCount       int `json:"beauty_count"`
 }
 
 type Area struct {

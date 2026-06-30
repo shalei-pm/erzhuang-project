@@ -161,6 +161,14 @@ export type StoreListResponse = {
   page: number;
   pageSize: number;
   total: number;
+  summary: StoreListSummary;
+};
+
+export type StoreListSummary = {
+  storeCount: number;
+  consultationCount: number;
+  treatmentCount: number;
+  beautyCount: number;
 };
 
 export type UploadResult = {
@@ -418,6 +426,18 @@ type BackendStoreSpaceListResponse = {
   page_size?: number;
   pageSize?: number;
   total: number;
+  summary?: BackendStoreListSummary;
+};
+
+type BackendStoreListSummary = {
+  store_count?: number;
+  storeCount?: number;
+  consultation_count?: number;
+  consultationCount?: number;
+  treatment_count?: number;
+  treatmentCount?: number;
+  beauty_count?: number;
+  beautyCount?: number;
 };
 
 type BackendStoreSpaceSummary = {
@@ -613,6 +633,7 @@ const mockAdapter = {
       page,
       pageSize,
       total: filtered.length,
+      summary: summarizeStoreSummaries(filtered.map(toSummary)),
     };
   },
 
@@ -1060,11 +1081,13 @@ const httpAdapter = {
       page_size: String(pageSize),
     });
     const response = await requestJSON<BackendStoreListResponse>(`${API_BASE}/stores?${search.toString()}`);
+    const items = response.items.map(mapBackendSummary);
     return {
-      items: response.items.map(mapBackendSummary),
+      items,
       page: response.page,
       pageSize: response.page_size,
       total: response.total,
+      summary: summarizeStoreSummaries(items),
     };
   },
 
@@ -1172,11 +1195,13 @@ const storeSpaceHttpAdapter = {
       page_size: String(pageSize),
     });
     const response = await requestJSON<BackendStoreSpaceListResponse>(`${STORE_SPACE_API_BASE}/stores?${search.toString()}`);
+    const items = response.items.map(mapStoreSpaceSummary);
     return {
-      items: response.items.map(mapStoreSpaceSummary),
+      items,
       page: response.page,
       pageSize: response.page_size ?? response.pageSize ?? pageSize,
       total: response.total,
+      summary: response.summary ? mapStoreListSummary(response.summary) : summarizeStoreSummaries(items),
     };
   },
 
@@ -1803,6 +1828,27 @@ function mapStoreSpaceSummary(store: BackendStoreSpaceSummary): StoreSummary {
   };
 }
 
+function mapStoreListSummary(summary: BackendStoreListSummary): StoreListSummary {
+  return {
+    storeCount: summary.store_count ?? summary.storeCount ?? 0,
+    treatmentCount: summary.treatment_count ?? summary.treatmentCount ?? 0,
+    consultationCount: summary.consultation_count ?? summary.consultationCount ?? 0,
+    beautyCount: summary.beauty_count ?? summary.beautyCount ?? 0,
+  };
+}
+
+function summarizeStoreSummaries(stores: StoreSummary[]): StoreListSummary {
+  return stores.reduce(
+    (summary, store) => ({
+      storeCount: summary.storeCount + 1,
+      consultationCount: summary.consultationCount + (store.consultationCount ?? 0),
+      treatmentCount: summary.treatmentCount + (store.treatmentCount ?? 0),
+      beautyCount: summary.beautyCount + (store.beautyCount ?? 0),
+    }),
+    { storeCount: 0, consultationCount: 0, treatmentCount: 0, beautyCount: 0 },
+  );
+}
+
 function mapStoreSpaceDetail(store: BackendStoreSpaceDetail): StoreDetail {
   const designPlan = firstStoreSpaceDesignPlan(store);
   const hasAreas = store.areas !== undefined;
@@ -2123,6 +2169,7 @@ function toStoredPath(value: string, fallback: string) {
 }
 
 export const __testing = {
+  summarizeStoreSummaries,
   toDisplayImageUrl,
   toStoredPath,
 };

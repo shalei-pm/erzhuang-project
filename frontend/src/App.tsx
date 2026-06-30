@@ -5,6 +5,7 @@ import {
   type CreateStoreSpacePayload,
   type EzvizAccount,
   type StoreDetail as StoreDetailType,
+  type StoreListSummary,
   type StoreSummary,
   type UpdateStoreBasicInfoPayload,
 } from "./api";
@@ -27,6 +28,7 @@ import {
 
 const PAGE_SIZE = 20;
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "local-dev";
+const EMPTY_STORE_LIST_SUMMARY: StoreListSummary = { storeCount: 0, consultationCount: 0, treatmentCount: 0, beautyCount: 0 };
 
 const H5MonitorPage = lazy(() => import("./pages/H5Monitor").then((module) => ({ default: module.H5Monitor })));
 const H5MonitorChannelPage = lazy(() =>
@@ -54,6 +56,7 @@ function AdminApp() {
   const [cityFilter, setCityFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [listSummary, setListSummary] = useState<StoreListSummary>(EMPTY_STORE_LIST_SUMMARY);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingStore, setEditingStore] = useState<StoreSummary | null>(null);
@@ -80,7 +83,7 @@ function AdminApp() {
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const cityOptions = uniqueCities(stores);
   const visibleStores = cityFilter === "all" ? stores : stores.filter((store) => storeCity(store) === cityFilter);
-  const visibleSummary = summarizeStores(visibleStores);
+  const visibleSummary = cityFilter === "all" ? listSummary : summarizeStores(visibleStores);
   const visibleFirstIndex = visibleStores.length === 0 ? 0 : 1;
   const visibleLastIndex = visibleStores.length;
 
@@ -112,10 +115,12 @@ function AdminApp() {
       if (listRequestIdRef.current !== requestId) return;
       setStores(response.items);
       setTotal(response.total);
+      setListSummary(response.summary);
     } catch (error) {
       if (listRequestIdRef.current !== requestId) return;
       setStores([]);
       setTotal(0);
+      setListSummary(EMPTY_STORE_LIST_SUMMARY);
       setToast(errorMessage(error, "门店列表加载失败，请稍后重试。"));
     } finally {
       if (listRequestIdRef.current === requestId) {

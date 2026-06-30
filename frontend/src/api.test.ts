@@ -45,6 +45,22 @@ describe("design plan API path helpers", () => {
   });
 });
 
+describe("store list summary", () => {
+  it("summarizes all filtered stores instead of the current page only", () => {
+    const stores = [
+      { id: 1, treatmentCount: 1, consultationCount: 0, beautyCount: 0 },
+      { id: 2, treatmentCount: 0, consultationCount: 2, beautyCount: 1 },
+    ];
+
+    expect(__testing.summarizeStoreSummaries(stores as Parameters<typeof __testing.summarizeStoreSummaries>[0])).toEqual({
+      storeCount: 2,
+      treatmentCount: 1,
+      consultationCount: 2,
+      beautyCount: 1,
+    });
+  });
+});
+
 describe("H5 monitor trial entry", () => {
   it("only allows H5 monitor pilot orgs to open H5 monitor", () => {
     expect(canOpenH5Monitor({ externalOrgId: "10030" })).toBe(true);

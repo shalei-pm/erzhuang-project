@@ -566,6 +566,66 @@ func TestListStoresReportsChannelsFullyConfirmed(t *testing.T) {
 	}
 }
 
+func TestListStoresSummaryCountsAllFilteredStoresAcrossPages(t *testing.T) {
+	repo := NewMemoryStore()
+	service := NewService(repo)
+	handler := newTestHandlerWithService(service)
+	for _, input := range []struct {
+		name     string
+		areaType AreaType
+	}{
+		{name: "分页测试一号店", areaType: AreaTypeTreatment},
+		{name: "分页测试二号店", areaType: AreaTypeConsultation},
+	} {
+		store, err := service.CreateStore(context.Background(), CreateStoreInput{
+			City:               "深圳",
+			Name:               input.name,
+			DesignPlanUploadID: "upload_123",
+		})
+		if err != nil {
+			t.Fatalf("create store %s: %v", input.name, err)
+		}
+		if _, err := service.SaveDesignPlan(context.Background(), store.ID, SaveDesignPlanInput{
+			UploadID:         "upload_123",
+			PDFFileName:      "store.pdf",
+			PreviewImagePath: "uploads/upload_123/preview.png",
+			ThumbnailPath:    "uploads/upload_123/thumbnail.png",
+			PageCount:        1,
+			Areas: []DesignAreaInput{
+				{
+					DisplayName: string(input.areaType) + "1号",
+					Type:        input.areaType,
+					NumberText:  "1",
+					Box:         &AreaBox{X: 0.1, Y: 0.2, Width: 0.3, Height: 0.4},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("save design plan: %v", err)
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores?page=1&page_size=1&q=%E5%88%86%E9%A1%B5%E6%B5%8B%E8%AF%95", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, response.Code, response.Body.String())
+	}
+	var result StoreListResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode list stores: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected one paged item, got %d", len(result.Items))
+	}
+	if result.Total != 2 {
+		t.Fatalf("expected total stores = 2, got %d", result.Total)
+	}
+	if result.Summary.StoreCount != 2 || result.Summary.TreatmentCount != 1 || result.Summary.ConsultationCount != 1 {
+		t.Fatalf("expected summary across all filtered stores, got %#v", result.Summary)
+	}
+}
+
 func listStoresForTest(t *testing.T, handler http.Handler) StoreListResult {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores?page=1&page_size=20", nil)
