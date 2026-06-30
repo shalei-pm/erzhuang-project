@@ -3609,3 +3609,18 @@ git pull --ff-only
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `cd frontend && npm run build` 通过。
   - 本地 Vite dev server 可启动；Playwright 浏览器二进制未安装，未做截图式浏览器验收。
+
+## 2026-06-30 通道批量识别抗中断优化 2.22.6 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`b6d114b fix: keep channel recognition running after transient failures`。
+- 推送结果：
+  - GitLab remote 已从 `6c1c2bc` 更新到 `b6d114b`。
+  - 首次非交互 HTTPS 推送因本机未配置 GitLab credential helper 失败；随后使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端首页资源已更新为 `/erzhuang-project/assets/index-DPpJtdbx.js`。
+  - 线上前端 bundle 已包含 `2.22.6`、`识别请求中断`、`已继续识别后续通道`、`不会重复消耗模型` 等本次逻辑。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
