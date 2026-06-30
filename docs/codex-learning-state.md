@@ -3781,3 +3781,20 @@ git pull --ff-only
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
   - `cd frontend && npm test` 通过，18 tests passed。
   - `cd frontend && npm run build` 通过。
+
+## 2026-06-30 H5 Monitor 后端机构白名单移除 2.22.11 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`17943ea fix: allow H5 monitor backend for all org stores`。
+- 推送结果：
+  - GitLab remote 已从 `dae5d0b` 更新到 `17943ea`。
+  - 使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 无缓存请求首页已更新为 `/erzhuang-project/assets/index-BUVQ3-CA.js`。
+  - 线上前端 bundle 已包含 `2.22.11`。
+  - 非试点机构 H5 API 已验证：
+    - `GET /api/h5/orgs/10029/monitor` 返回 200，门店为 `新氧青春诊所(上海长宁旗舰店)`。
+    - `GET /api/h5/orgs/10011/monitor` 返回 200，门店为 `新氧青春诊所(上海正大广场店)`。
+- 备注：
+  - 本次未发布韩国服务器。
