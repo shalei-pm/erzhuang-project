@@ -306,7 +306,7 @@ func TestPlaybackURLUsesRequestedTimeRange(t *testing.T) {
 	}
 }
 
-func TestPlaybackURLUsesRequestedHDQuality(t *testing.T) {
+func TestPlaybackURLIgnoresRequestedQuality(t *testing.T) {
 	service, player := newFakeService()
 	handler := NewHandler(service)
 	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/playback-url", strings.NewReader(`{"start_time":1731945592,"stop_time":1731949200,"user_id":"u1","quality":"hd"}`))
@@ -319,8 +319,8 @@ func TestPlaybackURLUsesRequestedHDQuality(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
-	if player.playbackInput.Quality != 1 {
-		t.Fatalf("playback quality = %d, want 1 for hd", player.playbackInput.Quality)
+	if player.playbackInput.Quality != 2 {
+		t.Fatalf("playback quality = %d, want 2 because replay does not support quality switching", player.playbackInput.Quality)
 	}
 }
 

@@ -130,7 +130,6 @@ export const h5Api = {
     stopTime: number,
     userId: string,
     isAdmin: boolean,
-    quality: H5StreamQuality = "sd",
   ): Promise<H5PlaybackURLResponse> {
     if (import.meta.env.DEV && externalOrgId === "demo") {
       void startTime;
@@ -141,7 +140,7 @@ export const h5Api = {
     }
     return requestJSON(`${API_BASE}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor/channels/${channelId}/playback-url`, {
       method: "POST",
-      body: JSON.stringify({ start_time: startTime, stop_time: stopTime, user_id: userId, is_admin: isAdmin, quality }),
+      body: JSON.stringify({ start_time: startTime, stop_time: stopTime, user_id: userId, is_admin: isAdmin }),
     });
   },
 

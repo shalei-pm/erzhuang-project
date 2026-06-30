@@ -3500,3 +3500,19 @@ git pull --ff-only
 - 备注：
   - 本次未发布韩国服务器。
   - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
+
+## 2026-06-30 H5 Monitor 回放隐藏清晰度切换 2.22.3 开发记录
+
+- 背景：
+  - 用户指出录像回放看起来无法切换标清/高清，如果回放只有一种模式，则不应展示切换按钮。
+  - 萤石文档中清晰度切换主要针对实时预览；录像回放不支持同样的高清/标清切换体验。
+- 实现：
+  - H5 播放器右上角“切为高清 / 切为标清”仅在实时视频模式显示。
+  - 录像回放模式隐藏清晰度切换按钮，避免误导用户。
+  - 前端回放取流请求不再传 `quality`。
+  - 后端回放接口即使收到 `quality=hd` 也固定使用 `quality=2`，保证回放行为稳定。
+- 验证：
+  - 更新后端测试：`TestPlaybackURLIgnoresRequestedQuality` 覆盖回放忽略清晰度参数。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/h5monitor` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `cd frontend && npm run build` 通过。

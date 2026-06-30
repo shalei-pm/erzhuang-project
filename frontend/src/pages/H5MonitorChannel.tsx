@@ -321,13 +321,11 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     options: {
       previousUrlId?: string | null;
       preserveCurrentFrame?: boolean;
-      reason?: "segment" | "slider" | "resume" | "guard" | "quality";
-      quality?: H5StreamQuality;
+      reason?: "segment" | "slider" | "resume" | "guard";
     } = {},
   ) {
     const requestSeq = nextPlaybackRequestSeq();
     const previousUrlId = options.previousUrlId === undefined ? playbackUrl?.url_id : options.previousUrlId;
-    const requestQuality = options.quality ?? streamQuality;
     setSelectedSegment(seg);
     setPlaybackCursorUnix(startTime);
     if (!options.preserveCurrentFrame) {
@@ -340,7 +338,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     setPlayerStatus({
       stage: "playback-url-request",
       message: "正在获取回放播放地址",
-      details: [`start=${startTime}`, `end=${endTime}`, `quality=${requestQuality}`, options.reason ? `reason=${options.reason}` : ""].filter(Boolean),
+      details: [`start=${startTime}`, `end=${endTime}`, options.reason ? `reason=${options.reason}` : ""].filter(Boolean),
       severity: "info",
     });
     void (async () => {
@@ -351,7 +349,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         if (!isCurrentPlaybackRequest(requestSeq)) {
           return;
         }
-        const resp = await h5Api.getPlaybackUrl(externalOrgId, channelId, startTime, endTime, userId.current, isAdmin, requestQuality);
+        const resp = await h5Api.getPlaybackUrl(externalOrgId, channelId, startTime, endTime, userId.current, isAdmin);
         if (!isCurrentPlaybackRequest(requestSeq)) {
           await releaseUrl(resp.url_id);
           return;
@@ -370,7 +368,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
           message: "回放播放地址已返回，准备初始化播放器",
           details: [
             `protocol=${resp.protocol || "unknown"}`,
-            `quality=${requestQuality}`,
             `urlId=${resp.url_id || "-"}`,
             options.reason === "resume" ? `resumeFrom=${formatTime(startTime)}` : "",
           ].filter(Boolean),
@@ -385,7 +382,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         setPlayerStatus({
           stage: "playback-url-error",
           message,
-          details: [`start=${startTime}`, `end=${endTime}`, `quality=${requestQuality}`],
+          details: [`start=${startTime}`, `end=${endTime}`],
           severity: "error",
         });
       } finally {
@@ -564,21 +561,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       });
       return;
     }
-    if (!selectedSegment) {
-      return;
-    }
-    const targetUnix =
-      playbackUnixFromPlayerTime(playerRef.current?.getCurrentTime() ?? null, playbackSessionRef.current) ??
-      estimatePlaybackUnixAt(Date.now(), playbackSessionRef.current) ??
-      playbackCursorUnix ??
-      selectedSegment.start_time;
-    await captureFrozenFrame();
-    playRange(clampUnix(targetUnix, selectedSegment.start_time, Math.max(selectedSegment.start_time, selectedSegment.end_time - 1)), selectedSegment.end_time, selectedSegment, {
-      previousUrlId: currentUrlId,
-      preserveCurrentFrame: true,
-      reason: "quality",
-      quality: targetQuality,
-    });
   }
 
   async function handleScreenshot() {
@@ -736,7 +718,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
                   onClick={handlePlayerSurfaceClick}
                   aria-label={controlsVisible ? "隐藏播放控件" : "显示播放控件"}
                 />
-                {controlsActuallyVisible && (
+                {mode === "live" && controlsActuallyVisible && (
                   <button
                     type="button"
                     className="h5-quality-toggle"

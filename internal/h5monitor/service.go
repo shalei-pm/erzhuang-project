@@ -190,14 +190,13 @@ func (s *Service) GetPlaybackURL(ctx context.Context, externalOrgID string, chan
 	if err := s.acquireConcurrency(request.UserID, request.IsAdmin); err != nil {
 		return PlaybackURLResponse{}, err
 	}
-	quality := normalizeStreamQuality(request.Quality)
 	result, err := s.player.PlaybackAddress(ctx, channelToAccount(channel), ezviz.PlaybackRequest{
 		DeviceSerial: channel.DeviceSerial,
 		ChannelNo:    channel.ChannelNo,
 		StartTime:    time.Unix(request.StartTime, 0),
 		StopTime:     time.Unix(request.StopTime, 0),
 		Protocol:     4,
-		Quality:      quality,
+		Quality:      2,
 		ExpireTime:   600,
 	})
 	if err != nil {
