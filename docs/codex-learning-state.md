@@ -3451,3 +3451,16 @@ git pull --ff-only
   - 正式 MySQL 第一阶段只迁路径字段；图片内容仍由 Supabase Storage、local asset store 或后续公司文件服务承载。
 - 待办：
   - 正式迁 MySQL 仍需单独实现 MySQL repository、样本迁移脚本、测试库验证、全量迁移和回滚方案。
+
+## 2026-06-30 门店正式化字段 2.22.0 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`65e3269 feat: add store short names and channel bed labels`。
+- 推送结果：
+  - GitLab remote 已从 `d824a43` 更新到 `65e3269`。
+  - 本次同时包含前置规划文档 commit：`bba7c71`、`5355f40`、`4b0f110`。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端 JS 静态资源 `index-B-DR2bc0.js` 已包含 `2.22.0 (container)`、`机构简称`、`床位拆分`、`美容室` 文案。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
