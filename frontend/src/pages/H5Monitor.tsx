@@ -15,7 +15,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "all", label: "全部" },
   { key: "consultation", label: "面诊室" },
   { key: "treatment", label: "治疗室" },
-  { key: "beauty", label: "生美" },
+  { key: "beauty", label: "美容室" },
   { key: "front_waiting", label: "前台/等候区" },
   { key: "other", label: "过道/其他" },
 ];

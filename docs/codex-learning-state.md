@@ -3430,3 +3430,24 @@ git pull --ff-only
   - 前端版本从 `2.21.10 (container)` 更新到 `2.21.11 (container)`。
 - 备注：
   - 本次未发布韩国服务器，未同步 GitHub。
+
+## 2026-06-30 门店正式化字段 2.22.0 开发记录
+
+- 背景：
+  - 公司正规环境后续要求迁移到 MySQL，需要提前规划保留现有数据的迁移方式。
+  - 业务确认时仅有“业务区域类型 + 编号/备注”不够，治疗室、VIP治疗室、美容室需要支持床位拆分。
+  - 机构基础资料需要新增“机构简称”。
+- 实现：
+  - 后端新增 `stores.short_name` / API `short_name`，创建、编辑、列表、详情、重复检查均兼容返回。
+  - 后端新增 `video_channels.bed_label` / API `bed_label`，通道确认、扫描保留、H5 Monitor 查询、Excel 导出均支持。
+  - 前端创建/编辑机构弹窗新增“机构简称”字段，详情页顶部展示机构简称。
+  - 通道映射表新增“床位拆分”列，仅治疗室、VIP治疗室、美容室显示输入；空值兼容单床或旧数据。
+  - 用户可见“生美”统一改为“美容室”，内部枚举仍保留 `beauty`，避免历史数据迁移。
+  - 新增 `frontend/src/domain/channel-mapping-target.ts`，将 `areaType + areaNumber + bedLabel` 作为临时本地映射目标，后续可替换为公司业务系统区域/床位字典。
+  - MySQL DDL 补齐 `tb_stores.short_name`、`tb_video_channels.bed_label`。
+  - `docs/mysql-migration-handoff.md` 补充 MySQL 迁移注意事项、图片存储核查口径和未来业务区域字典边界。
+- 图片存储结论：
+  - 当前数据库保存图片/PDF/截图路径或 logical key，不保存二进制图片内容。
+  - 正式 MySQL 第一阶段只迁路径字段；图片内容仍由 Supabase Storage、local asset store 或后续公司文件服务承载。
+- 待办：
+  - 正式迁 MySQL 仍需单独实现 MySQL repository、样本迁移脚本、测试库验证、全量迁移和回滚方案。

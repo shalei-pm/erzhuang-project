@@ -228,6 +228,7 @@ func (s *MemoryStore) CreateStore(ctx context.Context, input CreateStoreInput) (
 		ID:               s.nextStoreID,
 		City:             strings.TrimSpace(input.City),
 		Name:             strings.TrimSpace(input.Name),
+		ShortName:        strings.TrimSpace(input.ShortName),
 		NormalizedName:   NormalizeStoreName(input.Name),
 		ExternalOrgID:    strings.TrimSpace(input.ExternalOrgID),
 		DesignPlanStatus: DesignPlanStatusNotUploaded,
@@ -284,6 +285,7 @@ func (s *MemoryStore) UpdateStoreBasicInfo(ctx context.Context, id int64, input 
 	}
 	store.City = strings.TrimSpace(input.City)
 	store.Name = strings.TrimSpace(input.Name)
+	store.ShortName = strings.TrimSpace(input.ShortName)
 	store.NormalizedName = NormalizeStoreName(input.Name)
 	store.ExternalOrgID = strings.TrimSpace(input.ExternalOrgID)
 	store.UpdatedAt = time.Now().UTC()
@@ -693,6 +695,7 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 				if input.AreaType == "" {
 					channel.AreaType = ""
 					channel.AreaNumber = 0
+					channel.BedLabel = ""
 					channel.AreaNote = strings.TrimSpace(input.AreaNote)
 					channel.AreaID = 0
 					channel.Status = ChannelStatusConfirmedNonBusiness
@@ -718,6 +721,7 @@ func (s *MemoryStore) ConfirmChannel(ctx context.Context, channelID int64, input
 				}
 				channel.AreaType = area.Type
 				channel.AreaNumber = area.Number
+				channel.BedLabel = strings.TrimSpace(input.BedLabel)
 				channel.AreaNote = ""
 				channel.AreaID = area.ID
 				channel.SceneType = SceneType(area.Type)
@@ -859,6 +863,7 @@ func (s *MemoryStore) CheckDuplicate(ctx context.Context, name string, excludeSt
 		match := DuplicateMatch{
 			ID:             store.ID,
 			Name:           store.Name,
+			ShortName:      store.ShortName,
 			NormalizedName: store.NormalizedName,
 			OverallStatus:  store.OverallStatus,
 			UpdatedAt:      store.UpdatedAt,
@@ -1168,6 +1173,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 			s.id,
 			s.city,
 			s.name,
+			s.short_name,
 			s.external_org_id,
 			s.design_plan_status,
 			s.overall_status,
@@ -1206,6 +1212,7 @@ func (s *PostgresStore) ListStores(ctx context.Context, filters StoreFilters) (S
 			&item.ID,
 			&item.City,
 			&item.Name,
+			&item.ShortName,
 			&item.ExternalOrgID,
 			&item.DesignPlanStatus,
 			&item.OverallStatus,
@@ -1255,7 +1262,7 @@ func (s *PostgresStore) GetStore(ctx context.Context, id int64) (*Store, error) 
 func (s *PostgresStore) getStoreBase(ctx context.Context, id int64) (*Store, error) {
 	var store Store
 	err := s.db.QueryRowContext(ctx, `
-		select id, city, name, normalized_name, external_org_id, design_plan_status,
+		select id, city, name, short_name, normalized_name, external_org_id, design_plan_status,
 			overall_status, created_at, updated_at
 		from stores
 		where id = $1
@@ -1263,6 +1270,7 @@ func (s *PostgresStore) getStoreBase(ctx context.Context, id int64) (*Store, err
 		&store.ID,
 		&store.City,
 		&store.Name,
+		&store.ShortName,
 		&store.NormalizedName,
 		&store.ExternalOrgID,
 		&store.DesignPlanStatus,
@@ -1324,10 +1332,10 @@ func (s *PostgresStore) CreateStore(ctx context.Context, input CreateStoreInput)
 
 	var id int64
 	err = tx.QueryRowContext(ctx, `
-		insert into stores (city, name, normalized_name, external_org_id, design_plan_status, overall_status)
-		values ($1, $2, $3, $4, $5, $6)
+		insert into stores (city, name, short_name, normalized_name, external_org_id, design_plan_status, overall_status)
+		values ($1, $2, $3, $4, $5, $6, $7)
 		returning id
-	`, strings.TrimSpace(input.City), strings.TrimSpace(input.Name), NormalizeStoreName(input.Name), strings.TrimSpace(input.ExternalOrgID),
+	`, strings.TrimSpace(input.City), strings.TrimSpace(input.Name), strings.TrimSpace(input.ShortName), NormalizeStoreName(input.Name), strings.TrimSpace(input.ExternalOrgID),
 		designPlanStatus, OverallStatusPartial).Scan(&id)
 	if err != nil {
 		return nil, err
@@ -1376,10 +1384,11 @@ func (s *PostgresStore) UpdateStoreBasicInfo(ctx context.Context, id int64, inpu
 		set city = $2,
 			name = $3,
 			normalized_name = $4,
-			external_org_id = $5,
+			short_name = $5,
+			external_org_id = $6,
 			updated_at = now()
 		where id = $1
-	`, id, strings.TrimSpace(input.City), strings.TrimSpace(input.Name), NormalizeStoreName(input.Name), strings.TrimSpace(input.ExternalOrgID))
+	`, id, strings.TrimSpace(input.City), strings.TrimSpace(input.Name), NormalizeStoreName(input.Name), strings.TrimSpace(input.ShortName), strings.TrimSpace(input.ExternalOrgID))
 	if err != nil {
 		return nil, err
 	}
@@ -1553,7 +1562,7 @@ func (s *PostgresStore) GetChannel(ctx context.Context, channelID int64) (*Chann
 	row := s.db.QueryRowContext(ctx, `
 		select id, recorder_id, channel_no, channel_name, status, is_active,
 			scene_type, coalesce(area_type, ''), coalesce(area_number, 0),
-			coalesce(area_note, ''), coalesce(area_id, 0), recognition_attempts, coalesce(recognition_result::text, ''),
+			coalesce(bed_label, ''), coalesce(area_note, ''), coalesce(area_id, 0), recognition_attempts, coalesce(recognition_result::text, ''),
 			snapshot.thumbnail_path, snapshot.full_image_path, snapshot.full_image_expires_at,
 			confirmed_at, created_at, updated_at
 		from video_channels
@@ -1676,6 +1685,16 @@ func (s *PostgresStore) ReplaceRecorderChannels(ctx context.Context, recorderID 
 						) then video_channels.area_note
 						when video_channels.status = $6 then ''
 						else video_channels.area_note
+					end,
+					bed_label = case
+						when video_channels.status = $6 and (
+							video_channels.area_id is not null
+							or video_channels.area_type is not null
+							or video_channels.area_number is not null
+							or video_channels.confirmed_at is not null
+						) then video_channels.bed_label
+						when video_channels.status = $6 then ''
+						else video_channels.bed_label
 					end,
 					updated_at = now()
 			`, recorderID, channel.ChannelNo, strings.TrimSpace(channel.ChannelName), ChannelStatusPendingRecognition, SceneTypeUnknown, ChannelStatusInactive, ChannelStatusConfirmedBusiness, ChannelStatusConfirmedNonBusiness); err != nil {
@@ -1852,6 +1871,7 @@ func (s *PostgresStore) SaveChannelSnapshot(ctx context.Context, channelID int64
 			area_type = case when nullif($3, '') is null then area_type else nullif($5, '') end,
 			area_number = case when nullif($3, '') is null then area_number else nullif($6, 0) end,
 			area_note = case when nullif($3, '') is null then area_note else $7 end,
+			bed_label = case when nullif($3, '') is null then bed_label else '' end,
 			updated_at = now()
 		where id = $2
 	`, input.RecognitionResult, channelID, input.Status, input.SceneType, input.AreaType, mustPositiveInt(input.AreaNumberText), strings.TrimSpace(input.AreaNote), input.CountAttempt); err != nil {
@@ -1904,6 +1924,7 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 				scene_type = $2,
 				area_type = null,
 				area_number = null,
+				bed_label = '',
 				area_note = $4,
 				area_id = null,
 				confirmed_at = now(),
@@ -1945,12 +1966,13 @@ func (s *PostgresStore) ConfirmChannel(ctx context.Context, channelID int64, inp
 				scene_type = $2,
 				area_type = $3,
 				area_number = $4,
+				bed_label = $5,
 				area_note = '',
-				area_id = $5,
+				area_id = $6,
 				confirmed_at = now(),
 				updated_at = now()
-			where id = $6
-		`, ChannelStatusConfirmedBusiness, SceneType(input.AreaType), input.AreaType, number, area.ID, channelID); err != nil {
+			where id = $7
+		`, ChannelStatusConfirmedBusiness, SceneType(input.AreaType), input.AreaType, number, strings.TrimSpace(input.BedLabel), area.ID, channelID); err != nil {
 			return nil, err
 		}
 		if err := deleteUnusedVideoAreas(ctx, tx, storeID); err != nil {
@@ -2132,7 +2154,7 @@ func (s *PostgresStore) DeleteChannel(ctx context.Context, channelID int64) (*St
 func (s *PostgresStore) CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error) {
 	normalized := NormalizeStoreName(name)
 	rows, err := s.db.QueryContext(ctx, `
-		select id, name, normalized_name, overall_status, updated_at
+		select id, name, short_name, normalized_name, overall_status, updated_at
 		from stores
 		where id <> $1
 			and (
@@ -2151,7 +2173,7 @@ func (s *PostgresStore) CheckDuplicate(ctx context.Context, name string, exclude
 	result := DuplicateCheckResult{SimilarMatches: []DuplicateMatch{}}
 	for rows.Next() {
 		var match DuplicateMatch
-		if err := rows.Scan(&match.ID, &match.Name, &match.NormalizedName, &match.OverallStatus, &match.UpdatedAt); err != nil {
+		if err := rows.Scan(&match.ID, &match.Name, &match.ShortName, &match.NormalizedName, &match.OverallStatus, &match.UpdatedAt); err != nil {
 			return DuplicateCheckResult{}, err
 		}
 		if match.NormalizedName == normalized {
@@ -2431,7 +2453,7 @@ func (s *PostgresStore) listChannels(ctx context.Context, recorderID int64) ([]C
 	rows, err := s.db.QueryContext(ctx, `
 		select id, recorder_id, channel_no, channel_name, status, is_active,
 			scene_type, coalesce(area_type, ''), coalesce(area_number, 0),
-			coalesce(area_note, ''), coalesce(area_id, 0), recognition_attempts, coalesce(recognition_result::text, ''),
+			coalesce(bed_label, ''), coalesce(area_note, ''), coalesce(area_id, 0), recognition_attempts, coalesce(recognition_result::text, ''),
 			snapshot.thumbnail_path, snapshot.full_image_path, snapshot.full_image_expires_at,
 			confirmed_at, created_at, updated_at
 		from video_channels
@@ -2465,7 +2487,7 @@ func (s *PostgresStore) listChannelsForStore(ctx context.Context, storeID int64)
 	rows, err := s.db.QueryContext(ctx, `
 		select c.id, c.recorder_id, c.channel_no, c.channel_name, c.status, c.is_active,
 			c.scene_type, coalesce(c.area_type, ''), coalesce(c.area_number, 0),
-			coalesce(c.area_note, ''), coalesce(c.area_id, 0), c.recognition_attempts, coalesce(c.recognition_result::text, ''),
+			coalesce(c.bed_label, ''), coalesce(c.area_note, ''), coalesce(c.area_id, 0), c.recognition_attempts, coalesce(c.recognition_result::text, ''),
 			snapshot.thumbnail_path, snapshot.full_image_path, snapshot.full_image_expires_at,
 			c.confirmed_at, c.created_at, c.updated_at
 		from video_channels c
@@ -2515,6 +2537,7 @@ func scanChannel(scanner channelScanner) (*Channel, error) {
 		&channel.SceneType,
 		&channel.AreaType,
 		&channel.AreaNumber,
+		&channel.BedLabel,
 		&channel.AreaNote,
 		&channel.AreaID,
 		&channel.RecognitionAttempts,
@@ -2927,6 +2950,7 @@ func storeListItem(store Store) StoreListItem {
 		ID:               store.ID,
 		City:             store.City,
 		Name:             store.Name,
+		ShortName:        store.ShortName,
 		ExternalOrgID:    store.ExternalOrgID,
 		DesignPlanStatus: store.DesignPlanStatus,
 		OverallStatus:    store.OverallStatus,

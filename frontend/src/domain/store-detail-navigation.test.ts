@@ -11,6 +11,7 @@ const baseSummary: StoreSummary = {
   id: 7,
   city: "上海",
   name: "新氧青春诊所 上海测试店",
+  shortName: "",
   externalOrgId: "SOY-7",
   thumbnailUrl: "",
   designPlanStatus: "not_uploaded",

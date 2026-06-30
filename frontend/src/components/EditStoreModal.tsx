@@ -12,6 +12,7 @@ type EditStoreModalProps = {
 export function EditStoreModal({ store, saving, onClose, onSubmit }: EditStoreModalProps) {
   const [city, setCity] = useState(store.city);
   const [name, setName] = useState(store.name);
+  const [shortName, setShortName] = useState(store.shortName);
   const [externalOrgId, setExternalOrgId] = useState(store.externalOrgId);
   const [message, setMessage] = useState("");
 
@@ -28,6 +29,7 @@ export function EditStoreModal({ store, saving, onClose, onSubmit }: EditStoreMo
       id: store.id,
       city: city.trim(),
       name: name.trim(),
+      shortName: shortName.trim(),
       externalOrgId: externalOrgId.trim(),
     });
   }
@@ -60,6 +62,10 @@ export function EditStoreModal({ store, saving, onClose, onSubmit }: EditStoreMo
           <label>
             门店名称
             <input value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入门店名称" />
+          </label>
+          <label>
+            机构简称
+            <input value={shortName} onChange={(event) => setShortName(event.target.value)} placeholder="选填，例如 凯德晶萃" />
           </label>
           <label>
             新氧机构 ID

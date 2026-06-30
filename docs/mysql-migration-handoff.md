@@ -1,6 +1,6 @@
 # MySQL 迁移交接说明
 
-最后更新：2026-06-29
+最后更新：2026-06-30
 
 本文用于交接给后续负责 `erzhuang-project` MySQL 适配和数据迁移的同事/Codex 会话。
 
@@ -8,6 +8,7 @@
 
 - 测试 MySQL 库已创建 14 张 `tb_` 前缀表。
 - MySQL DDL 文件保存在 `db/mysql_schema_tb.sql`。
+- 2026-06-30 已补齐本轮新增字段：`tb_stores.short_name`、`tb_video_channels.bed_label`。
 - 当前 Go 后端代码仍只支持 PostgreSQL/Supabase，不支持直接切 MySQL。
 - 当前图片、PDF、通道截图仍在 Supabase Storage，暂不迁入 MySQL。
 - MySQL 测试库只建了表结构，尚未导入 Supabase 业务数据。
@@ -182,6 +183,9 @@ tb_app_settings
 - `recognition_result` 等 JSON 字段必须是合法 JSON。
 - 时间字段统一处理时区，避免比原数据差 8 小时。
 - 图片路径字段先不要改，继续保留原 logical key 或现有 API URL。
+- 新增 `short_name` 和 `bed_label` 为空字符串兼容旧数据，不需要为历史数据补默认业务值。
+- `bed_label` 必须单独迁移，不能拼进 `area_note`；它表达同一治疗室/美容室下的床位拆分，例如 `治疗室6-1` 中的 `1`。
+- 当前 `area_type + area_number + bed_label` 是临时本地映射目标。正式接入公司业务系统后，应替换为“通道 -> 业务区域/床位对象”的外部字典映射，不要继续扩大自由文本字段。
 - 正式迁移前需要短暂停写窗口，避免 Supabase 和 MySQL 数据不一致。
 - 切换后 Supabase 保留只读备份一段时间，作为回滚来源。
 
@@ -202,6 +206,8 @@ tb_app_settings
 - 添加录像机能写入 MySQL。
 - 扫描/刷新通道能写入 MySQL。
 - 通道识别结果能写入 MySQL。
+- 机构简称能创建、编辑、列表/详情读取。
+- 治疗室、VIP治疗室、美容室通道能保存床位拆分；老通道空床位仍能正常展示。
 - 删除门店/录像机/通道的级联关系符合预期。
 - Excel 导出能正常读取截图。
 
@@ -213,6 +219,20 @@ tb_app_settings
 - 抽样 5 家门店。
 - 抽样 5 张设计图。
 - 抽样 5 张通道截图。
+
+## 图片存储核查口径
+
+如果运维检查报告里说“图片在数据库里”，需要先确认指的是二进制图片内容，还是图片路径/对象 key。
+
+当前设计是：
+
+- 数据库保存路径或 logical key。
+- 设计图字段包括 `original_pdf_path`、`preview_image_path`、`thumbnail_path`。
+- 通道截图字段包括 `channel_snapshots.thumbnail_path`、`channel_snapshots.full_image_path`。
+- 图片/PDF 文件内容由 Supabase Storage、local asset store 或后续公司文件服务保存。
+- 前端不直连 Supabase，统一通过 Go 后端图片接口或路径代理读取。
+
+因此 MySQL 第一阶段迁移只迁这些路径字段，不把图片二进制写入 MySQL。
 
 ## 后续图片迁移方案
 

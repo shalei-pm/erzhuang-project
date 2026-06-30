@@ -32,6 +32,7 @@ func PostgresSchemaStatements() []string {
 				check (overall_status in ('incomplete', 'partial', 'completed', 'exception'))
 		)`,
 		`alter table stores add column if not exists city text not null default ''`,
+		`alter table stores add column if not exists short_name text not null default ''`,
 		`create index if not exists stores_updated_at_idx on stores (updated_at desc)`,
 		`create table if not exists store_areas (
 			id bigserial primary key,
@@ -159,6 +160,7 @@ func PostgresSchemaStatements() []string {
 				check (recognition_attempts >= 0)
 		)`,
 		`alter table video_channels add column if not exists area_note text not null default ''`,
+		`alter table video_channels add column if not exists bed_label text not null default ''`,
 		`alter table video_channels drop constraint if exists video_channels_scene_type_check`,
 		`alter table video_channels add constraint video_channels_scene_type_check
 			check (scene_type in ('treatment', 'vip_treatment', 'consultation', 'beauty', 'front_desk', 'corridor', 'passage', 'waiting_area', 'hall', 'entrance', 'storage', 'pharmacy', 'machine_room', 'unknown'))`,

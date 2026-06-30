@@ -118,6 +118,7 @@ func h5MonitorChannelQuery(extraCondition string) string {
 			coalesce(c.area_type, ''),
 			c.scene_type,
 			coalesce(c.area_number, 0),
+			coalesce(c.bed_label, ''),
 			coalesce(c.area_note, ''),
 			coalesce((
 				select cs.thumbnail_path
@@ -157,6 +158,7 @@ func scanH5MonitorChannel(scanner h5MonitorChannelScanner) (h5monitor.ChannelInf
 		&channel.AreaType,
 		&channel.SceneType,
 		&channel.AreaNumber,
+		&channel.BedLabel,
 		&channel.AreaNote,
 		&channel.ThumbnailURL,
 		&channel.DeviceSerial,

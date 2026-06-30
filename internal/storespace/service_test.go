@@ -1259,7 +1259,7 @@ func TestExportChannelMappingExcelExportsActiveChannelsInBusinessOrder(t *testin
 		channels: []ScannedChannel{
 			{ChannelNo: 1, ChannelName: "治疗", Active: true},
 			{ChannelNo: 2, ChannelName: "面诊", Active: true},
-			{ChannelNo: 3, ChannelName: "生美", Active: true},
+			{ChannelNo: 3, ChannelName: "美容室", Active: true},
 			{ChannelNo: 4, ChannelName: "机房", Active: true},
 			{ChannelNo: 5, ChannelName: "失效", Active: true},
 		},
@@ -1285,7 +1285,7 @@ func TestExportChannelMappingExcelExportsActiveChannelsInBusinessOrder(t *testin
 	if _, err := repo.SaveChannelSnapshot(context.Background(), recorder.Channels[0].ID, ChannelSnapshotInput{ThumbnailPath: "/api/store-space/channel-snapshots/00000000000000000000000000000001.jpg", FullImagePath: "/api/store-space/channel-snapshots/00000000000000000000000000000001.jpg"}); err != nil {
 		t.Fatalf("save snapshot: %v", err)
 	}
-	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{AreaType: AreaTypeTreatment, AreaNumber: "2"}); err != nil {
+	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{AreaType: AreaTypeTreatment, AreaNumber: "2", BedLabel: "1"}); err != nil {
 		t.Fatalf("confirm treatment: %v", err)
 	}
 	if _, err := service.ConfirmChannel(context.Background(), recorder.Channels[1].ID, ChannelConfirmationInput{AreaType: AreaTypeConsultation, AreaNumber: "1"}); err != nil {
@@ -1314,7 +1314,7 @@ func TestExportChannelMappingExcelExportsActiveChannelsInBusinessOrder(t *testin
 	}
 	files := unzipExcelFiles(t, exported.Content)
 	sheet := files["xl/worksheets/sheet1.xml"]
-	for _, want := range []string{"面诊室", "治疗室", "生美", "其他区域", "10001", "GN0941203", "机房"} {
+	for _, want := range []string{"面诊室", "治疗室", "美容室", "其他区域", "10001", "GN0941203", "2-1", "机房"} {
 		if !strings.Contains(sheet, want) {
 			t.Fatalf("sheet missing %q: %s", want, sheet)
 		}
@@ -1901,5 +1901,81 @@ func TestParseAreaBoxReturnsAnnotationCoordinates(t *testing.T) {
 
 	if _, ok := parseAreaBox(sql.NullString{}, sql.NullString{String: "0.23", Valid: true}, sql.NullString{String: "0.34", Valid: true}, sql.NullString{String: "0.45", Valid: true}); ok {
 		t.Fatal("expected missing coordinate to skip box")
+	}
+}
+
+func TestCreateAndUpdateStoreShortName(t *testing.T) {
+	service := NewService(NewMemoryStore())
+
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City:               "上海",
+		Name:               "新氧青春诊所 上海凯德晶萃店",
+		ShortName:          "凯德晶萃",
+		DesignPlanUploadID: "upload_123",
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if store.ShortName != "凯德晶萃" {
+		t.Fatalf("short name = %q, want 凯德晶萃", store.ShortName)
+	}
+
+	updated, err := service.UpdateStoreBasicInfo(context.Background(), store.ID, UpdateStoreBasicInfoInput{
+		City:          "上海",
+		Name:          store.Name,
+		ShortName:     "上海凯德",
+		ExternalOrgID: "10047",
+	})
+	if err != nil {
+		t.Fatalf("update store: %v", err)
+	}
+	if updated.ShortName != "上海凯德" {
+		t.Fatalf("updated short name = %q, want 上海凯德", updated.ShortName)
+	}
+
+	result, err := service.ListStores(context.Background(), StoreFilters{})
+	if err != nil {
+		t.Fatalf("list stores: %v", err)
+	}
+	if result.Items[0].ShortName != "上海凯德" {
+		t.Fatalf("list short name = %q, want 上海凯德", result.Items[0].ShortName)
+	}
+}
+
+func TestConfirmChannelStoresBedLabel(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华东"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service := NewServiceWithScanner(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "治疗室6", Active: true}},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "上海",
+		Name: "床位测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "BEDLABEL01"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan recorder: %v", err)
+	}
+
+	updated, err := service.ConfirmChannel(context.Background(), recorder.Channels[0].ID, ChannelConfirmationInput{
+		AreaType:   AreaTypeTreatment,
+		AreaNumber: "6",
+		BedLabel:   "1",
+	})
+	if err != nil {
+		t.Fatalf("confirm channel: %v", err)
+	}
+	channel := updated.Recorders[0].Channels[0]
+	if channel.BedLabel != "1" {
+		t.Fatalf("bed label = %q, want 1", channel.BedLabel)
 	}
 }

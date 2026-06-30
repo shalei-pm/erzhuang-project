@@ -14,6 +14,7 @@ const baseChannel: VideoChannel = {
   sceneType: "unknown",
   areaType: "",
   areaNumber: "",
+  bedLabel: "",
   areaNote: "",
   recognitionAttempts: 0,
 };

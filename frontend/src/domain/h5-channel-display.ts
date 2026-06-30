@@ -1,10 +1,11 @@
 import type { H5MonitorChannel } from "./h5-types";
+import { channelMappingTargetLabel } from "./channel-mapping-target";
 
 const businessAreaLabels: Record<string, string> = {
   consultation: "面诊室",
   treatment: "治疗室",
   vip_treatment: "VIP治疗室",
-  beauty: "生美",
+  beauty: "美容室",
 };
 
 const sceneLabels: Record<string, string> = {
@@ -64,8 +65,16 @@ export function h5CameraColumnCount(containerWidth: number, viewportWidth: numbe
 export function h5ChannelTitle(channel: H5MonitorChannel): string {
   const businessLabel = businessAreaLabels[channel.area_type];
   if (businessLabel) {
-    const suffix = areaSuffix(channel);
-    return suffix ? `${businessLabel}${suffix}` : businessLabel;
+    const label = channelMappingTargetLabel(
+      {
+        areaType: channel.area_type,
+        areaNumber: channel.area_number,
+        bedLabel: channel.bed_label,
+        areaNote: channel.area_note,
+      },
+      { includeSingleBedSuffix: true },
+    );
+    return label || businessLabel;
   }
 
   const note = channel.area_note.trim();
@@ -76,11 +85,4 @@ export function h5ChannelTitle(channel: H5MonitorChannel): string {
 
   const name = channel.channel_name.trim();
   return name || `通道${channel.channel_no}`;
-}
-
-function areaSuffix(channel: H5MonitorChannel): string {
-  const note = channel.area_note.trim();
-  if (note) return note;
-  if (channel.area_number > 0) return `${channel.area_number}号`;
-  return "";
 }

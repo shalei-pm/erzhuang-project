@@ -75,6 +75,10 @@ export function StoreDetail({
           <h1>{store.name}</h1>
           <div className="detail-metrics" aria-label="门店资源概览">
             <div>
+              <span>机构简称</span>
+              <strong>{store.shortName || "-"}</strong>
+            </div>
+            <div>
               <span>新氧机构 ID</span>
               <strong>{store.externalOrgId || "-"}</strong>
             </div>

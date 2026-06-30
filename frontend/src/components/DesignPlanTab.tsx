@@ -443,5 +443,5 @@ function areaTypeLabel(type: AreaType) {
   if (type === "treatment") return "治疗室";
   if (type === "vip_treatment") return "VIP治疗室";
   if (type === "consultation") return "面诊室";
-  return "生美";
+  return "美容室";
 }

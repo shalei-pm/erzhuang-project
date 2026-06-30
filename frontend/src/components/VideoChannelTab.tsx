@@ -11,6 +11,7 @@ import {
 } from "../api";
 import { areaTypeLabels, isAreaNumberOptional } from "../domain/areas";
 import { channelListFilters, filterAndSortChannels, type ChannelListFilter } from "../domain/channel-filters";
+import { channelMappingTargetLabel, requiresBedSplit } from "../domain/channel-mapping-target";
 import { channelRecognitionMessage, recorderRecognitionToast } from "../domain/channel-recognition";
 import { channelSceneLabel } from "../domain/channel-labels";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
@@ -230,13 +231,14 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     const patch = editingChannels[channel.id] ?? {};
     const areaType = patch.areaType ?? channel.areaType;
     const areaNumber = patch.areaNumber ?? channel.areaNumber;
+    const bedLabel = patch.bedLabel ?? channel.bedLabel;
     const sceneType = patch.sceneType ?? channel.sceneType;
     if (areaType && !isAreaNumberOptional(areaType) && !String(areaNumber).trim()) {
       onToast("确认为业务区域时，编号必填。");
       return;
     }
     const previousChannel = channel;
-    const optimisticChannel = confirmedChannelDraft(channel, areaType, areaNumber, patch.areaNote, sceneType);
+    const optimisticChannel = confirmedChannelDraft(channel, areaType, areaNumber, bedLabel, patch.areaNote, sceneType);
     setConfirmingChannelIds((current) => addIdToSet(current, channel.id));
     setChannelError("");
     setEditingChannels((current) => {
@@ -250,6 +252,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         ...patch,
         areaType,
         areaNumber,
+        bedLabel: areaType && requiresBedSplit(areaType) ? bedLabel : "",
         areaNote: areaType ? "" : String(patch.areaNote ?? patch.areaNumber ?? channel.areaNote ?? ""),
         sceneType,
       });
@@ -556,7 +559,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
             <div className="section-title-row">
               <div>
                 <strong>{recorder.deviceCode} 有效通道</strong>
-                <span>请将白底黑字编号纸放在画面明显位置，例如：治疗室 1 / 面诊室 2 / 生美 3。</span>
+                <span>请将白底黑字编号纸放在画面明显位置，例如：治疗室 1 / 面诊室 2 / 美容室 3。</span>
               </div>
             </div>
             <table className="channel-table">
@@ -567,6 +570,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                   <th>最近截图</th>
                   <th>业务区域类型</th>
                   <th>编号/备注</th>
+                  <th>床位拆分</th>
                   <th>确认状态</th>
                   <th>操作</th>
                 </tr>
@@ -574,7 +578,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
               <tbody>
                 {visibleChannels.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="channel-empty-cell">
+                    <td colSpan={8} className="channel-empty-cell">
                       当前筛选下暂无通道
                     </td>
                   </tr>
@@ -597,6 +601,8 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                 const snapshotDiagnostic = snapshotDiagnostics[channel.id];
                 const selectedAreaType = draft.areaType !== undefined ? draft.areaType : channel.areaType;
                 const selectedAreaNumber = draft.areaNumber ?? (selectedAreaType ? channel.areaNumber : channel.areaNote || channel.areaNumber);
+                const selectedBedLabel = draft.bedLabel ?? channel.bedLabel;
+                const showBedLabel = requiresBedSplit(selectedAreaType);
                 return (
                   <tr key={channel.id}>
                     <td>{recorder.deviceCode}</td>
@@ -643,7 +649,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                           <option value="treatment">治疗室</option>
                           <option value="vip_treatment">VIP治疗室</option>
                           <option value="consultation">面诊室</option>
-                          <option value="beauty">生美</option>
+                          <option value="beauty">美容室</option>
                         </select>
                       ) : (
                         channel.areaType ? areaTypeLabels[channel.areaType] : nonBusinessLabel(channel.sceneType)
@@ -665,6 +671,29 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                         />
                       ) : (
                         channel.areaType ? channel.areaNumber || "-" : channel.areaNote || channel.areaNumber || "-"
+                      )}
+                    </td>
+                    <td>
+                      {isEditable ? (
+                        showBedLabel ? (
+                          <input
+                            value={selectedBedLabel}
+                            inputMode="text"
+                            onChange={(event) => updateChannelDraft(channel.id, { bedLabel: event.target.value })}
+                            placeholder="单床可不填"
+                            aria-label="床位拆分"
+                          />
+                        ) : (
+                          <span className="muted-cell">-</span>
+                        )
+                      ) : (
+                        channel.areaType
+                          ? channelMappingTargetLabel({
+                              areaType: channel.areaType,
+                              areaNumber: channel.areaNumber,
+                              bedLabel: channel.bedLabel,
+                            }) || "-"
+                          : "-"
                       )}
                     </td>
                     <td>
@@ -967,6 +996,7 @@ function confirmedChannelDraft(
   channel: VideoChannel,
   areaType: AreaType | "",
   areaNumber: string,
+  bedLabel: string,
   areaNote: unknown,
   sceneType: VideoChannel["sceneType"],
 ): VideoChannel {
@@ -975,6 +1005,7 @@ function confirmedChannelDraft(
     ...channel,
     areaType,
     areaNumber: isBusiness ? String(areaNumber).trim() : "",
+    bedLabel: isBusiness && requiresBedSplit(areaType) ? String(bedLabel).trim() : "",
     areaNote: isBusiness ? "" : String(areaNote ?? areaNumber ?? channel.areaNote ?? ""),
     sceneType: isBusiness ? (areaType as AreaType) : sceneType,
     status: isBusiness ? "confirmed_business" : "confirmed_non_business",
@@ -986,6 +1017,7 @@ function channelDraftFromChannel(channel: VideoChannel): Partial<VideoChannel> {
   return {
     areaType: channel.areaType,
     areaNumber: channel.areaType ? channel.areaNumber : channel.areaNote || channel.areaNumber,
+    bedLabel: channel.bedLabel,
     areaNote: channel.areaNote,
     sceneType: channel.sceneType,
     status: "pending_confirmation",

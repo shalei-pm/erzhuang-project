@@ -100,6 +100,7 @@ type StoreFilters struct {
 type CreateStoreInput struct {
 	City               string          `json:"city"`
 	Name               string          `json:"name"`
+	ShortName          string          `json:"short_name,omitempty"`
 	ExternalOrgID      string          `json:"external_org_id,omitempty"`
 	DesignPlanUploadID string          `json:"design_plan_upload_id,omitempty"`
 	Recorders          []RecorderInput `json:"recorders,omitempty"`
@@ -108,6 +109,7 @@ type CreateStoreInput struct {
 type UpdateStoreBasicInfoInput struct {
 	City          string `json:"city"`
 	Name          string `json:"name"`
+	ShortName     string `json:"short_name,omitempty"`
 	ExternalOrgID string `json:"external_org_id,omitempty"`
 }
 
@@ -177,6 +179,7 @@ type ChannelConfirmationInput struct {
 	Kind       string    `json:"kind,omitempty"`
 	AreaType   AreaType  `json:"area_type,omitempty"`
 	AreaNumber string    `json:"area_number,omitempty"`
+	BedLabel   string    `json:"bed_label,omitempty"`
 	AreaNote   string    `json:"area_note,omitempty"`
 	SceneType  SceneType `json:"scene_type,omitempty"`
 }
@@ -210,6 +213,7 @@ type DuplicateCheckRequest struct {
 type DuplicateMatch struct {
 	ID             int64         `json:"id"`
 	Name           string        `json:"name"`
+	ShortName      string        `json:"short_name"`
 	NormalizedName string        `json:"normalized_name,omitempty"`
 	Reason         string        `json:"reason"`
 	OverallStatus  OverallStatus `json:"overall_status"`
@@ -232,6 +236,7 @@ type Store struct {
 	ID               int64            `json:"id"`
 	City             string           `json:"city"`
 	Name             string           `json:"name"`
+	ShortName        string           `json:"short_name"`
 	NormalizedName   string           `json:"normalized_name,omitempty"`
 	ExternalOrgID    string           `json:"external_org_id"`
 	DesignPlanStatus DesignPlanStatus `json:"design_plan_status"`
@@ -247,6 +252,7 @@ type StoreListItem struct {
 	ID                     int64            `json:"id"`
 	City                   string           `json:"city"`
 	Name                   string           `json:"name"`
+	ShortName              string           `json:"short_name"`
 	ExternalOrgID          string           `json:"external_org_id"`
 	DesignPlanStatus       DesignPlanStatus `json:"design_plan_status"`
 	OverallStatus          OverallStatus    `json:"overall_status"`
@@ -332,6 +338,7 @@ type Channel struct {
 	SceneType           SceneType     `json:"scene_type"`
 	AreaType            AreaType      `json:"area_type,omitempty"`
 	AreaNumber          int           `json:"area_number,omitempty"`
+	BedLabel            string        `json:"bed_label,omitempty"`
 	AreaNote            string        `json:"area_note,omitempty"`
 	AreaID              int64         `json:"area_id,omitempty"`
 	RecognitionAttempts int           `json:"recognition_attempts"`

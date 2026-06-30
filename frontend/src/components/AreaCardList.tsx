@@ -62,7 +62,7 @@ export function AreaCardList({
                   <option value="treatment">治疗室</option>
                   <option value="vip_treatment">VIP治疗室</option>
                   <option value="consultation">面诊室</option>
-                  <option value="beauty">生美</option>
+                  <option value="beauty">美容室</option>
                 </select>
               </label>
               <label>

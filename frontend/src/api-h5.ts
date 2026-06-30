@@ -147,11 +147,11 @@ function mockMonitorHome(): H5MonitorHomeResponse {
   const groups: H5MonitorHomeResponse["groups"] = [
     { category: "consultation", label: "面诊室", channels: [] },
     { category: "treatment", label: "治疗室", channels: [] },
-    { category: "beauty", label: "生美", channels: [] },
+    { category: "beauty", label: "美容室", channels: [] },
     { category: "front_waiting", label: "前台/等候区", channels: [] },
     { category: "other", label: "过道/其他", channels: [] },
   ];
-  const names = ["面诊室", "治疗室", "生美间", "前台", "等候区", "过道", "仓储间"];
+  const names = ["面诊室", "治疗室", "美容室", "前台", "等候区", "过道", "仓储间"];
   for (let i = 0; i < 36; i += 1) {
     const group = groups[i % groups.length];
     const label = names[i % names.length];
@@ -166,6 +166,7 @@ function mockMonitorHome(): H5MonitorHomeResponse {
           : "",
       scene_type: group.category === "front_waiting" ? "front_desk" : group.category === "other" ? "corridor" : "",
       area_number: Math.floor(i / groups.length) + 1,
+      bed_label: "",
       area_note: "",
       thumbnail_url: `https://picsum.photos/seed/h5-monitor-${i + 1}/320/320`,
     });

@@ -389,7 +389,7 @@ function AdminApp() {
             </span>
             <span>面诊室 {visibleSummary.consultationCount}</span>
             <span>治疗室 {visibleSummary.treatmentCount}</span>
-            <span>生美 {visibleSummary.beautyCount}</span>
+            <span>美容室 {visibleSummary.beautyCount}</span>
           </div>
         </div>
         <div className="city-filter" role="radiogroup" aria-label="城市筛选">

@@ -37,6 +37,7 @@ type ChannelInfo struct {
 	AreaType       string
 	SceneType      string
 	AreaNumber     int
+	BedLabel       string
 	AreaNote       string
 	ThumbnailURL   string
 	DeviceSerial   string
@@ -341,6 +342,7 @@ func groupChannels(channels []ChannelInfo) []MonitorGroup {
 			AreaType:     channel.AreaType,
 			SceneType:    channel.SceneType,
 			AreaNumber:   channel.AreaNumber,
+			BedLabel:     channel.BedLabel,
 			AreaNote:     channel.AreaNote,
 			ThumbnailURL: channel.ThumbnailURL,
 		})

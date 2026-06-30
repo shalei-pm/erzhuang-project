@@ -19,6 +19,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [city, setCity] = useState("");
   const [name, setName] = useState("");
+  const [shortName, setShortName] = useState("");
   const [externalOrgId, setExternalOrgId] = useState("");
   const [designPlan, setDesignPlan] = useState<UploadResult | null>(null);
   const [recorders, setRecorders] = useState<RecorderDraft[]>([]);
@@ -84,6 +85,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
     void onSubmit({
       city: city.trim(),
       name: name.trim(),
+      shortName: shortName.trim(),
       externalOrgId: externalOrgId.trim(),
       designPlan,
       recorders: cleanRecorders,
@@ -118,6 +120,10 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
           <label>
             门店名称
             <input value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入门店名称" />
+          </label>
+          <label>
+            机构简称
+            <input value={shortName} onChange={(event) => setShortName(event.target.value)} placeholder="选填，例如 凯德晶萃" />
           </label>
           <label>
             新氧机构 ID

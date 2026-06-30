@@ -9,6 +9,7 @@ export interface H5MonitorChannel {
   area_type: AreaType;
   scene_type: string;
   area_number: number;
+  bed_label?: string;
   area_note: string;
   thumbnail_url: string;
 }

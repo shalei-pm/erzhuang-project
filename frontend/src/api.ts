@@ -50,6 +50,7 @@ export type StoreSummary = {
   id: number;
   city: string;
   name: string;
+  shortName: string;
   externalOrgId: string;
   thumbnailUrl: string;
   designPlanStatus: DesignPlanStatus;
@@ -119,6 +120,7 @@ export type VideoChannel = {
   sceneType: SceneType;
   areaType: AreaType | "";
   areaNumber: string;
+  bedLabel: string;
   areaNote: string;
   recognitionAttempts: number;
   recognitionResult?: unknown;
@@ -211,6 +213,7 @@ export type SaveStorePayload = {
 export type CreateStoreSpacePayload = {
   city: string;
   name: string;
+  shortName: string;
   externalOrgId: string;
   designPlan?: UploadResult | null;
   recorders: RecorderDraft[];
@@ -220,6 +223,7 @@ export type UpdateStoreBasicInfoPayload = {
   id: number;
   city: string;
   name: string;
+  shortName: string;
   externalOrgId: string;
 };
 
@@ -247,6 +251,8 @@ type BackendStoreSummary = {
   id: number;
   city?: string;
   name: string;
+  short_name?: string;
+  shortName?: string;
   thumbnail_url?: string;
   treatment_count: number;
   consultation_count: number;
@@ -260,6 +266,8 @@ type BackendStoreDetail = {
   id: number;
   city?: string;
   name: string;
+  short_name?: string;
+  shortName?: string;
   pdf_file_name?: string;
   original_pdf_path?: string;
   preview_image_path?: string;
@@ -328,6 +336,8 @@ type BackendDuplicateMatch = {
   id: number;
   city?: string;
   name: string;
+  short_name?: string;
+  shortName?: string;
   reason?: string;
   thumbnail_url?: string;
   treatment_count?: number;
@@ -391,6 +401,8 @@ type BackendVideoChannel = {
   areaType?: AreaType | "";
   area_number?: number | string | null;
   areaNumber?: number | string | null;
+  bed_label?: string;
+  bedLabel?: string;
   area_note?: string;
   areaNote?: string;
   recognition_attempts?: number;
@@ -445,6 +457,8 @@ type BackendStoreSpaceSummary = {
   city?: string;
   cityName?: string;
   name: string;
+  short_name?: string;
+  shortName?: string;
   external_org_id?: string;
   externalOrgId?: string;
   design_plan_status?: DesignPlanStatus;
@@ -591,7 +605,7 @@ let mockStores: StoreDetail[] = [
     area("a-1", "治疗室 1", "treatment", "1", "high", { x: 0.315, y: 0.195, width: 0.095, height: 0.065 }),
     area("a-2", "治疗室 2", "treatment", "2", "high", { x: 0.315, y: 0.295, width: 0.095, height: 0.07 }),
     area("a-3", "面诊室 1", "consultation", "1", "high", { x: 0.185, y: 0.5, width: 0.09, height: 0.12 }),
-    area("a-4", "生美区", "beauty", "", "medium", { x: 0.23, y: 0.685, width: 0.12, height: 0.12 }),
+    area("a-4", "美容室", "beauty", "", "medium", { x: 0.23, y: 0.685, width: 0.12, height: 0.12 }),
   ]),
   createMockStore(2, "上海静安中心店", "needs_review", [
     area("b-1", "治疗室 1", "treatment", "1", "high", { x: 0.315, y: 0.39, width: 0.095, height: 0.075 }),
@@ -600,7 +614,7 @@ let mockStores: StoreDetail[] = [
   ]),
   createMockStore(3, "南京新街口店", "completed", [
     area("c-1", "治疗室 1", "treatment", "1", "high", { x: 0.315, y: 0.295, width: 0.095, height: 0.07 }),
-    area("c-2", "生美 1", "beauty", "1", "high", { x: 0.345, y: 0.675, width: 0.065, height: 0.1 }),
+    area("c-2", "美容室 1", "beauty", "1", "high", { x: 0.345, y: 0.675, width: 0.065, height: 0.1 }),
   ]),
   ...Array.from({ length: 31 }, (_, index) => {
     const id = index + 4;
@@ -614,7 +628,7 @@ let mockStores: StoreDetail[] = [
         height: 0.12,
       }),
       ...(index % 3 === 0
-        ? [area(`m-${id}-3`, "生美", "beauty", "", "high", { x: 0.23, y: 0.685, width: 0.12, height: 0.12 })]
+        ? [area(`m-${id}-3`, "美容室", "beauty", "", "high", { x: 0.23, y: 0.685, width: 0.12, height: 0.12 })]
         : []),
     ]);
   }),
@@ -688,7 +702,7 @@ const mockAdapter = {
           width: 0.09,
           height: 0.12,
         }),
-        area(`new-${Date.now()}-4`, "生美区", "beauty", "", "medium", {
+        area(`new-${Date.now()}-4`, "美容室", "beauty", "", "medium", {
           x: 0.23,
           y: 0.685,
           width: 0.12,
@@ -957,10 +971,10 @@ const mockAdapter = {
       return { active: false, message: "模拟通道无画面" };
     }
     const presets = [
-      { sceneType: "consultation" as SceneType, areaType: "consultation" as AreaType, areaNumber: "1", areaNote: "" },
-      { sceneType: "treatment" as SceneType, areaType: "treatment" as AreaType, areaNumber: "2", areaNote: "" },
-      { sceneType: "beauty" as SceneType, areaType: "beauty" as AreaType, areaNumber: "3", areaNote: "" },
-      { sceneType: "front_desk" as SceneType, areaType: "" as const, areaNumber: "", areaNote: "前台" },
+      { sceneType: "consultation" as SceneType, areaType: "consultation" as AreaType, areaNumber: "1", bedLabel: "", areaNote: "" },
+      { sceneType: "treatment" as SceneType, areaType: "treatment" as AreaType, areaNumber: "2", bedLabel: "", areaNote: "" },
+      { sceneType: "beauty" as SceneType, areaType: "beauty" as AreaType, areaNumber: "3", bedLabel: "", areaNote: "" },
+      { sceneType: "front_desk" as SceneType, areaType: "" as const, areaNumber: "", bedLabel: "", areaNote: "前台" },
     ];
     const preset = presets[(channelNo - 1) % presets.length];
     const existing = recorder.channels.find((item) => item.channelNo === channelNo);
@@ -1018,6 +1032,7 @@ const mockAdapter = {
 	      ...channel,
 	      ...patch,
 	      sceneType,
+	      bedLabel: isBusiness ? String(patch.bedLabel ?? channel.bedLabel ?? "").trim() : "",
 	      areaNote: isBusiness ? "" : String(patch.areaNote ?? patch.areaNumber ?? ""),
 	      status,
 	      confirmedAt: now,
@@ -1735,6 +1750,7 @@ function mapBackendSummary(item: BackendStoreSummary): StoreSummary {
     id: item.id,
     city: item.city ?? "",
     name: item.name,
+    shortName: item.short_name ?? item.shortName ?? "",
     externalOrgId: "",
     thumbnailUrl: toDisplayImageUrl(item.thumbnail_url),
     designPlanStatus: item.thumbnail_url ? "completed" : "not_uploaded",
@@ -1761,6 +1777,7 @@ function mapBackendDetail(store: BackendStoreDetail): StoreDetail {
     id: store.id,
     city: store.city ?? "",
     name: store.name,
+    shortName: store.short_name ?? store.shortName ?? "",
     fileName: displayPlanFileName(store.pdf_file_name, store.original_pdf_path, store.name),
     originalPath: store.original_pdf_path || MOCK_ORIGINAL_PDF_PATH,
     previewPath: store.preview_image_path || MOCK_PREVIEW_IMAGE_PATH,
@@ -1813,6 +1830,7 @@ function mapStoreSpaceSummary(store: BackendStoreSpaceSummary): StoreSummary {
     id: store.id,
     city: store.city ?? store.cityName ?? "",
     name: store.name,
+    shortName: store.short_name ?? store.shortName ?? "",
     externalOrgId: store.external_org_id ?? store.externalOrgId ?? "",
     thumbnailUrl: "",
     designPlanStatus: store.design_plan_status ?? store.designPlanStatus ?? "not_uploaded",
@@ -1888,6 +1906,7 @@ function mapStoreSpaceDetailSummary(
     id: store.id,
     city: store.city ?? store.cityName ?? "",
     name: store.name,
+    shortName: store.short_name ?? store.shortName ?? "",
     externalOrgId: store.external_org_id ?? store.externalOrgId ?? "",
     thumbnailUrl: "",
     designPlanStatus: store.design_plan_status ?? store.designPlanStatus ?? "not_uploaded",
@@ -1944,7 +1963,7 @@ function areaDisplayNameFromParts(type: AreaType | "", number: string) {
     treatment: "治疗室",
     vip_treatment: "VIP治疗室",
     consultation: "面诊室",
-    beauty: "生美",
+    beauty: "美容室",
   };
   return number.trim() ? `${labels[type]} ${number.trim()}` : labels[type];
 }
@@ -2010,6 +2029,7 @@ function mapBackendChannel(channel: BackendVideoChannel, recorderId: number, rec
     sceneType: channel.scene_type ?? channel.sceneType ?? "unknown",
     areaType: channel.area_type ?? channel.areaType ?? "",
     areaNumber: channel.area_number == null && channel.areaNumber == null ? "" : String(channel.area_number ?? channel.areaNumber),
+    bedLabel: channel.bed_label ?? channel.bedLabel ?? "",
     areaNote: channel.area_note ?? channel.areaNote ?? "",
     recognitionAttempts: channel.recognition_attempts ?? channel.recognitionAttempts ?? 0,
     recognitionResult: channel.recognition_result ?? channel.recognitionResult,
@@ -2035,6 +2055,7 @@ function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
     id: match.id,
     city: match.city ?? "",
     name: match.name,
+    shortName: match.short_name ?? match.shortName ?? "",
     externalOrgId: "",
     thumbnailUrl: toDisplayImageUrl(match.thumbnail_url),
     designPlanStatus: match.thumbnail_url ? "completed" : "not_uploaded",
@@ -2055,6 +2076,7 @@ function duplicateMatchToStoreSpaceSummary(match: BackendDuplicateMatch): StoreS
     id: match.id,
     city: match.city ?? "",
     name: match.name,
+    shortName: match.short_name ?? match.shortName ?? "",
     externalOrgId: "",
     thumbnailUrl: "",
     designPlanStatus: "not_uploaded",
@@ -2101,6 +2123,7 @@ function toStoreSpaceCreatePayload(payload: CreateStoreSpacePayload) {
   return {
     city: payload.city,
     name: payload.name,
+    short_name: payload.shortName,
     external_org_id: payload.externalOrgId,
     design_plan_upload_id: payload.designPlan?.uploadId ?? "",
     recorders: payload.recorders
@@ -2116,6 +2139,7 @@ function toStoreSpaceBasicInfoPayload(payload: UpdateStoreBasicInfoPayload) {
   return {
     city: payload.city,
     name: payload.name,
+    short_name: payload.shortName,
     external_org_id: payload.externalOrgId,
   };
 }
@@ -2147,6 +2171,7 @@ function toStoreSpaceChannelConfirmationPayload(patch: Partial<VideoChannel>) {
       kind: "business",
       area_type: patch.areaType,
       area_number: patch.areaNumber ? String(patch.areaNumber) : undefined,
+      bed_label: patch.bedLabel ? String(patch.bedLabel) : undefined,
     };
   }
   return {
@@ -2228,6 +2253,7 @@ function createMockStore(id: number, name: string, status: StoreStatus, areas: S
     id,
     city: inferMockCity(name),
     name,
+    shortName: "",
     externalOrgId: id <= 3 ? `XY${String(10000 + id)}` : "",
     thumbnailUrl: MOCK_PLAN_IMAGE,
     previewUrl: MOCK_PLAN_IMAGE,
@@ -2262,6 +2288,7 @@ function buildDetailFromPayload(payload: SaveStorePayload, updatedAt: string): S
     id: payload.id ?? nextStoreId++,
     city: payload.city?.trim() ?? "",
     name: payload.name.trim(),
+    shortName: "",
     externalOrgId: payload.externalOrgId?.trim() ?? "",
     fileName: payload.fileName,
     originalPath: payload.originalPath || MOCK_ORIGINAL_PDF_PATH,
@@ -2304,10 +2331,10 @@ function createMockRecorder(storeId: number, deviceCode: string, ezvizAccountId:
 }
 
 function createMockChannels(recorderId: number, recorderCode: string): VideoChannel[] {
-  const scenes: Array<Pick<VideoChannel, "sceneType" | "areaType" | "areaNumber" | "areaNote" | "status">> = [
-    { sceneType: "consultation", areaType: "consultation", areaNumber: "1", areaNote: "", status: "pending_confirmation" },
-    { sceneType: "treatment", areaType: "treatment", areaNumber: "1", areaNote: "", status: "confirmed_business" },
-    { sceneType: "front_desk", areaType: "", areaNumber: "", areaNote: "前台", status: "confirmed_non_business" },
+  const scenes: Array<Pick<VideoChannel, "sceneType" | "areaType" | "areaNumber" | "bedLabel" | "areaNote" | "status">> = [
+    { sceneType: "consultation", areaType: "consultation", areaNumber: "1", bedLabel: "", areaNote: "", status: "pending_confirmation" },
+    { sceneType: "treatment", areaType: "treatment", areaNumber: "1", bedLabel: "", areaNote: "", status: "confirmed_business" },
+    { sceneType: "front_desk", areaType: "", areaNumber: "", bedLabel: "", areaNote: "前台", status: "confirmed_non_business" },
   ];
   return scenes.map((scene, index) => ({
     id: nextChannelId++,

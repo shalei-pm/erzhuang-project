@@ -810,7 +810,7 @@ func channelAreaTypeLabel(channel Channel) string {
 	case AreaTypeVIPTreatment:
 		return "VIP治疗室"
 	case AreaTypeBeauty:
-		return "生美"
+		return "美容室"
 	default:
 		return "其他区域"
 	}
@@ -818,7 +818,11 @@ func channelAreaTypeLabel(channel Channel) string {
 
 func channelNumberOrNote(channel Channel) string {
 	if channel.AreaType != "" && channel.AreaNumber > 0 {
-		return strconv.Itoa(channel.AreaNumber)
+		number := strconv.Itoa(channel.AreaNumber)
+		if strings.TrimSpace(channel.BedLabel) != "" {
+			return number + "-" + strings.TrimSpace(channel.BedLabel)
+		}
+		return number
 	}
 	if strings.TrimSpace(channel.AreaNote) != "" {
 		return strings.TrimSpace(channel.AreaNote)
@@ -832,7 +836,7 @@ func channelExportTypeRank(label string) int {
 		return 0
 	case "治疗室", "VIP治疗室":
 		return 1
-	case "生美":
+	case "美容室":
 		return 2
 	default:
 		return 3

@@ -18,7 +18,7 @@ const sceneLabels: Record<ChannelSceneType, string> = {
   treatment: "治疗室",
   vip_treatment: "VIP治疗室",
   consultation: "面诊室",
-  beauty: "生美",
+  beauty: "美容室",
   front_desk: "前台",
   corridor: "走廊",
   passage: "通道",

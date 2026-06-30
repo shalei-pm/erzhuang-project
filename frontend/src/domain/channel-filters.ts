@@ -20,7 +20,7 @@ export const channelListFilters: { value: ChannelListFilter; label: string }[] =
   { value: "all", label: "全部" },
   { value: "consultation", label: "面诊室" },
   { value: "treatment", label: "治疗室" },
-  { value: "beauty", label: "生美" },
+  { value: "beauty", label: "美容室" },
   { value: "front_waiting", label: "前台/候诊区" },
   { value: "passage_other", label: "通道/其他" },
 ];

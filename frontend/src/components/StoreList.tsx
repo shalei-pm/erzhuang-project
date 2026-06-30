@@ -35,7 +35,7 @@ export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, o
             <th>通道</th>
             <th>面诊室</th>
             <th>治疗室</th>
-            <th>生美</th>
+            <th>美容室</th>
             <th>更新时间</th>
             <th>操作</th>
           </tr>

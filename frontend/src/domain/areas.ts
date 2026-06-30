@@ -4,7 +4,7 @@ export const areaTypeLabels: Record<AreaType, string> = {
   treatment: "治疗室",
   vip_treatment: "VIP治疗室",
   consultation: "面诊室",
-  beauty: "生美",
+  beauty: "美容室",
 };
 
 export function isTreatmentAreaType(type: AreaType | "" | undefined) {

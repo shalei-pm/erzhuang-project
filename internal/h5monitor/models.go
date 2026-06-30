@@ -13,6 +13,7 @@ type MonitorChannel struct {
 	AreaType     string `json:"area_type"`
 	SceneType    string `json:"scene_type"`
 	AreaNumber   int    `json:"area_number"`
+	BedLabel     string `json:"bed_label"`
 	AreaNote     string `json:"area_note"`
 	ThumbnailURL string `json:"thumbnail_url"`
 }
