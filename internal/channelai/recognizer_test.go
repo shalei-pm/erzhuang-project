@@ -236,6 +236,38 @@ func TestMiniMaxRecognizerFallsBackFromWeakCurrentRoomExplanation(t *testing.T) 
 	}
 }
 
+func TestMiniMaxRecognizerFallsBackFromDoctorOfficeExplanation(t *testing.T) {
+	recognizer := &MiniMaxRecognizer{
+		apiKey:  "test-key",
+		baseURL: "https://api.minimaxi.com/v1",
+		model:   "MiniMax-M3",
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{
+					"choices": [{
+						"message": {
+							"content": "<think>The image contains desks, chairs, a computer, and text in the bottom right that says \"医生办公室\" (Doctor's Office). This is clearly a doctor's office, not a treatment room.</think>"
+						}
+					}]
+				}`)),
+			}, nil
+		})},
+	}
+
+	result, err := recognizer.Recognize(context.Background(), "https://example.test/channel.jpg")
+	if err != nil {
+		t.Fatalf("recognize: %v", err)
+	}
+	if result.SceneType != "unknown" || result.AreaNumber != "医生办公室" {
+		t.Fatalf("unexpected result %#v", result)
+	}
+	if !result.NeedsReview || result.Confidence != "low" {
+		t.Fatalf("expected fallback result to require review, got %#v", result)
+	}
+}
+
 func TestParseCommandRecognitionOutputAcceptsWrappedResult(t *testing.T) {
 	result, err := parseCommandRecognitionOutput([]byte(`{
 		"result": {

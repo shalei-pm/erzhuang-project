@@ -242,25 +242,38 @@ func fallbackMiniMaxTextResult(value string) (Result, bool) {
 	if text == "" {
 		return Result{}, false
 	}
-	for _, marker := range []string{"弱电室", "弱电间", "机房", "machine room", "weak current room"} {
-		if strings.Contains(text, marker) {
-			areaNumber := "机房"
-			if strings.Contains(value, "弱电室") {
-				areaNumber = "弱电室"
-			} else if strings.Contains(value, "弱电间") {
-				areaNumber = "弱电间"
-			}
-			return Result{
-				SceneType:      "machine_room",
-				AreaNumber:     areaNumber,
-				DecisionSource: "scene",
-				Confidence:     "low",
-				NeedsReview:    true,
-				RawNotes:       "模型未返回合法 JSON，已根据文本描述识别为非业务区域，需人工复核。",
-			}, true
+	for _, fallback := range []struct {
+		markers    []string
+		sceneType  string
+		areaNumber string
+	}{
+		{markers: []string{"弱电室"}, sceneType: "machine_room", areaNumber: "弱电室"},
+		{markers: []string{"弱电间"}, sceneType: "machine_room", areaNumber: "弱电间"},
+		{markers: []string{"机房", "machine room", "weak current room"}, sceneType: "machine_room", areaNumber: "机房"},
+		{markers: []string{"医生办公室", "doctor's office", "doctor office"}, sceneType: "unknown", areaNumber: "医生办公室"},
+	} {
+		if !containsAny(text, fallback.markers) {
+			continue
 		}
+		return Result{
+			SceneType:      fallback.sceneType,
+			AreaNumber:     fallback.areaNumber,
+			DecisionSource: "scene",
+			Confidence:     "low",
+			NeedsReview:    true,
+			RawNotes:       "模型未返回合法 JSON，已根据文本描述识别为非业务区域，需人工复核。",
+		}, true
 	}
 	return Result{}, false
+}
+
+func containsAny(value string, markers []string) bool {
+	for _, marker := range markers {
+		if strings.Contains(value, strings.ToLower(marker)) {
+			return true
+		}
+	}
+	return false
 }
 
 func minimaxPrompt(base string) string {

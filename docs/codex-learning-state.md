@@ -3697,3 +3697,21 @@ git pull --ff-only
 - 备注：
   - 本次未发布韩国服务器。
   - 入口 HTML 存在短暂缓存，普通请求一度仍显示旧资源 `index-CH0SPpGz.js`，无缓存请求已确认新构建生效。
+
+## 2026-06-30 MiniMax 医生办公室解释文本兜底 2.22.9 开发记录
+
+- 背景：
+  - 用户反馈 `新氧青春诊所(上海长宁旗舰店)` 录像机 `FW4529752` 识别完成 `59/61`，通道 `16` 报错：
+    `parse minimax recognition json: invalid character '<' looking for beginning of value: <think> ... 医生办公室 ...`。
+  - 该错误与 `2.22.8` 的弱电室案例同源：MiniMax HTTP 调用成功，但模型只返回 `<think>` 分析文本，没有返回合法 JSON。
+- 根因判断：
+  - `2.22.8` 已能跳过解释文本中的非法花括号，并对“弱电室/机房”做低置信度兜底。
+  - 新案例中模型明确识别出“医生办公室”，但该文本不在 `2.22.8` 的窄兜底强信号表内，因此仍被判为解析失败。
+- 实现：
+  - 将 MiniMax 无 JSON 兜底改为强信号表形式，保留“弱电室/弱电间/机房”映射。
+  - 新增“医生办公室 / doctor's office / doctor office”强信号，映射为 `scene_type=unknown`、`area_number=医生办公室`、`confidence=low`、`needs_review=true`。
+  - 该兜底只在模型完全未返回合法 JSON 时触发，且结果统一要求人工复核，避免把模型解释文本当高置信度识别。
+- 验证：
+  - 新增 `TestMiniMaxRecognizerFallsBackFromDoctorOfficeExplanation`，覆盖本次 `FW4529752` 通道 `16` 同类返回。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/channelai -run 'TestMiniMaxRecognizerFallsBackFrom(WeakCurrentRoom|DoctorOffice)Explanation' -count=1` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
