@@ -3516,3 +3516,36 @@ git pull --ff-only
   - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/h5monitor` 通过。
   - `cd frontend && npm run test` 通过。
   - `cd frontend && npm run build` 通过。
+
+## 2026-06-30 H5 Monitor 2.22.3 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`f6d8681 fix: hide H5 quality toggle during replay`。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端静态资源已探测到 `2.22.3 (container)`。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
+
+## 2026-06-30 H5 Monitor 诊断日志与识别图片 URL 修复 2.22.4 开发记录
+
+- 背景：
+  - H5 播放器下方诊断卡已完成阶段性调试使命，需要默认收起，遇到问题时再由用户点开复制给 Codex 排查。
+  - 运营识别门店时 MiniMax 报错 `disallowed url: https://opencapture.ys7.com/...`；该问题对 GPT/OpenAI 也存在同类风险，因为临时萤石抓图 URL 不适合作为模型识别输入。
+  - 用户确认本次新增日志属于短周期诊断日志，不是安全合规审计日志；后续权限/操作审计日志需要另做长期保存。
+- 实现：
+  - H5 播放详情页右上角新增信息 icon，播放器日志默认收起；点击后展示当前状态、最近状态记录、复制和关闭按钮。
+  - 前端播放器日志保留最近 24 条并做相邻去重，复制内容包含机构 ID、通道 ID、模式、播放状态、清晰度、url_id 和最近诊断状态。
+  - 后端 H5 Monitor 直播取流、回放取流、录像片段查询、播放地址释放补充短周期诊断日志，方便按门店、通道、阶段、耗时定位问题。
+  - 通道识别链路补充抓图、保存快照、调用模型、保存结果等阶段日志，日志中只记录脱敏设备号、图片域名/路径摘要和错误摘要。
+  - 修复模型识别图片 URL：抓图保存到快照存储成功后，MiniMax/GPT 均使用稳定的本地快照 URL 进行识别，不再直接传 `opencapture.ys7.com` 临时 URL。
+- 日志原则：
+  - 本次日志走服务 stdout / K8s 日志系统，作为短周期诊断日志使用。
+  - 不写入业务数据库，不保存完整播放 URL、token、签名 query、service role key 等敏感信息。
+  - 后续权限操作日志应另建结构化审计日志，长期保存，记录“谁在什么时候做了什么变更”。
+- 验证：
+  - 新增测试覆盖 `ProbeRecognizeChannel` 和 `RecognizeRecorderChannels` 均使用已保存快照 URL 调用识别器。
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - 本地浏览器验收 H5 播放详情桌面和移动端：日志默认收起，信息 icon 可展开，复制/关闭按钮可见，控制台无新增错误。

@@ -2335,16 +2335,54 @@ td:nth-child(10) {
   box-shadow: var(--shadow-panel);
 }
 
+.h5-viewer-title {
+  min-width: 0;
+  flex: 1;
+}
+
 .h5-viewer-header h1 {
   margin: 0;
   color: var(--text-strong);
   font-size: 20px;
   line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .h5-viewer-header span {
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.h5-diagnostics-btn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-color: var(--border-subtle);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.h5-diagnostics-btn:hover:not(:disabled),
+.h5-diagnostics-btn.active {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: var(--brand);
+}
+
+.h5-diagnostics-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .h5-viewer-player {
@@ -2428,7 +2466,7 @@ td:nth-child(10) {
 .h5-player-status-panel {
   width: min(100%, calc(var(--h5-player-max-height) * 16 / 9));
   margin: 0 auto;
-  padding: 10px 12px;
+  padding: 12px;
   border: 1px solid #bfdbfe;
   border-radius: var(--radius-card);
   background: #eff6ff;
@@ -2446,11 +2484,17 @@ td:nth-child(10) {
   background: #fef2f2;
 }
 
-.h5-player-status-panel > div:first-child {
+.h5-player-status-head {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: baseline;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.h5-player-status-head > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
 .h5-player-status-panel strong {
@@ -2464,14 +2508,36 @@ td:nth-child(10) {
   line-height: 1.5;
 }
 
+.h5-player-status-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.h5-player-status-actions span {
+  color: var(--success);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.h5-player-status-actions button {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  font-size: 12px;
+}
+
 .h5-player-status-details {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
-.h5-player-status-details code {
+.h5-player-status-details code,
+.h5-player-status-list code {
   max-width: 100%;
   padding: 2px 5px;
   border: 1px solid rgba(148, 163, 184, 0.28);
@@ -2482,6 +2548,45 @@ td:nth-child(10) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 11px;
   line-height: 1.45;
+}
+
+.h5-player-status-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  margin-top: 10px;
+  overflow: auto;
+}
+
+.h5-player-status-list > div {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.h5-player-status-list span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.h5-player-status-list strong {
+  font-size: 12px;
+}
+
+.h5-player-status-list p {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.h5-player-status-list > div > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .h5-empty {
@@ -3514,6 +3619,14 @@ td:nth-child(10) {
   .h5-player-controls svg {
     width: 17px;
     height: 17px;
+  }
+
+  .h5-player-status-head {
+    flex-wrap: wrap;
+  }
+
+  .h5-player-status-actions {
+    width: 100%;
   }
 
   .h5-player-control-group {

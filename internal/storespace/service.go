@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -351,6 +353,7 @@ func (s *Service) ScanRecorderChannels(ctx context.Context, recorderID int64) (*
 }
 
 func (s *Service) ProbeRecognizeChannel(ctx context.Context, recorderID int64, input ProbeRecognizeChannelInput) (ProbeRecognizeChannelResult, error) {
+	startedAt := time.Now()
 	if s.scanner == nil {
 		return ProbeRecognizeChannelResult{}, ErrNotImplemented
 	}
@@ -382,9 +385,11 @@ func (s *Service) ProbeRecognizeChannel(ctx context.Context, recorderID int64, i
 	}
 	channelStarted := time.Now()
 	captureStarted := time.Now()
+	log.Printf("storespace: probe-recognize started recorder_id=%d device=%s channel_no=%d", recorder.ID, safeLogID(recorder.DeviceCode), input.ChannelNo)
 	snapshot, err := s.scanner.CaptureChannel(ctx, *account, *recorder, probeChannel)
 	captureMS := elapsedMilliseconds(captureStarted)
 	if err != nil {
+		log.Printf("storespace: probe-recognize inactive stage=capture recorder_id=%d device=%s channel_no=%d duration_ms=%d error=%q", recorder.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, elapsedMilliseconds(startedAt), safeErrorText(err))
 		return ProbeRecognizeChannelResult{
 			Active:  false,
 			Message: err.Error(),
@@ -401,8 +406,10 @@ func (s *Service) ProbeRecognizeChannel(ctx context.Context, recorderID int64, i
 
 	recognitionImageURL := firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath)
 	if s.snapshotStore != nil && strings.TrimSpace(recognitionImageURL) != "" {
+		remoteImageRef := safeImageRef(recognitionImageURL)
 		localURL, err := s.snapshotStore.SaveRemote(ctx, recognitionImageURL)
 		if err != nil {
+			log.Printf("storespace: probe-recognize failed stage=store-snapshot recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, remoteImageRef, elapsedMilliseconds(startedAt), safeErrorText(err))
 			updated, saveErr := s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
 				RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
 				CountAttempt:      true,
@@ -415,24 +422,31 @@ func (s *Service) ProbeRecognizeChannel(ctx context.Context, recorderID int64, i
 		snapshot.ThumbnailPath = localURL
 		snapshot.FullImagePath = localURL
 		snapshot.FullImageExpiresAt = nil
+		recognitionImageURL = localURL
+		log.Printf("storespace: probe-recognize snapshot-stored recorder_id=%d channel_id=%d device=%s channel_no=%d remote=%s local=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, remoteImageRef, safeImageRef(localURL))
 	}
 	snapshot.CountAttempt = true
 	snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
 	if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
 		recognitionStarted := time.Now()
+		log.Printf("storespace: probe-recognize ai-request recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, safeImageRef(recognitionImageURL))
 		result, err := s.recognizer.RecognizeChannel(ctx, recognitionImageURL)
 		recognitionMS := elapsedMilliseconds(recognitionStarted)
 		if err != nil {
 			snapshot.Status = ChannelStatusRecognitionFailed
 			snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+			log.Printf("storespace: probe-recognize ai-failed recorder_id=%d channel_id=%d device=%s channel_no=%d capture_ms=%d recognition_ms=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, captureMS, recognitionMS, elapsedMilliseconds(startedAt), safeErrorText(err))
 		} else {
 			applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+			log.Printf("storespace: probe-recognize ai-completed recorder_id=%d channel_id=%d device=%s channel_no=%d area_type=%s scene_type=%s capture_ms=%d recognition_ms=%d duration_ms=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, result.AreaType, result.SceneType, captureMS, recognitionMS, elapsedMilliseconds(startedAt))
 		}
 	}
 	updated, err := s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
 	if err != nil {
+		log.Printf("storespace: probe-recognize failed stage=save-channel recorder_id=%d channel_id=%d device=%s channel_no=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, elapsedMilliseconds(startedAt), safeErrorText(err))
 		return ProbeRecognizeChannelResult{}, err
 	}
+	log.Printf("storespace: probe-recognize completed recorder_id=%d channel_id=%d device=%s channel_no=%d status=%s duration_ms=%d", recorder.ID, updated.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, updated.Status, elapsedMilliseconds(startedAt))
 	return ProbeRecognizeChannelResult{Channel: updated, Active: true}, nil
 }
 
@@ -517,11 +531,14 @@ func (s *Service) RecognizeChannel(ctx context.Context, channelID int64) (*Chann
 }
 
 func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (*Channel, error) {
+	startedAt := time.Now()
 	channelStarted := time.Now()
 	captureStarted := time.Now()
+	log.Printf("storespace: channel-recognize started recorder_id=%d channel_id=%d device=%s channel_no=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo)
 	snapshot, err := s.scanner.CaptureChannel(ctx, account, recorder, channel)
 	captureMS := elapsedMilliseconds(captureStarted)
 	if err != nil {
+		log.Printf("storespace: channel-recognize failed stage=capture recorder_id=%d channel_id=%d device=%s channel_no=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, elapsedMilliseconds(startedAt), safeErrorText(err))
 		return s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
 			RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
 			CountAttempt:      true,
@@ -529,8 +546,10 @@ func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, re
 	}
 	recognitionImageURL := firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath)
 	if s.snapshotStore != nil && strings.TrimSpace(recognitionImageURL) != "" {
+		remoteImageRef := safeImageRef(recognitionImageURL)
 		localURL, err := s.snapshotStore.SaveRemote(ctx, recognitionImageURL)
 		if err != nil {
+			log.Printf("storespace: channel-recognize failed stage=store-snapshot recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, remoteImageRef, elapsedMilliseconds(startedAt), safeErrorText(err))
 			return s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
 				RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
 				CountAttempt:      true,
@@ -539,21 +558,32 @@ func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, re
 		snapshot.ThumbnailPath = localURL
 		snapshot.FullImagePath = localURL
 		snapshot.FullImageExpiresAt = nil
+		recognitionImageURL = localURL
+		log.Printf("storespace: channel-recognize snapshot-stored recorder_id=%d channel_id=%d device=%s channel_no=%d remote=%s local=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, remoteImageRef, safeImageRef(localURL))
 	}
 	snapshot.CountAttempt = true
 	snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
 	if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
 		recognitionStarted := time.Now()
+		log.Printf("storespace: channel-recognize ai-request recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, safeImageRef(recognitionImageURL))
 		result, err := s.recognizer.RecognizeChannel(ctx, recognitionImageURL)
 		recognitionMS := elapsedMilliseconds(recognitionStarted)
 		if err != nil {
 			snapshot.Status = ChannelStatusRecognitionFailed
 			snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+			log.Printf("storespace: channel-recognize ai-failed recorder_id=%d channel_id=%d device=%s channel_no=%d capture_ms=%d recognition_ms=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, captureMS, recognitionMS, elapsedMilliseconds(startedAt), safeErrorText(err))
 		} else {
 			applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+			log.Printf("storespace: channel-recognize ai-completed recorder_id=%d channel_id=%d device=%s channel_no=%d area_type=%s scene_type=%s capture_ms=%d recognition_ms=%d duration_ms=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, result.AreaType, result.SceneType, captureMS, recognitionMS, elapsedMilliseconds(startedAt))
 		}
 	}
-	return s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
+	updated, err := s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
+	if err != nil {
+		log.Printf("storespace: channel-recognize failed stage=save-channel recorder_id=%d channel_id=%d device=%s channel_no=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, elapsedMilliseconds(startedAt), safeErrorText(err))
+		return nil, err
+	}
+	log.Printf("storespace: channel-recognize completed recorder_id=%d channel_id=%d device=%s channel_no=%d status=%s duration_ms=%d", recorder.ID, updated.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, updated.Status, elapsedMilliseconds(startedAt))
+	return updated, nil
 }
 
 func (s *Service) RefreshChannelSnapshot(ctx context.Context, channelID int64) (*Channel, error) {
@@ -754,6 +784,43 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func safeLogID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	if len(value) <= 8 {
+		return value
+	}
+	return value[:4] + "..." + value[len(value)-4:]
+}
+
+func safeImageRef(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "-"
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		if len(raw) > 96 {
+			return raw[:96] + "..."
+		}
+		return raw
+	}
+	path := parsed.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	return parsed.Scheme + "://" + parsed.Host + path
+}
+
+func safeErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return sanitizeDiagnosticDetail(err.Error())
 }
 
 func isConfirmedChannelStatus(status ChannelStatus) bool {

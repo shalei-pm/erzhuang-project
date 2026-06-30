@@ -887,6 +887,46 @@ func TestProbeRecognizeChannelCreatesChannelAndStoresRecognition(t *testing.T) {
 	}
 }
 
+func TestProbeRecognizeChannelUsesStoredSnapshotForRecognition(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华东"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	recognizer := &recordingChannelRecognizer{
+		result: ChannelRecognitionResult{
+			SceneType:  string(SceneTypeTreatment),
+			AreaType:   string(AreaTypeTreatment),
+			AreaNumber: "3",
+			Confidence: "high",
+		},
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, fakeChannelScanner{
+		snapshots: map[int]string{
+			1: "https://opencapture.ys7.com/snapshot.jpg?Expires=1",
+		},
+	}, recognizer)
+	service.UseSnapshotStore(staticRemoteSnapshotStore{localURL: "/api/store-space/channel-snapshots/stored.jpg"})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "上海",
+		Name: "上海测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "K92940413"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	if _, err := service.ProbeRecognizeChannel(context.Background(), store.Recorders[0].ID, ProbeRecognizeChannelInput{ChannelNo: 1}); err != nil {
+		t.Fatalf("probe recognize channel: %v", err)
+	}
+
+	if recognizer.imageURL != "/api/store-space/channel-snapshots/stored.jpg" {
+		t.Fatalf("recognizer image url = %q, want stored snapshot URL", recognizer.imageURL)
+	}
+}
+
 func TestProbeRecognizeChannelReturnsInactiveWhenCaptureFails(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华东"})
@@ -979,6 +1019,52 @@ func TestRecognizeRecorderChannelsPrefillsAIResultAndKeepsPendingConfirmation(t 
 	}
 	if !strings.Contains(channel.RecognitionResult, `"provider":"test-provider"`) {
 		t.Fatalf("expected recognition provider in recognition result, got %s", channel.RecognitionResult)
+	}
+}
+
+func TestRecognizeRecorderChannelsUsesStoredSnapshotForRecognition(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	recognizer := &recordingChannelRecognizer{
+		result: ChannelRecognitionResult{
+			SceneType:      string(SceneTypeConsultation),
+			AreaType:       string(AreaTypeConsultation),
+			AreaNumber:     "1",
+			DecisionSource: "number_card",
+			Confidence:     "high",
+		},
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, fakeChannelScanner{
+		channels: []ScannedChannel{{ChannelNo: 1, ChannelName: "通道1", Active: true}},
+		snapshots: map[int]string{
+			1: "https://opencapture.ys7.com/batch.jpg?Expires=1",
+		},
+	}, recognizer)
+	service.UseSnapshotStore(staticRemoteSnapshotStore{localURL: "/api/store-space/channel-snapshots/batch-stored.jpg"})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	if _, err := service.RecognizeRecorderChannels(context.Background(), recorder.ID); err != nil {
+		t.Fatalf("recognize recorder channels: %v", err)
+	}
+
+	if recognizer.imageURL != "/api/store-space/channel-snapshots/batch-stored.jpg" {
+		t.Fatalf("recognizer image url = %q, want stored snapshot URL", recognizer.imageURL)
 	}
 }
 
@@ -1728,6 +1814,18 @@ func (s memorySnapshotStore) Open(ctx context.Context, name string) (io.ReadClos
 	return io.NopCloser(bytes.NewReader(data)), "image/jpeg", nil
 }
 
+type staticRemoteSnapshotStore struct {
+	localURL string
+}
+
+func (s staticRemoteSnapshotStore) SaveRemote(ctx context.Context, imageURL string) (string, error) {
+	return s.localURL, nil
+}
+
+func (s staticRemoteSnapshotStore) Open(ctx context.Context, name string) (io.ReadCloser, string, error) {
+	return nil, "", ErrNotFound
+}
+
 func unzipExcelFiles(t *testing.T, payload []byte) map[string]string {
 	t.Helper()
 	reader, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
@@ -1833,6 +1931,16 @@ func (f fakeChannelRecognizer) RecognizeChannel(ctx context.Context, imageURL st
 		return ChannelRecognitionResult{}, f.err
 	}
 	return f.result, nil
+}
+
+type recordingChannelRecognizer struct {
+	result   ChannelRecognitionResult
+	imageURL string
+}
+
+func (r *recordingChannelRecognizer) RecognizeChannel(ctx context.Context, imageURL string) (ChannelRecognitionResult, error) {
+	r.imageURL = imageURL
+	return r.result, nil
 }
 
 func TestFindOrCreateAreaRequiresNumberAndEnforcesUniqueness(t *testing.T) {

@@ -37,8 +37,12 @@ type DateTimeParts = {
   hour: number;
   minute: number;
 };
+type PlayerDiagnosticEntry = H5PlayerStatus & {
+  occurredAt: string;
+};
 
 const LONG_PLAY_LIMIT_MS = 15 * 60 * 1000;
+const MAX_PLAYER_DIAGNOSTIC_ENTRIES = 24;
 
 export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5MonitorChannelProps) {
   const [mode, setMode] = useState<Mode>("live");
@@ -67,6 +71,9 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const [playbackCursorUnix, setPlaybackCursorUnix] = useState<number | null>(null);
   const [resumeCoverVisible, setResumeCoverVisible] = useState(false);
   const [streamQuality, setStreamQuality] = useState<H5StreamQuality>("sd");
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [diagnosticEntries, setDiagnosticEntries] = useState<PlayerDiagnosticEntry[]>([]);
+  const [diagnosticCopyNotice, setDiagnosticCopyNotice] = useState("");
 
   const userId = useRef(`h5-user-${Date.now()}`);
   const playerRef = useRef<H5PlayerHandle | null>(null);
@@ -129,8 +136,24 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     setToast(message);
   }, []);
 
-  const handlePlayerStatus = useCallback((status: H5PlayerStatus) => {
+  const recordPlayerStatus = useCallback((status: H5PlayerStatus) => {
     setPlayerStatus(status);
+    setDiagnosticEntries((current) => {
+      const latest = current[0];
+      if (
+        latest &&
+        latest.stage === status.stage &&
+        latest.message === status.message &&
+        latest.severity === status.severity &&
+        latest.details.join("\n") === status.details.join("\n")
+      ) {
+        return current;
+      }
+      return [
+        { ...status, occurredAt: new Date().toLocaleString("zh-CN", { hour12: false }) },
+        ...current,
+      ].slice(0, MAX_PLAYER_DIAGNOSTIC_ENTRIES);
+    });
     if (status.stage === "first-frame-ready" || status.stage === "mock-ready") {
       if (resumeCoverTimerRef.current !== null) {
         window.clearTimeout(resumeCoverTimerRef.current);
@@ -142,6 +165,17 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       }, 250);
     }
   }, []);
+
+  const setStatusAndRecord = useCallback(
+    (status: H5PlayerStatus | null) => {
+      if (!status) {
+        setPlayerStatus(null);
+        return;
+      }
+      recordPlayerStatus(status);
+    },
+    [recordPlayerStatus],
+  );
 
   useEffect(() => {
     latestUrlIdsRef.current = {
@@ -167,7 +201,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     if (mode !== "live" || liveUrl) return;
     const previousLiveUrlId = pendingLiveReleaseUrlIdRef.current || latestUrlIdsRef.current.live;
     setLoading(true);
-    setPlayerStatus({
+    setStatusAndRecord({
       stage: "live-url-request",
       message: "正在获取直播播放地址",
       details: [`protocol=${preferredLiveProtocol()}`, `quality=${streamQuality}`, `channel=${channelId}`],
@@ -182,7 +216,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         }
         setLiveUrl(resp);
         setToast("");
-        setPlayerStatus({
+        setStatusAndRecord({
           stage: "live-url-ready",
           message: "直播播放地址已返回，准备初始化播放器",
           details: [`protocol=${resp.protocol || "unknown"}`, `quality=${streamQuality}`, `urlId=${resp.url_id || "-"}`],
@@ -192,7 +226,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       .catch((err) => {
         const message = errMessage(err, "直播地址获取失败");
         setToast(message);
-        setPlayerStatus({
+        setStatusAndRecord({
           stage: "live-url-error",
           message,
           details: [`quality=${streamQuality}`, `channel=${channelId}`],
@@ -200,7 +234,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         });
       })
       .finally(() => setLoading(false));
-  }, [mode, liveUrl, externalOrgId, channelId, releaseUrl, streamQuality]);
+  }, [mode, liveUrl, externalOrgId, channelId, releaseUrl, streamQuality, setStatusAndRecord]);
 
   useEffect(() => {
     return () => {
@@ -335,7 +369,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       setResumeCoverVisible(true);
     }
     setLoading(true);
-    setPlayerStatus({
+    setStatusAndRecord({
       stage: "playback-url-request",
       message: "正在获取回放播放地址",
       details: [`start=${startTime}`, `end=${endTime}`, options.reason ? `reason=${options.reason}` : ""].filter(Boolean),
@@ -363,7 +397,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
           setResumeCoverVisible(false);
         }
         setToast("");
-        setPlayerStatus({
+        setStatusAndRecord({
           stage: "playback-url-ready",
           message: "回放播放地址已返回，准备初始化播放器",
           details: [
@@ -379,7 +413,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         }
         const message = errMessage(err, "回放地址获取失败");
         setToast(message);
-        setPlayerStatus({
+        setStatusAndRecord({
           stage: "playback-url-error",
           message,
           details: [`start=${startTime}`, `end=${endTime}`],
@@ -464,7 +498,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     void releaseUrl(activeUrlId);
     setMode(next);
     setToast("");
-    setPlayerStatus(null);
+    setStatusAndRecord(null);
     setLongPlayPromptOpen(false);
     setPlaybackState((current) => ({ ...current, playing: false }));
     if (next === "live") {
@@ -553,7 +587,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
       pendingLiveReleaseUrlIdRef.current = currentUrlId || null;
       setLiveUrl(null);
       setPlaybackState((current) => ({ ...current, playing: false, loading: true }));
-      setPlayerStatus({
+      setStatusAndRecord({
         stage: "live-url-request",
         message: "正在切换直播清晰度",
         details: [`quality=${targetQuality}`, `channel=${channelId}`],
@@ -639,7 +673,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     if (mode === "live") {
       await releaseUrl(liveUrl?.url_id);
       setPlaybackState((current) => ({ ...current, playing: false, loading: true }));
-      setPlayerStatus({
+      setStatusAndRecord({
         stage: "live-url-request",
         message: "正在重新获取直播播放地址",
         details: [`protocol=${preferredLiveProtocol()}`, `quality=${streamQuality}`, `channel=${channelId}`],
@@ -680,6 +714,34 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     }
   }
 
+  async function copyDiagnostics() {
+    const text = formatPlayerDiagnosticsForCopy({
+      status: playerStatus,
+      entries: diagnosticEntries,
+      context: {
+        externalOrgId,
+        channelId,
+        mode,
+        loading,
+        playing: playbackState.playing,
+        muted: playbackState.muted,
+        failed: playbackState.failed,
+        streamQuality,
+        urlId: activeUrlId || "-",
+        selectedSegment: selectedSegment
+          ? `${selectedSegment.start_time}-${selectedSegment.end_time}`
+          : "-",
+      },
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      setDiagnosticCopyNotice("已复制");
+    } catch {
+      setDiagnosticCopyNotice("复制失败，请手动选择文本");
+    }
+    window.setTimeout(() => setDiagnosticCopyNotice(""), 1800);
+  }
+
   return (
     <div className="h5-page h5-channel-page">
       <main className="h5-viewer">
@@ -687,11 +749,34 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
           <button className="h5-back-btn" onClick={onBack} aria-label="返回">
             <BackIcon />
           </button>
-          <div>
+          <div className="h5-viewer-title">
             <h1>{channelTitle}</h1>
             <span>{mode === "live" ? "实时视频" : "录像回放"}</span>
           </div>
+          <button
+            type="button"
+            className={`h5-diagnostics-btn ${diagnosticsOpen ? "active" : ""}`}
+            onClick={() => setDiagnosticsOpen((current) => !current)}
+            aria-label={diagnosticsOpen ? "收起播放器日志" : "查看播放器日志"}
+            aria-expanded={diagnosticsOpen}
+            title="播放器日志"
+          >
+            <InfoIcon />
+          </button>
         </header>
+
+        {diagnosticsOpen && (
+          <PlayerDiagnosticsPanel
+            status={playerStatus}
+            entries={diagnosticEntries}
+            loading={loading}
+            mode={mode}
+            channelId={channelId}
+            copyNotice={diagnosticCopyNotice}
+            onCopy={copyDiagnostics}
+            onClose={() => setDiagnosticsOpen(false)}
+          />
+        )}
 
         <section className="h5-viewer-player" aria-label="监控画面">
           {currentPlayerUrl ? (
@@ -703,7 +788,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
                   protocol={currentPlayer?.protocol}
                   isLive={mode === "live"}
                   onError={handlePlayerError}
-                  onStatus={handlePlayerStatus}
+                  onStatus={recordPlayerStatus}
                   onPlaybackStateChange={setPlaybackState}
                 />
                 {resumeCoverVisible && (
@@ -762,8 +847,6 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
             </div>
           )}
         </section>
-
-        <PlayerStatusPanel status={playerStatus} loading={loading} mode={mode} channelId={channelId} />
 
         {toast && <div className="h5-toast">{toast}</div>}
 
@@ -826,16 +909,24 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   );
 }
 
-function PlayerStatusPanel({
+function PlayerDiagnosticsPanel({
   status,
+  entries,
   loading,
   mode,
   channelId,
+  copyNotice,
+  onCopy,
+  onClose,
 }: {
   status: H5PlayerStatus | null;
+  entries: PlayerDiagnosticEntry[];
   loading: boolean;
   mode: Mode;
   channelId: number;
+  copyNotice: string;
+  onCopy: () => void;
+  onClose: () => void;
 }) {
   const fallback: H5PlayerStatus = {
     stage: loading ? "requesting" : "idle",
@@ -844,20 +935,89 @@ function PlayerStatusPanel({
     severity: "info",
   };
   const current = status || fallback;
+  const visibleEntries = entries.length > 0 ? entries : [{ ...fallback, occurredAt: "-" }];
 
   return (
-    <section className={`h5-player-status-panel ${current.severity}`} aria-label="播放器状态">
-      <div>
-        <strong>{current.stage}</strong>
-        <span>{current.message}</span>
+    <section className={`h5-player-status-panel ${current.severity}`} aria-label="播放器日志">
+      <div className="h5-player-status-head">
+        <div>
+          <strong>播放器日志</strong>
+          <span>{current.stage} · {current.message}</span>
+        </div>
+        <div className="h5-player-status-actions">
+          {copyNotice && <span>{copyNotice}</span>}
+          <button type="button" onClick={onCopy}>
+            复制
+          </button>
+          <button type="button" onClick={onClose} aria-label="关闭播放器日志">
+            关闭
+          </button>
+        </div>
       </div>
       <div className="h5-player-status-details">
         {current.details.map((item) => (
           <code key={item}>{item}</code>
         ))}
       </div>
+      <div className="h5-player-status-list">
+        {visibleEntries.map((entry, index) => (
+          <div key={`${entry.occurredAt}-${entry.stage}-${index}`}>
+            <span>{entry.occurredAt}</span>
+            <strong>{entry.stage}</strong>
+            <p>{entry.message}</p>
+            {entry.details.length > 0 && (
+              <div>
+                {entry.details.map((item) => (
+                  <code key={item}>{item}</code>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </section>
   );
+}
+
+function InfoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 10.8v5.1" />
+      <path d="M12 7.6h.01" />
+    </svg>
+  );
+}
+
+function formatPlayerDiagnosticsForCopy({
+  status,
+  entries,
+  context,
+}: {
+  status: H5PlayerStatus | null;
+  entries: PlayerDiagnosticEntry[];
+  context: Record<string, string | number | boolean>;
+}) {
+  const lines = [
+    "H5 Monitor 播放器诊断",
+    `copiedAt=${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+    "",
+    "[context]",
+    ...Object.entries(context).map(([key, value]) => `${key}=${value}`),
+    "",
+    "[current]",
+    status ? `${status.stage} · ${status.message}` : "empty",
+    ...(status?.details ?? []).map((item) => `- ${item}`),
+    "",
+    "[recent]",
+  ];
+  for (const entry of entries) {
+    lines.push(`${entry.occurredAt} · ${entry.severity} · ${entry.stage} · ${entry.message}`);
+    for (const detail of entry.details) {
+      lines.push(`  - ${detail}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 function BackIcon() {
