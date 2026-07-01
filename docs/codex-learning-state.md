@@ -4020,3 +4020,23 @@ git pull --ff-only
 - 备注：
   - 本机执行 Go 测试二进制仍会触发 macOS `dyld missing LC_UUID` 环境问题，因此本轮 Go 行为测试以测试二进制编译和服务端构建作为可执行验证。
   - 未触碰 DBA 专项未提交的 MySQL 迁移文件。
+
+## 2026-07-01 SSO 用户表最小授权闭环 2.24.0 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`69018e0 feat: add sso user provisioning`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`，从 `018bb97` 更新到 `69018e0`。
+  - GitLab remote 已从 `018bb97` 更新到 `69018e0`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 发布前验证：
+  - `./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+  - `cd frontend && npm test` 通过，25 tests passed。
+  - `cd frontend && npm run build` 通过。
+- 线上验证：
+  - 命令行访问 `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 APISIX 302 登录页，说明当前公司入口已被 SSO 接管；本地命令行没有浏览器 SSO 登录态，无法直接读取健康 JSON 或页面版本。
+  - 待浏览器登录态进入公司页面后，可在页面底部确认 `版本 2.24.0 (container)` 或 `2.24.0 (<commit>)`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - DBA 专项未提交的 MySQL 迁移文件保持未触碰。
