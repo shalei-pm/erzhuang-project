@@ -27,6 +27,13 @@ export function authLoginPath(loginUrl?: string) {
   return `${authBasePath()}/_/auth/callback`;
 }
 
+export function authCompanyEntryPath(hostname = currentHostname()) {
+  if (hostname === "lite.sy.soyoung.com") {
+    return `${authBasePath()}/`;
+  }
+  return "";
+}
+
 export function authLogoutPath(hostname = currentHostname()) {
   if (hostname === "lite.sy.soyoung.com") {
     return "/logout";

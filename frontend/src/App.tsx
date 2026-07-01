@@ -14,7 +14,14 @@ import { EditStoreModal } from "./components/EditStoreModal";
 import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
 import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
 import { StoreList } from "./components/StoreList";
-import { authLoginPath, authLogoutPath, shouldShowLoginWelcome, shouldShowLogoutEntry, type AuthState } from "./domain/auth";
+import {
+  authCompanyEntryPath,
+  authLoginPath,
+  authLogoutPath,
+  shouldShowLoginWelcome,
+  shouldShowLogoutEntry,
+  type AuthState,
+} from "./domain/auth";
 import { errorMessage } from "./domain/format";
 import {
   createStoreDetailCache,
@@ -117,6 +124,12 @@ function AdminApp() {
   }, [activeStore]);
 
   useEffect(() => {
+    if (auth?.authenticated) {
+      window.sessionStorage.removeItem("erzhuang:sso-entry-redirected");
+    }
+  }, [auth]);
+
+  useEffect(() => {
     if (authLoading || shouldShowLoginWelcome(auth)) return;
     void storeSpaceApi
       .listEzvizAccounts()
@@ -128,6 +141,16 @@ function AdminApp() {
     if (authLoading || shouldShowLoginWelcome(auth)) return;
     void loadAISettings();
   }, [authLoading, auth]);
+
+  useEffect(() => {
+    if (!shouldShowLoginWelcome(auth)) return;
+    const companyEntryPath = authCompanyEntryPath();
+    if (!companyEntryPath) return;
+    const redirectKey = "erzhuang:sso-entry-redirected";
+    if (window.sessionStorage.getItem(redirectKey) === "1") return;
+    window.sessionStorage.setItem(redirectKey, "1");
+    window.location.replace(companyEntryPath);
+  }, [auth]);
 
   async function loadStores(nextQuery = query, nextCityFilter = cityFilter, nextPage = page) {
     const requestId = listRequestIdRef.current + 1;
@@ -417,6 +440,14 @@ function AdminApp() {
     );
   }
 
+  if (shouldShowLoginWelcome(auth) && authCompanyEntryPath()) {
+    return (
+      <main className="app-shell">
+        <div className="auth-loading">正在进入公司 SSO 登录...</div>
+      </main>
+    );
+  }
+
   if (shouldShowLoginWelcome(auth)) {
     return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
   }
@@ -525,13 +556,16 @@ function AdminApp() {
 }
 
 function LoginWelcome({ auth, appVersion }: { auth: AuthState | null; appVersion: string }) {
+  const companyEntryPath = authCompanyEntryPath();
+  const loginPath = companyEntryPath || authLoginPath(auth?.login_url);
+
   return (
     <main className="auth-page">
       <section className="auth-panel" aria-label="登录">
         <p className="eyebrow">新氧青春</p>
         <h1>门店空间资源管理系统</h1>
         <p className="auth-copy">请通过公司 APISIX-SSO 网关登录后继续访问后台。</p>
-        <button className="primary-button auth-login-button" onClick={() => window.location.assign(authLoginPath(auth?.login_url))}>
+        <button className="primary-button auth-login-button" onClick={() => window.location.assign(loginPath)}>
           使用公司 SSO 登录
         </button>
         <p className="auth-note">登录由公司网关统一处理；权限范围由项目用户表控制。</p>

@@ -3934,3 +3934,23 @@ git pull --ff-only
   - 未直接点击“退出登录”，避免主动登出用户当前 SSO 会话；根据线上 bundle 逻辑，公司域名下点击退出将跳转根路径 `/logout`，不再跳 `/erzhuang-project/logout`。
 - 备注：
   - 本次未发布韩国服务器。
+
+## 2026-07-01 SSO 退出后登录闭环修复 2.23.4 开发记录
+
+- 背景：
+  - 用户反馈退出后会短暂闪过项目内 SSO 欢迎页，再进入公司 SSO 登录页。
+  - 公司 SSO 登录页 URL 显示 `from_host=lite.sy.soyoung.com`，登录后回到域名根，而不是二壮项目起始页。
+- 证据：
+  - 未登录直接访问 `https://lite.sy.soyoung.com/erzhuang-project/` 时，APISIX 返回 302，`Location` 中包含完整 `state=https://lite.sy.soyoung.com/erzhuang-project/`。
+  - 访问 `https://lite.sy.soyoung.com/logout` 时，APISIX 生成的 `state` 是 `/logout`，追加 `state`、`redirect_uri`、`redirect` 查询参数都不会改变该行为，只会被作为 `/logout?...` 的一部分编码进 state。
+- 根因：
+  - 公司登录回跳路径由 APISIX SSO 插件根据当前请求路径生成，不是前端可直接用 `from_host` 参数改成带路径的 URL。
+  - 项目内 `LoginWelcome` 的按钮走 `/_/auth/callback`，容易让 SSO 只按 host 处理，形成回到 `lite.sy.soyoung.com` 根路径的体验。
+- 实现：
+  - 新增 `authCompanyEntryPath()`：公司域名下统一使用 `/erzhuang-project/` 作为 SSO 登录入口。
+  - 公司域名下未登录时不再展示项目内欢迎页，而是用 `window.location.replace("/erzhuang-project/")` 重新进入项目起始页，让 APISIX 生成完整 `state`。
+  - 使用 `sessionStorage` 做一次性防抖，避免异常配置下无限刷新；登录成功后清理该标记，保证下一次退出/登录仍可触发。
+  - 保留本地开发环境的项目内 `LoginWelcome`，不影响调试。
+- 验证：
+  - `cd frontend && npm test` 通过，24 tests passed。
+  - `cd frontend && npm run build` 通过。
