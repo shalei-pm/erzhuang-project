@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { AISettings, EzvizAccount, StoreDetail as StoreDetailType, VideoRecorder } from "../api";
 import { DesignPlanTab } from "./DesignPlanTab";
 import { VideoChannelTab } from "./VideoChannelTab";
@@ -15,6 +15,7 @@ type StoreDetailProps = {
   aiSettings: AISettings | null;
   switchingAIModel: boolean;
   h5MonitorUrl?: string;
+  authActions?: ReactNode;
   onBack: () => void;
   onTabChange: (tab: StoreDetailTab) => void;
   onToggleAIModel: () => void;
@@ -32,6 +33,7 @@ export function StoreDetail({
   aiSettings,
   switchingAIModel,
   h5MonitorUrl,
+  authActions,
   onBack,
   onTabChange,
   onToggleAIModel,
@@ -96,11 +98,14 @@ export function StoreDetail({
             </div>
           </div>
         </div>
-        {h5MonitorUrl ? (
+        {h5MonitorUrl || authActions ? (
           <div className="detail-header-side">
-            <button className="detail-back-button" onClick={() => window.location.assign(h5MonitorUrl)}>
-              查看监控
-            </button>
+            {h5MonitorUrl ? (
+              <button className="detail-back-button" onClick={() => window.location.assign(h5MonitorUrl)}>
+                查看监控
+              </button>
+            ) : null}
+            {authActions}
           </div>
         ) : null}
       </header>

@@ -14,7 +14,7 @@ import {
   shouldFallbackToInlineFullscreen,
   shouldShowSegmentSlider,
 } from "./domain/h5-playback";
-import { authLoginPath, shouldShowLoginWelcome } from "./domain/auth";
+import { authLoginPath, authLogoutPath, shouldShowLoginWelcome } from "./domain/auth";
 import { canOpenH5Monitor, h5MonitorPath } from "./domain/store-detail-navigation";
 
 describe("design plan API path helpers", () => {
@@ -75,6 +75,10 @@ describe("auth helpers", () => {
   it("builds the login path with the project base by default", () => {
     expect(authLoginPath()).toBe("/erzhuang-project/_/auth/callback");
     expect(authLoginPath("/custom/auth/login")).toBe("/custom/auth/login");
+  });
+
+  it("builds the apisix logout path with the project base", () => {
+    expect(authLogoutPath()).toBe("/erzhuang-project/logout");
   });
 });
 

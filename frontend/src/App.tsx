@@ -14,7 +14,7 @@ import { EditStoreModal } from "./components/EditStoreModal";
 import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
 import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
 import { StoreList } from "./components/StoreList";
-import { authLoginPath, shouldShowLoginWelcome, type AuthState } from "./domain/auth";
+import { authLoginPath, authLogoutPath, shouldShowLoginWelcome, type AuthState } from "./domain/auth";
 import { errorMessage } from "./domain/format";
 import {
   createStoreDetailCache,
@@ -66,6 +66,7 @@ function AdminApp() {
   const [editingStore, setEditingStore] = useState<StoreSummary | null>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [toast, setToast] = useState("");
   const [activeStore, setActiveStore] = useState<StoreDetailType | null>(null);
   const [loadingDetailTabs, setLoadingDetailTabs] = useState<Set<StoreDetailTab>>(() => new Set());
@@ -358,6 +359,21 @@ function AdminApp() {
     setStores((items) => items.map((item) => (item.id === nextStore.id ? nextStore : item)));
   }
 
+  async function logout() {
+    const logoutPath = authLogoutPath();
+    setLoggingOut(true);
+    try {
+      await storeSpaceApi.logout();
+      setAuth({ enabled: true, authenticated: false, login_url: logoutPath });
+      window.location.assign(logoutPath);
+    } catch (error) {
+      setToast(errorMessage(error, "本地退出状态清理失败，正在尝试退出 SSO。"));
+      window.location.assign(logoutPath);
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
   if (activeStore) {
     return (
       <main className="app-shell">
@@ -372,6 +388,7 @@ function AdminApp() {
           aiSettings={aiSettings}
           switchingAIModel={switchingAIModel}
           h5MonitorUrl={canOpenH5Monitor(activeStore) ? h5MonitorPath(activeStore.externalOrgId) : undefined}
+          authActions={auth?.enabled && auth.authenticated ? <AuthUserActions auth={auth} loggingOut={loggingOut} onLogout={logout} /> : null}
           onBack={() => {
             detailRequestIdRef.current += 1;
             setActiveStore(null);
@@ -410,10 +427,13 @@ function AdminApp() {
           <p className="eyebrow">空间资源管理</p>
           <h1>门店空间资源管理系统</h1>
         </div>
-        <button className="primary-button" onClick={() => setCreateOpen(true)}>
-          <span aria-hidden="true">+</span>
-          添加门店
-        </button>
+        <div className="page-header-actions">
+          {auth?.enabled && auth.authenticated ? <AuthUserActions auth={auth} loggingOut={loggingOut} onLogout={logout} /> : null}
+          <button className="primary-button" onClick={() => setCreateOpen(true)}>
+            <span aria-hidden="true">+</span>
+            添加门店
+          </button>
+        </div>
       </header>
 
       <section className="toolbar" aria-label="门店筛选">
@@ -519,6 +539,28 @@ function LoginWelcome({ auth, appVersion }: { auth: AuthState | null; appVersion
         版本 {appVersion}
       </footer>
     </main>
+  );
+}
+
+function AuthUserActions({
+  auth,
+  loggingOut,
+  onLogout,
+}: {
+  auth: AuthState;
+  loggingOut: boolean;
+  onLogout: () => void | Promise<void>;
+}) {
+  const displayName = auth.user?.display_name || auth.user?.username || auth.user?.email || "已登录";
+
+  return (
+    <div className="auth-user-chip" aria-label="当前登录用户">
+      <span className="auth-user-name">{displayName}</span>
+      {auth.user?.email ? <span className="auth-user-email">{auth.user.email}</span> : null}
+      <button className="plain-button auth-logout-button" onClick={() => void onLogout()} disabled={loggingOut}>
+        {loggingOut ? "退出中..." : "退出登录"}
+      </button>
+    </div>
   );
 }
 

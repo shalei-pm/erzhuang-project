@@ -27,6 +27,10 @@ export function authLoginPath(loginUrl?: string) {
   return `${authBasePath()}/_/auth/callback`;
 }
 
+export function authLogoutPath() {
+  return `${authBasePath()}/logout`;
+}
+
 function authBasePath() {
   const base = import.meta.env.BASE_URL || "/erzhuang-project/";
   const normalized = base.startsWith("/") ? base : `/${base}`;

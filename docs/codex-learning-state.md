@@ -3847,3 +3847,22 @@ git pull --ff-only
 - 备注：
   - 本次未发布韩国服务器。
   - 默认 `SSO_ENABLED=false`，所以发布后不会突然拦截现有运营后台。
+
+## 2026-07-01 APISIX-SSO 退出登录入口 2.23.1 开发记录
+
+- 背景：
+  - 公司 SSO 已配置完成后，用户反馈后台没有可见的 logout 入口。
+  - 代码核查确认后端已支持 `POST /api/auth/logout` 和 APISIX 默认 `GET /logout`，但前端缺少稳定退出入口。
+- 实现：
+  - 前端认证 helper 新增 `authLogoutPath()`，统一生成带项目路径前缀的 `/logout`。
+  - 门店列表页右上角展示当前 SSO 用户与“退出登录”。
+  - 门店详情页右上角也复用同一退出控件，避免用户进入详情后找不到退出入口。
+  - 退出流程调整为先调用项目 `POST /api/auth/logout` 清理本地 cookie，再跳转到 `/erzhuang-project/logout` 触发 APISIX SSO 退出；本地清理失败时也会继续尝试 SSO 退出。
+  - 详情页右侧操作区补充间距和换行，兼容“查看监控”和退出控件并存。
+- 验证：
+  - `cd frontend && npm test` 通过，22 tests passed。
+  - `cd frontend && npm run build` 通过。
+- 待发布验证：
+  - 公司环境自动发布后，检查页面底部版本号包含 `2.23.1`。
+  - SSO 登录后，列表页和门店详情页均应显示退出登录入口。
+  - 点击退出后应进入公司 SSO/APISIX logout 链路，不再跳回 `/_/auth/callback`。
