@@ -79,6 +79,7 @@ describe("auth helpers", () => {
 
   it("builds the apisix logout path with the project base", () => {
     expect(authLogoutPath()).toBe("/erzhuang-project/logout");
+    expect(authLogoutPath("lite.sy.soyoung.com")).toBe("/logout");
   });
 
   it("shows logout on the company sso domain even while backend auth remains in compatibility mode", () => {

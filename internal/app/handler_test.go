@@ -455,6 +455,49 @@ func TestAPISIXSSOCallbackUnderConfiguredBasePathRedirectsHome(t *testing.T) {
 	}
 }
 
+func TestAPISIXSSOLogoutGetUnderConfiguredBasePathRedirectsHome(t *testing.T) {
+	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
+	t.Setenv("SSO_ENABLED", "true")
+
+	request := httptest.NewRequest(http.MethodGet, "/erzhuang-project/logout", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: "token-value"})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("expected status %d, got %d", http.StatusFound, recorder.Code)
+	}
+	if recorder.Header().Get("Location") != "/erzhuang-project/" {
+		t.Fatalf("unexpected redirect location: %s", recorder.Header().Get("Location"))
+	}
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected logout to clear one cookie, got %#v", cookies)
+	}
+	if cookies[0].Name != "sy_sso_token" || cookies[0].MaxAge != -1 {
+		t.Fatalf("expected cleared sso cookie, got %#v", cookies[0])
+	}
+}
+
+func TestAuthLogoutPostKeepsJSONResponse(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	var response map[string]bool
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response["ok"] {
+		t.Fatalf("unexpected logout response: %#v", response)
+	}
+}
+
 type failingStore struct{}
 
 func (failingStore) Name() string {

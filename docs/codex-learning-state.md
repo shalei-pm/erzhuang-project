@@ -3898,3 +3898,24 @@ git pull --ff-only
 - 备注：
   - 当前 `/api/auth/me` 仍显示本地兼容用户信息，说明公司 APISIX SSO 网关已接管访问，但项目后端 `SSO_ENABLED` 可能仍未开启；本次补丁专门兼容该过渡状态。
   - 本次未发布韩国服务器。
+
+## 2026-07-01 SSO 退出裸 JSON 与未真退出修复 2.23.3 开发记录
+
+- 背景：
+  - 用户点击“退出登录”后进入 `https://lite.sy.soyoung.com/erzhuang-project/logout`，页面直接显示 `{"ok":true}`。
+  - 用户再次访问项目仍是登录状态，说明只是业务后端清理了本地 cookie，没有触发公司/APISIX SSO 真正注销。
+- 根因：
+  - 前端将浏览器跳转到了带项目路径前缀的 `/erzhuang-project/logout`。
+  - 公司 APISIX 未在该带前缀路径优先接管登出，请求落到 Go 后端 `GET /logout` handler。
+  - Go 后端 `GET /logout` 与 `POST /api/auth/logout` 复用 JSON 响应，导致浏览器裸显 `{"ok":true}`，也无法确认 SSO 网关会话已注销。
+- 实现：
+  - 前端在公司域名 `lite.sy.soyoung.com` 下点击退出时，浏览器跳转根路径 `/logout`，优先交给 APISIX SSO 插件处理真正登出。
+  - 保留非公司域名下的 `/erzhuang-project/logout` 兼容路径。
+  - Go 后端 `GET /logout` 改为清理本地 cookie 后 302 回项目首页，避免裸 JSON；`POST /api/auth/logout` 继续返回 JSON 给前端 Ajax 使用。
+  - 新增后端测试覆盖 `GET /erzhuang-project/logout` 不再返回 JSON，而是 302 回首页并清 cookie。
+- 验证：
+  - `cd frontend && npm test` 通过，23 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build ./cmd/server` 通过。
+  - `go test ./internal/app` 运行测试二进制时仍触发本机 macOS `dyld missing LC_UUID`，属于已知本机 Go 工具链执行限制；编译级验证通过。

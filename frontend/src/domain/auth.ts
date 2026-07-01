@@ -27,7 +27,10 @@ export function authLoginPath(loginUrl?: string) {
   return `${authBasePath()}/_/auth/callback`;
 }
 
-export function authLogoutPath() {
+export function authLogoutPath(hostname = currentHostname()) {
+  if (hostname === "lite.sy.soyoung.com") {
+    return "/logout";
+  }
   return `${authBasePath()}/logout`;
 }
 
@@ -42,4 +45,8 @@ function authBasePath() {
   const normalized = base.startsWith("/") ? base : `/${base}`;
   const firstSegment = normalized.split("/").filter(Boolean)[0];
   return firstSegment ? `/${firstSegment}` : "/erzhuang-project";
+}
+
+function currentHostname() {
+  return typeof window === "undefined" ? "" : window.location.hostname;
 }

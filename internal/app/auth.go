@@ -155,6 +155,15 @@ func (h *Handler) authCallbackHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
+	h.clearAuthCookie(w)
+	if r.Method == http.MethodGet {
+		http.Redirect(w, r, normalizeBasePath(os.Getenv("APP_BASE_PATH"))+"/", http.StatusFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *Handler) clearAuthCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.auth.CookieName,
 		Value:    "",
@@ -163,7 +172,6 @@ func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (config AuthConfig) validateAPISIXSSOToken(token string, now time.Time) (*apisixSSOTokenClaims, error) {
