@@ -3919,3 +3919,18 @@ git pull --ff-only
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build ./cmd/server` 通过。
   - `go test ./internal/app` 运行测试二进制时仍触发本机 macOS `dyld missing LC_UUID`，属于已知本机 Go 工具链执行限制；编译级验证通过。
+
+## 2026-07-01 SSO 退出裸 JSON 与未真退出修复 2.23.3 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`a78260a fix: route sso logout through gateway`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`。
+  - GitLab remote 已从 `c0bcacf` 更新到 `a78260a`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 线上验证：
+  - 浏览器打开 `https://lite.sy.soyoung.com/erzhuang-project/?codex_verify=2.23.3d`，页面底部显示 `版本 2.23.3 (container)`。
+  - 门店列表页右上角仍显示“退出登录”按钮。
+  - 未直接点击“退出登录”，避免主动登出用户当前 SSO 会话；根据线上 bundle 逻辑，公司域名下点击退出将跳转根路径 `/logout`，不再跳 `/erzhuang-project/logout`。
+- 备注：
+  - 本次未发布韩国服务器。
