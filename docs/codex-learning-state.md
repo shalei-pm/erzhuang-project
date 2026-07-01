@@ -3866,3 +3866,19 @@ git pull --ff-only
   - 公司环境自动发布后，检查页面底部版本号包含 `2.23.1`。
   - SSO 登录后，列表页和门店详情页均应显示退出登录入口。
   - 点击退出后应进入公司 SSO/APISIX logout 链路，不再跳回 `/_/auth/callback`。
+
+## 2026-07-01 公司域名 SSO 退出入口显示补丁 2.23.2 开发记录
+
+- 背景：
+  - `2.23.1` 已成功发布到公司环境，线上页脚显示 `2.23.1 (container)`。
+  - 浏览器验收发现列表页仍未显示“退出登录”。
+- 根因：
+  - 前端显示退出入口依赖 `auth.enabled=true`。
+  - 当前公司网关已经启用 APISIX SSO，但项目后端环境仍处于兼容态，`/api/auth/me` 可能返回 `enabled=false`，导致退出入口被隐藏。
+- 实现：
+  - 新增 `shouldShowLogoutEntry()`，在已认证且域名为 `lite.sy.soyoung.com` 时也显示退出入口。
+  - 保持本地开发环境兼容态不显示退出入口，避免干扰本地调试。
+  - 补充单测覆盖公司域名兼容态、本地域名兼容态、后端 SSO 启用态。
+- 验证：
+  - `cd frontend && npm test` 通过，23 tests passed。
+  - `cd frontend && npm run build` 通过。

@@ -14,7 +14,7 @@ import { EditStoreModal } from "./components/EditStoreModal";
 import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
 import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
 import { StoreList } from "./components/StoreList";
-import { authLoginPath, authLogoutPath, shouldShowLoginWelcome, type AuthState } from "./domain/auth";
+import { authLoginPath, authLogoutPath, shouldShowLoginWelcome, shouldShowLogoutEntry, type AuthState } from "./domain/auth";
 import { errorMessage } from "./domain/format";
 import {
   createStoreDetailCache,
@@ -90,6 +90,7 @@ function AdminApp() {
   const visibleSummary = listSummary;
   const visibleFirstIndex = visibleStores.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const visibleLastIndex = visibleStores.length === 0 ? 0 : visibleFirstIndex + visibleStores.length - 1;
+  const showLogoutEntry = shouldShowLogoutEntry(auth);
 
   useEffect(() => {
     void storeSpaceApi
@@ -388,7 +389,7 @@ function AdminApp() {
           aiSettings={aiSettings}
           switchingAIModel={switchingAIModel}
           h5MonitorUrl={canOpenH5Monitor(activeStore) ? h5MonitorPath(activeStore.externalOrgId) : undefined}
-          authActions={auth?.enabled && auth.authenticated ? <AuthUserActions auth={auth} loggingOut={loggingOut} onLogout={logout} /> : null}
+          authActions={showLogoutEntry && auth ? <AuthUserActions auth={auth} loggingOut={loggingOut} onLogout={logout} /> : null}
           onBack={() => {
             detailRequestIdRef.current += 1;
             setActiveStore(null);
@@ -428,7 +429,7 @@ function AdminApp() {
           <h1>门店空间资源管理系统</h1>
         </div>
         <div className="page-header-actions">
-          {auth?.enabled && auth.authenticated ? <AuthUserActions auth={auth} loggingOut={loggingOut} onLogout={logout} /> : null}
+          {showLogoutEntry && auth ? <AuthUserActions auth={auth} loggingOut={loggingOut} onLogout={logout} /> : null}
           <button className="primary-button" onClick={() => setCreateOpen(true)}>
             <span aria-hidden="true">+</span>
             添加门店

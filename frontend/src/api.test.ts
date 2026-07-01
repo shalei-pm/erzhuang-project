@@ -14,7 +14,7 @@ import {
   shouldFallbackToInlineFullscreen,
   shouldShowSegmentSlider,
 } from "./domain/h5-playback";
-import { authLoginPath, authLogoutPath, shouldShowLoginWelcome } from "./domain/auth";
+import { authLoginPath, authLogoutPath, shouldShowLoginWelcome, shouldShowLogoutEntry } from "./domain/auth";
 import { canOpenH5Monitor, h5MonitorPath } from "./domain/store-detail-navigation";
 
 describe("design plan API path helpers", () => {
@@ -79,6 +79,12 @@ describe("auth helpers", () => {
 
   it("builds the apisix logout path with the project base", () => {
     expect(authLogoutPath()).toBe("/erzhuang-project/logout");
+  });
+
+  it("shows logout on the company sso domain even while backend auth remains in compatibility mode", () => {
+    expect(shouldShowLogoutEntry({ enabled: false, authenticated: true }, "lite.sy.soyoung.com")).toBe(true);
+    expect(shouldShowLogoutEntry({ enabled: false, authenticated: true }, "127.0.0.1")).toBe(false);
+    expect(shouldShowLogoutEntry({ enabled: true, authenticated: true }, "127.0.0.1")).toBe(true);
   });
 });
 

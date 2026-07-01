@@ -31,6 +31,12 @@ export function authLogoutPath() {
   return `${authBasePath()}/logout`;
 }
 
+export function shouldShowLogoutEntry(auth: Pick<AuthState, "enabled" | "authenticated"> | null, hostname = window.location.hostname) {
+  if (!auth?.authenticated) return false;
+  if (auth.enabled) return true;
+  return hostname === "lite.sy.soyoung.com";
+}
+
 function authBasePath() {
   const base = import.meta.env.BASE_URL || "/erzhuang-project/";
   const normalized = base.startsWith("/") ? base : `/${base}`;
