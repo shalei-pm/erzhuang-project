@@ -3882,3 +3882,19 @@ git pull --ff-only
 - 验证：
   - `cd frontend && npm test` 通过，23 tests passed。
   - `cd frontend && npm run build` 通过。
+
+## 2026-07-01 公司域名 SSO 退出入口显示补丁 2.23.2 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`85657e6 fix: show sso logout on company domain`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`。
+  - GitLab remote 已从 `1ad1dd3` 更新到 `85657e6`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 线上验证：
+  - 浏览器打开 `https://lite.sy.soyoung.com/erzhuang-project/?codex_verify=2.23.2`，页面底部显示 `版本 2.23.2 (container)`。
+  - 门店列表页右上角已显示“当前登录用户”和“退出登录”按钮。
+  - 未点击“退出登录”做破坏性验证，避免主动登出用户当前 SSO 会话。
+- 备注：
+  - 当前 `/api/auth/me` 仍显示本地兼容用户信息，说明公司 APISIX SSO 网关已接管访问，但项目后端 `SSO_ENABLED` 可能仍未开启；本次补丁专门兼容该过渡状态。
+  - 本次未发布韩国服务器。
