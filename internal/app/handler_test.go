@@ -312,6 +312,40 @@ func TestAuthMeDisabledByDefaultAllowsExistingAdmin(t *testing.T) {
 	}
 }
 
+func TestAuthMePrefersValidAPISIXSSOJWTWhenCompatibilityModeIsDisabled(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":  "沙磊",
+			"mail":     "shalei@soyoung.com",
+			"phone":    "13800138000",
+			"username": "shalei",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	var response AuthResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.User == nil {
+		t.Fatalf("expected sso user, got %#v", response)
+	}
+	if response.User.Email != "shalei@soyoung.com" || response.User.DisplayName != "沙磊" {
+		t.Fatalf("expected real sso user instead of local admin, got %#v", response.User)
+	}
+}
+
 func TestAuthMeRequiresLoginWhenSSOEnabled(t *testing.T) {
 	t.Setenv("SSO_ENABLED", "true")
 

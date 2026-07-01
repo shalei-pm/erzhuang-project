@@ -107,30 +107,23 @@ func isTruthy(value string) bool {
 }
 
 func (h *Handler) authMeHandler(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.Enabled {
-		writeJSON(w, http.StatusOK, AuthResponse{
-			Enabled:       false,
-			Authenticated: true,
-			User: &AuthUserResponse{
-				Email:       "local-admin@example.com",
-				Username:    "local-admin",
-				DisplayName: "本地管理员",
-				Role:        "admin",
-			},
-			Permissions: []string{"admin"},
-		})
-		return
-	}
-
 	cookie, err := r.Cookie(h.auth.CookieName)
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
-		h.writeUnauthorizedAuth(w)
+		if h.auth.Enabled {
+			h.writeUnauthorizedAuth(w)
+			return
+		}
+		h.writeLocalAdminAuth(w)
 		return
 	}
 
 	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, time.Now())
 	if err != nil {
-		h.writeUnauthorizedAuth(w)
+		if h.auth.Enabled {
+			h.writeUnauthorizedAuth(w)
+			return
+		}
+		h.writeLocalAdminAuth(w)
 		return
 	}
 	user := claims.authUser()
@@ -160,6 +153,20 @@ func (h *Handler) authMeHandler(w http.ResponseWriter, r *http.Request) {
 		Authenticated: true,
 		User:          &user,
 		Permissions:   record.permissions(),
+	})
+}
+
+func (h *Handler) writeLocalAdminAuth(w http.ResponseWriter) {
+	writeJSON(w, http.StatusOK, AuthResponse{
+		Enabled:       false,
+		Authenticated: true,
+		User: &AuthUserResponse{
+			Email:       "local-admin@example.com",
+			Username:    "local-admin",
+			DisplayName: "本地管理员",
+			Role:        "admin",
+		},
+		Permissions: []string{"admin"},
 	})
 }
 

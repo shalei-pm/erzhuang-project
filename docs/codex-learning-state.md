@@ -4040,3 +4040,21 @@ git pull --ff-only
 - 备注：
   - 本次未发布韩国服务器。
   - DBA 专项未提交的 MySQL 迁移文件保持未触碰。
+
+## 2026-07-01 SSO 兼容态优先读取真实用户 2.24.1 开发记录
+
+- 背景：
+  - 用户线上验证发现登录后右上角仍显示 `本地管理员 / local-admin@example.com`，没有显示公司 SSO 中的 `display`。
+- 根因：
+  - APISIX SSO 网关已经完成登录并保护入口，但业务后端环境仍可能处于 `SSO_ENABLED=false` 兼容态。
+  - 旧逻辑在 `SSO_ENABLED=false` 时会直接返回本地管理员，不会尝试读取请求里的 `sy_sso_token`。
+- 修复：
+  - `/api/auth/me` 改为只要请求携带有效 `sy_sso_token`，就优先解析真实 SSO 用户并查 `tb_users`。
+  - 只有请求没有 token，或 token 无效且后端没有强制启用 SSO 时，才回退本地管理员兼容态。
+  - 保留 `SSO_ENABLED=true` 的严格模式：无 token 或 token 无效仍返回 401。
+  - 新增测试覆盖“兼容态下有有效 SSO token 时应返回真实用户，而不是本地管理员”。
+- 验证：
+  - `./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+  - `cd frontend && npm test` 通过，25 tests passed。
+  - `cd frontend && npm run build` 通过。
