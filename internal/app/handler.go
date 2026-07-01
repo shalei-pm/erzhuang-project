@@ -40,6 +40,7 @@ type Store interface {
 	Ping(ctx context.Context) error
 	ListTasks(ctx context.Context) ([]Task, error)
 	AISettingsStore
+	AuthUserStore
 }
 
 type Handler struct {

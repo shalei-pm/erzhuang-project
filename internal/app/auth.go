@@ -134,16 +134,45 @@ func (h *Handler) authMeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := claims.authUser()
+	record, err := h.store.GetAuthUserByEmail(r.Context(), user.Email)
+	if errors.Is(err, errAuthUserNotFound) || (err == nil && !record.Enabled) {
+		h.writeForbiddenAuth(w)
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "load auth user failed"})
+		return
+	}
+	record, err = h.store.UpdateAuthUserProfile(r.Context(), AuthUserPatch{
+		Email:        user.Email,
+		Username:     user.Username,
+		DisplayName:  user.DisplayName,
+		FeishuUserID: user.FeishuUserID,
+		Phone:        user.Phone,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update auth user failed"})
+		return
+	}
+	user = record.applyToResponse(user)
 	writeJSON(w, http.StatusOK, AuthResponse{
 		Enabled:       true,
 		Authenticated: true,
 		User:          &user,
-		Permissions:   []string{"admin"},
+		Permissions:   record.permissions(),
 	})
 }
 
 func (h *Handler) writeUnauthorizedAuth(w http.ResponseWriter) {
 	writeJSON(w, http.StatusUnauthorized, AuthResponse{
+		Enabled:       true,
+		Authenticated: false,
+		LoginURL:      normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/_/auth/callback",
+	})
+}
+
+func (h *Handler) writeForbiddenAuth(w http.ResponseWriter) {
+	writeJSON(w, http.StatusForbidden, AuthResponse{
 		Enabled:       true,
 		Authenticated: false,
 		LoginURL:      normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/_/auth/callback",

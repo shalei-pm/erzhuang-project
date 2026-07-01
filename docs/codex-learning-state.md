@@ -3999,3 +3999,24 @@ git pull --ff-only
   - 未直接点击“退出登录”，避免主动登出用户当前 SSO 会话；根据线上 bundle 逻辑，公司域名下点击退出将直接跳转 `/logout`，不再先请求 `/api/auth/logout`。
 - 备注：
   - 本次未发布韩国服务器。
+
+## 2026-07-01 SSO 用户表最小授权闭环 2.24.0 开发记录
+
+- 背景：
+  - 用户确认第一版用户表以企业邮箱作为唯一授权标识，保留 `display`、`phone`，后续继续扩展角色、机构范围和权限点。
+  - 默认管理员使用 `shalei@soyoung.com`。
+  - 登录提示区域应展示 SSO 返回的真实 `display`，不再依赖本地假用户信息。
+- 实现：
+  - 新增 `tb_users` Postgres 表初始化，字段包括 `email`、`username`、`display_name`、`feishu_user_id`、`phone`、`role`、`enabled`、`last_login_at`。
+  - `EnsurePostgresSchema` 自动种子默认管理员 `shalei@soyoung.com`，`role=admin`，`enabled=true`；已有数据不覆盖。
+  - `SSO_ENABLED=true` 时，`/api/auth/me` 先完成 APISIX SSO JWT 验签，再按 `data.mail` 查 `tb_users`；用户不存在或禁用返回 403。
+  - 登录成功后，用 SSO payload 的 `display`、`phone`、`user_id` 回填用户表，并返回给前端，现有右上角登录提示自动展示真实 `display_name`。
+  - `SSO_ENABLED=false` 时保留本地 admin 兼容态，避免本地和未启用 SSO 的环境被阻断。
+- 验证：
+  - `./.tools/go/bin/go test -c ./internal/app` 通过，后端认证包测试二进制可编译。
+  - `./.tools/go/bin/go build ./cmd/server` 通过。
+  - `cd frontend && npm test` 通过，25 tests passed。
+  - `cd frontend && npm run build` 通过。
+- 备注：
+  - 本机执行 Go 测试二进制仍会触发 macOS `dyld missing LC_UUID` 环境问题，因此本轮 Go 行为测试以测试二进制编译和服务端构建作为可执行验证。
+  - 未触碰 DBA 专项未提交的 MySQL 迁移文件。

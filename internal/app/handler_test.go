@@ -345,11 +345,11 @@ func TestAuthMeAcceptsValidAPISIXSSOJWT(t *testing.T) {
 	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
 		"data": map[string]any{
 			"display":   "四喜（测试）",
-			"mail":      "sixi@soyoung.com",
+			"mail":      "shalei@soyoung.com",
 			"open_id":   "ou_test_open_id",
 			"user_id":   "feishu_user_id",
 			"phone":     "13800112233",
-			"username":  "sixi",
+			"username":  "shalei",
 			"login_way": "lark",
 		},
 		"exp": time.Now().Add(time.Hour).Unix(),
@@ -369,11 +369,81 @@ func TestAuthMeAcceptsValidAPISIXSSOJWT(t *testing.T) {
 	if !response.Authenticated || response.User == nil {
 		t.Fatalf("expected authenticated response, got %#v", response)
 	}
-	if response.User.Email != "sixi@soyoung.com" || response.User.Username != "sixi" || response.User.DisplayName != "四喜（测试）" {
+	if response.User.Email != "shalei@soyoung.com" || response.User.Username != "shalei" || response.User.DisplayName != "四喜（测试）" {
 		t.Fatalf("unexpected user: %#v", response.User)
 	}
 	if response.User.OpenID != "ou_test_open_id" || response.User.FeishuUserID != "feishu_user_id" || response.User.Phone != "13800112233" || response.User.LoginWay != "lark" {
 		t.Fatalf("unexpected sso fields: %#v", response.User)
+	}
+}
+
+func TestAuthMeUsesProvisionedAdminUserFromSSOMail(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":   "沙磊",
+			"mail":      "shalei@soyoung.com",
+			"phone":     "13800138000",
+			"username":  "shalei",
+			"login_way": "lark",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	var response AuthResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.User == nil {
+		t.Fatalf("expected auth user, got %#v", response)
+	}
+	if response.User.Email != "shalei@soyoung.com" || response.User.DisplayName != "沙磊" || response.User.Phone != "13800138000" {
+		t.Fatalf("expected sso profile to update provisioned user, got %#v", response.User)
+	}
+	if response.User.Role != "admin" || !containsString(response.Permissions, "admin") {
+		t.Fatalf("expected provisioned admin permissions, got user=%#v permissions=%#v", response.User, response.Permissions)
+	}
+}
+
+func TestAuthMeRejectsUnprovisionedSSOUser(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":  "未授权用户",
+			"mail":     "unknown@soyoung.com",
+			"username": "unknown",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
+	}
+	var response AuthResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Authenticated || response.User != nil {
+		t.Fatalf("expected rejected auth response, got %#v", response)
 	}
 }
 
@@ -512,6 +582,22 @@ func (failingStore) ListTasks(ctx context.Context) ([]Task, error) {
 	return nil, errors.New("list failed")
 }
 
+func (failingStore) GetAIProvider(ctx context.Context) (string, error) {
+	return "", errors.New("settings failed")
+}
+
+func (failingStore) SetAIProvider(ctx context.Context, provider string) error {
+	return errors.New("settings failed")
+}
+
+func (failingStore) GetAuthUserByEmail(ctx context.Context, email string) (AuthUserRecord, error) {
+	return AuthUserRecord{}, errors.New("auth user failed")
+}
+
+func (failingStore) UpdateAuthUserProfile(ctx context.Context, patch AuthUserPatch) (AuthUserRecord, error) {
+	return AuthUserRecord{}, errors.New("auth user failed")
+}
+
 func newTestRSAKey(t *testing.T) *rsa.PrivateKey {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -549,10 +635,11 @@ func signAPISIXSSOToken(t *testing.T, privateKey *rsa.PrivateKey, claims map[str
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
-func (failingStore) GetAIProvider(ctx context.Context) (string, error) {
-	return "", errors.New("settings failed")
-}
-
-func (failingStore) SetAIProvider(ctx context.Context, provider string) error {
-	return errors.New("settings failed")
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

@@ -175,7 +175,13 @@ SSO_EXPECTED_SUB=
 }
 ```
 
-当前 `role=admin` 和 `permissions=["admin"]` 是 SSO 骨架阶段的兼容态。正式权限上线后，必须改为后端查询 `tb_users`、角色和机构范围。
+当前 `role` 和 `permissions` 已改为查询项目自己的 `tb_users` 表。第一版只做最小授权闭环：
+
+- `email` 使用 SSO payload 中的 `data.mail`，是本项目授权主键。
+- 系统初始化默认管理员：`shalei@soyoung.com`，`role=admin`，`enabled=true`。
+- SSO 登录成功后，如果 `tb_users` 中存在该邮箱且 `enabled=true`，后端会用 SSO 的 `display`、`phone`、`user_id` 回填 `display_name`、`phone`、`feishu_user_id`，并返回给前端展示。
+- 如果邮箱不存在或用户被禁用，`/api/auth/me` 返回 403；这表示 SSO 已认证，但本项目未授权。
+- 后续角色、机构范围、页面/Tab/操作权限仍需要继续扩展 `tb_users`、角色和 scope 表。
 
 ## 6. 下一阶段联调目标
 
@@ -185,8 +191,7 @@ SSO_EXPECTED_SUB=
 4. 建议配置 `SSO_EXPECTED_SUB` 为公司测试环境访问域名。
 5. 验证未登录访问会跳转到公司 SSO。
 6. 验证飞书登录后 `/api/auth/me` 能返回企业邮箱和飞书身份字段。
-7. 接入 `tb_users`：邮箱存在且 enabled 才允许进入。
-8. 在后端接口上逐步加权限校验，不只靠前端隐藏。
+7. 在后端接口上逐步加权限校验，不只靠前端隐藏。
 
 ## 7. 验收口径
 
