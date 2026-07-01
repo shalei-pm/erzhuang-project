@@ -14,6 +14,7 @@ import {
   shouldFallbackToInlineFullscreen,
   shouldShowSegmentSlider,
 } from "./domain/h5-playback";
+import { authLoginPath, shouldShowLoginWelcome } from "./domain/auth";
 import { canOpenH5Monitor, h5MonitorPath } from "./domain/store-detail-navigation";
 
 describe("design plan API path helpers", () => {
@@ -58,6 +59,22 @@ describe("store list summary", () => {
       consultationCount: 2,
       beautyCount: 1,
     });
+  });
+});
+
+describe("auth helpers", () => {
+  it("keeps the existing app open while sso is disabled", () => {
+    expect(shouldShowLoginWelcome({ enabled: false, authenticated: true })).toBe(false);
+  });
+
+  it("shows the sso welcome page only when sso is enabled and unauthenticated", () => {
+    expect(shouldShowLoginWelcome({ enabled: true, authenticated: false })).toBe(true);
+    expect(shouldShowLoginWelcome({ enabled: true, authenticated: true })).toBe(false);
+  });
+
+  it("builds the login path with the project base by default", () => {
+    expect(authLoginPath()).toBe("/erzhuang-project/_/auth/callback");
+    expect(authLoginPath("/custom/auth/login")).toBe("/custom/auth/login");
   });
 });
 

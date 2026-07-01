@@ -44,6 +44,7 @@ type Store interface {
 
 type Handler struct {
 	store Store
+	auth  AuthConfig
 }
 
 func NewHandler() http.Handler {
@@ -67,10 +68,14 @@ func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designpl
 }
 
 func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	handler := &Handler{store: store}
+	handler := &Handler{store: store, auth: AuthConfigFromEnv()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
+	mux.HandleFunc("GET /api/auth/me", handler.authMeHandler)
+	mux.HandleFunc("POST /api/auth/logout", handler.authLogoutHandler)
+	mux.HandleFunc("GET /_/auth/callback", handler.authCallbackHandler)
+	mux.HandleFunc("GET /logout", handler.authLogoutHandler)
 	mux.HandleFunc("GET /api/ai-settings", handler.aiSettingsHandler)
 	mux.HandleFunc("POST /api/ai-settings/toggle", handler.toggleAISettingsHandler)
 	designplan.RegisterRoutes(mux, designPlanService)
@@ -97,6 +102,21 @@ func withBasePathAPIPrefixes(next http.Handler) http.Handler {
 			if strings.HasPrefix(r.URL.Path, apiPrefix) {
 				cloned := r.Clone(r.Context())
 				cloned.URL.Path = strings.TrimPrefix(r.URL.Path, basePath)
+				next.ServeHTTP(w, cloned)
+				return
+			}
+
+			authPrefix := basePath + "/_/auth/"
+			if strings.HasPrefix(r.URL.Path, authPrefix) {
+				cloned := r.Clone(r.Context())
+				cloned.URL.Path = strings.TrimPrefix(r.URL.Path, basePath)
+				next.ServeHTTP(w, cloned)
+				return
+			}
+
+			if r.URL.Path == basePath+"/logout" {
+				cloned := r.Clone(r.Context())
+				cloned.URL.Path = "/logout"
 				next.ServeHTTP(w, cloned)
 				return
 			}

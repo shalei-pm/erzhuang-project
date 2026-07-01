@@ -2,7 +2,14 @@ package app
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHealth(t *testing.T) {
@@ -283,6 +291,170 @@ func TestAISettingsToggle(t *testing.T) {
 	}
 }
 
+func TestAuthMeDisabledByDefaultAllowsExistingAdmin(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	var response map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response["enabled"] != false {
+		t.Fatalf("expected disabled auth, got %#v", response)
+	}
+	if response["authenticated"] != true {
+		t.Fatalf("expected existing admin to pass while sso disabled, got %#v", response)
+	}
+}
+
+func TestAuthMeRequiresLoginWhenSSOEnabled(t *testing.T) {
+	t.Setenv("SSO_ENABLED", "true")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+	var response map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response["enabled"] != true || response["authenticated"] != false {
+		t.Fatalf("unexpected auth response: %#v", response)
+	}
+	if response["login_url"] != "/erzhuang-project/_/auth/callback" {
+		t.Fatalf("unexpected login url: %#v", response["login_url"])
+	}
+}
+
+func TestAuthMeAcceptsValidAPISIXSSOJWT(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+	t.Setenv("SSO_EXPECTED_SUB", "lite.sy.soyoung.com")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":   "四喜（测试）",
+			"mail":      "sixi@soyoung.com",
+			"open_id":   "ou_test_open_id",
+			"user_id":   "feishu_user_id",
+			"phone":     "13800112233",
+			"username":  "sixi",
+			"login_way": "lark",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	var response AuthResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.Authenticated || response.User == nil {
+		t.Fatalf("expected authenticated response, got %#v", response)
+	}
+	if response.User.Email != "sixi@soyoung.com" || response.User.Username != "sixi" || response.User.DisplayName != "四喜（测试）" {
+		t.Fatalf("unexpected user: %#v", response.User)
+	}
+	if response.User.OpenID != "ou_test_open_id" || response.User.FeishuUserID != "feishu_user_id" || response.User.Phone != "13800112233" || response.User.LoginWay != "lark" {
+		t.Fatalf("unexpected sso fields: %#v", response.User)
+	}
+}
+
+func TestAuthMeRejectsInvalidAPISIXSSOSignature(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	otherKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, otherKey, map[string]any{
+		"data": map[string]any{"mail": "sixi@soyoung.com"},
+		"exp":  time.Now().Add(time.Hour).Unix(),
+		"sub":  "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+}
+
+func TestAuthMeRejectsExpiredAPISIXSSOJWT(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{"mail": "sixi@soyoung.com"},
+		"exp":  time.Now().Add(-time.Minute).Unix(),
+		"sub":  "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+}
+
+func TestAuthMeRejectsAPISIXSSOJWTWithoutMail(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{"username": "sixi"},
+		"exp":  time.Now().Add(time.Hour).Unix(),
+		"sub":  "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+}
+
+func TestAPISIXSSOCallbackUnderConfiguredBasePathRedirectsHome(t *testing.T) {
+	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
+	t.Setenv("SSO_ENABLED", "true")
+
+	request := httptest.NewRequest(http.MethodGet, "/erzhuang-project/_/auth/callback", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("expected status %d, got %d", http.StatusFound, recorder.Code)
+	}
+	if recorder.Header().Get("Location") != "/erzhuang-project/" {
+		t.Fatalf("unexpected redirect location: %s", recorder.Header().Get("Location"))
+	}
+}
+
 type failingStore struct{}
 
 func (failingStore) Name() string {
@@ -295,6 +467,43 @@ func (failingStore) Ping(ctx context.Context) error {
 
 func (failingStore) ListTasks(ctx context.Context) ([]Task, error) {
 	return nil, errors.New("list failed")
+}
+
+func newTestRSAKey(t *testing.T) *rsa.PrivateKey {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+	return key
+}
+
+func publicKeyPEM(t *testing.T, publicKey *rsa.PublicKey) string {
+	t.Helper()
+	der, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}
+
+func signAPISIXSSOToken(t *testing.T, privateKey *rsa.PrivateKey, claims map[string]any) string {
+	t.Helper()
+	headerJSON, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT"})
+	if err != nil {
+		t.Fatalf("marshal jwt header: %v", err)
+	}
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal jwt claims: %v", err)
+	}
+	signingInput := base64.RawURLEncoding.EncodeToString(headerJSON) + "." + base64.RawURLEncoding.EncodeToString(claimsJSON)
+	digest := sha256.Sum256([]byte(signingInput))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest[:])
+	if err != nil {
+		t.Fatalf("sign jwt: %v", err)
+	}
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
 func (failingStore) GetAIProvider(ctx context.Context) (string, error) {

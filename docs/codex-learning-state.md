@@ -3798,3 +3798,36 @@ git pull --ff-only
     - `GET /api/h5/orgs/10011/monitor` 返回 200，门店为 `新氧青春诊所(上海正大广场店)`。
 - 备注：
   - 本次未发布韩国服务器。
+
+## 2026-07-01 APISIX-SSO 骨架与 DBA 协作规范 2.23.0 开发记录
+
+- 背景：
+  - 用户提供公司文档《内部系统接入APISIX-SSO使用方式》，确认二壮项目必须使用公司推荐的 APISIX 网关 `security-sso` 插件，不自建 OAuth2 登录流程。
+  - 上一轮曾错误沿用 OAuth2/API SSO 口径，已按文档纠偏。
+- 实现：
+  - 新增 APISIX-SSO 后端骨架：
+    - `GET /api/auth/me`
+    - `POST /api/auth/logout`
+    - `GET /_/auth/callback`
+    - `GET /logout`
+  - 默认 `SSO_ENABLED=false`，不影响现有运营后台。
+  - `SSO_ENABLED=true` 时读取 `sy_sso_token` cookie，并按文档校验 RS256 JWT：
+    - `alg` 必须为 `RS256`。
+    - 使用公司文档公钥或 `SSO_JWT_PUBLIC_KEY` 验签。
+    - 校验 `exp`。
+    - 配置 `SSO_EXPECTED_SUB` 后校验 `sub`。
+    - `data.mail` 必须存在，作为第一版 `tb_users.email` 授权主键。
+  - 前端新增 SSO 登录欢迎页；未登录时不加载门店业务数据。
+  - SSO 文档改为 APISIX 单一路径，并同步纠正 MySQL DBA/迁移验收文档里的旧 `/token` 口径。
+  - 新增 DBA 专项协作规则，后续 MySQL schema、权限模型、资产存储迁移先交 DBA 专项出方案，再由主会话验收。
+  - 脱敏历史计划文档中的 GitLab personal access token 明文示例。
+- 风险与后续：
+  - 当前权限仍是 SSO 骨架阶段兼容态，`role=admin`、`permissions=["admin"]`；正式权限需要继续接入 `tb_users`、角色、机构范围和审计日志。
+  - 公司环境如要启用 SSO，需要运维配置 APISIX `security-sso` 插件、包含 `/_/auth/callback` 与 `/logout` 路由，并由安全配置 SSO 认证域名白名单。
+  - 建议公司环境启用时配置 `SSO_EXPECTED_SUB` 为实际访问域名。
+- 验证：
+  - `cd frontend && npm test` 通过，21 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build ./cmd/server` 通过。
+  - `go test ./internal/app` 在本机执行测试二进制时仍触发 macOS `dyld missing LC_UUID`，属于当前本机 Go 工具链/测试二进制执行限制；编译级验证已通过。

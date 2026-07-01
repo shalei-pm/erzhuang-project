@@ -1,5 +1,6 @@
 import sampleStoreFloorPlanUrl from "../../testdata/design-plans/generated/sample-store-floor-plan.png";
 import { isTreatmentAreaType } from "./domain/areas";
+import type { AuthState } from "./domain/auth";
 import { normalizeCityFilter, storeListSearchParams } from "./domain/store-list-query";
 import { defaultApiBase, displayImageUrl, storedImagePath, trimTrailingSlash } from "./url-utils";
 
@@ -1176,6 +1177,14 @@ const storeSpaceHttpAdapter = {
     return requestJSON<AISettings>(`${APP_API_BASE}/ai-settings/toggle`, { method: "POST" });
   },
 
+  async getAuthMe(): Promise<AuthState> {
+    return requestJSON<AuthState>(`${APP_API_BASE}/auth/me`);
+  },
+
+  async logout(): Promise<void> {
+    await requestJSON<void>(`${APP_API_BASE}/auth/logout`, { method: "POST" });
+  },
+
   async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores`, {
       method: "POST",
@@ -1441,6 +1450,23 @@ export const storeSpaceApi = {
       return clone(mockAISettings);
     }
     return storeSpaceHttpAdapter.toggleAISettings();
+  },
+
+  async getAuthMe(): Promise<AuthState> {
+    if (API_MODE === "mock") {
+      return {
+        enabled: false,
+        authenticated: true,
+        user: { email: "local-admin@example.com", username: "local-admin", display_name: "本地管理员", role: "admin" },
+        permissions: ["admin"],
+      };
+    }
+    return storeSpaceHttpAdapter.getAuthMe();
+  },
+
+  async logout(): Promise<void> {
+    if (API_MODE === "mock") return;
+    return storeSpaceHttpAdapter.logout();
   },
 
   async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {

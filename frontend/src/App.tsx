@@ -14,6 +14,7 @@ import { EditStoreModal } from "./components/EditStoreModal";
 import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
 import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
 import { StoreList } from "./components/StoreList";
+import { authLoginPath, shouldShowLoginWelcome, type AuthState } from "./domain/auth";
 import { errorMessage } from "./domain/format";
 import {
   createStoreDetailCache,
@@ -50,6 +51,8 @@ function App() {
 }
 
 function AdminApp() {
+  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [stores, setStores] = useState<StoreSummary[]>([]);
   const [accounts, setAccounts] = useState<EzvizAccount[]>([]);
   const [query, setQuery] = useState("");
@@ -88,23 +91,41 @@ function AdminApp() {
   const visibleLastIndex = visibleStores.length === 0 ? 0 : visibleFirstIndex + visibleStores.length - 1;
 
   useEffect(() => {
+    void storeSpaceApi
+      .getAuthMe()
+      .then(setAuth)
+      .catch((error) => {
+        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 401) {
+          setAuth({ enabled: true, authenticated: false, login_url: "/erzhuang-project/_/auth/callback" });
+          return;
+        }
+        setToast(errorMessage(error, "登录状态加载失败。"));
+        setAuth({ enabled: false, authenticated: true });
+      })
+      .finally(() => setAuthLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || shouldShowLoginWelcome(auth)) return;
     void loadStores(query, cityFilter, page);
-  }, [page, query, cityFilter]);
+  }, [page, query, cityFilter, authLoading, auth]);
 
   useEffect(() => {
     activeStoreRef.current = activeStore;
   }, [activeStore]);
 
   useEffect(() => {
+    if (authLoading || shouldShowLoginWelcome(auth)) return;
     void storeSpaceApi
       .listEzvizAccounts()
       .then(setAccounts)
       .catch((error) => setToast(errorMessage(error, "萤石云账号加载失败。")));
-  }, []);
+  }, [authLoading, auth]);
 
   useEffect(() => {
+    if (authLoading || shouldShowLoginWelcome(auth)) return;
     void loadAISettings();
-  }, []);
+  }, [authLoading, auth]);
 
   async function loadStores(nextQuery = query, nextCityFilter = cityFilter, nextPage = page) {
     const requestId = listRequestIdRef.current + 1;
@@ -370,6 +391,18 @@ function AdminApp() {
     );
   }
 
+  if (authLoading) {
+    return (
+      <main className="app-shell">
+        <div className="auth-loading">正在确认登录状态...</div>
+      </main>
+    );
+  }
+
+  if (shouldShowLoginWelcome(auth)) {
+    return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
+  }
+
   return (
     <main className="app-shell">
       <header className="page-header">
@@ -466,6 +499,25 @@ function AdminApp() {
           onSubmit={updateStoreBasicInfo}
         />
       ) : null}
+    </main>
+  );
+}
+
+function LoginWelcome({ auth, appVersion }: { auth: AuthState | null; appVersion: string }) {
+  return (
+    <main className="auth-page">
+      <section className="auth-panel" aria-label="登录">
+        <p className="eyebrow">新氧青春</p>
+        <h1>门店空间资源管理系统</h1>
+        <p className="auth-copy">请通过公司 APISIX-SSO 网关登录后继续访问后台。</p>
+        <button className="primary-button auth-login-button" onClick={() => window.location.assign(authLoginPath(auth?.login_url))}>
+          使用公司 SSO 登录
+        </button>
+        <p className="auth-note">登录由公司网关统一处理；权限范围由项目用户表控制。</p>
+      </section>
+      <footer className="app-version" aria-label="当前版本">
+        版本 {appVersion}
+      </footer>
     </main>
   );
 }

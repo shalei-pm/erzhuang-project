@@ -816,7 +816,7 @@ git commit -m "feat: add store short names and channel bed labels"
 Read `docs/deploy-runbook.md`, then run:
 
 ```bash
-GIT_ASKPASS=/private/tmp/git-askpass.LmX4so GIT_USERNAME=shalei GIT_PASSWORD='c3yF2WHADKMacuE3Xsui' git push gitlab codex/containerize-single-image
+GIT_ASKPASS=/private/tmp/git-askpass.xxxxxx GIT_USERNAME=shalei GIT_PASSWORD='<personal-access-token>' git push gitlab codex/containerize-single-image
 ```
 
 If rejected by company hook, inspect the rejection, avoid force push, amend code to satisfy the hook, rerun full verification, and push again.
