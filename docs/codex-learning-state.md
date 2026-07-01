@@ -3954,3 +3954,17 @@ git pull --ff-only
 - 验证：
   - `cd frontend && npm test` 通过，24 tests passed。
   - `cd frontend && npm run build` 通过。
+
+## 2026-07-01 SSO 退出后登录闭环修复 2.23.4 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`8c2cd2f fix: keep sso login return path`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`。
+  - GitLab remote 已从 `3a2fd59` 更新到 `8c2cd2f`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 线上验证：
+  - 未登录访问 `https://lite.sy.soyoung.com/erzhuang-project/` 返回 302 到公司 SSO authorize 地址，`Location` 中包含完整 `state=https://lite.sy.soyoung.com/erzhuang-project/`。
+  - 当前浏览器会话已退出，无法直接查看后台页脚；待用户完成 SSO 登录后可在页面底部确认 `2.23.4 (container)`。
+- 备注：
+  - 本次未发布韩国服务器。
