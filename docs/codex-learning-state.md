@@ -3831,3 +3831,19 @@ git pull --ff-only
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build ./cmd/server` 通过。
   - `go test ./internal/app` 在本机执行测试二进制时仍触发 macOS `dyld missing LC_UUID`，属于当前本机 Go 工具链/测试二进制执行限制；编译级验证已通过。
+
+## 2026-07-01 APISIX-SSO 骨架与 DBA 协作规范 2.23.0 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`c9d72e9 feat: add apisix sso auth skeleton`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`。
+  - GitLab remote 已从 `3aeaccb` 更新到 `c9d72e9`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 无缓存请求首页已更新为 `/erzhuang-project/assets/index-Dp-AlerQ.js`。
+  - 线上前端 bundle 已包含 `2.23.0`、`APISIX-SSO`、`/_/auth/callback`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 默认 `SSO_ENABLED=false`，所以发布后不会突然拦截现有运营后台。
