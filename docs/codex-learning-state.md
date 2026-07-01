@@ -3984,3 +3984,18 @@ git pull --ff-only
 - 验证：
   - `cd frontend && npm test` 通过，25 tests passed。
   - `cd frontend && npm run build` 通过。
+
+## 2026-07-01 SSO 退出优先走网关修复 2.23.5 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`49d956c fix: bypass app logout api on company sso`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`。
+  - GitLab remote 已从 `376b56b` 更新到 `49d956c`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 线上验证：
+  - 浏览器打开 `https://lite.sy.soyoung.com/erzhuang-project/?codex_verify=2.23.5b`，页面底部显示 `版本 2.23.5 (container)`。
+  - 门店列表页右上角仍显示“退出登录”按钮。
+  - 未直接点击“退出登录”，避免主动登出用户当前 SSO 会话；根据线上 bundle 逻辑，公司域名下点击退出将直接跳转 `/logout`，不再先请求 `/api/auth/logout`。
+- 备注：
+  - 本次未发布韩国服务器。
