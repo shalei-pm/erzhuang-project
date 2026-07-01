@@ -28,23 +28,27 @@ export function authLoginPath(loginUrl?: string) {
 }
 
 export function authCompanyEntryPath(hostname = currentHostname()) {
-  if (hostname === "lite.sy.soyoung.com") {
+  if (isCompanySSODomain(hostname)) {
     return `${authBasePath()}/`;
   }
   return "";
 }
 
 export function authLogoutPath(hostname = currentHostname()) {
-  if (hostname === "lite.sy.soyoung.com") {
+  if (isCompanySSODomain(hostname)) {
     return "/logout";
   }
   return `${authBasePath()}/logout`;
 }
 
+export function shouldUseGatewayLogout(hostname = currentHostname()) {
+  return isCompanySSODomain(hostname);
+}
+
 export function shouldShowLogoutEntry(auth: Pick<AuthState, "enabled" | "authenticated"> | null, hostname = window.location.hostname) {
   if (!auth?.authenticated) return false;
   if (auth.enabled) return true;
-  return hostname === "lite.sy.soyoung.com";
+  return isCompanySSODomain(hostname);
 }
 
 function authBasePath() {
@@ -56,4 +60,8 @@ function authBasePath() {
 
 function currentHostname() {
   return typeof window === "undefined" ? "" : window.location.hostname;
+}
+
+function isCompanySSODomain(hostname: string) {
+  return hostname === "lite.sy.soyoung.com";
 }

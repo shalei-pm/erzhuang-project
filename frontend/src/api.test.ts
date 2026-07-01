@@ -14,7 +14,14 @@ import {
   shouldFallbackToInlineFullscreen,
   shouldShowSegmentSlider,
 } from "./domain/h5-playback";
-import { authCompanyEntryPath, authLoginPath, authLogoutPath, shouldShowLoginWelcome, shouldShowLogoutEntry } from "./domain/auth";
+import {
+  authCompanyEntryPath,
+  authLoginPath,
+  authLogoutPath,
+  shouldShowLoginWelcome,
+  shouldShowLogoutEntry,
+  shouldUseGatewayLogout,
+} from "./domain/auth";
 import { canOpenH5Monitor, h5MonitorPath } from "./domain/store-detail-navigation";
 
 describe("design plan API path helpers", () => {
@@ -85,6 +92,11 @@ describe("auth helpers", () => {
   it("builds the apisix logout path with the project base", () => {
     expect(authLogoutPath()).toBe("/erzhuang-project/logout");
     expect(authLogoutPath("lite.sy.soyoung.com")).toBe("/logout");
+  });
+
+  it("uses gateway logout directly on the company domain", () => {
+    expect(shouldUseGatewayLogout("lite.sy.soyoung.com")).toBe(true);
+    expect(shouldUseGatewayLogout("127.0.0.1")).toBe(false);
   });
 
   it("shows logout on the company sso domain even while backend auth remains in compatibility mode", () => {

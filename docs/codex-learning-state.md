@@ -3968,3 +3968,19 @@ git pull --ff-only
   - 当前浏览器会话已退出，无法直接查看后台页脚；待用户完成 SSO 登录后可在页面底部确认 `2.23.4 (container)`。
 - 备注：
   - 本次未发布韩国服务器。
+
+## 2026-07-01 SSO 退出优先走网关修复 2.23.5 开发记录
+
+- 背景：
+  - 用户反馈 `2.23.4` 中点击“退出登录”后页面仍显示后台，出现 `Failed to fetch`，刷新后仍是已登录状态。
+- 根因：
+  - 前端退出流程仍然先 `await POST /api/auth/logout`，再跳转 `/logout`。
+  - 公司 SSO/APISIX 场景下，该业务 API 请求可能被网关/认证状态影响而 `Failed to fetch`，导致退出动作体验不稳定。
+  - 公司环境的真正退出应优先交给 APISIX `/logout`，不应依赖项目业务 API 成功。
+- 实现：
+  - 新增 `shouldUseGatewayLogout()`，公司域名 `lite.sy.soyoung.com` 下点击退出时立即跳转 `/logout`。
+  - 非公司域名保留原有 `POST /api/auth/logout` 本地清理逻辑，方便本地/兼容环境调试。
+  - 复用 `isCompanySSODomain()` 判断，统一公司域名下登录入口、退出入口、退出按钮可见性。
+- 验证：
+  - `cd frontend && npm test` 通过，25 tests passed。
+  - `cd frontend && npm run build` 通过。

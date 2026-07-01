@@ -20,6 +20,7 @@ import {
   authLogoutPath,
   shouldShowLoginWelcome,
   shouldShowLogoutEntry,
+  shouldUseGatewayLogout,
   type AuthState,
 } from "./domain/auth";
 import { errorMessage } from "./domain/format";
@@ -386,6 +387,10 @@ function AdminApp() {
   async function logout() {
     const logoutPath = authLogoutPath();
     setLoggingOut(true);
+    if (shouldUseGatewayLogout()) {
+      window.location.assign(logoutPath);
+      return;
+    }
     try {
       await storeSpaceApi.logout();
       setAuth({ enabled: true, authenticated: false, login_url: logoutPath });
