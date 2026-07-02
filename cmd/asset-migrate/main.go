@@ -20,6 +20,9 @@ func main() {
 	apply := flag.Bool("apply", false, "actually copy objects from source store to target OSS store")
 	externalOrgID := flag.String("external-org-id", "", "optional store external_org_id filter, for example 10030")
 	maxRows := flag.Int("max-rows", 0, "optional maximum number of copy-eligible rows to process")
+	resultSQLPath := flag.String("result-sql", "", "optional SQL file to write migration status updates for copied rows")
+	ossBucket := flag.String("oss-bucket", "", "OSS bucket name to use in generated result SQL; defaults to TARGET_OSS_BUCKET")
+	batchID := flag.String("batch-id", "", "optional migration batch id for generated result SQL")
 	timeout := flag.Duration("timeout", 5*time.Minute, "migration command timeout")
 	flag.Parse()
 
@@ -58,6 +61,19 @@ func main() {
 	fmt.Fprintf(os.Stderr, "asset migration summary: total=%d would_copy=%d copied=%d skipped=%d errors=%d\n", summary.Total, summary.WouldCopy, summary.Copied, summary.Skipped, summary.Errors)
 	if summary.Errors > 0 {
 		os.Exit(1)
+	}
+	if strings.TrimSpace(*resultSQLPath) != "" {
+		bucket := strings.TrimSpace(*ossBucket)
+		if bucket == "" {
+			bucket = strings.TrimSpace(os.Getenv("TARGET_OSS_BUCKET"))
+		}
+		if bucket == "" {
+			log.Fatal("--result-sql requires --oss-bucket or TARGET_OSS_BUCKET")
+		}
+		if err := writeResultSQLFile(*resultSQLPath, results, bucket, *batchID); err != nil {
+			log.Fatalf("write result sql: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "wrote result SQL to %s\n", *resultSQLPath)
 	}
 }
 
@@ -138,4 +154,16 @@ func writeResults(writer io.Writer, results []assetmigration.RowResult) error {
 		}
 	}
 	return csvWriter.Error()
+}
+
+func writeResultSQLFile(path string, results []assetmigration.RowResult, bucket string, batchID string) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return assetmigration.WriteResultSQL(file, results, assetmigration.SQLUpdateOptions{
+		Bucket:  bucket,
+		BatchID: batchID,
+	})
 }

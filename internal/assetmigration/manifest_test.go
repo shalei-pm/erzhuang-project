@@ -1,10 +1,12 @@
 package assetmigration
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReadManifestRequiresCoreColumns(t *testing.T) {
@@ -51,6 +53,43 @@ func TestCopyManifestApplyCopiesSourceToTarget(t *testing.T) {
 	}
 	if target.objects["uploads/a.pdf"] != "pdf-body" || target.contentTypes["uploads/a.pdf"] != "application/pdf" {
 		t.Fatalf("target not copied: %#v %#v", target.objects, target.contentTypes)
+	}
+}
+
+func TestWriteResultSQLOnlyMarksCopiedRows(t *testing.T) {
+	results := []RowResult{
+		{
+			Action: "copied",
+			Row: ManifestRow{
+				LogicalKey:   "channel-snapshots/a.jpg",
+				TargetOSSKey: "channel-snapshots/a.jpg",
+			},
+		},
+		{
+			Action: "skipped",
+			Row: ManifestRow{
+				LogicalKey:   "channel-snapshots/b.jpg",
+				TargetOSSKey: "channel-snapshots/b.jpg",
+			},
+		},
+	}
+	var buffer bytes.Buffer
+	err := WriteResultSQL(&buffer, results, SQLUpdateOptions{
+		Bucket:  "bucket-1",
+		BatchID: "batch-1",
+		Now:     func() time.Time { return time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatalf("write sql: %v", err)
+	}
+	sql := buffer.String()
+	for _, want := range []string{"storage_provider = 'oss'", "bucket = 'bucket-1'", "migration_batch_id = 'batch-1'", "sha2('channel-snapshots/a.jpg', 256)"} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("expected SQL to contain %q:\n%s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "channel-snapshots/b.jpg") {
+		t.Fatalf("skipped row should not be marked migrated:\n%s", sql)
 	}
 }
 

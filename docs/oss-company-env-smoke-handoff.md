@@ -99,10 +99,17 @@ go build -o /tmp/asset-migrate-check ./cmd/asset-migrate
   --manifest /tmp/oss-inventory-10030.csv \
   --external-org-id 10030 \
   --max-rows 20 \
-  --apply
+  --apply \
+  --result-sql /tmp/oss-inventory-10030-result.sql \
+  --batch-id stage-a-10030-oss-smoke
 ```
 
-样本 apply 通过后，主会话再补数据库状态回写流程：`tb_asset_objects.storage_provider='oss'`、`bucket`、`storage_key`、`storage_key_hash`、`migration_status='migrated'`。
+样本 apply 通过后，回传：
+
+- `asset-migrate` 输出 CSV。
+- `/tmp/oss-inventory-10030-result.sql`。
+
+主会话审查 `result.sql` 后，再决定是否执行数据库状态回写。该 SQL 只会对 `action=copied` 的对象生成 `migration_status='migrated'` 更新，不会把 skipped/failed 行标记成功。
 
 ## 何时进入数据迁移
 

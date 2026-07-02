@@ -113,6 +113,8 @@ TARGET_OSS_ACCESS_KEY_SECRET=<from secret>
 
 真实复制样本门店时，先限制 `--external-org-id 10030` 和较小的 `--max-rows`。确认输出 CSV 中 `action=copied` 且没有 `failed` 后，再扩大范围。该工具当前只负责对象复制，不直接回写 MySQL；数据库状态回写在样本复制验证通过后再加。
 
+样本 apply 时可以附加 `--result-sql /tmp/oss-inventory-10030-result.sql`，生成待审查的数据库状态回写 SQL。该 SQL 只包含 `action=copied` 行，主会话审查后再执行，不由迁移工具自动写库。
+
 ## 验收口径
 
 样本门店 `10030` 通过条件：
