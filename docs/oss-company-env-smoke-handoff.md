@@ -28,7 +28,56 @@ OSS_ACCESS_KEY_ID=<from secret>
 OSS_ACCESS_KEY_SECRET=<from secret>
 ```
 
-## Smoke 命令
+如果通过 GitLab CI/CD Variables 注入到公司 K8s 运行时，当前公司链路通常需要使用 `K8S_SECRET_` 前缀：
+
+```text
+K8S_SECRET_ASSET_STORE=oss
+K8S_SECRET_OSS_BUCKET=sy-camera-erzhuang-project
+K8S_SECRET_OSS_ENDPOINT=sy-camera-erzhuang-project.oss-cn-beijing-internal.aliyuncs.com
+K8S_SECRET_OSS_ACCESS_KEY_ID=<from secret>
+K8S_SECRET_OSS_ACCESS_KEY_SECRET=<from secret>
+K8S_SECRET_OPS_ENABLED=true
+```
+
+## Smoke 方式 A：应用内受控入口
+
+推荐优先使用该方式，因为请求会在公司已部署应用 Pod 内执行，验证的是实际运行环境到 OSS 内网 endpoint 的访问能力。
+
+入口：
+
+```text
+POST /api/admin/ops/oss-smoke
+```
+
+保护规则：
+
+- `OPS_ENABLED=true` 时才开放；未开启时返回 404。
+- 需要管理员权限，即 `user:manage`。
+- 只写入、读取并删除一个 `smoke-tests/*.txt` 文本对象。
+- 返回结果会脱敏，不返回 AK/SK、Authorization、Signature、StringToSign。
+- 不迁移业务图片，不写数据库。
+
+触发方式：
+
+1. 发布包含该入口的版本到公司环境。
+2. 在 GitLab Variables 配置上面的 `K8S_SECRET_*` 变量。
+3. 用管理员账号登录项目。
+4. 通过已登录浏览器上下文或受控接口客户端发起 `POST` 请求。
+
+成功返回应类似：
+
+```json
+{
+  "ok": true,
+  "key": "smoke-tests/...",
+  "bytes": 48,
+  "content_type": "text/plain; charset=utf-8"
+}
+```
+
+失败时请回传接口返回 JSON、当前使用 endpoint 类型、变量是否已注入运行环境。不要回传 AK/SK。
+
+## Smoke 方式 B：容器内命令
 
 在公司环境构建或进入已构建容器后执行：
 

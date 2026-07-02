@@ -11,6 +11,7 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
+	"github.com/shalei-pm/erzhuang-project/internal/osssmoke"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
 
@@ -44,8 +45,9 @@ type Store interface {
 }
 
 type Handler struct {
-	store Store
-	auth  AuthConfig
+	store          Store
+	auth           AuthConfig
+	ossSmokeRunner ossSmokeRunner
 }
 
 func NewHandler() http.Handler {
@@ -69,7 +71,7 @@ func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designpl
 }
 
 func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	handler := &Handler{store: store, auth: AuthConfigFromEnv()}
+	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
@@ -82,6 +84,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("PUT /api/users/{id}", handler.updateUserHandler)
 	mux.HandleFunc("GET /api/ai-settings", handler.aiSettingsHandler)
 	mux.HandleFunc("POST /api/ai-settings/toggle", handler.requirePermissionHandler(PermissionUserManage, handler.toggleAISettingsHandler))
+	mux.HandleFunc("POST /api/admin/ops/oss-smoke", handler.ossSmokeHandler)
 	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
 	storespace.RegisterRoutesWithWriteGuard(mux, storeSpaceService, handler.storeWriteGuard)
 	if h5MonitorService != nil {
@@ -90,6 +93,9 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	registerFrontendRoutes(mux)
 	return withBasePathAPIPrefixes(mux)
 }
+
+type ossSmokeResult = osssmoke.Result
+type ossSmokeRunner func(ctx context.Context) (*ossSmokeResult, error)
 
 func (h *Handler) storeWriteGuard(next http.HandlerFunc) http.HandlerFunc {
 	return h.requirePermissionHandler(PermissionStoreWrite, next)

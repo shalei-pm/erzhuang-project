@@ -641,6 +641,115 @@ func TestAISettingsToggleRequiresAdminPermission(t *testing.T) {
 	}
 }
 
+func TestOSSSmokeEndpointHiddenUnlessOpsEnabled(t *testing.T) {
+	called := false
+	restore := setOSSSmokeRunnerForTest(func(ctx context.Context) (*ossSmokeResult, error) {
+		called = true
+		return &ossSmokeResult{Key: "smoke-tests/test.txt", ContentType: "text/plain", Bytes: 12}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/oss-smoke", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusNotFound, recorder.Code, recorder.Body.String())
+	}
+	if called {
+		t.Fatal("expected disabled ops endpoint not to call smoke runner")
+	}
+}
+
+func TestOSSSmokeEndpointRunsWhenOpsEnabledForAdmin(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setOSSSmokeRunnerForTest(func(ctx context.Context) (*ossSmokeResult, error) {
+		return &ossSmokeResult{Key: "smoke-tests/test.txt", ContentType: "text/plain; charset=utf-8", Bytes: 24}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/oss-smoke", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var response map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response["ok"] != true || response["key"] != "smoke-tests/test.txt" || response["bytes"] != float64(24) {
+		t.Fatalf("unexpected smoke response: %#v", response)
+	}
+}
+
+func TestOSSSmokeEndpointRequiresAdminPermission(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("OPS_ENABLED", "true")
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+	restore := setOSSSmokeRunnerForTest(func(ctx context.Context) (*ossSmokeResult, error) {
+		t.Fatal("viewer should not call smoke runner")
+		return nil, nil
+	})
+	defer restore()
+	store := NewMemoryStore()
+	if err := store.setAuthUserForTest(AuthUserRecord{
+		ID:      99,
+		Email:   "viewer@example.com",
+		Role:    RoleViewer,
+		Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/oss-smoke", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display": "只读用户",
+			"mail":    "viewer@example.com",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandlerWithStore(store).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusForbidden, recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestOSSSmokeEndpointSanitizesFailureDetails(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setOSSSmokeRunnerForTest(func(ctx context.Context) (*ossSmokeResult, error) {
+		return nil, errors.New("Authorization=abc OSS_ACCESS_KEY_SECRET=very-secret Signature=bad StringToSign=hidden endpoint failed")
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/oss-smoke", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadGateway, recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, sensitive := range []string{"Authorization", "OSS_ACCESS_KEY_SECRET", "very-secret", "Signature", "StringToSign"} {
+		if strings.Contains(body, sensitive) {
+			t.Fatalf("expected response to redact %q, got %s", sensitive, body)
+		}
+	}
+	if !strings.Contains(body, "oss smoke failed") {
+		t.Fatalf("expected generic smoke failure body, got %s", body)
+	}
+}
+
 func TestAuthMeRejectsUnprovisionedSSOUser(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("SSO_ENABLED", "true")
@@ -888,4 +997,12 @@ func authUsersContain(users []AuthUserRecord, email string, role string) bool {
 		}
 	}
 	return false
+}
+
+func setOSSSmokeRunnerForTest(runner ossSmokeRunner) func() {
+	previous := currentOSSSmokeRunner
+	currentOSSSmokeRunner = runner
+	return func() {
+		currentOSSSmokeRunner = previous
+	}
 }
