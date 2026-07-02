@@ -4136,3 +4136,23 @@ git pull --ff-only
   - 本地自动截图验收受限：Playwright 自带 Chromium 未安装，本机 Chrome headless 启动被 macOS 权限拦截；本次以组件测试、生产构建和静态 CSS 约束完成发布前验收。
 - 备注：
   - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。
+
+## 2026-07-02 H5 门店切换改为标题下拉 2.25.1 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`810dccd feat: make h5 store switcher dropdown`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`，从 `62b960f` 更新到 `810dccd`。
+  - GitLab remote 已从 `62b960f` 更新到 `810dccd`。
+  - GitLab push 返回 `new_sha=810dccd59b23b118682815d48fe7cfa6192f7a06`，说明自动发布分支已更新。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 发布前验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+- 待线上验证：
+  - 公司自动发布通常约 5 分钟完成。
+  - 浏览器登录态下进入 H5 Monitor，确认机构名称点击后以下拉方式切换门店，移动端无横向溢出。
+  - 页面底部应展示 `2.25.1 (container)` 或 `2.25.1 (<commit>)`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
