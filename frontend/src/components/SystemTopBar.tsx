@@ -24,15 +24,17 @@ export function SystemTopBar({ backAction, auth, loggingOut = false, onLogout, r
         ) : null}
       </div>
       <div className="system-topbar-right">
-        {rightExtra}
         {showLogout ? (
           <div className="auth-user-chip" aria-label="当前登录用户">
             <span className="auth-user-name">{displayName}</span>
+            {rightExtra}
             <button type="button" className="plain-button auth-logout-button" onClick={() => void onLogout?.()} disabled={loggingOut}>
               {loggingOut ? "退出中..." : "退出登录"}
             </button>
           </div>
-        ) : null}
+        ) : (
+          rightExtra
+        )}
       </div>
     </header>
   );

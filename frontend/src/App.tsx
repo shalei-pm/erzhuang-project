@@ -108,6 +108,11 @@ function AdminApp() {
   const showLogoutEntry = shouldShowLogoutEntry(auth);
   const canManageSystemUsers = canManageUsers(auth);
   const canEditStoreResources = canEditStores(auth);
+  const systemSettingsAction = canManageSystemUsers ? (
+    <button type="button" className="topbar-settings-button" onClick={() => setSettingsOpen(true)}>
+      系统设置
+    </button>
+  ) : null;
 
   useEffect(() => {
     void storeSpaceApi
@@ -433,6 +438,7 @@ function AdminApp() {
           auth={showLogoutEntry ? auth : null}
           loggingOut={loggingOut}
           onLogout={logout}
+          rightExtra={systemSettingsAction}
         />
         {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
         <StoreDetail
@@ -503,18 +509,13 @@ function AdminApp() {
 
   return (
     <main className="app-shell">
-      <SystemTopBar auth={showLogoutEntry ? auth : null} loggingOut={loggingOut} onLogout={logout} />
+      <SystemTopBar auth={showLogoutEntry ? auth : null} loggingOut={loggingOut} onLogout={logout} rightExtra={systemSettingsAction} />
       <header className="page-header">
         <div>
           <p className="eyebrow">空间资源管理</p>
           <h1>门店空间资源管理系统</h1>
         </div>
         <div className="page-header-actions">
-          {canManageSystemUsers ? (
-            <button className="secondary-action-button" onClick={() => setSettingsOpen(true)}>
-              系统设置
-            </button>
-          ) : null}
           {canEditStoreResources ? (
             <button className="primary-button" onClick={() => setCreateOpen(true)}>
               <span aria-hidden="true">+</span>

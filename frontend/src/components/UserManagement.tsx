@@ -195,11 +195,11 @@ export function UserManagement({ onToast }: UserManagementProps) {
                 />
               </label>
               <label>
-                <span>用户名</span>
+                <span>用户名（可选）</span>
                 <input value={form.username} onChange={(event) => setForm((value) => ({ ...value, username: event.target.value }))} placeholder="可选" />
               </label>
               <label>
-                <span>显示名称</span>
+                <span>显示名称（可选）</span>
                 <input value={form.displayName} onChange={(event) => setForm((value) => ({ ...value, displayName: event.target.value }))} placeholder="可选" />
               </label>
               <label>
@@ -210,9 +210,20 @@ export function UserManagement({ onToast }: UserManagementProps) {
                   <option value="viewer">普通查看</option>
                 </select>
               </label>
-              <label className="user-enabled-field">
-                <input type="checkbox" checked={form.enabled} onChange={(event) => setForm((value) => ({ ...value, enabled: event.target.checked }))} />
-                <span>允许登录访问</span>
+              <label className="user-switch-field">
+                <span className="user-switch-copy">
+                  <strong>登录状态</strong>
+                  <em>{form.enabled ? "启用，允许通过 SSO 访问" : "停用，登录后提示暂无访问权限"}</em>
+                </span>
+                <button
+                  type="button"
+                  className={`switch-control ${form.enabled ? "is-on" : ""}`}
+                  role="switch"
+                  aria-checked={form.enabled}
+                  onClick={() => setForm((value) => ({ ...value, enabled: !value.enabled }))}
+                >
+                  <span>{form.enabled ? "启用" : "停用"}</span>
+                </button>
               </label>
             </div>
             <div className="modal-actions">

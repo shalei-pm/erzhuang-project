@@ -50,4 +50,28 @@ describe("SystemTopBar", () => {
     expect(markup).toContain("退出中...");
     expect(markup).not.toContain("fallback@example.com");
   });
+
+  it("places account actions between display name and logout", () => {
+    const auth: AuthState = {
+      enabled: true,
+      authenticated: true,
+      user: {
+        email: "admin@example.com",
+        username: "admin",
+        display_name: "管理员",
+        role: "admin",
+      },
+    };
+
+    const markup = renderToStaticMarkup(
+      createElement(SystemTopBar, {
+        auth,
+        onLogout: () => undefined,
+        rightExtra: createElement("button", null, "系统设置"),
+      }),
+    );
+
+    expect(markup.indexOf("管理员")).toBeLessThan(markup.indexOf("系统设置"));
+    expect(markup.indexOf("系统设置")).toBeLessThan(markup.indexOf("退出登录"));
+  });
 });

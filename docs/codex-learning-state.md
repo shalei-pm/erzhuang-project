@@ -4237,3 +4237,20 @@ git pull --ff-only
 - 备注：
   - 本次未发布韩国服务器。
   - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
+
+## 2026-07-02 用户管理弹窗开关控件 2.26.1 开发记录
+
+- 背景：
+  - 用户确认“允许登录访问”更适合用启用/停用开关表达。
+  - 用户名应保持非必填，只有企业邮箱必填。
+- 实现：
+  - 用户管理添加/编辑弹窗中，将 checkbox 替换为 switch 样式控件。
+  - 表单标签明确为“用户名（可选）”“显示名称（可选）”。
+  - 后端既有逻辑保持不变：新增用户仅企业邮箱必填；用户名为空时按邮箱前缀兜底。
+- 验证：
+  - `cd frontend && npm test` 通过，3 files / 31 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+- 备注：
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次业务变更。
