@@ -2,6 +2,9 @@ package assets
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net/http"
@@ -198,6 +201,185 @@ func TestSupabaseStorageStoreCreatesBucketAndRetriesSaveWhenMissing(t *testing.T
 	}
 }
 
+func TestOSSStoreSaveOpenDeletePrefix(t *testing.T) {
+	var requests []string
+	var savedContentType string
+	var savedBody string
+	var listAuthorization string
+	var listDate string
+
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		if r.Header.Get("Authorization") == "" {
+			t.Fatalf("missing Authorization header")
+		}
+		if r.Header.Get("Date") == "" {
+			t.Fatalf("missing Date header")
+		}
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/uploads/tmp_1/preview.png":
+			savedContentType = r.Header.Get("Content-Type")
+			body, _ := io.ReadAll(r.Body)
+			savedBody = string(body)
+			return textResponse(r, http.StatusOK, "", "text/plain"), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/uploads/tmp_1/preview.png":
+			return textResponse(r, http.StatusOK, "oss-png", "image/png"), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/" && r.URL.Query().Get("list-type") == "2":
+			listAuthorization = r.Header.Get("Authorization")
+			listDate = r.Header.Get("Date")
+			return textResponse(r, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult><Contents><Key>uploads/tmp_1/preview.png</Key></Contents></ListBucketResult>`, "application/xml"), nil
+		case r.Method == http.MethodDelete && r.URL.Path == "/uploads/tmp_1/preview.png":
+			return textResponse(r, http.StatusNoContent, "", "text/plain"), nil
+		default:
+			return textResponse(r, http.StatusNotFound, "not found", "text/plain"), nil
+		}
+	})}
+
+	store := NewOSSStore(OSSConfig{
+		Bucket:          "sy-camera-erzhuang-project",
+		Endpoint:        "sy-camera-erzhuang-project.oss-cn-beijing-internal.aliyuncs.com",
+		AccessKeyID:     "test-id",
+		AccessKeySecret: "test-secret",
+		HTTPClient:      client,
+	})
+
+	if err := store.Save(context.Background(), "uploads/tmp_1/preview.png", strings.NewReader("png-data"), "image/png"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if savedContentType != "image/png" || savedBody != "png-data" {
+		t.Fatalf("unexpected save contentType=%q body=%q", savedContentType, savedBody)
+	}
+
+	reader, contentType, err := store.Open(context.Background(), "uploads/tmp_1/preview.png")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	body, _ := io.ReadAll(reader)
+	_ = reader.Close()
+	if contentType != "image/png" || string(body) != "oss-png" {
+		t.Fatalf("unexpected open contentType=%q body=%q", contentType, string(body))
+	}
+
+	if err := store.DeletePrefix(context.Background(), "uploads/tmp_1/"); err != nil {
+		t.Fatalf("delete prefix: %v", err)
+	}
+
+	if strings.Join(requests, "\n") != strings.Join([]string{
+		"PUT /uploads/tmp_1/preview.png",
+		"GET /uploads/tmp_1/preview.png",
+		"GET /",
+		"DELETE /uploads/tmp_1/preview.png",
+	}, "\n") {
+		t.Fatalf("unexpected requests: %#v", requests)
+	}
+	expectedListSignature := ossTestSignature("test-secret", "GET\n\n\n"+listDate+"\n/sy-camera-erzhuang-project/?list-type=2&prefix=uploads/tmp_1/")
+	if listAuthorization != "OSS test-id:"+expectedListSignature {
+		t.Fatalf("unexpected list authorization: got %q want %q", listAuthorization, "OSS test-id:"+expectedListSignature)
+	}
+}
+
+func TestOSSStoreOpenMissingMapsToErrNotFound(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return textResponse(r, http.StatusNotFound, "not found", "text/plain"), nil
+	})}
+	store := NewOSSStore(OSSConfig{
+		Bucket:          "bucket",
+		Endpoint:        "bucket.oss-cn-beijing-internal.aliyuncs.com",
+		AccessKeyID:     "test-id",
+		AccessKeySecret: "test-secret",
+		HTTPClient:      client,
+	})
+
+	_, _, err := store.Open(context.Background(), "missing.jpg")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestOSSStoreDeletePrefixDoesNotDeleteSiblingPrefix(t *testing.T) {
+	var deleted []string
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2":
+			if r.URL.Query().Get("prefix") != "uploads/tmp_1/" {
+				t.Fatalf("expected exact directory prefix, got %q", r.URL.Query().Get("prefix"))
+			}
+			return textResponse(r, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult><Contents><Key>uploads/tmp_1/preview.png</Key></Contents><Contents><Key>uploads/tmp_10/preview.png</Key></Contents></ListBucketResult>`, "application/xml"), nil
+		case r.Method == http.MethodDelete:
+			deleted = append(deleted, strings.TrimPrefix(r.URL.Path, "/"))
+			return textResponse(r, http.StatusNoContent, "", "text/plain"), nil
+		default:
+			return textResponse(r, http.StatusNotFound, "not found", "text/plain"), nil
+		}
+	})}
+	store := NewOSSStore(OSSConfig{
+		Bucket:          "bucket",
+		Endpoint:        "bucket.oss-cn-beijing-internal.aliyuncs.com",
+		AccessKeyID:     "test-id",
+		AccessKeySecret: "test-secret",
+		HTTPClient:      client,
+	})
+
+	if err := store.DeletePrefix(context.Background(), "uploads/tmp_1/"); err != nil {
+		t.Fatalf("delete prefix: %v", err)
+	}
+	if strings.Join(deleted, ",") != "uploads/tmp_1/preview.png" {
+		t.Fatalf("unexpected deleted keys: %#v", deleted)
+	}
+}
+
+func TestOSSStoreDeletePrefixWithoutTrailingSlashDeletesOnlyExactKey(t *testing.T) {
+	var deleted []string
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2":
+			if r.URL.Query().Get("prefix") != "uploads/tmp_1" {
+				t.Fatalf("expected exact key prefix, got %q", r.URL.Query().Get("prefix"))
+			}
+			return textResponse(r, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult><Contents><Key>uploads/tmp_1</Key></Contents><Contents><Key>uploads/tmp_10</Key></Contents><Contents><Key>uploads/tmp_1/preview.png</Key></Contents></ListBucketResult>`, "application/xml"), nil
+		case r.Method == http.MethodDelete:
+			deleted = append(deleted, strings.TrimPrefix(r.URL.Path, "/"))
+			return textResponse(r, http.StatusNoContent, "", "text/plain"), nil
+		default:
+			return textResponse(r, http.StatusNotFound, "not found", "text/plain"), nil
+		}
+	})}
+	store := NewOSSStore(OSSConfig{
+		Bucket:          "bucket",
+		Endpoint:        "bucket.oss-cn-beijing-internal.aliyuncs.com",
+		AccessKeyID:     "test-id",
+		AccessKeySecret: "test-secret",
+		HTTPClient:      client,
+	})
+
+	if err := store.DeletePrefix(context.Background(), "uploads/tmp_1"); err != nil {
+		t.Fatalf("delete prefix: %v", err)
+	}
+	if strings.Join(deleted, ",") != "uploads/tmp_1" {
+		t.Fatalf("unexpected deleted keys: %#v", deleted)
+	}
+}
+
+func TestOSSHTTPErrorRedactsSensitiveDiagnostics(t *testing.T) {
+	response := textResponse(nil, http.StatusForbidden, `<Error><Code>SignatureDoesNotMatch</Code><Message>sig failed</Message><AccessKeyId>AKIA-LEAK</AccessKeyId><SignatureProvided>secret-signature</SignatureProvided><StringToSign>GET
+secret
+value</StringToSign></Error>`, "application/xml")
+
+	err := ossHTTPError("open asset", response)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	message := err.Error()
+	for _, secret := range []string{"AKIA-LEAK", "secret-signature", "StringToSign", "SignatureProvided", "GET secret value"} {
+		if strings.Contains(message, secret) {
+			t.Fatalf("error leaked sensitive diagnostic %q in %q", secret, message)
+		}
+	}
+	if !strings.Contains(message, "SignatureDoesNotMatch") {
+		t.Fatalf("expected safe oss code in error, got %q", message)
+	}
+}
+
 func TestNewStoreFromEnvRequiresSupabaseConfig(t *testing.T) {
 	t.Setenv("ASSET_STORE", "supabase")
 	t.Setenv("SUPABASE_URL", "")
@@ -208,6 +390,12 @@ func TestNewStoreFromEnvRequiresSupabaseConfig(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected missing supabase config error")
 	}
+}
+
+func ossTestSignature(secret string, value string) string {
+	mac := hmac.New(sha1.New, []byte(secret))
+	_, _ = mac.Write([]byte(value))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func TestNewStoreFromEnvRequiresOSSConfig(t *testing.T) {
