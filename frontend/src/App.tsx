@@ -19,6 +19,8 @@ import {
   authLoginPath,
   authLogoutPath,
   authUserDisplayName,
+  shouldBlockBusinessData,
+  shouldShowForbiddenAccess,
   shouldShowLoginWelcome,
   shouldShowLogoutEntry,
   shouldUseGatewayLogout,
@@ -110,6 +112,10 @@ function AdminApp() {
           setAuth({ enabled: true, authenticated: false, login_url: "/erzhuang-project/_/auth/callback" });
           return;
         }
+        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 403) {
+          setAuth({ enabled: true, authenticated: false, forbidden: true });
+          return;
+        }
         setToast(errorMessage(error, "登录状态加载失败。"));
         setAuth({ enabled: false, authenticated: true });
       })
@@ -117,7 +123,7 @@ function AdminApp() {
   }, []);
 
   useEffect(() => {
-    if (authLoading || shouldShowLoginWelcome(auth)) return;
+    if (authLoading || shouldBlockBusinessData(auth)) return;
     void loadStores(query, cityFilter, page);
   }, [page, query, cityFilter, authLoading, auth]);
 
@@ -132,7 +138,7 @@ function AdminApp() {
   }, [auth]);
 
   useEffect(() => {
-    if (authLoading || shouldShowLoginWelcome(auth)) return;
+    if (authLoading || shouldBlockBusinessData(auth)) return;
     void storeSpaceApi
       .listEzvizAccounts()
       .then(setAccounts)
@@ -140,7 +146,7 @@ function AdminApp() {
   }, [authLoading, auth]);
 
   useEffect(() => {
-    if (authLoading || shouldShowLoginWelcome(auth)) return;
+    if (authLoading || shouldBlockBusinessData(auth)) return;
     void loadAISettings();
   }, [authLoading, auth]);
 
@@ -458,6 +464,10 @@ function AdminApp() {
     return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
   }
 
+  if (shouldShowForbiddenAccess(auth)) {
+    return <ForbiddenAccess appVersion={APP_VERSION} />;
+  }
+
   return (
     <main className="app-shell">
       <header className="page-header">
@@ -575,6 +585,25 @@ function LoginWelcome({ auth, appVersion }: { auth: AuthState | null; appVersion
           使用公司 SSO 登录
         </button>
         <p className="auth-note">登录由公司网关统一处理；权限范围由项目用户表控制。</p>
+      </section>
+      <footer className="app-version" aria-label="当前版本">
+        版本 {appVersion}
+      </footer>
+    </main>
+  );
+}
+
+function ForbiddenAccess({ appVersion }: { appVersion: string }) {
+  return (
+    <main className="auth-page">
+      <section className="auth-panel" aria-label="暂无访问权限">
+        <p className="eyebrow">访问受限</p>
+        <h1>暂无访问权限</h1>
+        <p className="auth-copy">当前公司账号尚未被授权访问二壮系统，请联系项目负责人开通权限，或更换账号登录。</p>
+        <button className="primary-button auth-login-button" onClick={() => window.location.assign(authLogoutPath())}>
+          重新登录
+        </button>
+        <p className="auth-note">点击后会先退出公司 SSO，再通过项目首页重新唤起登录。</p>
       </section>
       <footer className="app-version" aria-label="当前版本">
         版本 {appVersion}

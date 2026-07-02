@@ -13,13 +13,22 @@ export type AuthUser = {
 export type AuthState = {
   enabled: boolean;
   authenticated: boolean;
+  forbidden?: boolean;
   login_url?: string;
   user?: AuthUser;
   permissions?: string[];
 };
 
-export function shouldShowLoginWelcome(auth: Pick<AuthState, "enabled" | "authenticated"> | null) {
-  return Boolean(auth?.enabled && !auth.authenticated);
+export function shouldShowLoginWelcome(auth: Pick<AuthState, "enabled" | "authenticated" | "forbidden"> | null) {
+  return Boolean(auth?.enabled && !auth.authenticated && !auth.forbidden);
+}
+
+export function shouldShowForbiddenAccess(auth: Pick<AuthState, "forbidden"> | null) {
+  return Boolean(auth?.forbidden);
+}
+
+export function shouldBlockBusinessData(auth: Pick<AuthState, "enabled" | "authenticated" | "forbidden"> | null) {
+  return shouldShowLoginWelcome(auth) || shouldShowForbiddenAccess(auth);
 }
 
 export function authLoginPath(loginUrl?: string) {

@@ -19,6 +19,8 @@ import {
   authLoginPath,
   authUserDisplayName,
   authLogoutPath,
+  shouldBlockBusinessData,
+  shouldShowForbiddenAccess,
   shouldShowLoginWelcome,
   shouldShowLogoutEntry,
   shouldUseGatewayLogout,
@@ -78,6 +80,14 @@ describe("auth helpers", () => {
   it("shows the sso welcome page only when sso is enabled and unauthenticated", () => {
     expect(shouldShowLoginWelcome({ enabled: true, authenticated: false })).toBe(true);
     expect(shouldShowLoginWelcome({ enabled: true, authenticated: true })).toBe(false);
+  });
+
+  it("blocks business data and shows a forbidden access state for unauthorized sso users", () => {
+    const forbiddenAuth = { enabled: true, authenticated: false, forbidden: true };
+    expect(shouldShowForbiddenAccess(forbiddenAuth)).toBe(true);
+    expect(shouldBlockBusinessData(forbiddenAuth)).toBe(true);
+    expect(shouldShowLoginWelcome(forbiddenAuth)).toBe(false);
+    expect(shouldBlockBusinessData({ enabled: true, authenticated: true })).toBe(false);
   });
 
   it("builds the login path with the project base by default", () => {
