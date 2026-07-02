@@ -4095,3 +4095,25 @@ git pull --ff-only
   - 本次仅完成开发准备，尚未发布公司环境。
   - `internal/storespace.H5MonitorRepository.ListMonitorStores` 的 SQL/runtime credentials 过滤尚无 repository-level SQL 测试，当前以 service/handler 边界测试和编译门禁覆盖；后续如补数据库测试基建，应补充这一层。
   - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。
+
+## 2026-07-02 系统顶栏与 H5 门店切换 2.25.0 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`35a70ca feat: add h5 store switcher topbar`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`，从 `8ea9569` 更新到 `35a70ca`。
+  - GitLab remote 已从 `8ea9569` 更新到 `35a70ca`。
+  - GitLab push 返回 `new_sha=35a70cab85c82cebd28786195e38e24b11f1a085`，说明自动发布分支已更新。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 发布前验证：
+  - `cd frontend && npm test` 通过，2 files / 29 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/h5monitor` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+- 线上验证：
+  - `curl -I -L https://lite.sy.soyoung.com/erzhuang-project/health` 返回 HTTP 200，server 为 `APISIX/3.6.0`。
+  - `curl -I -L https://lite.sy.soyoung.com/erzhuang-project/` 返回 HTTP 200，server 为 `APISIX/3.6.0`。
+  - 无浏览器 SSO 登录态时，命令行读取页面内容为 APISIX `302 Found` 页面，无法直接确认页脚版本；需用户在浏览器登录态下确认页面底部 `2.25.0 (container)` 或 `2.25.0 (<commit>)`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
