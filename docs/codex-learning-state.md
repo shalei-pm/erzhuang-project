@@ -4189,3 +4189,30 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
 - 备注：
   - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。
+
+## 2026-07-02 用户管理与全局角色权限开发记录
+
+- 背景：
+  - 用户确认第一版后台权限采用全局角色，不做机构范围授权。
+  - `admin`：全量查看/编辑/用户管理；初始化 `shalei@soyoung.com`、`maming@soyoung.com`。
+  - `editor`：全量查看/门店列表/机构详情编辑；初始化 `changwenxia@soyoung.com`、`wangxiaofan@soyoung.com`。
+  - `viewer`：只读预留，暂不初始化具体用户。
+- 实现：
+  - 后端保留 `tb_users.role` 单字段，增加 `admin/editor/viewer` 权限 helper。
+  - 增加用户管理 API：`GET /api/users`、`POST /api/users`、`PUT /api/users/{id}`，仅 `admin` 可用。
+  - 后端写接口增加权限守卫：门店、设计图、录像机、通道、识别、确认等写操作需要 `store:write`；AI 模型切换按系统设置收紧为 `user:manage`。
+  - 前端新增“系统设置 / 用户管理”页面，管理员可新增、编辑、启停用户和切换角色。
+  - 前端按角色隐藏主要编辑入口：viewer 只读；editor 可编辑门店/设计图/通道但看不到用户管理和 AI 模型切换。
+- 验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+  - `go test ./internal/app` 运行测试执行阶段仍被本机已知 `dyld missing LC_UUID` 问题阻断，编译级门禁通过。
+  - 本地 Vite dev server 可启动；Playwright 截图验收受限于本机 Playwright Chromium 未安装，本轮以构建、测试、静态 diff review 和 UI 标准检查收口。
+- DBA 协同：
+  - 已重新唤醒 DBA 专项，新增 `docs/mysql-stage-a-readiness-report.md`。
+  - DBA 结论：Stage A 空库首次试跑静态复核无阻断；MySQL governance RBAC 仅作预演，不代表第一版用户管理要切多表 RBAC。
+- 备注：
+  - 本轮业务代码已形成本地提交，但尚未发布公司环境。
+  - DBA/MySQL 迁移 WIP 文件仍保持未纳入业务提交。
