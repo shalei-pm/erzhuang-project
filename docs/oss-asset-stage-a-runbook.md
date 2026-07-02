@@ -1,0 +1,124 @@
+# OSS 资产迁移 Stage A 执行手册
+
+最后更新：2026-07-02
+
+## 目标
+
+把二壮项目里的设计图文件、设计图预览图、通道截图从历史存储迁移到公司 OSS，同时保持前端和接口路径稳定。Stage A 只做测试库和样本门店验证，不发布到公司线上，不改正式数据。
+
+样本门店先使用 `external_org_id = 10030`。
+
+## 分工
+
+- 主会话：负责 OSS provider 代码、smoke 工具、发布决策和最终验收。
+- DBA 专项：负责 MySQL DDL、迁移清单 SQL、校验 SQL、样本 dry-run 执行记录。
+- 运维/安全：负责 K8s Secret、OSS 内网访问、正式环境发布窗口。
+
+## 禁止事项
+
+- 不把 OSS AK/SK 写入仓库、SQL、文档、日志、Dockerfile、前端变量或命令历史。
+- 不直接把 OSS bucket 开公网读。
+- 不在未完成样本验证前切换 `ASSET_STORE=oss`。
+- 不在未确认回滚方案前删除历史 Supabase/local 对象。
+
+## 当前交付物
+
+- `internal/assets/oss.go`：OSS asset store provider。
+- `cmd/oss-smoke/main.go`：OSS 连通性 smoke 工具，默认 dry-run。
+- `db/oss_asset_schema_patch_tb.sql`：`tb_asset_objects` 迁移追踪字段补丁。
+- `db/oss_asset_inventory_sql_tb.sql`：历史对象引用清单。
+- `db/oss_asset_validation_sql_tb.sql`：迁移后校验 SQL。
+- `docs/oss-dba-migration-plan.md`：DBA 方案说明。
+
+## 执行顺序
+
+1. 确认测试库结构已完成业务表和治理表初始化：
+   - `db/mysql_schema_tb.sql`
+   - `db/mysql_business_schema_patch_tb.sql`
+   - `db/mysql_governance_schema_tb.sql`
+2. 执行前检查 `tb_asset_objects` 当前字段和索引：
+   - 使用 `db/oss_asset_schema_patch_tb.sql` 文件头里的 `information_schema` 查询。
+3. 执行 `db/oss_asset_schema_patch_tb.sql`。
+   - 该文件使用动态 SQL 和 `information_schema` 检查，适合测试库重复核验。
+4. 执行迁移清单 dry-run：
+   - `db/oss_asset_inventory_sql_tb.sql`
+   - 先看样本门店 `10030` 的结果。
+5. 用迁移程序或临时受控脚本复制样本门店对象到 OSS。
+   - 第一阶段 `target_oss_key = logical_key`。
+   - 成功后 upsert `tb_asset_objects`：
+     - `storage_provider = 'oss'`
+     - `bucket = 'sy-camera-erzhuang-project'`
+     - `storage_key = logical_key`
+     - `storage_key_hash = sha2(logical_key, 256)`
+     - `migration_status = 'migrated'`
+6. 执行 `db/oss_asset_validation_sql_tb.sql`。
+7. 主会话通过后端代理路径验证图片/PDF 是否仍能显示。
+
+## OSS Smoke 验证
+
+默认命令只 dry-run，不写 OSS：
+
+```bash
+GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/oss-smoke-check ./cmd/oss-smoke
+/private/tmp/oss-smoke-check
+```
+
+真实写入验证必须由主会话或用户明确确认后执行，并且只允许通过环境变量注入密钥。不要把密钥拼进命令行。
+
+```bash
+ASSET_STORE=oss \
+OSS_BUCKET=sy-camera-erzhuang-project \
+OSS_ENDPOINT=sy-camera-erzhuang-project.oss-cn-beijing-internal.aliyuncs.com \
+OSS_ACCESS_KEY_ID=<from secret> \
+OSS_ACCESS_KEY_SECRET=<from secret> \
+/private/tmp/oss-smoke-check --apply
+```
+
+本机当前 Go 产物执行可能出现 `dyld missing LC_UUID`，因此真实 smoke 更适合在公司容器、Linux 测试机或修复本机 Go runtime 后执行。
+
+## 验收口径
+
+样本门店 `10030` 通过条件：
+
+- inventory SQL 能列出设计图和通道截图引用。
+- `http(s)` 临时 URL 被标记为 `skipped`，没有被误迁移。
+- OSS smoke `--apply` 能完成写入、读取、删除。
+- 样本对象复制到 OSS 后，`tb_asset_objects` 中记录完整：
+  - `logical_key`
+  - `storage_provider`
+  - `bucket`
+  - `storage_key`
+  - `storage_key_hash`
+  - `proxy_path`
+  - `migration_status`
+- 后端代理 URL 不变，前端图片/PDF 原位置可显示。
+- `db/oss_asset_validation_sql_tb.sql` 不出现：
+  - migrated 但 storage_key 为空。
+  - migrated 但 proxy_path 为空。
+  - 非预期 duplicate target key。
+  - 样本门店 failed 记录。
+
+## 停止条件
+
+出现以下任一情况，立即停止迁移，不扩大范围：
+
+- OSS smoke 失败，且错误不是明确的网络/权限配置问题。
+- inventory 中同一 logical_key 映射到多个不同业务归属，且无法解释。
+- 样本门店代理路径出现图片裂图或 PDF 无法打开。
+- validation SQL 出现 migrated 记录缺少 `storage_key`、`bucket` 或 `proxy_path`。
+- 迁移程序日志出现 AK/SK、签名串、Authorization 等敏感字段。
+
+## 回滚策略
+
+Stage A 不删除历史对象，不改前端路径，因此回滚优先级如下：
+
+1. 运行时把 `ASSET_STORE` 从 `oss` 切回旧 provider。
+2. 将样本 `tb_asset_objects.migration_status` 标记为 `failed` 或恢复为 `pending`。
+3. 保留 OSS 已迁移对象，待确认后再清理，不急删。
+4. 如果 DDL patch 需要回滚，先停写并备份，再由 DBA 生成反向 migration；不要手工临场 drop 字段。
+
+## 待确认项
+
+- 公司 K8s Secret 的变量名是否与当前代码一致。
+- 迁移程序由主仓库新增 CLI 实现，还是 DBA 用一次性脚本执行。
+- 全量迁移前是否需要按资产敏感级别分批：先设计图，再通道截图。
