@@ -2766,12 +2766,10 @@ td:nth-child(10) {
 }
 
 .h5-store-trigger {
-  display: inline-grid;
-  grid-template-columns: minmax(0, auto) auto;
-  grid-template-areas:
-    "name chevron"
-    "city chevron";
-  gap: 2px 8px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 7px;
   min-width: 0;
   max-width: min(640px, calc(100vw - 96px));
   min-height: 0;
@@ -2790,9 +2788,9 @@ td:nth-child(10) {
 }
 
 .h5-store-trigger-main {
-  grid-area: name;
   min-width: 0;
   overflow: hidden;
+  max-width: 100%;
   font-size: 26px;
   line-height: 1.24;
   font-weight: 700;
@@ -2801,23 +2799,38 @@ td:nth-child(10) {
 }
 
 .h5-store-trigger-city {
-  grid-area: city;
+  flex-basis: 100%;
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.4;
 }
 
 .h5-store-trigger-chevron {
-  grid-area: chevron;
-  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
   color: var(--text-muted);
-  font-size: 13px;
   line-height: 1;
   transition: transform 0.16s ease;
+  transform: translateY(1px);
+}
+
+.h5-store-trigger-chevron-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .h5-store-trigger[aria-expanded="true"] .h5-store-trigger-chevron {
-  transform: rotate(180deg);
+  transform: translateY(1px) rotate(180deg);
 }
 
 .h5-store-dropdown-panel {
@@ -3841,6 +3854,7 @@ td:nth-child(10) {
 
   .h5-store-trigger {
     max-width: 100%;
+    gap: 1px 6px;
   }
 
   .h5-store-trigger-main {
@@ -3849,6 +3863,7 @@ td:nth-child(10) {
   }
 
   .h5-store-dropdown-panel {
+    left: -16px;
     width: calc(100vw - 32px);
     max-height: min(520px, calc(100vh - 152px));
     padding: 10px;
