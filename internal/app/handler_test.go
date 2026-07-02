@@ -1056,6 +1056,72 @@ func TestStageASourceSampleEndpointRejectsUnknownAction(t *testing.T) {
 	}
 }
 
+func TestStageATargetSampleEndpointHiddenUnlessOpsEnabled(t *testing.T) {
+	called := false
+	restore := setStageATargetSampleRunnerForTest(func(ctx context.Context) (*stageATargetSampleResult, error) {
+		called = true
+		return &stageATargetSampleResult{}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/stage-a-target-sample", strings.NewReader(`{"action":"cleanup"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusNotFound, recorder.Code, recorder.Body.String())
+	}
+	if called {
+		t.Fatal("expected disabled ops endpoint not to call target sample runner")
+	}
+}
+
+func TestStageATargetSampleEndpointCleansFixedOSSSampleForAdmin(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setStageATargetSampleRunnerForTest(func(ctx context.Context) (*stageATargetSampleResult, error) {
+		return &stageATargetSampleResult{
+			Action: "cleaned",
+			Key:    "channel-snapshots/stage-a-10030-channel-1.jpg",
+		}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/stage-a-target-sample", strings.NewReader(`{"action":"cleanup"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var response stageATargetSampleResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.OK || response.Action != "cleaned" || response.Key != "channel-snapshots/stage-a-10030-channel-1.jpg" {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestStageATargetSampleEndpointRejectsUnknownAction(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setStageATargetSampleRunnerForTest(func(ctx context.Context) (*stageATargetSampleResult, error) {
+		t.Fatal("invalid action should not call runner")
+		return nil, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/stage-a-target-sample", strings.NewReader(`{"action":"seed"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestAuthMeRejectsUnprovisionedSSOUser(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("SSO_ENABLED", "true")
@@ -1326,5 +1392,13 @@ func setStageASourceSampleRunnerForTest(runner stageASourceSampleRunner) func() 
 	currentStageASourceSampleRunner = runner
 	return func() {
 		currentStageASourceSampleRunner = previous
+	}
+}
+
+func setStageATargetSampleRunnerForTest(runner stageATargetSampleRunner) func() {
+	previous := currentStageATargetSampleRunner
+	currentStageATargetSampleRunner = runner
+	return func() {
+		currentStageATargetSampleRunner = previous
 	}
 }

@@ -21,6 +21,7 @@ import (
 var currentOSSSmokeRunner ossSmokeRunner = runOSSSmokeFromEnv
 var currentAssetMigrationRunner assetMigrationRunner = runAssetMigrationFromEnv
 var currentStageASourceSampleRunner stageASourceSampleRunner = runStageASourceSampleFromEnv
+var currentStageATargetSampleRunner stageATargetSampleRunner = runStageATargetSampleFromEnv
 
 const (
 	defaultOpsMigrationOrgID   = "10030"
@@ -124,6 +125,23 @@ type stageASourceSampleResult struct {
 	Key         string
 	Bytes       int
 	ContentType string
+}
+
+type stageATargetSampleRequest struct {
+	Action string `json:"action"`
+}
+
+type stageATargetSampleResponse struct {
+	OK     bool   `json:"ok"`
+	Action string `json:"action,omitempty"`
+	Key    string `json:"key,omitempty"`
+	Error  string `json:"error,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+type stageATargetSampleResult struct {
+	Action string
+	Key    string
 }
 
 func (h *Handler) ossEnvCheckHandler(w http.ResponseWriter, r *http.Request) {
@@ -279,6 +297,51 @@ func (h *Handler) stageASourceSampleHandler(w http.ResponseWriter, r *http.Reque
 		Key:         result.Key,
 		Bytes:       result.Bytes,
 		ContentType: result.ContentType,
+	})
+}
+
+func (h *Handler) stageATargetSampleHandler(w http.ResponseWriter, r *http.Request) {
+	if !opsEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+		return
+	}
+	var input stageATargetSampleRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	if err := decoder.Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, stageATargetSampleResponse{
+			OK:     false,
+			Error:  "invalid target sample request",
+			Detail: sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	action := strings.ToLower(strings.TrimSpace(input.Action))
+	if action != "cleanup" {
+		writeJSON(w, http.StatusBadRequest, stageATargetSampleResponse{
+			OK:     false,
+			Error:  "invalid target sample request",
+			Detail: "action must be cleanup",
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	result, err := h.stageATargetRunner(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, stageATargetSampleResponse{
+			OK:     false,
+			Error:  "stage-a target sample failed",
+			Detail: sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, stageATargetSampleResponse{
+		OK:     true,
+		Action: result.Action,
+		Key:    result.Key,
 	})
 }
 
@@ -489,6 +552,20 @@ func runStageASourceSampleFromEnv(ctx context.Context, action string) (*stageASo
 	default:
 		return nil, fmt.Errorf("unsupported source sample action %q", action)
 	}
+}
+
+func runStageATargetSampleFromEnv(ctx context.Context) (*stageATargetSampleResult, error) {
+	store, _, err := targetOSSStoreForMigration()
+	if err != nil {
+		return nil, err
+	}
+	if err := deleteExactAsset(ctx, store, stageASourceSampleKey); err != nil {
+		return nil, fmt.Errorf("cleanup target sample: %w", err)
+	}
+	return &stageATargetSampleResult{
+		Action: "cleaned",
+		Key:    stageASourceSampleKey,
+	}, nil
 }
 
 type exactAssetDeleter interface {

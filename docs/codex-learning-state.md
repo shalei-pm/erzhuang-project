@@ -4338,3 +4338,19 @@ git pull --ff-only
   - 先补失败测试 `TestSupabaseStorageStoreDeleteRemovesExactKeyWithoutListing`，确认旧代码没有 `Delete` 方法。
   - 实现后 `go test -c ./internal/assets` 通过。
   - `go test -c ./internal/app` 通过。
+
+## 2026-07-02 OSS Stage A 目标样本 cleanup 2.27.3 开发记录
+
+- 背景：
+  - Stage A 源样本对象已清理。
+  - OSS 目标 bucket 中仍保留非敏感样本对象 `channel-snapshots/stage-a-10030-channel-1.jpg`。
+- 实现：
+  - 新增 `POST /api/admin/ops/stage-a-target-sample` 受控入口。
+  - 入口仅支持 `{ "action": "cleanup" }`。
+  - 只删除目标 OSS 的固定 Stage A 样本 key，不支持自定义 key。
+  - 仍受 `OPS_ENABLED` 和管理员权限保护。
+- 验证：
+  - 先补失败测试确认新 runner/响应类型不存在。
+  - `go test -c ./internal/app` 通过。
+  - `go test -c ./internal/assets` 通过。
+  - `go build ./cmd/server` 通过。
