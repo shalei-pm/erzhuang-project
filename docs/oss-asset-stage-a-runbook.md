@@ -163,6 +163,40 @@ POST /api/admin/ops/asset-migrate
 7. 人工执行 `result_sql`。
 8. 执行 `db/oss_asset_validation_sql_tb.sql`。
 
+## Stage A 源样本对象
+
+如果样本 MySQL 记录存在，但源 Supabase Storage 已被清理，`apply=true` 会在读取源对象时失败：
+
+```text
+open source "channel-snapshots/stage-a-10030-channel-1.jpg": object not found
+```
+
+这种情况下可以用受控入口临时种入一个非敏感 1x1 JPG 样本对象。该入口不是正式上传功能，只允许固定 key：
+
+```text
+POST /api/admin/ops/stage-a-source-sample
+```
+
+请求：
+
+```json
+{ "action": "seed" }
+```
+
+成功后会在源存储写入：
+
+```text
+channel-snapshots/stage-a-10030-channel-1.jpg
+```
+
+验证完成后必须清理：
+
+```json
+{ "action": "cleanup" }
+```
+
+该入口同样受 `OPS_ENABLED` 和管理员权限保护，只用于 Stage A 样本迁移验证。
+
 ## 验收口径
 
 样本门店 `10030` 通过条件：

@@ -955,6 +955,107 @@ func TestAssetMigrationEndpointReturnsSanitizedApplySQL(t *testing.T) {
 	}
 }
 
+func TestStageASourceSampleEndpointHiddenUnlessOpsEnabled(t *testing.T) {
+	called := false
+	restore := setStageASourceSampleRunnerForTest(func(ctx context.Context, action string) (*stageASourceSampleResult, error) {
+		called = true
+		return &stageASourceSampleResult{}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/stage-a-source-sample", strings.NewReader(`{"action":"seed"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusNotFound, recorder.Code, recorder.Body.String())
+	}
+	if called {
+		t.Fatal("expected disabled ops endpoint not to call source sample runner")
+	}
+}
+
+func TestStageASourceSampleEndpointSeedsFixedSampleForAdmin(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setStageASourceSampleRunnerForTest(func(ctx context.Context, action string) (*stageASourceSampleResult, error) {
+		if action != "seed" {
+			t.Fatalf("unexpected action %q", action)
+		}
+		return &stageASourceSampleResult{
+			Key:         "channel-snapshots/stage-a-10030-channel-1.jpg",
+			Action:      "seeded",
+			Bytes:       128,
+			ContentType: "image/jpeg",
+		}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/stage-a-source-sample", strings.NewReader(`{"action":"seed"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var response stageASourceSampleResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.OK || response.Action != "seeded" || response.Key != "channel-snapshots/stage-a-10030-channel-1.jpg" || response.Bytes != 128 {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestStageASourceSampleEndpointCleansFixedSampleForAdmin(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setStageASourceSampleRunnerForTest(func(ctx context.Context, action string) (*stageASourceSampleResult, error) {
+		if action != "cleanup" {
+			t.Fatalf("unexpected action %q", action)
+		}
+		return &stageASourceSampleResult{
+			Key:    "channel-snapshots/stage-a-10030-channel-1.jpg",
+			Action: "cleaned",
+		}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/stage-a-source-sample", strings.NewReader(`{"action":"cleanup"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var response stageASourceSampleResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.OK || response.Action != "cleaned" || response.Key != "channel-snapshots/stage-a-10030-channel-1.jpg" {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestStageASourceSampleEndpointRejectsUnknownAction(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setStageASourceSampleRunnerForTest(func(ctx context.Context, action string) (*stageASourceSampleResult, error) {
+		t.Fatal("invalid action should not call runner")
+		return nil, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/stage-a-source-sample", strings.NewReader(`{"action":"full-migrate"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestAuthMeRejectsUnprovisionedSSOUser(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("SSO_ENABLED", "true")
@@ -1217,5 +1318,13 @@ func setAssetMigrationRunnerForTest(runner assetMigrationRunner) func() {
 	currentAssetMigrationRunner = runner
 	return func() {
 		currentAssetMigrationRunner = previous
+	}
+}
+
+func setStageASourceSampleRunnerForTest(runner stageASourceSampleRunner) func() {
+	previous := currentStageASourceSampleRunner
+	currentStageASourceSampleRunner = runner
+	return func() {
+		currentStageASourceSampleRunner = previous
 	}
 }

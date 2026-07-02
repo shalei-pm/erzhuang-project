@@ -20,12 +20,15 @@ import (
 
 var currentOSSSmokeRunner ossSmokeRunner = runOSSSmokeFromEnv
 var currentAssetMigrationRunner assetMigrationRunner = runAssetMigrationFromEnv
+var currentStageASourceSampleRunner stageASourceSampleRunner = runStageASourceSampleFromEnv
 
 const (
 	defaultOpsMigrationOrgID   = "10030"
 	defaultOpsMigrationMaxRows = 20
 	maxOpsMigrationRows        = 100
 	maxOpsMigrationBodyBytes   = 2 << 20
+	stageASourceSampleKey      = "channel-snapshots/stage-a-10030-channel-1.jpg"
+	stageASourceSampleType     = "image/jpeg"
 )
 
 type ossSmokeResponse struct {
@@ -100,6 +103,27 @@ type assetMigrationRunResult struct {
 	ResultCSV string
 	ResultSQL string
 	Warnings  []string
+}
+
+type stageASourceSampleRequest struct {
+	Action string `json:"action"`
+}
+
+type stageASourceSampleResponse struct {
+	OK          bool   `json:"ok"`
+	Action      string `json:"action,omitempty"`
+	Key         string `json:"key,omitempty"`
+	Bytes       int    `json:"bytes,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Detail      string `json:"detail,omitempty"`
+}
+
+type stageASourceSampleResult struct {
+	Action      string
+	Key         string
+	Bytes       int
+	ContentType string
 }
 
 func (h *Handler) ossEnvCheckHandler(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +232,53 @@ func (h *Handler) assetMigrationHandler(w http.ResponseWriter, r *http.Request) 
 		ResultCSV:     result.ResultCSV,
 		ResultSQL:     result.ResultSQL,
 		Warnings:      result.Warnings,
+	})
+}
+
+func (h *Handler) stageASourceSampleHandler(w http.ResponseWriter, r *http.Request) {
+	if !opsEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+		return
+	}
+	var input stageASourceSampleRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	if err := decoder.Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, stageASourceSampleResponse{
+			OK:     false,
+			Error:  "invalid source sample request",
+			Detail: sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	action := strings.ToLower(strings.TrimSpace(input.Action))
+	if action != "seed" && action != "cleanup" {
+		writeJSON(w, http.StatusBadRequest, stageASourceSampleResponse{
+			OK:     false,
+			Error:  "invalid source sample request",
+			Detail: "action must be seed or cleanup",
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	result, err := h.stageASampleRunner(ctx, action)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, stageASourceSampleResponse{
+			OK:     false,
+			Error:  "stage-a source sample failed",
+			Detail: sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, stageASourceSampleResponse{
+		OK:          true,
+		Action:      result.Action,
+		Key:         result.Key,
+		Bytes:       result.Bytes,
+		ContentType: result.ContentType,
 	})
 }
 
@@ -388,6 +459,55 @@ func targetOSSStoreForMigration() (assets.Store, string, error) {
 		AccessKeyID:     accessKeyID,
 		AccessKeySecret: accessKeySecret,
 	}), bucket, nil
+}
+
+func runStageASourceSampleFromEnv(ctx context.Context, action string) (*stageASourceSampleResult, error) {
+	store, err := sourceAssetStoreForMigration()
+	if err != nil {
+		return nil, err
+	}
+	switch action {
+	case "seed":
+		payload := stageASourceSampleJPEG()
+		if err := store.Save(ctx, stageASourceSampleKey, bytes.NewReader(payload), stageASourceSampleType); err != nil {
+			return nil, fmt.Errorf("seed source sample: %w", err)
+		}
+		return &stageASourceSampleResult{
+			Action:      "seeded",
+			Key:         stageASourceSampleKey,
+			Bytes:       len(payload),
+			ContentType: stageASourceSampleType,
+		}, nil
+	case "cleanup":
+		if err := store.DeletePrefix(ctx, stageASourceSampleKey); err != nil {
+			return nil, fmt.Errorf("cleanup source sample: %w", err)
+		}
+		return &stageASourceSampleResult{
+			Action: "cleaned",
+			Key:    stageASourceSampleKey,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported source sample action %q", action)
+	}
+}
+
+func stageASourceSampleJPEG() []byte {
+	return []byte{
+		0xff, 0xd8,
+		0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0x01, 0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00,
+		0xff, 0xdb, 0x00, 0x43, 0x00,
+		0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0a, 0x0c, 0x14,
+		0x0d, 0x0c, 0x0b, 0x0b, 0x0c, 0x19, 0x12, 0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a,
+		0x1c, 0x1c, 0x20, 0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29, 0x2c,
+		0x30, 0x31, 0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32, 0x3c, 0x2e, 0x33, 0x34, 0x32,
+		0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+		0xff, 0xc4, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+		0xff, 0xc4, 0x00, 0x14, 0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0x37,
+		0xff, 0xd9,
+	}
 }
 
 func assetMigrationResultsCSV(results []assetmigration.RowResult) (string, error) {

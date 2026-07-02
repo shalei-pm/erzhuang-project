@@ -4301,3 +4301,26 @@ git pull --ff-only
   - 从 MySQL 测试库导出 `external_org_id=10030` inventory CSV。
   - 先在线上已登录管理员浏览器中调用 `apply=false` dry-run。
   - dry-run 无 failed 后，再调用 `apply=true`，审查返回的 `result_sql` 后手工回写 MySQL。
+
+## 2026-07-02 OSS Stage A 源样本对象 2.27.1 开发记录
+
+- 背景：
+  - Stage A dry-run 已通过：`Total=2, WouldCopy=1, Skipped=1, Errors=0`。
+  - Stage A apply 失败：源 Supabase Storage 返回 `Object not found`。
+  - 用户确认此前清理过 snapshots，因此测试库引用存在、源对象缺失是合理状态。
+- 实现：
+  - 新增 `POST /api/admin/ops/stage-a-source-sample` 受控入口。
+  - 入口仅在 ops 开启且管理员具备 `user:manage` 权限时可用。
+  - 只支持两个动作：`seed` 和 `cleanup`。
+  - `seed` 只向源存储写入固定非敏感样本对象：`channel-snapshots/stage-a-10030-channel-1.jpg`。
+  - `cleanup` 只删除同一个固定样本对象。
+  - 不支持自定义 key，不支持上传真实业务截图。
+- 验证：
+  - 先补失败测试，确认新类型/入口不存在时 `go test -c ./internal/app` 编译失败。
+  - 实现后 `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 调用 `stage-a-source-sample` seed。
+  - 重新执行 `asset-migrate apply=true`。
+  - 验证成功后调用 cleanup 清理源样本对象；OSS 目标样本对象在最终验证策略确认后清理。
