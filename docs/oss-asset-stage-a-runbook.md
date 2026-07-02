@@ -177,3 +177,17 @@ Stage A 不删除历史对象，不改前端路径，因此回滚优先级如下
 
 - 将 `bed_label` 和 `short_name` 纳入正式 MySQL schema/patch 执行包，避免测试库重建后再次手工补字段。
 - `db/oss_asset_inventory_sql_tb.sql` 当前依赖 `tb_channel_snapshots.snapshot_key`；若目标库尚未执行 business patch，会报字段不存在。执行顺序必须保持：business patch 先于 inventory。
+
+## 2026-07-02 OSS Smoke 记录
+
+已在本机尝试用临时脚本对 `sy-camera-erzhuang-project.oss-cn-beijing-internal.aliyuncs.com` 做 PUT/GET/DELETE smoke：
+
+- 凭证通过交互输入，未写入命令、项目文件或 Git。
+- smoke 对象为 `smoke-tests/codex-smoke-*.txt`，不包含业务图片或摄像头截图。
+- 本机访问内网 endpoint 超时，未完成 PUT。
+
+结论：
+
+- 当前 Mac 环境不具备访问 OSS 内网 endpoint 的网络条件。
+- 真实 OSS smoke 需要在公司 K8s/阿里云 VPC 内环境执行，或由运维确认是否允许提供外网 endpoint 做临时验证。
+- 在内网 smoke 未通过前，不应执行 `asset-migrate --apply`，也不应切换公司环境 `ASSET_STORE=oss`。
