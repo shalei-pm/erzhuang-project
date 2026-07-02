@@ -4118,3 +4118,21 @@ git pull --ff-only
   - 发布记录补充后，GitHub/GitLab 分支继续同步到 `a0c1edd docs: record h5 topbar company release`；该提交仅更新文档，业务代码提交为其父提交 `35a70ca`。
   - 本次未发布韩国服务器。
   - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
+
+## 2026-07-02 H5 门店切换改为标题下拉 2.25.1 开发记录
+
+- 背景：
+  - 用户线上验收后确认 H5 Monitor 的门店切换能力可用，但不希望以页面下方陈列式导航呈现。
+  - 期望点击视频监控页的机构名称后下拉选择门店，并兼顾移动端自适应。
+- 实现：
+  - 将 `H5StoreSwitcher` 从展开式门店切换区改为标题触发的下拉浮层。
+  - H5 Monitor 首页标题区域直接承载门店切换，移除原独立陈列式切换块。
+  - 下拉列表继续沿用已有接口与城市分组能力，当前门店高亮，选择后使用原路由切换逻辑。
+  - 移动端下拉改为单列、限制屏幕宽度和高度，避免横向溢出。
+  - 新增组件渲染测试，锁定“当前门店以 dropdown trigger 呈现”的结构。
+- 验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - 本地自动截图验收受限：Playwright 自带 Chromium 未安装，本机 Chrome headless 启动被 macOS 权限拦截；本次以组件测试、生产构建和静态 CSS 约束完成发布前验收。
+- 备注：
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。

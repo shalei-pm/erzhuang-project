@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { h5Api, H5ApiError } from "../api-h5";
 import type { H5MonitorStoreInfo, H5MonitorStoresResponse } from "../domain/h5-types";
 
@@ -20,6 +20,9 @@ export function H5StoreSwitcher({
   const [storesResponse, setStoresResponse] = useState<H5MonitorStoresResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const panelId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +50,25 @@ export function H5StoreSwitcher({
     };
   }, [onAuthRequired]);
 
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
   const storeGroups = useMemo(() => storesResponse?.cities ?? [], [storesResponse]);
   const allStores = useMemo(() => storeGroups.flatMap((group) => group.stores), [storeGroups]);
   const currentStore = allStores.find((store) => store.external_org_id === currentExternalOrgId);
@@ -59,37 +81,54 @@ export function H5StoreSwitcher({
   const displayStore = currentStore ?? fallbackStore;
 
   return (
-    <section className="h5-store-switcher" aria-label="切换门店">
-      <div className="h5-store-switcher-current">
-        <span>当前门店</span>
-        <strong>{displayStore.store_name}</strong>
-        {displayStore.city ? <em>{displayStore.city}</em> : null}
-      </div>
-      <div className="h5-store-switcher-list">
-        {loading ? <span className="h5-store-switcher-status">门店加载中...</span> : null}
-        {!loading && error ? <span className="h5-store-switcher-status error">{error}</span> : null}
-        {!loading && !error && currentStore ? null : !loading && !error ? (
-          <StoreButton store={fallbackStore} active onSelectStore={onSelectStore} />
-        ) : null}
-        {!loading && !error
-          ? storeGroups.map((group) => (
-              <div className="h5-store-switcher-group" key={group.city || "unknown"}>
-                <span className="h5-store-switcher-city">{group.city || "未分城市"}</span>
-                <div className="h5-store-switcher-buttons">
-                  {group.stores.map((store) => (
-                    <StoreButton
-                      key={store.external_org_id}
-                      store={store}
-                      active={store.external_org_id === currentExternalOrgId}
-                      onSelectStore={onSelectStore}
-                    />
-                  ))}
+    <div className="h5-store-dropdown" ref={rootRef}>
+      <button
+        type="button"
+        className="h5-store-trigger"
+        aria-label="切换门店"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="h5-store-trigger-main">{displayStore.store_name}</span>
+        {displayStore.city ? <span className="h5-store-trigger-city">{displayStore.city}</span> : null}
+        <span className="h5-store-trigger-chevron" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+      {open ? (
+        <div className="h5-store-dropdown-panel" id={panelId} role="menu">
+          {loading ? <span className="h5-store-dropdown-status">门店加载中...</span> : null}
+          {!loading && error ? <span className="h5-store-dropdown-status error">{error}</span> : null}
+          {!loading && !error && currentStore ? null : !loading && !error ? (
+            <StoreButton
+              store={fallbackStore}
+              active
+              onSelectStore={onSelectStore}
+              onClose={() => setOpen(false)}
+            />
+          ) : null}
+          {!loading && !error
+            ? storeGroups.map((group) => (
+                <div className="h5-store-dropdown-group" key={group.city || "unknown"}>
+                  <span className="h5-store-dropdown-city">{group.city || "未分城市"}</span>
+                  <div className="h5-store-dropdown-options">
+                    {group.stores.map((store) => (
+                      <StoreButton
+                        key={store.external_org_id}
+                        store={store}
+                        active={store.external_org_id === currentExternalOrgId}
+                        onSelectStore={onSelectStore}
+                        onClose={() => setOpen(false)}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))
-          : null}
-      </div>
-    </section>
+              ))
+            : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -97,16 +136,22 @@ function StoreButton({
   store,
   active,
   onSelectStore,
+  onClose,
 }: {
   store: H5MonitorStoreInfo;
   active: boolean;
   onSelectStore: (externalOrgId: string) => void;
+  onClose: () => void;
 }) {
   return (
     <button
       type="button"
       className={active ? "active" : ""}
-      onClick={() => onSelectStore(store.external_org_id)}
+      role="menuitem"
+      onClick={() => {
+        onClose();
+        if (!active) onSelectStore(store.external_org_id);
+      }}
       aria-current={active ? "page" : undefined}
     >
       <span>{store.store_name}</span>

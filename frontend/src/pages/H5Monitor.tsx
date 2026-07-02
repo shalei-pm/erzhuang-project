@@ -152,17 +152,15 @@ export function H5Monitor({
       <div className="h5-page h5-monitor-page">
         <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
         {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
-        <header className="h5-header">
-          <h1>{data?.store_name || "门店监控"}</h1>
-          {data?.city && <span className="h5-city">{data.city}</span>}
+        <header className="h5-header h5-monitor-header">
+          <H5StoreSwitcher
+            currentExternalOrgId={externalOrgId}
+            currentStoreName={data?.store_name || "门店监控"}
+            currentCity={data?.city}
+            onAuthRequired={onAuthRequired}
+            onSelectStore={onSelectStore}
+          />
         </header>
-        <H5StoreSwitcher
-          currentExternalOrgId={externalOrgId}
-          currentStoreName={data?.store_name}
-          currentCity={data?.city}
-          onAuthRequired={onAuthRequired}
-          onSelectStore={onSelectStore}
-        />
         <div className="h5-empty">当前门店暂无有效监控通道。</div>
       </div>
     );
@@ -173,19 +171,15 @@ export function H5Monitor({
       <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
       {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
       <header className="h5-header h5-monitor-header">
-        <div>
-          <h1>{data.store_name}</h1>
-          {data.city && <span className="h5-city">{data.city}</span>}
-        </div>
+        <H5StoreSwitcher
+          currentExternalOrgId={externalOrgId}
+          currentStoreName={data.store_name}
+          currentCity={data.city}
+          onAuthRequired={onAuthRequired}
+          onSelectStore={onSelectStore}
+        />
         <span className="h5-channel-count">共 {filteredChannels.length} 路，{filteredChannels.length} 路有效</span>
       </header>
-      <H5StoreSwitcher
-        currentExternalOrgId={externalOrgId}
-        currentStoreName={data.store_name}
-        currentCity={data.city}
-        onAuthRequired={onAuthRequired}
-        onSelectStore={onSelectStore}
-      />
 
       <nav className="h5-area-tabs" aria-label="区域导航">
         {visibleTabs.map((tab) => (
