@@ -49,7 +49,7 @@ func (h *Handler) ossEnvCheckHandler(w http.ResponseWriter, r *http.Request) {
 		OpsEnabled:               opsEnabled(),
 		HasOpsEnabled:            envPresent("OPS_ENABLED"),
 		HasK8SSecretOpsEnabled:   envPresent("K8S_SECRET_OPS_ENABLED"),
-		AssetStore:               envValue("ASSET_STORE", "K8S_SECRET_ASSET_STORE"),
+		AssetStore:               opsAssetStoreMode(),
 		HasAssetStore:            envPresent("ASSET_STORE"),
 		HasK8SSecretAssetStore:   envPresent("K8S_SECRET_ASSET_STORE"),
 		HasOSSBucket:             envPresent("OSS_BUCKET") || envPresent("K8S_SECRET_OSS_BUCKET"),
@@ -95,7 +95,7 @@ func opsEnabled() bool {
 }
 
 func runOSSSmokeFromEnv(ctx context.Context) (*ossSmokeResult, error) {
-	if envValue("ASSET_STORE", "K8S_SECRET_ASSET_STORE") == "oss" {
+	if opsAssetStoreMode() == "oss" {
 		return runOSSSmokeWithOSSSecretFallback(ctx)
 	}
 	store, err := assets.NewStoreFromEnv()
@@ -103,6 +103,10 @@ func runOSSSmokeFromEnv(ctx context.Context) (*ossSmokeResult, error) {
 		return nil, err
 	}
 	return osssmoke.Run(ctx, store, osssmoke.Options{Apply: true})
+}
+
+func opsAssetStoreMode() string {
+	return envValue("K8S_SECRET_ASSET_STORE", "ASSET_STORE")
 }
 
 func runOSSSmokeWithOSSSecretFallback(ctx context.Context) (*ossSmokeResult, error) {

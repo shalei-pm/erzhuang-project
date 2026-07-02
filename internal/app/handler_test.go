@@ -703,6 +703,15 @@ func TestOSSSmokeEndpointAcceptsK8SSecretOpsEnabled(t *testing.T) {
 	}
 }
 
+func TestOSSSmokeEndpointPrefersK8SSecretAssetStoreOverRuntimeAssetStore(t *testing.T) {
+	t.Setenv("ASSET_STORE", "supabase")
+	t.Setenv("K8S_SECRET_ASSET_STORE", "oss")
+
+	if got := opsAssetStoreMode(); got != "oss" {
+		t.Fatalf("opsAssetStoreMode()=%q, want oss", got)
+	}
+}
+
 func TestOpsEnvCheckReturnsSanitizedRuntimeConfig(t *testing.T) {
 	t.Setenv("K8S_SECRET_OPS_ENABLED", "true")
 	t.Setenv("K8S_SECRET_ASSET_STORE", "oss")
