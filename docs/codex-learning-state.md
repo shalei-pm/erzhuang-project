@@ -4216,3 +4216,24 @@ git pull --ff-only
 - 备注：
   - 本轮业务代码已形成本地提交，但尚未发布公司环境。
   - DBA/MySQL 迁移 WIP 文件仍保持未纳入业务提交。
+
+## 2026-07-02 用户管理与全局角色权限 2.26.0 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布内容：
+  - 新增后台用户管理第一版：管理员可添加、编辑、启停用户并设置 `admin/editor/viewer`。
+  - 后端写接口增加角色权限守卫，viewer 直接调写接口返回 403。
+  - 前端按角色隐藏编辑入口，AI 模型切换收紧为管理员可见。
+- 发布前验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+- 待线上验证：
+  - 公司自动发布通常约 5 分钟完成。
+  - 浏览器登录态下确认页脚版本为 `2.26.0 (container)` 或 `2.26.0 (<commit>)`。
+  - `shalei@soyoung.com` 可看到“系统设置”并进入用户管理。
+  - `changwenxia@soyoung.com` / `wangxiaofan@soyoung.com` 可编辑门店和通道，但不可进入用户管理或切换识别模型。
+- 备注：
+  - 本次未发布韩国服务器。
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
