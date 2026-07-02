@@ -479,7 +479,7 @@ func runStageASourceSampleFromEnv(ctx context.Context, action string) (*stageASo
 			ContentType: stageASourceSampleType,
 		}, nil
 	case "cleanup":
-		if err := store.DeletePrefix(ctx, stageASourceSampleKey); err != nil {
+		if err := deleteExactAsset(ctx, store, stageASourceSampleKey); err != nil {
 			return nil, fmt.Errorf("cleanup source sample: %w", err)
 		}
 		return &stageASourceSampleResult{
@@ -489,6 +489,17 @@ func runStageASourceSampleFromEnv(ctx context.Context, action string) (*stageASo
 	default:
 		return nil, fmt.Errorf("unsupported source sample action %q", action)
 	}
+}
+
+type exactAssetDeleter interface {
+	Delete(ctx context.Context, key string) error
+}
+
+func deleteExactAsset(ctx context.Context, store assets.Store, key string) error {
+	if deleter, ok := store.(exactAssetDeleter); ok {
+		return deleter.Delete(ctx, key)
+	}
+	return store.DeletePrefix(ctx, key)
 }
 
 func stageASourceSampleJPEG() []byte {

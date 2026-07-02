@@ -167,6 +167,35 @@ func (s *SupabaseStorageStore) DeletePrefix(ctx context.Context, prefix string) 
 	return nil
 }
 
+func (s *SupabaseStorageStore) Delete(ctx context.Context, key string) error {
+	clean, err := cleanKey(key)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string][]string{"prefixes": []string{clean}})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodDelete, s.bucketURL(), bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	s.authorize(request)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return storageHTTPError("delete asset", response)
+	}
+	return nil
+}
+
 func (s *SupabaseStorageStore) listKeys(ctx context.Context, prefix string, isDirectoryPrefix bool) ([]string, error) {
 	dir, namePrefix := splitPrefix(prefix, isDirectoryPrefix)
 	payload, err := json.Marshal(map[string]any{

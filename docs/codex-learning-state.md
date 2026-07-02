@@ -4324,3 +4324,17 @@ git pull --ff-only
   - 调用 `stage-a-source-sample` seed。
   - 重新执行 `asset-migrate apply=true`。
   - 验证成功后调用 cleanup 清理源样本对象；OSS 目标样本对象在最终验证策略确认后清理。
+
+## 2026-07-02 OSS Stage A 源样本 cleanup 2.27.2 修复记录
+
+- 背景：
+  - Stage A apply 已成功：`Copied=1, Skipped=1, Errors=0`，完整复制链路 `源 Supabase -> 公司 Pod -> OSS` 已跑通。
+  - 调用 `stage-a-source-sample cleanup` 时返回 502。
+  - 错误为 Supabase list 路径返回 `409 Duplicate`，发生在 `DeletePrefix` 的 list-then-delete 阶段。
+- 实现：
+  - 为 `SupabaseStorageStore` 增加 `Delete(ctx, key)`，直接按固定 key 删除，不先 list。
+  - Stage A cleanup 优先使用可选 `Delete` 接口；不支持该接口的 store 仍 fallback 到 `DeletePrefix`。
+- 验证：
+  - 先补失败测试 `TestSupabaseStorageStoreDeleteRemovesExactKeyWithoutListing`，确认旧代码没有 `Delete` 方法。
+  - 实现后 `go test -c ./internal/assets` 通过。
+  - `go test -c ./internal/app` 通过。

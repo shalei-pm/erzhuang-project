@@ -159,6 +159,41 @@ func TestSupabaseStorageStoreSaveOpenDeletePrefix(t *testing.T) {
 	}
 }
 
+func TestSupabaseStorageStoreDeleteRemovesExactKeyWithoutListing(t *testing.T) {
+	var deleteBody string
+	listCalled := false
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodDelete && r.URL.Path == "/storage/v1/object/test-bucket":
+			body, _ := io.ReadAll(r.Body)
+			deleteBody = string(body)
+			return textResponse(r, http.StatusOK, `[]`, "application/json"), nil
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/list"):
+			listCalled = true
+			return textResponse(r, http.StatusBadRequest, `{"statusCode":"409","error":"Duplicate"}`, "application/json"), nil
+		default:
+			return textResponse(r, http.StatusNotFound, "not found", "text/plain"), nil
+		}
+	})}
+
+	store := NewSupabaseStorageStore(SupabaseStorageConfig{
+		BaseURL:    "https://supabase.test",
+		ServiceKey: "service-key",
+		Bucket:     "test-bucket",
+		HTTPClient: client,
+	})
+
+	if err := store.Delete(context.Background(), "channel-snapshots/stage-a-10030-channel-1.jpg"); err != nil {
+		t.Fatalf("delete exact key: %v", err)
+	}
+	if listCalled {
+		t.Fatal("Delete should not list objects before deleting exact key")
+	}
+	if !strings.Contains(deleteBody, "channel-snapshots/stage-a-10030-channel-1.jpg") {
+		t.Fatalf("expected delete body to include exact key, got %s", deleteBody)
+	}
+}
+
 func TestSupabaseStorageStoreCreatesBucketAndRetriesSaveWhenMissing(t *testing.T) {
 	var requests []string
 	var bucketBody string
