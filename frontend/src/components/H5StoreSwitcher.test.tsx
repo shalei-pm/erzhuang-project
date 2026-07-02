@@ -20,7 +20,11 @@ describe("H5StoreSwitcher", () => {
     expect(markup).toContain("北京");
     expect(markup).toContain("h5-store-dropdown");
     expect(markup).toContain("h5-store-trigger");
+    expect(markup).toContain("h5-store-trigger-title-row");
     expect(markup).toContain("h5-store-trigger-chevron-icon");
+    expect(markup).toMatch(
+      /h5-store-trigger-title-row[\s\S]*北京保利实验室门店[\s\S]*h5-store-trigger-chevron[\s\S]*h5-store-trigger-city/,
+    );
     expect(markup).not.toContain("▾");
     expect(markup).not.toContain("h5-store-switcher-current");
   });

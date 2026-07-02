@@ -90,13 +90,15 @@ export function H5StoreSwitcher({
         aria-controls={panelId}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="h5-store-trigger-main">{displayStore.store_name}</span>
-        {displayStore.city ? <span className="h5-store-trigger-city">{displayStore.city}</span> : null}
-        <span className="h5-store-trigger-chevron" aria-hidden="true">
-          <svg className="h5-store-trigger-chevron-icon" viewBox="0 0 16 16" focusable="false">
-            <path d="M4.5 6.25 8 9.75l3.5-3.5" />
-          </svg>
+        <span className="h5-store-trigger-title-row">
+          <span className="h5-store-trigger-main">{displayStore.store_name}</span>
+          <span className="h5-store-trigger-chevron" aria-hidden="true">
+            <svg className="h5-store-trigger-chevron-icon" viewBox="0 0 16 16" focusable="false">
+              <path d="M4.5 6.25 8 9.75l3.5-3.5" />
+            </svg>
+          </span>
         </span>
+        {displayStore.city ? <span className="h5-store-trigger-city">{displayStore.city}</span> : null}
       </button>
       {open ? (
         <div className="h5-store-dropdown-panel" id={panelId} role="menu">

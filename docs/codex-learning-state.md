@@ -4173,3 +4173,19 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
 - 备注：
   - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。
+
+## 2026-07-02 H5 门店下拉箭头同行修复 2.25.3 开发记录
+
+- 背景：
+  - 用户继续验收发现门店切换箭头跑到门店名称下方，不符合预期。
+- 根因：
+  - 上一版将标题触发器改为 `inline-flex + flex-wrap` 后，DOM 顺序为“门店名、城市、箭头”，城市占满一行，导致箭头被推到下一行。
+- 修复：
+  - 新增 `h5-store-trigger-title-row`，将“门店名 + 箭头”包成同一行。
+  - 城市信息保持第二行展示。
+  - 测试增加标题行结构断言，防止箭头再次脱离门店名称。
+- 验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+- 备注：
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。

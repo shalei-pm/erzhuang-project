@@ -2766,10 +2766,8 @@ td:nth-child(10) {
 }
 
 .h5-store-trigger {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px 7px;
+  display: inline-grid;
+  gap: 2px;
   min-width: 0;
   max-width: min(640px, calc(100vw - 96px));
   min-height: 0;
@@ -2787,6 +2785,14 @@ td:nth-child(10) {
   background: transparent;
 }
 
+.h5-store-trigger-title-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .h5-store-trigger-main {
   min-width: 0;
   overflow: hidden;
@@ -2799,7 +2805,6 @@ td:nth-child(10) {
 }
 
 .h5-store-trigger-city {
-  flex-basis: 100%;
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.4;
@@ -3854,7 +3859,7 @@ td:nth-child(10) {
 
   .h5-store-trigger {
     max-width: 100%;
-    gap: 1px 6px;
+    gap: 1px;
   }
 
   .h5-store-trigger-main {
