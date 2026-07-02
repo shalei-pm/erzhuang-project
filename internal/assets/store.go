@@ -32,6 +32,21 @@ func NewStoreFromEnv() (Store, error) {
 		}
 		return NewLocalStore(root), nil
 	}
+	if mode == "oss" {
+		bucket := strings.TrimSpace(os.Getenv("OSS_BUCKET"))
+		endpoint := strings.TrimSpace(os.Getenv("OSS_ENDPOINT"))
+		accessKeyID := strings.TrimSpace(os.Getenv("OSS_ACCESS_KEY_ID"))
+		accessKeySecret := strings.TrimSpace(os.Getenv("OSS_ACCESS_KEY_SECRET"))
+		if bucket == "" || endpoint == "" || accessKeyID == "" || accessKeySecret == "" {
+			return nil, errors.New("ASSET_STORE=oss requires OSS_BUCKET, OSS_ENDPOINT, OSS_ACCESS_KEY_ID, and OSS_ACCESS_KEY_SECRET")
+		}
+		return NewOSSStore(OSSConfig{
+			Bucket:          bucket,
+			Endpoint:        endpoint,
+			AccessKeyID:     accessKeyID,
+			AccessKeySecret: accessKeySecret,
+		}), nil
+	}
 	if mode != "supabase" {
 		return nil, fmt.Errorf("unsupported ASSET_STORE %q", mode)
 	}

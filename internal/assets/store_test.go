@@ -210,6 +210,22 @@ func TestNewStoreFromEnvRequiresSupabaseConfig(t *testing.T) {
 	}
 }
 
+func TestNewStoreFromEnvRequiresOSSConfig(t *testing.T) {
+	t.Setenv("ASSET_STORE", "oss")
+	t.Setenv("OSS_BUCKET", "")
+	t.Setenv("OSS_ENDPOINT", "")
+	t.Setenv("OSS_ACCESS_KEY_ID", "")
+	t.Setenv("OSS_ACCESS_KEY_SECRET", "")
+
+	_, err := NewStoreFromEnv()
+	if err == nil {
+		t.Fatalf("expected missing oss config error")
+	}
+	if !strings.Contains(err.Error(), "ASSET_STORE=oss requires") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestNewStoreFromEnvAutoSelectsSupabaseWhenStorageConfigExists(t *testing.T) {
 	t.Setenv("ASSET_STORE", "")
 	t.Setenv("SUPABASE_URL", "https://supabase.test")
