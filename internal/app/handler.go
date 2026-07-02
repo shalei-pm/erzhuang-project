@@ -11,6 +11,7 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
+	"github.com/shalei-pm/erzhuang-project/internal/mysqlmigration"
 	"github.com/shalei-pm/erzhuang-project/internal/osssmoke"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
@@ -42,6 +43,10 @@ type Store interface {
 	ListTasks(ctx context.Context) ([]Task, error)
 	AISettingsStore
 	AuthUserStore
+}
+
+type MySQLMigrationExporter interface {
+	ExportMySQLMigration(ctx context.Context, options mysqlmigration.Options) (*mysqlmigration.Export, error)
 }
 
 type Handler struct {
@@ -92,6 +97,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("POST /api/admin/ops/asset-migrate", handler.assetMigrationHandler)
 	mux.HandleFunc("POST /api/admin/ops/stage-a-source-sample", handler.stageASourceSampleHandler)
 	mux.HandleFunc("POST /api/admin/ops/stage-a-target-sample", handler.stageATargetSampleHandler)
+	mux.HandleFunc("POST /api/admin/ops/pg-mysql-export", handler.pgMySQLExportHandler)
 	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
 	storespace.RegisterRoutesWithWriteGuard(mux, storeSpaceService, handler.storeWriteGuard)
 	if h5MonitorService != nil {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/mysqlmigration"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
 
@@ -175,6 +176,10 @@ func (s *PostgresStore) UpdateAuthUser(ctx context.Context, id int64, input Auth
 		return AuthUserRecord{}, errAuthUserNotFound
 	}
 	return record, err
+}
+
+func (s *PostgresStore) ExportMySQLMigration(ctx context.Context, options mysqlmigration.Options) (*mysqlmigration.Export, error) {
+	return mysqlmigration.ExportFromPostgres(ctx, s.db, options)
 }
 
 func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {

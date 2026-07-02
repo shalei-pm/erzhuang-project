@@ -15,6 +15,7 @@ import (
 
 	"github.com/shalei-pm/erzhuang-project/internal/assetmigration"
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
+	"github.com/shalei-pm/erzhuang-project/internal/mysqlmigration"
 	"github.com/shalei-pm/erzhuang-project/internal/osssmoke"
 )
 
@@ -28,6 +29,7 @@ const (
 	defaultOpsMigrationMaxRows = 20
 	maxOpsMigrationRows        = 100
 	maxOpsMigrationBodyBytes   = 2 << 20
+	maxOpsExportOrgCount       = 5
 	stageASourceSampleKey      = "channel-snapshots/stage-a-10030-channel-1.jpg"
 	stageASourceSampleType     = "image/jpeg"
 )
@@ -142,6 +144,23 @@ type stageATargetSampleResponse struct {
 type stageATargetSampleResult struct {
 	Action string
 	Key    string
+}
+
+type pgMySQLExportRequest struct {
+	ExternalOrgID string `json:"external_org_id"`
+	IncludeUsers  bool   `json:"include_users"`
+	BatchID       string `json:"batch_id"`
+}
+
+type pgMySQLExportResponse struct {
+	OK               bool                  `json:"ok"`
+	ExternalOrgIDs   []string              `json:"external_org_ids,omitempty"`
+	Report           mysqlmigration.Report `json:"report"`
+	ImportSQL        string                `json:"import_sql,omitempty"`
+	AutoIncrementSQL string                `json:"auto_increment_sql,omitempty"`
+	Error            string                `json:"error,omitempty"`
+	Detail           string                `json:"detail,omitempty"`
+	Warnings         []string              `json:"warnings,omitempty"`
 }
 
 func (h *Handler) ossEnvCheckHandler(w http.ResponseWriter, r *http.Request) {
@@ -345,8 +364,93 @@ func (h *Handler) stageATargetSampleHandler(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+func (h *Handler) pgMySQLExportHandler(w http.ResponseWriter, r *http.Request) {
+	if !opsEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+		return
+	}
+	exporter, ok := h.store.(MySQLMigrationExporter)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, pgMySQLExportResponse{
+			OK:     false,
+			Error:  "migration export unavailable",
+			Detail: "current store does not support PostgreSQL to MySQL export",
+		})
+		return
+	}
+	var input pgMySQLExportRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	if err := decoder.Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, pgMySQLExportResponse{
+			OK:     false,
+			Error:  "invalid export request",
+			Detail: sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	orgIDs := normalizeOpsExportOrgIDs(input.ExternalOrgID)
+	if len(orgIDs) == 0 {
+		orgIDs = []string{defaultOpsMigrationOrgID}
+	}
+	if len(orgIDs) > maxOpsExportOrgCount {
+		writeJSON(w, http.StatusBadRequest, pgMySQLExportResponse{
+			OK:     false,
+			Error:  "invalid export request",
+			Detail: fmt.Sprintf("external_org_id count must be <= %d", maxOpsExportOrgCount),
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	export, err := exporter.ExportMySQLMigration(ctx, mysqlmigration.Options{
+		ExternalOrgIDs: orgIDs,
+		IncludeUsers:   input.IncludeUsers,
+		BatchID:        strings.TrimSpace(input.BatchID),
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, pgMySQLExportResponse{
+			OK:             false,
+			ExternalOrgIDs: orgIDs,
+			Error:          "postgres mysql export failed",
+			Detail:         sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, pgMySQLExportResponse{
+		OK:               true,
+		ExternalOrgIDs:   orgIDs,
+		Report:           export.Report,
+		ImportSQL:        export.ImportSQL,
+		AutoIncrementSQL: export.AutoIncrementSQL,
+		Warnings: []string{
+			"This endpoint is read-only against PostgreSQL and does not write MySQL.",
+			"Review import_sql before executing it in MySQL.",
+		},
+	})
+}
+
 func opsEnabled() bool {
 	return envBool("OPS_ENABLED") || envBool("K8S_SECRET_OPS_ENABLED")
+}
+
+func normalizeOpsExportOrgIDs(value string) []string {
+	seen := map[string]struct{}{}
+	result := []string{}
+	for _, part := range strings.Split(value, ",") {
+		clean := strings.TrimSpace(part)
+		if clean == "" {
+			continue
+		}
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		result = append(result, clean)
+	}
+	return result
 }
 
 func runOSSSmokeFromEnv(ctx context.Context) (*ossSmokeResult, error) {

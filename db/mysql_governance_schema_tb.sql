@@ -11,9 +11,11 @@ create table if not exists tb_users (
   username varchar(255) not null default '',
   display_name varchar(255) not null default '',
   feishu_user_id varchar(255) not null default '',
+  phone varchar(64) not null default '',
   mobile varchar(64) not null default '',
   department varchar(255) not null default '',
   sso_subject varchar(255) not null default '',
+  role varchar(32) not null default 'viewer',
   enabled tinyint(1) not null default 1,
   last_login_at datetime(3) null,
   created_at datetime(3) not null default current_timestamp(3),
@@ -21,8 +23,10 @@ create table if not exists tb_users (
   primary key (id),
   unique key uq_tb_users_email (email),
   key idx_tb_users_feishu_user_id (feishu_user_id),
+  key idx_tb_users_phone (phone),
   key idx_tb_users_mobile (mobile),
   key idx_tb_users_sso_subject (sso_subject),
+  key idx_tb_users_role_enabled (role, enabled),
   key idx_tb_users_enabled (enabled)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
 

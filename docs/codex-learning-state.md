@@ -2,6 +2,31 @@
 
 最后更新：2026-06-24
 
+## 2026-07-02 Postgres -> MySQL 真实数据迁移方向纠正
+
+- 用户纠正：
+  - 公司 MySQL 测试库不是只跑 Stage A 样本验证，而是需要承接当前 Supabase/PostgreSQL 的真实业务数据，并作为后续公司测试环境数据基座。
+  - OSS Stage A 只验证了样本对象从 Supabase Storage 复制到 OSS 的链路，没有完成真实历史数据迁移。
+- 当前判断：
+  - 迁移顺序应改为：Postgres 真实业务数据 -> MySQL 测试库 -> 基于 MySQL 真实资产清单迁 OSS。
+  - OSS 对象迁移不能早于业务行迁移，否则缺少真实 `store_id`、`external_org_id`、`recorder_id`、`channel_id` 和资产归属。
+  - 当前 Go runtime 仍是 `DATABASE_URL` + pgx/PostgreSQL 实现，不能只替换连接串切 MySQL；MySQL repository 是后续单独工作流。
+- 新增迁移工具：
+  - `cmd/pg-to-mysql-export`：只读 Postgres，生成 MySQL 导入 SQL、auto increment SQL 和 `report.json`。
+  - `internal/mysqlmigration`：保存表映射、字段转换和 SQL 生成逻辑。
+  - 迁移工具支持 `--external-org-id 10030` 小样本导出，也支持后续全量导出。
+  - `tb_users.phone` 会迁为 MySQL `tb_users.mobile`，Postgres 当前 `role` 单字段会转成 MySQL `tb_user_roles` 关系。
+- 新增文档：
+  - `docs/postgres-to-mysql-data-migration-runbook.md`。
+- 已发起 DBA 专项复核：
+  - 复核点包括表顺序、DDL 缺口、只读校验、OSS 迁移顺序和必须双向确认的高风险项。
+- MySQL 测试库 Stage A 样本清理：
+  - 用户确认 MySQL 测试库里的 Stage A 样本/假数据需要清除。
+  - 使用 `db/mysql_stage_a_cleanup_sample_tb.sql` 的受控清理口径，只清理 `900001-900199` ID 段和 `stage-a` 标记数据。
+  - 执行前统计：`tb_stores`、`tb_store_areas`、`tb_store_design_plans`、`tb_design_plan_annotations`、`tb_ezviz_accounts`、`tb_video_recorders`、`tb_video_channels`、`tb_channel_snapshots`、`tb_users`、`tb_asset_objects`、`tb_audit_logs`、`tb_asset_access_logs` 合计 28 行。
+  - 执行后统计：上述 12 张表 Stage A ID 段合计 0 行。
+  - 清理事务已提交，MySQL 版本 `8.0.13`，目标库 `db_pm_erzhuang`，库时区 `+08:00`。
+
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
@@ -4354,3 +4379,48 @@ git pull --ff-only
   - `go test -c ./internal/app` 通过。
   - `go test -c ./internal/assets` 通过。
   - `go build ./cmd/server` 通过。
+
+## 2026-07-02 OSS Stage A 样本迁移闭环记录
+
+- 范围：
+  - 样本门店：`external_org_id=10030`。
+  - 样本对象：`channel-snapshots/stage-a-10030-channel-1.jpg`。
+- 已完成：
+  - 公司 Pod OSS smoke 通过。
+  - MySQL 测试库 inventory 导出 2 行，rank=1/2 指向同一 logical key。
+  - `asset-migrate apply=false` dry-run 通过：`Total=2, WouldCopy=1, Skipped=1, Errors=0`。
+  - 源 Supabase 非敏感样本对象 seed 通过。
+  - `asset-migrate apply=true` 通过：`Copied=1, Skipped=1, Errors=0`，复制 159 bytes 到 OSS。
+  - 审查并执行 result SQL，精确更新 `tb_asset_objects.id=900081` 1 行。
+  - 回写后状态为 `storage_provider=oss`、`bucket=sy-camera-erzhuang-project`、`migration_status=migrated`。
+  - validation 关键检查通过：缺字段 0、重复 logical key 0、重复 OSS target key 0、bucket mismatch 0、migrated without proxy path 0。
+  - 源 Supabase 样本对象 cleanup 通过。
+  - 目标 OSS 样本对象 cleanup 通过。
+- 结论：
+  - Stage A 样本链路已闭环，证明 `Supabase 源对象 -> 公司 Pod -> OSS -> MySQL 状态回写 -> validation` 可行。
+  - 下一阶段可以准备 Stage B，但需要先确认真实历史对象源仍存在，并制定批量迁移、失败重试、回滚和清理策略。
+
+## 2026-07-02 Postgres -> MySQL 只读导出入口 2.28.0 开发记录
+
+- 背景：
+  - 用户纠正 MySQL 公司测试库需要承接当前 Supabase/PostgreSQL 真实业务数据，Stage A 样本链路不等于真实数据迁移完成。
+  - 本地没有 `DATABASE_URL` / Supabase 连接环境，真实源数据导出应在公司运行环境使用已有 Postgres 连接执行。
+- 实现：
+  - 新增 `cmd/pg-to-mysql-export`，本地/运行环境均可只读导出 Postgres 数据为 MySQL import SQL、auto increment SQL 和 report。
+  - 新增 `internal/mysqlmigration`，集中维护 Postgres -> MySQL 表映射、字段转换、机构范围过滤和 SQL 生成逻辑。
+  - 新增 `POST /api/admin/ops/pg-mysql-export` 受控入口。
+  - 入口只读 Postgres，不写 MySQL；仅在 `OPS_ENABLED` / `K8S_SECRET_OPS_ENABLED` 开启且管理员具备 `user:manage` 权限时可用。
+  - 默认导出 `external_org_id=10030`，最多允许一次传 5 个机构 ID，避免误导全量大 SQL。
+  - MySQL governance DDL 补齐 `tb_users.phone`、`tb_users.role`，兼容当前第一版 SSO/用户管理单字段角色模型，同时保留 RBAC 扩展表。
+  - 新增 `docs/postgres-to-mysql-data-migration-runbook.md`，明确顺序为：Postgres 真实业务数据 -> MySQL 测试库 -> 基于 MySQL 真实资产清单迁 OSS。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/pg-to-mysql-export-check ./cmd/pg-to-mysql-export` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `git diff --check` 通过。
+  - `go test ./internal/app` 执行阶段仍受本机 Go runtime `dyld missing LC_UUID` 问题阻断，编译级门禁通过。
+- 下一步：
+  - 发布公司环境。
+  - 用浏览器控制台调用 `POST /erzhuang-project/api/admin/ops/pg-mysql-export` 导出 `external_org_id=10030` 小样本。
+  - 审核 report 和 import SQL 后，再决定是否写入 MySQL 测试库。

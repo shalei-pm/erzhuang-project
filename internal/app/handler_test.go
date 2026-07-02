@@ -749,6 +749,34 @@ func TestOpsEnvCheckReturnsSanitizedRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestPgMySQLExportEndpointRequiresExporterStore(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/pg-mysql-export", strings.NewReader(`{"external_org_id":"10030"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+	var response map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response["ok"] != false || response["error"] != "migration export unavailable" {
+		t.Fatalf("unexpected export response: %#v", response)
+	}
+}
+
+func TestNormalizeOpsExportOrgIDs(t *testing.T) {
+	got := normalizeOpsExportOrgIDs("10047, 10030,10047,,")
+	want := []string{"10047", "10030"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("normalizeOpsExportOrgIDs()=%v, want %v", got, want)
+	}
+}
+
 func TestOSSSmokeEndpointRequiresAdminPermission(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("OPS_ENABLED", "true")
