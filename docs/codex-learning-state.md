@@ -4115,5 +4115,6 @@ git pull --ff-only
   - `curl -I -L https://lite.sy.soyoung.com/erzhuang-project/` 返回 HTTP 200，server 为 `APISIX/3.6.0`。
   - 无浏览器 SSO 登录态时，命令行读取页面内容为 APISIX `302 Found` 页面，无法直接确认页脚版本；需用户在浏览器登录态下确认页面底部 `2.25.0 (container)` 或 `2.25.0 (<commit>)`。
 - 备注：
+  - 发布记录补充后，GitHub/GitLab 分支继续同步到 `a0c1edd docs: record h5 topbar company release`；该提交仅更新文档，业务代码提交为其父提交 `35a70ca`。
   - 本次未发布韩国服务器。
   - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
