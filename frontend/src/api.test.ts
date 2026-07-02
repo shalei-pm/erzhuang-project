@@ -17,6 +17,7 @@ import {
 import {
   authCompanyEntryPath,
   authLoginPath,
+  authUserDisplayName,
   authLogoutPath,
   shouldShowLoginWelcome,
   shouldShowLogoutEntry,
@@ -103,6 +104,12 @@ describe("auth helpers", () => {
     expect(shouldShowLogoutEntry({ enabled: false, authenticated: true }, "lite.sy.soyoung.com")).toBe(true);
     expect(shouldShowLogoutEntry({ enabled: false, authenticated: true }, "127.0.0.1")).toBe(false);
     expect(shouldShowLogoutEntry({ enabled: true, authenticated: true }, "127.0.0.1")).toBe(true);
+  });
+
+  it("does not expose enterprise email as the display name", () => {
+    expect(authUserDisplayName({ display_name: "沙磊", username: "shalei" })).toBe("沙磊");
+    expect(authUserDisplayName({ display_name: "", username: "shalei" })).toBe("shalei");
+    expect(authUserDisplayName({ display_name: "", username: "" })).toBe("已登录");
   });
 });
 

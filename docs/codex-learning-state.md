@@ -4058,3 +4058,16 @@ git pull --ff-only
   - `./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
   - `cd frontend && npm test` 通过，25 tests passed。
   - `cd frontend && npm run build` 通过。
+
+## 2026-07-02 登录用户信息隐藏企业邮箱 2.24.2 开发记录
+
+- 背景：
+  - 用户确认 SSO 真实用户展示已正常，希望右上角登录信息只展示 `display`，不再外显企业邮箱。
+- 实现：
+  - 登录用户 chip 改为只展示 `display_name`，缺失时展示 `username`，再缺失显示“已登录”。
+  - 前端保留邮箱数据字段，但不再渲染到页面。
+  - 新增 `authUserDisplayName` helper 和单测，防止后续把企业邮箱重新作为展示兜底。
+  - 删除不再使用的 `.auth-user-email` 样式。
+- 验证：
+  - `cd frontend && npm test` 通过，26 tests passed。
+  - `cd frontend && npm run build` 通过。

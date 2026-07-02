@@ -18,6 +18,7 @@ import {
   authCompanyEntryPath,
   authLoginPath,
   authLogoutPath,
+  authUserDisplayName,
   shouldShowLoginWelcome,
   shouldShowLogoutEntry,
   shouldUseGatewayLogout,
@@ -591,12 +592,11 @@ function AuthUserActions({
   loggingOut: boolean;
   onLogout: () => void | Promise<void>;
 }) {
-  const displayName = auth.user?.display_name || auth.user?.username || auth.user?.email || "已登录";
+  const displayName = authUserDisplayName(auth.user);
 
   return (
     <div className="auth-user-chip" aria-label="当前登录用户">
       <span className="auth-user-name">{displayName}</span>
-      {auth.user?.email ? <span className="auth-user-email">{auth.user.email}</span> : null}
       <button className="plain-button auth-logout-button" onClick={() => void onLogout()} disabled={loggingOut}>
         {loggingOut ? "退出中..." : "退出登录"}
       </button>

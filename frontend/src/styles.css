@@ -218,15 +218,6 @@ select:focus {
   white-space: nowrap;
 }
 
-.auth-user-email {
-  max-width: 180px;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .auth-logout-button {
   min-height: 28px;
   padding: 0 10px;

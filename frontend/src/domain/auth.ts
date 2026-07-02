@@ -51,6 +51,10 @@ export function shouldShowLogoutEntry(auth: Pick<AuthState, "enabled" | "authent
   return isCompanySSODomain(hostname);
 }
 
+export function authUserDisplayName(user?: Pick<AuthUser, "display_name" | "username">) {
+  return user?.display_name || user?.username || "已登录";
+}
+
 function authBasePath() {
   const base = import.meta.env.BASE_URL || "/erzhuang-project/";
   const normalized = base.startsWith("/") ? base : `/${base}`;
