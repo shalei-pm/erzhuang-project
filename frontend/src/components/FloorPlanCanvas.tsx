@@ -10,6 +10,7 @@ type FloorPlanCanvasProps = {
   selectedAreaId: string | null;
   planZoom: number;
   planRef: React.RefObject<HTMLDivElement | null>;
+  canEdit?: boolean;
   onRequestUpload: () => void;
   onSelectArea: (areaId: string) => void;
   onStartDrag: (drag: DragState) => void;
@@ -25,6 +26,7 @@ export function FloorPlanCanvas({
   selectedAreaId,
   planZoom,
   planRef,
+  canEdit = true,
   onRequestUpload,
   onSelectArea,
   onStartDrag,
@@ -71,7 +73,7 @@ export function FloorPlanCanvas({
                 style={boxStyle(areaItem.box)}
                 onClick={() => onSelectArea(areaItem.id)}
                 onPointerDown={(event) => {
-                  if (!areaItem.box) return;
+                  if (!areaItem.box || !canEdit) return;
                   event.preventDefault();
                   onSelectArea(areaItem.id);
                   onStartDrag({
@@ -88,25 +90,27 @@ export function FloorPlanCanvas({
                   <em>{areaItem.needsReview ? "待标注" : areaBoxSecondaryLabel(areaItem)}</em>
                 </span>
                 {(["nw", "ne", "sw", "se"] as ResizeHandle[]).map((handle) => (
-                  <span
-                    aria-hidden="true"
-                    className={`resize-handle resize-${handle}`}
-                    key={handle}
-                    onPointerDown={(event) => {
-                      if (!areaItem.box) return;
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onSelectArea(areaItem.id);
-                      onStartDrag({
-                        areaId: areaItem.id,
-                        mode: "resize",
-                        handle,
-                        startX: event.clientX,
-                        startY: event.clientY,
-                        origin: areaItem.box,
-                      });
-                    }}
-                  />
+                  canEdit ? (
+                    <span
+                      aria-hidden="true"
+                      className={`resize-handle resize-${handle}`}
+                      key={handle}
+                      onPointerDown={(event) => {
+                        if (!areaItem.box) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onSelectArea(areaItem.id);
+                        onStartDrag({
+                          areaId: areaItem.id,
+                          mode: "resize",
+                          handle,
+                          startX: event.clientX,
+                          startY: event.clientY,
+                          origin: areaItem.box,
+                        });
+                      }}
+                    />
+                  ) : null
                 ))}
               </div>
             ) : null,
@@ -123,9 +127,11 @@ export function FloorPlanCanvas({
         <div className="upload-placeholder">
           <strong>等待上传设计图 PDF</strong>
           <p>上传门店装修设计图后，可以在这里维护业务区域和图纸矩形框。</p>
-          <button className="primary-button" onClick={onRequestUpload}>
-            上传 PDF
-          </button>
+          {canEdit ? (
+            <button className="primary-button" onClick={onRequestUpload}>
+              上传 PDF
+            </button>
+          ) : null}
         </div>
       )}
     </div>

@@ -6,6 +6,7 @@ type AreaCardListProps = {
   selectedAreaId: string | null;
   areaErrors: Record<string, string[]>;
   areaCardRefs: React.MutableRefObject<Record<string, HTMLElement | null>>;
+  canEdit?: boolean;
   onSelectArea: (areaId: string) => void;
   onUpdateArea: (areaId: string, patch: Partial<StoreArea>) => void;
   onMoveArea: (areaId: string, direction: -1 | 1) => void;
@@ -17,6 +18,7 @@ export function AreaCardList({
   selectedAreaId,
   areaErrors,
   areaCardRefs,
+  canEdit = true,
   onSelectArea,
   onUpdateArea,
   onMoveArea,
@@ -55,7 +57,7 @@ export function AreaCardList({
                 区域类型
                 <select
                   value={areaItem.type}
-                  disabled={lockedByChannel}
+                  disabled={!canEdit || lockedByChannel}
                   onChange={(event) => onUpdateArea(areaItem.id, { type: event.target.value as AreaType | "" })}
                 >
                   <option value="">请选择</option>
@@ -69,7 +71,7 @@ export function AreaCardList({
                 编号
                 <input
                   value={areaItem.number}
-                  disabled={lockedByChannel}
+                  disabled={!canEdit || lockedByChannel}
                   onChange={(event) => onUpdateArea(areaItem.id, { number: event.target.value })}
                   inputMode="numeric"
                   placeholder={numberOptional ? "-" : "必填"}
@@ -78,17 +80,19 @@ export function AreaCardList({
             </div>
             {lockedByChannel ? <p className="area-card-note">类型和编号由通道映射维护；这里仅补充或调整图纸标注框。</p> : null}
             {errors.length > 0 ? <p className="area-error">{errors.join("；")}</p> : null}
-            <div className="area-card-actions">
-              <button disabled={index === 0} onClick={() => onMoveArea(areaItem.id, -1)}>
-                上移
-              </button>
-              <button disabled={index === areas.length - 1} onClick={() => onMoveArea(areaItem.id, 1)}>
-                下移
-              </button>
-              <button className="danger-link" onClick={() => onDeleteArea(areaItem.id)}>
-                删除
-              </button>
-            </div>
+            {canEdit ? (
+              <div className="area-card-actions">
+                <button disabled={index === 0} onClick={() => onMoveArea(areaItem.id, -1)}>
+                  上移
+                </button>
+                <button disabled={index === areas.length - 1} onClick={() => onMoveArea(areaItem.id, 1)}>
+                  下移
+                </button>
+                <button className="danger-link" onClick={() => onDeleteArea(areaItem.id)}>
+                  删除
+                </button>
+              </div>
+            ) : null}
           </article>
         );
       })}

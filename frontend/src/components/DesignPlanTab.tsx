@@ -18,11 +18,12 @@ const emptyValidation: ValidationResult = { fieldErrors: [], areaErrors: {} };
 type DesignPlanTabProps = {
   store: StoreDetail;
   saving: boolean;
+  canEdit: boolean;
   onStoreUpdated: (update: StoreDetail | ((store: StoreDetail) => StoreDetail)) => void;
   onToast: (message: string) => void;
 };
 
-export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: DesignPlanTabProps) {
+export function DesignPlanTab({ store, saving, canEdit, onStoreUpdated, onToast }: DesignPlanTabProps) {
   const [storeId, setStoreId] = useState(store.id);
   const [fileName, setFileName] = useState(store.fileName);
   const [uploadId, setUploadId] = useState<string | undefined>();
@@ -313,12 +314,16 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
                 accept="application/pdf"
                 onChange={(event) => void handlePdfSelected(event.target.files)}
               />
-              <button onClick={requestPdfUpload} disabled={uploadStage === "converting"}>
-                {previewUrl || pendingPreviewUrl ? "更换 PDF" : "上传 PDF"}
-              </button>
-              <button disabled={(!previewUrl && !pendingPreviewUrl) || uploadStage === "recognizing" || uploadStage === "converting"} onClick={() => void recognizeDesignPlan()}>
-                识别图纸区域
-              </button>
+              {canEdit ? (
+                <>
+                  <button onClick={requestPdfUpload} disabled={uploadStage === "converting"}>
+                    {previewUrl || pendingPreviewUrl ? "更换 PDF" : "上传 PDF"}
+                  </button>
+                  <button disabled={(!previewUrl && !pendingPreviewUrl) || uploadStage === "recognizing" || uploadStage === "converting"} onClick={() => void recognizeDesignPlan()}>
+                    识别图纸区域
+                  </button>
+                </>
+              ) : null}
               <button onClick={() => setPlanZoom((value) => Math.max(0.7, Number((value - 0.15).toFixed(2))))}>-</button>
               <button onClick={() => setPlanZoom(1)}>适应</button>
               <button onClick={() => setPlanZoom((value) => Math.min(1.8, Number((value + 0.15).toFixed(2))))}>+</button>
@@ -335,6 +340,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
             planRef={planRef}
             onRequestUpload={requestPdfUpload}
             onSelectArea={selectArea}
+            canEdit={canEdit}
             onStartDrag={setDragState}
             onPendingPreviewLoaded={commitPendingPreview}
             onPendingPreviewError={rollbackPendingPreview}
@@ -347,12 +353,14 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
               <strong>区域卡片</strong>
               <span>{areas.length} 个区域</span>
             </div>
-            <div className="row-actions">
-              <button onClick={addArea}>新增区域</button>
-              <button disabled={saving || uploadStage === "recognizing"} onClick={() => void saveAnnotations()}>
-                保存标注
-              </button>
-            </div>
+            {canEdit ? (
+              <div className="row-actions">
+                <button onClick={addArea}>新增区域</button>
+                <button disabled={saving || uploadStage === "recognizing"} onClick={() => void saveAnnotations()}>
+                  保存标注
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {uploadStage === "recognizing" ? (
@@ -374,6 +382,7 @@ export function DesignPlanTab({ store, saving, onStoreUpdated, onToast }: Design
             selectedAreaId={selectedAreaId}
             areaErrors={validation.areaErrors}
             areaCardRefs={areaCardRefs}
+            canEdit={canEdit}
             onSelectArea={selectArea}
             onUpdateArea={updateArea}
             onMoveArea={moveArea}

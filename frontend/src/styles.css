@@ -249,6 +249,10 @@ select:focus {
   gap: 12px;
 }
 
+.compact-page-header {
+  align-items: center;
+}
+
 .auth-user-chip {
   display: flex;
   align-items: center;
@@ -565,6 +569,107 @@ h1 {
   border-radius: var(--radius-card);
   background: var(--surface);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.user-management-page {
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.user-management-page .page-header,
+.user-management-page .table-frame {
+  max-width: none;
+}
+
+.user-table th:nth-child(1),
+.user-table td:nth-child(1) {
+  width: 260px;
+}
+
+.user-table th:nth-child(2),
+.user-table td:nth-child(2),
+.user-table th:nth-child(5),
+.user-table td:nth-child(5) {
+  width: 180px;
+}
+
+.user-table th:nth-child(3),
+.user-table td:nth-child(3),
+.user-table th:nth-child(4),
+.user-table td:nth-child(4),
+.user-table th:nth-child(6),
+.user-table td:nth-child(6) {
+  width: 110px;
+}
+
+.role-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.role-admin {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.role-editor {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.role-viewer {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: var(--text-muted);
+}
+
+.user-modal {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.user-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.user-form-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.user-form-grid input,
+.user-form-grid select {
+  font-weight: 500;
+}
+
+.user-enabled-field {
+  grid-column: 1 / -1;
+  display: flex !important;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px !important;
+  color: var(--text-main) !important;
+}
+
+.user-enabled-field input {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
 }
 
 .store-table th:nth-child(1),

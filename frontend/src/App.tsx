@@ -15,10 +15,13 @@ import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
 import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
 import { StoreList } from "./components/StoreList";
 import { SystemTopBar } from "./components/SystemTopBar";
+import { UserManagement } from "./components/UserManagement";
 import {
   authCompanyEntryPath,
   authLoginPath,
   authLogoutPath,
+  canEditStores,
+  canManageUsers,
   shouldBlockBusinessData,
   shouldShowForbiddenAccess,
   shouldShowLoginWelcome,
@@ -87,6 +90,7 @@ function AdminApp() {
   const [switchingAIModel, setSwitchingAIModel] = useState(false);
   const [deletingStoreIds, setDeletingStoreIds] = useState<Set<number>>(() => new Set());
   const [openingStoreIds, setOpeningStoreIds] = useState<Set<number>>(() => new Set());
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const listRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
   const detailCacheRef = useRef(createStoreDetailCache());
@@ -102,6 +106,8 @@ function AdminApp() {
   const visibleFirstIndex = visibleStores.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const visibleLastIndex = visibleStores.length === 0 ? 0 : visibleFirstIndex + visibleStores.length - 1;
   const showLogoutEntry = shouldShowLogoutEntry(auth);
+  const canManageSystemUsers = canManageUsers(auth);
+  const canEditStoreResources = canEditStores(auth);
 
   useEffect(() => {
     void storeSpaceApi
@@ -123,9 +129,9 @@ function AdminApp() {
   }, []);
 
   useEffect(() => {
-    if (authLoading || shouldBlockBusinessData(auth)) return;
+    if (settingsOpen || authLoading || shouldBlockBusinessData(auth)) return;
     void loadStores(query, cityFilter, page);
-  }, [page, query, cityFilter, authLoading, auth]);
+  }, [page, query, cityFilter, authLoading, auth, settingsOpen]);
 
   useEffect(() => {
     activeStoreRef.current = activeStore;
@@ -138,17 +144,17 @@ function AdminApp() {
   }, [auth]);
 
   useEffect(() => {
-    if (authLoading || shouldBlockBusinessData(auth)) return;
+    if (settingsOpen || authLoading || shouldBlockBusinessData(auth)) return;
     void storeSpaceApi
       .listEzvizAccounts()
       .then(setAccounts)
       .catch((error) => setToast(errorMessage(error, "萤石云账号加载失败。")));
-  }, [authLoading, auth]);
+  }, [authLoading, auth, settingsOpen]);
 
   useEffect(() => {
-    if (authLoading || shouldBlockBusinessData(auth)) return;
+    if (settingsOpen || authLoading || shouldBlockBusinessData(auth) || !canManageSystemUsers) return;
     void loadAISettings();
-  }, [authLoading, auth]);
+  }, [authLoading, auth, settingsOpen, canManageSystemUsers]);
 
   useEffect(() => {
     if (!shouldShowLoginWelcome(auth)) return;
@@ -413,6 +419,7 @@ function AdminApp() {
   function returnToStoreList() {
     detailRequestIdRef.current += 1;
     setActiveStore(null);
+    setSettingsOpen(false);
     setLoadedDetailTabs(new Set());
     setLoadingDetailTabs(new Set());
     void loadStores();
@@ -437,6 +444,8 @@ function AdminApp() {
           accounts={accounts}
           aiSettings={aiSettings}
           switchingAIModel={switchingAIModel}
+          canEdit={canEditStoreResources}
+          canManageSettings={canManageSystemUsers}
           h5MonitorUrl={canOpenH5Monitor(activeStore) ? h5MonitorPath(activeStore.externalOrgId) : undefined}
           onTabChange={(tab) => void ensureDetailTabLoaded(tab)}
           onToggleAIModel={toggleAIModel}
@@ -474,6 +483,24 @@ function AdminApp() {
     return <ForbiddenAccess appVersion={APP_VERSION} />;
   }
 
+  if (settingsOpen && canManageSystemUsers) {
+    return (
+      <main className="app-shell">
+        <SystemTopBar
+          backAction={{ label: "返回列表", onClick: returnToStoreList }}
+          auth={showLogoutEntry ? auth : null}
+          loggingOut={loggingOut}
+          onLogout={logout}
+        />
+        {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
+        <UserManagement onToast={setToast} />
+        <footer className="app-version" aria-label="当前版本">
+          版本 {APP_VERSION}
+        </footer>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <SystemTopBar auth={showLogoutEntry ? auth : null} loggingOut={loggingOut} onLogout={logout} />
@@ -483,10 +510,17 @@ function AdminApp() {
           <h1>门店空间资源管理系统</h1>
         </div>
         <div className="page-header-actions">
-          <button className="primary-button" onClick={() => setCreateOpen(true)}>
-            <span aria-hidden="true">+</span>
-            添加门店
-          </button>
+          {canManageSystemUsers ? (
+            <button className="secondary-action-button" onClick={() => setSettingsOpen(true)}>
+              系统设置
+            </button>
+          ) : null}
+          {canEditStoreResources ? (
+            <button className="primary-button" onClick={() => setCreateOpen(true)}>
+              <span aria-hidden="true">+</span>
+              添加门店
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -534,6 +568,7 @@ function AdminApp() {
         pageSize={PAGE_SIZE}
         deletingStoreIds={deletingStoreIds}
         openingStoreIds={openingStoreIds}
+        canEdit={canEditStoreResources}
         onOpenStore={openStore}
         onEditStore={setEditingStore}
         onDeleteStore={deleteStore}

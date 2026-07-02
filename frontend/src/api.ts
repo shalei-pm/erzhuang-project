@@ -241,6 +241,26 @@ export type AISettings = {
   label: string;
 };
 
+export type ManagedUserRole = "admin" | "editor" | "viewer";
+
+export type ManagedUser = {
+  id: number;
+  email: string;
+  username: string;
+  displayName: string;
+  role: ManagedUserRole;
+  enabled: boolean;
+  lastLoginAt?: string;
+};
+
+export type ManagedUserPayload = {
+  email?: string;
+  username: string;
+  displayName: string;
+  role: ManagedUserRole;
+  enabled: boolean;
+};
+
 type ApiMode = "auto" | "http" | "mock";
 
 type BackendStoreListResponse = {
@@ -437,6 +457,18 @@ type BackendSnapshotDiagnostics = {
   detail?: string;
 };
 
+type BackendManagedUser = {
+  id: number;
+  email: string;
+  username?: string;
+  display_name?: string;
+  displayName?: string;
+  role?: ManagedUserRole | string;
+  enabled?: boolean;
+  last_login_at?: string;
+  lastLoginAt?: string;
+};
+
 type BackendStoreSpaceListResponse = {
   items: BackendStoreSpaceSummary[];
   page: number;
@@ -599,6 +631,12 @@ let nextRecorderId = 900;
 let nextChannelId = 5000;
 const mockUploads = new Map<string, string>();
 let mockAISettings: AISettings = { provider: "openai", model: "gpt-5.5", label: "OpenAI / gpt-5.5" };
+let mockManagedUsers: ManagedUser[] = [
+  { id: 1, email: "shalei@soyoung.com", username: "shalei", displayName: "沙磊", role: "admin", enabled: true },
+  { id: 2, email: "maming@soyoung.com", username: "maming", displayName: "马明", role: "admin", enabled: true },
+  { id: 3, email: "changwenxia@soyoung.com", username: "changwenxia", displayName: "常文霞", role: "editor", enabled: true },
+  { id: 4, email: "wangxiaofan@soyoung.com", username: "wangxiaofan", displayName: "王晓凡", role: "editor", enabled: true },
+];
 
 let mockEzvizAccounts: EzvizAccount[] = [
   { id: 1, accountName: "华北", status: "available", lastVerifiedAt: "2026-06-10T10:30:00.000Z" },
@@ -1185,6 +1223,27 @@ const storeSpaceHttpAdapter = {
     await requestJSON<void>(`${APP_API_BASE}/auth/logout`, { method: "POST" });
   },
 
+  async listUsers(): Promise<ManagedUser[]> {
+    const response = await requestJSON<{ users: BackendManagedUser[] }>(`${APP_API_BASE}/users`);
+    return (response.users ?? []).map(mapManagedUser);
+  },
+
+  async createUser(payload: ManagedUserPayload): Promise<ManagedUser> {
+    const response = await requestJSON<BackendManagedUser>(`${APP_API_BASE}/users`, {
+      method: "POST",
+      body: JSON.stringify(toManagedUserPayload(payload)),
+    });
+    return mapManagedUser(response);
+  },
+
+  async updateUser(id: number, payload: ManagedUserPayload): Promise<ManagedUser> {
+    const response = await requestJSON<BackendManagedUser>(`${APP_API_BASE}/users/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(toManagedUserPayload(payload)),
+    });
+    return mapManagedUser(response);
+  },
+
   async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores`, {
       method: "POST",
@@ -1467,6 +1526,49 @@ export const storeSpaceApi = {
   async logout(): Promise<void> {
     if (API_MODE === "mock") return;
     return storeSpaceHttpAdapter.logout();
+  },
+
+  async listUsers(): Promise<ManagedUser[]> {
+    if (API_MODE === "mock") {
+      return clone(mockManagedUsers);
+    }
+    return storeSpaceHttpAdapter.listUsers();
+  },
+
+  async createUser(payload: ManagedUserPayload): Promise<ManagedUser> {
+    if (API_MODE === "mock") {
+      const email = (payload.email ?? "").trim().toLowerCase();
+      if (!email) throw new ApiError(400, "企业邮箱不能为空");
+      if (mockManagedUsers.some((user) => user.email === email)) throw new ApiError(400, "用户已存在");
+      const user: ManagedUser = {
+        id: Math.max(0, ...mockManagedUsers.map((item) => item.id)) + 1,
+        email,
+        username: payload.username.trim() || email.split("@")[0],
+        displayName: payload.displayName.trim(),
+        role: payload.role,
+        enabled: payload.enabled,
+      };
+      mockManagedUsers = [...mockManagedUsers, user];
+      return clone(user);
+    }
+    return storeSpaceHttpAdapter.createUser(payload);
+  },
+
+  async updateUser(id: number, payload: ManagedUserPayload): Promise<ManagedUser> {
+    if (API_MODE === "mock") {
+      const index = mockManagedUsers.findIndex((user) => user.id === id);
+      if (index < 0) throw new ApiError(404, "用户不存在");
+      const user: ManagedUser = {
+        ...mockManagedUsers[index],
+        username: payload.username.trim(),
+        displayName: payload.displayName.trim(),
+        role: payload.role,
+        enabled: payload.enabled,
+      };
+      mockManagedUsers = mockManagedUsers.map((item) => (item.id === id ? user : item));
+      return clone(user);
+    }
+    return storeSpaceHttpAdapter.updateUser(id, payload);
   },
 
   async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {
@@ -1796,6 +1898,35 @@ function mapBackendSummary(item: BackendStoreSummary): StoreSummary {
     areaCount: item.area_count,
     status: item.status,
     updatedAt: item.updated_at,
+  };
+}
+
+function mapManagedUser(user: BackendManagedUser): ManagedUser {
+  return {
+    id: user.id,
+    email: user.email,
+    username: user.username ?? "",
+    displayName: user.display_name ?? user.displayName ?? "",
+    role: normalizeManagedRole(user.role),
+    enabled: user.enabled ?? false,
+    lastLoginAt: user.last_login_at ?? user.lastLoginAt,
+  };
+}
+
+function normalizeManagedRole(role: string | undefined): ManagedUserRole {
+  if (role === "admin" || role === "editor" || role === "viewer") {
+    return role;
+  }
+  return "viewer";
+}
+
+function toManagedUserPayload(payload: ManagedUserPayload) {
+  return {
+    email: payload.email,
+    username: payload.username,
+    display_name: payload.displayName,
+    role: payload.role,
+    enabled: payload.enabled,
   };
 }
 

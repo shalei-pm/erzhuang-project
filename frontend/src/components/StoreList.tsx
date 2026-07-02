@@ -15,12 +15,13 @@ type StoreListProps = {
   pageSize: number;
   deletingStoreIds: Set<number>;
   openingStoreIds: Set<number>;
+  canEdit: boolean;
   onOpenStore: (storeId: number) => void;
   onEditStore: (store: StoreSummary) => void;
   onDeleteStore: (store: StoreSummary) => void;
 };
 
-export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, openingStoreIds, onOpenStore, onEditStore, onDeleteStore }: StoreListProps) {
+export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, openingStoreIds, canEdit, onOpenStore, onEditStore, onDeleteStore }: StoreListProps) {
   return (
     <section className="table-frame" aria-label="门店列表">
       <table className="store-table">
@@ -101,19 +102,23 @@ export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, o
                           "详情"
                         )}
                       </button>
-                      <button disabled={isDeleting || isOpening} onClick={() => onEditStore(store)}>
-                        编辑
-                      </button>
-                      <button className="danger-link" disabled={isDeleting || isOpening} onClick={() => onDeleteStore(store)}>
-                        {isDeleting ? (
-                          <>
-                            <span className="button-spinner" aria-hidden="true" />
-                            删除中
-                          </>
-                        ) : (
-                          "删除"
-                        )}
-                      </button>
+                      {canEdit ? (
+                        <>
+                          <button disabled={isDeleting || isOpening} onClick={() => onEditStore(store)}>
+                            编辑
+                          </button>
+                          <button className="danger-link" disabled={isDeleting || isOpening} onClick={() => onDeleteStore(store)}>
+                            {isDeleting ? (
+                              <>
+                                <span className="button-spinner" aria-hidden="true" />
+                                删除中
+                              </>
+                            ) : (
+                              "删除"
+                            )}
+                          </button>
+                        </>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

@@ -30,12 +30,13 @@ const snapshotImageQueue = new ImageLoadQueue(2);
 type VideoChannelTabProps = {
   store: StoreDetail;
   accounts: EzvizAccount[];
+  canEdit: boolean;
   onStoreUpdated: (update: StoreDetail | ((store: StoreDetail) => StoreDetail)) => void;
   onRecorderUpdated: (recorder: VideoRecorder) => void;
   onToast: (message: string) => void;
 };
 
-export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
+export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
   const [recognizingChannelIds, setRecognizingChannelIds] = useState<Set<number>>(() => new Set());
   const [recorderProgress, setRecorderProgress] = useState<Record<number, { done: number; total: number }>>({});
@@ -450,37 +451,39 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
             <strong>录像机列表</strong>
             <span>最多 3 台，删除后可在这里重新补充。</span>
           </div>
-          <div className="add-recorder-form" aria-label="添加录像机">
-            <select
-              value={newRecorderAccountId}
-              disabled={addingRecorder}
-              onChange={(event) => setNewRecorderAccountId(event.target.value ? Number(event.target.value) : "")}
-              aria-label="选择区域"
-            >
-              <option value="">{regionAccounts.length === 0 ? "暂无区域" : "选择区域"}</option>
-              {regionAccounts.map((account) => (
-                <option value={account.id} key={account.id}>
-                  {displayAccountRegion(account)}
-                </option>
-              ))}
-            </select>
-            <input
-              value={newRecorderCode}
-              disabled={addingRecorder || store.recorders.length >= 3}
-              onChange={(event) => setNewRecorderCode(event.target.value)}
-              placeholder="录像机设备编码"
-            />
-            <button disabled={addingRecorder || store.recorders.length >= 3} onClick={() => void addRecorder()}>
-              添加录像机
-            </button>
-          </div>
+          {canEdit ? (
+            <div className="add-recorder-form" aria-label="添加录像机">
+              <select
+                value={newRecorderAccountId}
+                disabled={addingRecorder}
+                onChange={(event) => setNewRecorderAccountId(event.target.value ? Number(event.target.value) : "")}
+                aria-label="选择区域"
+              >
+                <option value="">{regionAccounts.length === 0 ? "暂无区域" : "选择区域"}</option>
+                {regionAccounts.map((account) => (
+                  <option value={account.id} key={account.id}>
+                    {displayAccountRegion(account)}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={newRecorderCode}
+                disabled={addingRecorder || store.recorders.length >= 3}
+                onChange={(event) => setNewRecorderCode(event.target.value)}
+                placeholder="录像机设备编码"
+              />
+              <button disabled={addingRecorder || store.recorders.length >= 3} onClick={() => void addRecorder()}>
+                添加录像机
+              </button>
+            </div>
+          ) : null}
         </div>
         {channelError ? <div className="inline-error">{channelError}</div> : null}
 
         {store.recorders.length === 0 ? (
           <div className="manual-panel">
             <strong>暂无录像机</strong>
-            <p>可在上方填写设备编码并添加，添加后再扫描通道。</p>
+            <p>{canEdit ? "可在上方填写设备编码并添加，添加后再扫描通道。" : "暂无录像机数据。"}</p>
           </div>
         ) : (
           <div className="recorder-table-wrap">
@@ -510,37 +513,41 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                       <td>{recorder.effectiveChannelCount}</td>
                       <td>{formatDateTime(recorder.lastScannedAt)}</td>
                       <td>
-                        <div className="recorder-operation-area">
-                          <div className="row-actions recorder-actions">
-                            <button disabled={isRecognizingRecorder || isDeleting} onClick={() => void scanRecorder(recorder)}>
-                              {hasScanned ? "再次扫描" : "扫描通道"}
-                            </button>
-                            {hasScanned ? (
-                              <button disabled={isRecognizingRecorder || isDeleting} onClick={() => void recognizeRecorder(recorder)}>
-                                识别区域
+                        {canEdit ? (
+                          <div className="recorder-operation-area">
+                            <div className="row-actions recorder-actions">
+                              <button disabled={isRecognizingRecorder || isDeleting} onClick={() => void scanRecorder(recorder)}>
+                                {hasScanned ? "再次扫描" : "扫描通道"}
                               </button>
+                              {hasScanned ? (
+                                <button disabled={isRecognizingRecorder || isDeleting} onClick={() => void recognizeRecorder(recorder)}>
+                                  识别区域
+                                </button>
+                              ) : null}
+                              <button className="danger-link" disabled={isRecognizingRecorder || isDeleting} onClick={() => void deleteRecorder(recorder)}>
+                                {isDeleting ? (
+                                  <>
+                                    <span className="button-spinner" aria-hidden="true" />
+                                    删除中
+                                  </>
+                                ) : (
+                                  "删除"
+                                )}
+                              </button>
+                            </div>
+                            {isRecognizingRecorder ? (
+                              <span className="recorder-thinking-label">
+                                {fallbackProbeProgress[recorder.id]
+                                  ? fallbackProbeProgressLabel(fallbackProbeProgress[recorder.id])
+                                  : recognitionProgressLabel(recorderProgress[recorder.id])}
+                              </span>
+                            ) : recorder.recognitionProgress ? (
+                              <span className="recorder-muted-label">{recorder.recognitionProgress}</span>
                             ) : null}
-                            <button className="danger-link" disabled={isRecognizingRecorder || isDeleting} onClick={() => void deleteRecorder(recorder)}>
-                              {isDeleting ? (
-                                <>
-                                  <span className="button-spinner" aria-hidden="true" />
-                                  删除中
-                                </>
-                              ) : (
-                                "删除"
-                              )}
-                            </button>
                           </div>
-                          {isRecognizingRecorder ? (
-                            <span className="recorder-thinking-label">
-                              {fallbackProbeProgress[recorder.id]
-                                ? fallbackProbeProgressLabel(fallbackProbeProgress[recorder.id])
-                                : recognitionProgressLabel(recorderProgress[recorder.id])}
-                            </span>
-                          ) : recorder.recognitionProgress ? (
-                            <span className="recorder-muted-label">{recorder.recognitionProgress}</span>
-                          ) : null}
-                        </div>
+                        ) : (
+                          <span className="recorder-muted-label">仅查看</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -632,10 +639,11 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                   visibleChannels.map((channel) => {
                 const draft = editingChannels[channel.id] ?? {};
                 const isEditable =
-                  channel.status === "pending_confirmation" ||
-                  channel.status === "pending_recognition" ||
-                  channel.status === "recognition_failed" ||
-                  Boolean(draft.status);
+                  canEdit &&
+                  (channel.status === "pending_confirmation" ||
+                    channel.status === "pending_recognition" ||
+                    channel.status === "recognition_failed" ||
+                    Boolean(draft.status));
                 const recognitionMessage = channelRecognitionMessage(channel);
                 const isRecognizing = recognizingChannelIds.has(channel.id);
                 const isConfirming = confirmingChannelIds.has(channel.id);
@@ -738,58 +746,62 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                       <span className={`status-pill channel-${channel.status}`}>{channelStatusLabel(channel.status)}</span>
                     </td>
                     <td>
-                      <div className="row-actions">
-                        {isEditable ? (
-                          <button disabled={isConfirming || isDeleting} onClick={() => void confirmChannel(channel)}>
-                            {isConfirming ? (
+                      {canEdit ? (
+                        <div className="row-actions">
+                          {isEditable ? (
+                            <button disabled={isConfirming || isDeleting} onClick={() => void confirmChannel(channel)}>
+                              {isConfirming ? (
+                                <>
+                                  <span className="button-spinner" aria-hidden="true" />
+                                  确认中
+                                </>
+                              ) : (
+                                "确认"
+                              )}
+                            </button>
+                          ) : (
+                            <button disabled={isDeleting || isUnlocking} onClick={() => void unlockChannelForEdit(channel)}>
+                              {isUnlocking ? (
+                                <>
+                                  <span className="button-spinner" aria-hidden="true" />
+                                  解锁中
+                                </>
+                              ) : (
+                                "编辑"
+                              )}
+                            </button>
+                          )}
+                          <button
+                            disabled={isRecognizing || isDeleting || workingRecorderId === recorder.id}
+                            onClick={() => void (isConfirmed ? refreshChannelSnapshot(recorder, channel) : recognizeChannel(recorder, channel))}
+                          >
+                            {isRecognizing ? (
                               <>
                                 <span className="button-spinner" aria-hidden="true" />
-                                确认中
+                                {isConfirmed ? "刷新中" : "识别中"}
                               </>
                             ) : (
-                              "确认"
+                              isConfirmed ? "刷新截图" : "重新识别"
                             )}
                           </button>
-                        ) : (
-                          <button disabled={isDeleting || isUnlocking} onClick={() => void unlockChannelForEdit(channel)}>
-                            {isUnlocking ? (
+                          <button
+                            className="danger-link"
+                            disabled={isRecognizing || isDeleting || isConfirming || workingRecorderId === recorder.id}
+                            onClick={() => void deleteChannel(recorder, channel)}
+                          >
+                            {isDeleting ? (
                               <>
                                 <span className="button-spinner" aria-hidden="true" />
-                                解锁中
+                                删除中
                               </>
                             ) : (
-                              "编辑"
+                              "删除"
                             )}
                           </button>
-                        )}
-                        <button
-                          disabled={isRecognizing || isDeleting || workingRecorderId === recorder.id}
-                          onClick={() => void (isConfirmed ? refreshChannelSnapshot(recorder, channel) : recognizeChannel(recorder, channel))}
-                        >
-                          {isRecognizing ? (
-                            <>
-                              <span className="button-spinner" aria-hidden="true" />
-                              {isConfirmed ? "刷新中" : "识别中"}
-                            </>
-                          ) : (
-                            isConfirmed ? "刷新截图" : "重新识别"
-                          )}
-                        </button>
-                        <button
-                          className="danger-link"
-                          disabled={isRecognizing || isDeleting || isConfirming || workingRecorderId === recorder.id}
-                          onClick={() => void deleteChannel(recorder, channel)}
-                        >
-                          {isDeleting ? (
-                            <>
-                              <span className="button-spinner" aria-hidden="true" />
-                              删除中
-                            </>
-                          ) : (
-                            "删除"
-                          )}
-                        </button>
-                      </div>
+                        </div>
+                      ) : (
+                        <span className="recorder-muted-label">仅查看</span>
+                      )}
                     </td>
                   </tr>
                 );

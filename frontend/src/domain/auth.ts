@@ -64,6 +64,18 @@ export function authUserDisplayName(user?: Pick<AuthUser, "display_name" | "user
   return user?.display_name || user?.username || "已登录";
 }
 
+export function hasPermission(auth: Pick<AuthState, "permissions" | "user"> | null | undefined, permission: string) {
+  return Boolean(auth?.permissions?.includes(permission) || auth?.user?.role === permission);
+}
+
+export function canManageUsers(auth: Pick<AuthState, "permissions" | "user"> | null | undefined) {
+  return hasPermission(auth, "user:manage") || auth?.user?.role === "admin";
+}
+
+export function canEditStores(auth: Pick<AuthState, "permissions" | "user"> | null | undefined) {
+  return hasPermission(auth, "store:write") || auth?.user?.role === "admin" || auth?.user?.role === "editor";
+}
+
 function authBasePath() {
   const base = import.meta.env.BASE_URL || "/erzhuang-project/";
   const normalized = base.startsWith("/") ? base : `/${base}`;

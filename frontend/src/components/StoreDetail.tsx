@@ -14,6 +14,8 @@ type StoreDetailProps = {
   accounts: EzvizAccount[];
   aiSettings: AISettings | null;
   switchingAIModel: boolean;
+  canEdit: boolean;
+  canManageSettings: boolean;
   h5MonitorUrl?: string;
   onTabChange: (tab: StoreDetailTab) => void;
   onToggleAIModel: () => void;
@@ -30,6 +32,8 @@ export function StoreDetail({
   accounts,
   aiSettings,
   switchingAIModel,
+  canEdit,
+  canManageSettings,
   h5MonitorUrl,
   onTabChange,
   onToggleAIModel,
@@ -108,12 +112,14 @@ export function StoreDetail({
             通道映射
           </button>
         </nav>
-        <div className="ai-model-switcher" aria-label="识别模型设置">
-          <span>当前识别模型：{aiSettings?.label ?? "加载中"}</span>
-          <button type="button" className="secondary-action-button" disabled={switchingAIModel || !aiSettings} onClick={onToggleAIModel}>
-            {switchingAIModel ? "切换中" : "切换识别模型"}
-          </button>
-        </div>
+        {canManageSettings ? (
+          <div className="ai-model-switcher" aria-label="识别模型设置">
+            <span>当前识别模型：{aiSettings?.label ?? "加载中"}</span>
+            <button type="button" className="secondary-action-button" disabled={switchingAIModel || !aiSettings} onClick={onToggleAIModel}>
+              {switchingAIModel ? "切换中" : "切换识别模型"}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {isActiveTabLoading ? (
@@ -125,12 +131,13 @@ export function StoreDetail({
       ) : (
         <>
           <div hidden={activeTab !== "design-plan"}>
-            <DesignPlanTab store={store} saving={saving} onStoreUpdated={onStoreUpdated} onToast={onToast} />
+            <DesignPlanTab store={store} saving={saving} canEdit={canEdit} onStoreUpdated={onStoreUpdated} onToast={onToast} />
           </div>
           <div hidden={activeTab !== "channels"}>
             <VideoChannelTab
               store={store}
               accounts={accounts}
+              canEdit={canEdit}
               onStoreUpdated={onStoreUpdated}
               onRecorderUpdated={updateRecorder}
               onToast={onToast}
