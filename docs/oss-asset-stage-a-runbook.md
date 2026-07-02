@@ -76,6 +76,43 @@ OSS_ACCESS_KEY_SECRET=<from secret> \
 
 本机当前 Go 产物执行可能出现 `dyld missing LC_UUID`，因此真实 smoke 更适合在公司容器、Linux 测试机或修复本机 Go runtime 后执行。
 
+## Manifest 迁移工具
+
+`cmd/asset-migrate` 用于读取 `db/oss_asset_inventory_sql_tb.sql` 导出的 CSV 清单，并把对象从源存储复制到目标 OSS。它默认 dry-run，不写目标存储；只有显式传 `--apply` 才会复制对象。
+
+构建：
+
+```bash
+GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/asset-migrate-check ./cmd/asset-migrate
+```
+
+样本 dry-run：
+
+```bash
+/private/tmp/asset-migrate-check \
+  --manifest /path/to/oss-inventory-10030.csv \
+  --external-org-id 10030 \
+  --max-rows 20
+```
+
+源存储和目标存储使用独立前缀，避免迁移时无法表达“从旧存储读、写到 OSS”：
+
+```text
+SOURCE_ASSET_STORE=local|supabase|oss
+SOURCE_UPLOAD_DIR=<local root>
+SOURCE_SUPABASE_URL=<source supabase url>
+SOURCE_SUPABASE_SERVICE_ROLE_KEY=<source secret>
+SOURCE_SUPABASE_STORAGE_BUCKET=<source bucket>
+
+TARGET_ASSET_STORE=oss
+TARGET_OSS_BUCKET=sy-camera-erzhuang-project
+TARGET_OSS_ENDPOINT=sy-camera-erzhuang-project.oss-cn-beijing-internal.aliyuncs.com
+TARGET_OSS_ACCESS_KEY_ID=<from secret>
+TARGET_OSS_ACCESS_KEY_SECRET=<from secret>
+```
+
+真实复制样本门店时，先限制 `--external-org-id 10030` 和较小的 `--max-rows`。确认输出 CSV 中 `action=copied` 且没有 `failed` 后，再扩大范围。该工具当前只负责对象复制，不直接回写 MySQL；数据库状态回写在样本复制验证通过后再加。
+
 ## 验收口径
 
 样本门店 `10030` 通过条件：
