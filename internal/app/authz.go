@@ -59,6 +59,15 @@ func (h *Handler) requirePermission(w http.ResponseWriter, r *http.Request, perm
 	return record, true
 }
 
+func (h *Handler) requirePermissionHandler(permission string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := h.requirePermission(w, r, permission); !ok {
+			return
+		}
+		next(w, r)
+	}
+}
+
 func hasPermission(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {

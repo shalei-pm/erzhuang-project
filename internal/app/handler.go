@@ -81,14 +81,18 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("POST /api/users", handler.createUserHandler)
 	mux.HandleFunc("PUT /api/users/{id}", handler.updateUserHandler)
 	mux.HandleFunc("GET /api/ai-settings", handler.aiSettingsHandler)
-	mux.HandleFunc("POST /api/ai-settings/toggle", handler.toggleAISettingsHandler)
-	designplan.RegisterRoutes(mux, designPlanService)
-	storespace.RegisterRoutes(mux, storeSpaceService)
+	mux.HandleFunc("POST /api/ai-settings/toggle", handler.requirePermissionHandler(PermissionUserManage, handler.toggleAISettingsHandler))
+	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
+	storespace.RegisterRoutesWithWriteGuard(mux, storeSpaceService, handler.storeWriteGuard)
 	if h5MonitorService != nil {
 		h5monitor.RegisterRoutes(mux, h5MonitorService)
 	}
 	registerFrontendRoutes(mux)
 	return withBasePathAPIPrefixes(mux)
+}
+
+func (h *Handler) storeWriteGuard(next http.HandlerFunc) http.HandlerFunc {
+	return h.requirePermissionHandler(PermissionStoreWrite, next)
 }
 
 func withBasePathAPIPrefixes(next http.Handler) http.Handler {

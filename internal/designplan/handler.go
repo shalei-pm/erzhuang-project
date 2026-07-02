@@ -15,23 +15,35 @@ type Handler struct {
 	service *Service
 }
 
+type RouteMiddleware func(http.HandlerFunc) http.HandlerFunc
+
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
 func RegisterRoutes(mux *http.ServeMux, service *Service) {
+	RegisterRoutesWithWriteGuard(mux, service, nil)
+}
+
+func RegisterRoutesWithWriteGuard(mux *http.ServeMux, service *Service, writeGuard RouteMiddleware) {
 	handler := NewHandler(service)
-	mux.HandleFunc("POST /api/design-plan/uploads", handler.uploadPDF)
+	write := func(next http.HandlerFunc) http.HandlerFunc {
+		if writeGuard == nil {
+			return next
+		}
+		return writeGuard(next)
+	}
+	mux.HandleFunc("POST /api/design-plan/uploads", write(handler.uploadPDF))
 	mux.HandleFunc("GET /api/design-plan/uploads/{upload_id}/{asset}", handler.getUploadAsset)
-	mux.HandleFunc("POST /api/design-plan/uploads/{upload_id}/recognize", handler.recognizeUpload)
+	mux.HandleFunc("POST /api/design-plan/uploads/{upload_id}/recognize", write(handler.recognizeUpload))
 	mux.HandleFunc("GET /api/design-plan/stores", handler.listStores)
-	mux.HandleFunc("POST /api/design-plan/stores", handler.createStore)
+	mux.HandleFunc("POST /api/design-plan/stores", write(handler.createStore))
 	mux.HandleFunc("POST /api/design-plan/stores/check-duplicate", handler.checkDuplicate)
 	mux.HandleFunc("GET /api/design-plan/stores/{id}", handler.getStore)
 	mux.HandleFunc("GET /api/design-plan/stores/{id}/preview", handler.getStorePreview)
 	mux.HandleFunc("GET /api/design-plan/stores/{id}/thumbnail", handler.getStoreThumbnail)
-	mux.HandleFunc("PUT /api/design-plan/stores/{id}", handler.updateStore)
-	mux.HandleFunc("DELETE /api/design-plan/stores/{id}", handler.deleteStore)
+	mux.HandleFunc("PUT /api/design-plan/stores/{id}", write(handler.updateStore))
+	mux.HandleFunc("DELETE /api/design-plan/stores/{id}", write(handler.deleteStore))
 }
 
 func (h *Handler) uploadPDF(w http.ResponseWriter, r *http.Request) {

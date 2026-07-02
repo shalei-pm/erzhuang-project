@@ -18,37 +18,49 @@ type Handler struct {
 	service *Service
 }
 
+type RouteMiddleware func(http.HandlerFunc) http.HandlerFunc
+
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
 func RegisterRoutes(mux *http.ServeMux, service *Service) {
+	RegisterRoutesWithWriteGuard(mux, service, nil)
+}
+
+func RegisterRoutesWithWriteGuard(mux *http.ServeMux, service *Service, writeGuard RouteMiddleware) {
 	handler := NewHandler(service)
+	write := func(next http.HandlerFunc) http.HandlerFunc {
+		if writeGuard == nil {
+			return next
+		}
+		return writeGuard(next)
+	}
 	mux.HandleFunc("GET /api/store-space/ezviz-accounts", handler.listEzvizAccounts)
-	mux.HandleFunc("POST /api/store-space/ezviz-accounts", handler.createEzvizAccount)
-	mux.HandleFunc("POST /api/store-space/diagnostics/ezviz/live-address", handler.getEzvizLiveAddress)
+	mux.HandleFunc("POST /api/store-space/ezviz-accounts", write(handler.createEzvizAccount))
+	mux.HandleFunc("POST /api/store-space/diagnostics/ezviz/live-address", write(handler.getEzvizLiveAddress))
 	mux.HandleFunc("GET /api/store-space/stores", handler.listStores)
-	mux.HandleFunc("POST /api/store-space/stores", handler.createStore)
+	mux.HandleFunc("POST /api/store-space/stores", write(handler.createStore))
 	mux.HandleFunc("POST /api/store-space/stores/check-duplicate", handler.checkDuplicate)
 	mux.HandleFunc("GET /api/store-space/stores/{id}", handler.getStore)
-	mux.HandleFunc("PATCH /api/store-space/stores/{id}", handler.updateStoreBasicInfo)
+	mux.HandleFunc("PATCH /api/store-space/stores/{id}", write(handler.updateStoreBasicInfo))
 	mux.HandleFunc("GET /api/store-space/stores/{id}/design-plan-data", handler.getStoreDesignPlanData)
 	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-data", handler.getStoreChannelData)
 	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-mappings/export.xlsx", handler.exportChannelMappings)
-	mux.HandleFunc("PUT /api/store-space/stores/{id}/design-plan", handler.saveDesignPlan)
-	mux.HandleFunc("POST /api/store-space/stores/{id}/recorders", handler.addRecorder)
-	mux.HandleFunc("DELETE /api/store-space/stores/{id}", handler.deleteStore)
-	mux.HandleFunc("DELETE /api/store-space/recorders/{recorder_id}", handler.deleteRecorder)
-	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/scan-channels", handler.scanRecorderChannels)
-	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/probe-recognize-channel", handler.probeRecognizeChannel)
-	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/recognize-channels", handler.recognizeRecorderChannels)
+	mux.HandleFunc("PUT /api/store-space/stores/{id}/design-plan", write(handler.saveDesignPlan))
+	mux.HandleFunc("POST /api/store-space/stores/{id}/recorders", write(handler.addRecorder))
+	mux.HandleFunc("DELETE /api/store-space/stores/{id}", write(handler.deleteStore))
+	mux.HandleFunc("DELETE /api/store-space/recorders/{recorder_id}", write(handler.deleteRecorder))
+	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/scan-channels", write(handler.scanRecorderChannels))
+	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/probe-recognize-channel", write(handler.probeRecognizeChannel))
+	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/recognize-channels", write(handler.recognizeRecorderChannels))
 	mux.HandleFunc("GET /api/store-space/channel-snapshots/{name}", handler.getChannelSnapshot)
 	mux.HandleFunc("GET /api/store-space/channel-snapshots/{name}/diagnostics", handler.getChannelSnapshotDiagnostics)
-	mux.HandleFunc("DELETE /api/store-space/channels/{channel_id}", handler.deleteChannel)
-	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/recognize", handler.recognizeChannel)
-	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/snapshot", handler.refreshChannelSnapshot)
-	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/unlock", handler.unlockChannelForEdit)
-	mux.HandleFunc("PUT /api/store-space/channels/{channel_id}/confirmation", handler.confirmChannel)
+	mux.HandleFunc("DELETE /api/store-space/channels/{channel_id}", write(handler.deleteChannel))
+	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/recognize", write(handler.recognizeChannel))
+	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/snapshot", write(handler.refreshChannelSnapshot))
+	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/unlock", write(handler.unlockChannelForEdit))
+	mux.HandleFunc("PUT /api/store-space/channels/{channel_id}/confirmation", write(handler.confirmChannel))
 }
 
 func (h *Handler) listEzvizAccounts(w http.ResponseWriter, r *http.Request) {

@@ -559,6 +559,88 @@ func TestListAuthUsersReturnsSeededUsersForAdmin(t *testing.T) {
 	}
 }
 
+func TestStoreSpaceWriteRequiresStoreWritePermission(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+	store := NewMemoryStore()
+	if err := store.setAuthUserForTest(AuthUserRecord{
+		ID:       10,
+		Email:    "viewer@example.com",
+		Username: "viewer",
+		Role:     RoleViewer,
+		Enabled:  true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/store-space/stores", strings.NewReader(`{}`))
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":  "只读用户",
+			"mail":     "viewer@example.com",
+			"username": "viewer",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandlerWithStore(store).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusForbidden, recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestStoreSpaceWriteAllowsEditorPastPermissionGuard(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodPost, "/api/store-space/stores", strings.NewReader(`{}`))
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":  "编辑用户",
+			"mail":     "changwenxia@soyoung.com",
+			"username": "changwenxia",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code == http.StatusForbidden || recorder.Code == http.StatusUnauthorized {
+		t.Fatalf("expected editor to pass permission guard, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAISettingsToggleRequiresAdminPermission(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodPost, "/api/ai-settings/toggle", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":  "编辑用户",
+			"mail":     "wangxiaofan@soyoung.com",
+			"username": "wangxiaofan",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusForbidden, recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestAuthMeRejectsUnprovisionedSSOUser(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("SSO_ENABLED", "true")
