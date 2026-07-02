@@ -160,11 +160,33 @@ func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 		)`,
 		`create unique index if not exists tb_users_email_lower_key on tb_users (lower(email))`,
 		`create index if not exists tb_users_enabled_idx on tb_users (enabled)`,
-		`insert into tb_users (email, username, display_name, role, enabled)
-			select 'shalei@soyoung.com', 'shalei', '', 'admin', true
-			where not exists (
-				select 1 from tb_users where lower(email) = 'shalei@soyoung.com'
-			)`,
+		`with seed(email, username, role) as (
+			values
+				('shalei@soyoung.com', 'shalei', 'admin'),
+				('maming@soyoung.com', 'maming', 'admin'),
+				('changwenxia@soyoung.com', 'changwenxia', 'editor'),
+				('wangxiaofan@soyoung.com', 'wangxiaofan', 'editor')
+		)
+		insert into tb_users (email, username, display_name, role, enabled)
+		select seed.email, seed.username, '', seed.role, true
+		from seed
+		where not exists (
+			select 1 from tb_users where lower(tb_users.email) = seed.email
+		)`,
+		`with seed(email, role) as (
+			values
+				('shalei@soyoung.com', 'admin'),
+				('maming@soyoung.com', 'admin'),
+				('changwenxia@soyoung.com', 'editor'),
+				('wangxiaofan@soyoung.com', 'editor')
+		)
+		update tb_users
+		set role = seed.role,
+			enabled = true,
+			updated_at = now()
+		from seed
+		where lower(tb_users.email) = seed.email
+			and (tb_users.role is distinct from seed.role or tb_users.enabled is distinct from true)`,
 		`alter table tb_users enable row level security`,
 		`drop policy if exists tb_users_no_client_access on tb_users`,
 		`create policy tb_users_no_client_access on tb_users

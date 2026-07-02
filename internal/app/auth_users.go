@@ -8,7 +8,17 @@ import (
 	"time"
 )
 
-const defaultAdminEmail = "shalei@soyoung.com"
+const (
+	defaultAdminEmail = "shalei@soyoung.com"
+
+	RoleAdmin  = "admin"
+	RoleEditor = "editor"
+	RoleViewer = "viewer"
+
+	PermissionStoreRead  = "store:read"
+	PermissionStoreWrite = "store:write"
+	PermissionUserManage = "user:manage"
+)
 
 var errAuthUserNotFound = errors.New("auth user not found")
 
@@ -38,10 +48,14 @@ type AuthUserStore interface {
 }
 
 func (record AuthUserRecord) permissions() []string {
-	if strings.EqualFold(record.Role, "admin") {
-		return []string{"admin"}
+	switch strings.ToLower(strings.TrimSpace(record.Role)) {
+	case RoleAdmin:
+		return []string{RoleAdmin, PermissionStoreRead, PermissionStoreWrite, PermissionUserManage}
+	case RoleEditor:
+		return []string{RoleEditor, PermissionStoreRead, PermissionStoreWrite}
+	default:
+		return []string{RoleViewer, PermissionStoreRead}
 	}
-	return []string{record.Role}
 }
 
 func (record AuthUserRecord) applyToResponse(user AuthUserResponse) AuthUserResponse {

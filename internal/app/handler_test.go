@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -447,6 +448,27 @@ func TestAuthMeUsesProvisionedAdminUserFromSSOMail(t *testing.T) {
 	}
 	if response.User.Role != "admin" || !containsString(response.Permissions, "admin") {
 		t.Fatalf("expected provisioned admin permissions, got user=%#v permissions=%#v", response.User, response.Permissions)
+	}
+}
+
+func TestAuthUserPermissionsForAdminEditorViewer(t *testing.T) {
+	tests := []struct {
+		role string
+		want []string
+	}{
+		{role: "admin", want: []string{"admin", "store:read", "store:write", "user:manage"}},
+		{role: "editor", want: []string{"editor", "store:read", "store:write"}},
+		{role: "viewer", want: []string{"viewer", "store:read"}},
+		{role: "", want: []string{"viewer", "store:read"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.role, func(t *testing.T) {
+			record := AuthUserRecord{Role: tt.role, Enabled: true}
+			if got := record.permissions(); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("permissions()=%v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
