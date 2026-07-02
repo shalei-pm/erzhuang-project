@@ -102,7 +102,9 @@ describe("auth helpers", () => {
 
   it("builds the apisix logout path with the project base", () => {
     expect(authLogoutPath()).toBe("/erzhuang-project/logout");
-    expect(authLogoutPath("lite.sy.soyoung.com")).toBe("/logout");
+    expect(authLogoutPath("lite.sy.soyoung.com")).toBe(
+      "https://security-test.sy.soyoung.com/api/g/sso/logouttogether?from_host=lite.sy.soyoung.com&from_uri=https%3A%2F%2Flite.sy.soyoung.com%2Ferzhuang-project%2F",
+    );
   });
 
   it("uses gateway logout directly on the company domain", () => {

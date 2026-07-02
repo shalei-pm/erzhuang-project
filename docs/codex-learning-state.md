@@ -4254,3 +4254,20 @@ git pull --ff-only
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
 - 备注：
   - DBA/MySQL 迁移 WIP 文件保持未纳入本次业务变更。
+
+## 2026-07-02 SSO 统一退出 from_uri 修复 2.26.2 开发记录
+
+- 背景：
+  - 运维确认 SSO 统一退出组件需要业务侧在 logout 地址中带上 `from_uri` 参数。
+  - 退出后应回到项目首页 `https://lite.sy.soyoung.com/erzhuang-project/`，而不是回到 `lite.sy.soyoung.com` 根路径。
+- 实现：
+  - 公司域名 `lite.sy.soyoung.com` 下，前端退出地址改为 SSO `logouttogether`。
+  - 退出地址带 `from_host=lite.sy.soyoung.com` 和 encoded `from_uri=https://lite.sy.soyoung.com/erzhuang-project/`。
+  - 本地开发环境仍保留 `/erzhuang-project/logout` 退出路径。
+- 验证：
+  - 先补失败测试确认旧逻辑只返回 `/logout`。
+  - `cd frontend && npm test -- api.test.ts` 通过，27 tests passed。
+  - `cd frontend && npm test` 通过，3 files / 31 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+- 备注：
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。

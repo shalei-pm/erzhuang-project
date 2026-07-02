@@ -45,7 +45,11 @@ export function authCompanyEntryPath(hostname = currentHostname()) {
 
 export function authLogoutPath(hostname = currentHostname()) {
   if (isCompanySSODomain(hostname)) {
-    return "/logout";
+    const params = new URLSearchParams({
+      from_host: hostname,
+      from_uri: `https://${hostname}${authBasePath()}/`,
+    });
+    return `https://security-test.sy.soyoung.com/api/g/sso/logouttogether?${params.toString()}`;
   }
   return `${authBasePath()}/logout`;
 }
