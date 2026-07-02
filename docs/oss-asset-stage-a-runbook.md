@@ -159,3 +159,21 @@ Stage A 不删除历史对象，不改前端路径，因此回滚优先级如下
 - 公司 K8s Secret 的变量名是否与当前代码一致。
 - 迁移程序由主仓库新增 CLI 实现，还是 DBA 用一次性脚本执行。
 - 全量迁移前是否需要按资产敏感级别分批：先设计图，再通道截图。
+
+## 2026-07-02 测试库 Stage A 记录
+
+已在 MySQL 测试库完成 Stage A 最小初始化，用于验证 OSS inventory 链路：
+
+- 测试库初始状态没有 `external_org_id = 10030` 的门店，也没有任何设计图/截图资产引用。
+- 初始 governance 表缺失，已执行治理表 schema 和 OSS asset schema patch。
+- 执行 business patch 时发现测试库当前 schema 还缺两个线上代码已使用字段：
+  - `tb_video_channels.bed_label`
+  - `tb_stores.short_name`
+- 已在测试库临时补齐上述字段后，Stage A seed 成功。
+- 样本门店 `10030` inventory 导出 2 行，均为 `pending`，无 skipped。
+- 2 行来自同一个截图对象的 `full_image_path` / `thumbnail_path` 双引用，`logical_key_hash` 相同，`logical_key_rank` 分别为 1 和 2。迁移工具应只复制 rank=1，rank=2 作为重复引用跳过。
+
+待 DBA 专项修正：
+
+- 将 `bed_label` 和 `short_name` 纳入正式 MySQL schema/patch 执行包，避免测试库重建后再次手工补字段。
+- `db/oss_asset_inventory_sql_tb.sql` 当前依赖 `tb_channel_snapshots.snapshot_key`；若目标库尚未执行 business patch，会报字段不存在。执行顺序必须保持：business patch 先于 inventory。

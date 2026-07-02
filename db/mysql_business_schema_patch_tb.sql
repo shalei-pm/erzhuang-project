@@ -1,5 +1,8 @@
 -- Business schema patch proposal for existing 14 tb_ tables.
--- This file is a reviewable ALTER/INDEX draft. Do not run blindly in production.
+-- This file is a reviewable ALTER/INDEX draft. It is intended for a first run against
+-- the current empty 14-table Stage A test schema, not as a repeatable/idempotent migration.
+-- Repeated runs need a rebuilt schema or an information_schema-guarded migration.
+-- Do not run blindly in production.
 -- Before execution, confirm MySQL version, sql_mode, backup, and stage A/B state.
 -- MySQL 8.0.13 does not support fully reliable CHECK enforcement and may not support all
 -- modern idempotent DDL syntax. Convert this proposal into a versioned migration after
@@ -9,6 +12,10 @@
 set session sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO';
 
 -- 1. Fix NOT NULL TEXT columns that block current insert paths.
+-- Current app stores and displays institution short names.
+alter table tb_stores
+  add column short_name varchar(255) not null default '' after name;
+
 -- Current app syncs/creates ezviz accounts with account_name/status only.
 alter table tb_ezviz_accounts
   modify column app_secret_ciphertext text null,
@@ -23,7 +30,12 @@ alter table tb_store_areas
   add column external_area_id varchar(255) not null default '' after display_name;
 
 alter table tb_video_channels
-  add column external_area_id varchar(255) not null default '' after area_id,
+  add column bed_label varchar(64) not null default '' after area_number;
+
+alter table tb_video_channels
+  add column external_area_id varchar(255) not null default '' after area_id;
+
+alter table tb_video_channels
   add column external_bed_id varchar(255) not null default '' after external_area_id;
 
 -- 3. Soft-delete columns are a product/implementation decision.
@@ -46,7 +58,9 @@ alter table tb_video_channels
 -- 4. Snapshot logical key support. Existing thumbnail_path/full_image_path
 -- should be normalized by migration scripts; snapshot_key is a stable canonical key.
 alter table tb_channel_snapshots
-  add column snapshot_key varchar(1024) not null default '' after channel_id,
+  add column snapshot_key varchar(1024) not null default '' after channel_id;
+
+alter table tb_channel_snapshots
   add column snapshot_key_hash char(64) not null default '' after snapshot_key;
 
 -- Backfill strategy draft, execute only after confirming exact path formats.
