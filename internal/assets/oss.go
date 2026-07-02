@@ -115,6 +115,10 @@ func (s *OSSStore) DeletePrefix(ctx context.Context, prefix string) error {
 	return nil
 }
 
+func (s *OSSStore) Delete(ctx context.Context, key string) error {
+	return s.deleteKey(ctx, key)
+}
+
 func (s *OSSStore) listKeys(ctx context.Context, prefix string, isDirectoryPrefix bool) ([]string, error) {
 	listPrefix := ossListPrefix(prefix, isDirectoryPrefix)
 	listURL := s.baseURL()

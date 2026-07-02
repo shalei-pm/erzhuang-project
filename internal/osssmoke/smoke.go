@@ -63,10 +63,21 @@ func Run(ctx context.Context, store assets.Store, options Options) (*Result, err
 		return nil, errors.New("smoke asset content mismatch")
 	}
 	result.ContentType = contentType
-	if err := store.DeletePrefix(ctx, key); err != nil {
+	if err := deleteSmokeKey(ctx, store, key); err != nil {
 		return nil, fmt.Errorf("delete smoke asset: %w", err)
 	}
 	return result, nil
+}
+
+type directDeleteStore interface {
+	Delete(ctx context.Context, key string) error
+}
+
+func deleteSmokeKey(ctx context.Context, store assets.Store, key string) error {
+	if directStore, ok := store.(directDeleteStore); ok {
+		return directStore.Delete(ctx, key)
+	}
+	return store.DeletePrefix(ctx, key)
 }
 
 func defaultKey(now func() time.Time) (string, error) {

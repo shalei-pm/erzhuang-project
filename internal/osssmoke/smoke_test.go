@@ -39,6 +39,21 @@ func TestRunApplyWritesReadsAndDeletesExactKey(t *testing.T) {
 	}
 }
 
+func TestRunApplyUsesDirectDeleteWhenStoreSupportsIt(t *testing.T) {
+	store := &fakeDirectDeleteStore{}
+
+	result, err := Run(context.Background(), store, Options{Apply: true, Key: "smoke-tests/test.txt"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.DryRun || result.Key != "smoke-tests/test.txt" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if store.calls != "save:smoke-tests/test.txt;open:smoke-tests/test.txt;delete-key:smoke-tests/test.txt;" {
+		t.Fatalf("unexpected calls: %s", store.calls)
+	}
+}
+
 type fakeStore struct {
 	calls       string
 	body        string
@@ -75,5 +90,17 @@ func (s *fakeStore) DeletePrefix(ctx context.Context, prefix string) error {
 		return err
 	}
 	s.calls += "delete:" + prefix + ";"
+	return nil
+}
+
+type fakeDirectDeleteStore struct {
+	fakeStore
+}
+
+func (s *fakeDirectDeleteStore) Delete(ctx context.Context, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.calls += "delete-key:" + key + ";"
 	return nil
 }
