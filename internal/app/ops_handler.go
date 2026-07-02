@@ -24,6 +24,45 @@ type ossSmokeResponse struct {
 	Detail      string `json:"detail,omitempty"`
 }
 
+type opsEnvCheckResponse struct {
+	OpsEnabled               bool   `json:"ops_enabled"`
+	HasOpsEnabled            bool   `json:"has_ops_enabled"`
+	HasK8SSecretOpsEnabled   bool   `json:"has_k8s_secret_ops_enabled"`
+	AssetStore               string `json:"asset_store"`
+	HasAssetStore            bool   `json:"has_asset_store"`
+	HasK8SSecretAssetStore   bool   `json:"has_k8s_secret_asset_store"`
+	HasOSSBucket             bool   `json:"has_oss_bucket"`
+	HasOSSEndpoint           bool   `json:"has_oss_endpoint"`
+	HasOSSAccessKeyID        bool   `json:"has_oss_access_key_id"`
+	HasOSSAccessKeySecret    bool   `json:"has_oss_access_key_secret"`
+	HasK8SOSSBucket          bool   `json:"has_k8s_secret_oss_bucket"`
+	HasK8SOSSEndpoint        bool   `json:"has_k8s_secret_oss_endpoint"`
+	HasK8SOSSAccessKeyID     bool   `json:"has_k8s_secret_oss_access_key_id"`
+	HasK8SOSSAccessKeySecret bool   `json:"has_k8s_secret_oss_access_key_secret"`
+}
+
+func (h *Handler) ossEnvCheckHandler(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, opsEnvCheckResponse{
+		OpsEnabled:               opsEnabled(),
+		HasOpsEnabled:            envPresent("OPS_ENABLED"),
+		HasK8SSecretOpsEnabled:   envPresent("K8S_SECRET_OPS_ENABLED"),
+		AssetStore:               envValue("ASSET_STORE", "K8S_SECRET_ASSET_STORE"),
+		HasAssetStore:            envPresent("ASSET_STORE"),
+		HasK8SSecretAssetStore:   envPresent("K8S_SECRET_ASSET_STORE"),
+		HasOSSBucket:             envPresent("OSS_BUCKET") || envPresent("K8S_SECRET_OSS_BUCKET"),
+		HasOSSEndpoint:           envPresent("OSS_ENDPOINT") || envPresent("K8S_SECRET_OSS_ENDPOINT"),
+		HasOSSAccessKeyID:        envPresent("OSS_ACCESS_KEY_ID") || envPresent("K8S_SECRET_OSS_ACCESS_KEY_ID"),
+		HasOSSAccessKeySecret:    envPresent("OSS_ACCESS_KEY_SECRET") || envPresent("K8S_SECRET_OSS_ACCESS_KEY_SECRET"),
+		HasK8SOSSBucket:          envPresent("K8S_SECRET_OSS_BUCKET"),
+		HasK8SOSSEndpoint:        envPresent("K8S_SECRET_OSS_ENDPOINT"),
+		HasK8SOSSAccessKeyID:     envPresent("K8S_SECRET_OSS_ACCESS_KEY_ID"),
+		HasK8SOSSAccessKeySecret: envPresent("K8S_SECRET_OSS_ACCESS_KEY_SECRET"),
+	})
+}
+
 func (h *Handler) ossSmokeHandler(w http.ResponseWriter, r *http.Request) {
 	if !opsEnabled() {
 		http.NotFound(w, r)
@@ -85,6 +124,10 @@ func runOSSSmokeWithOSSSecretFallback(ctx context.Context) (*ossSmokeResult, err
 
 func envBool(names ...string) bool {
 	return strings.EqualFold(envValue(names...), "true")
+}
+
+func envPresent(name string) bool {
+	return strings.TrimSpace(os.Getenv(name)) != ""
 }
 
 func envValue(names ...string) string {

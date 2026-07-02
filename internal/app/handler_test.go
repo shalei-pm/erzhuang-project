@@ -703,6 +703,40 @@ func TestOSSSmokeEndpointAcceptsK8SSecretOpsEnabled(t *testing.T) {
 	}
 }
 
+func TestOpsEnvCheckReturnsSanitizedRuntimeConfig(t *testing.T) {
+	t.Setenv("K8S_SECRET_OPS_ENABLED", "true")
+	t.Setenv("K8S_SECRET_ASSET_STORE", "oss")
+	t.Setenv("K8S_SECRET_OSS_BUCKET", "secret-bucket")
+	t.Setenv("K8S_SECRET_OSS_ENDPOINT", "secret-endpoint")
+	t.Setenv("K8S_SECRET_OSS_ACCESS_KEY_ID", "secret-id")
+	t.Setenv("K8S_SECRET_OSS_ACCESS_KEY_SECRET", "secret-key")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/ops/env-check", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, secret := range []string{"secret-bucket", "secret-endpoint", "secret-id", "secret-key"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("expected env check to hide %q, got %s", secret, body)
+		}
+	}
+	var response map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response["ops_enabled"] != true || response["asset_store"] != "oss" {
+		t.Fatalf("unexpected env check response: %#v", response)
+	}
+	if response["has_oss_bucket"] != true || response["has_oss_endpoint"] != true || response["has_oss_access_key_id"] != true || response["has_oss_access_key_secret"] != true {
+		t.Fatalf("expected oss vars to be present, got %#v", response)
+	}
+}
+
 func TestOSSSmokeEndpointRequiresAdminPermission(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("OPS_ENABLED", "true")
