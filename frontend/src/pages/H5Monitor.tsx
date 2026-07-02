@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { h5Api, H5ApiError } from "../api-h5";
+import { H5StoreSwitcher } from "../components/H5StoreSwitcher";
+import { SystemTopBar } from "../components/SystemTopBar";
 import { h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from "../domain/h5-channel-display";
+import type { AuthState } from "../domain/auth";
 import type { H5MonitorChannel, H5MonitorHomeResponse, MonitorCategory } from "../domain/h5-types";
 
 interface H5MonitorProps {
   externalOrgId: string;
+  auth?: AuthState | null;
+  loggingOut?: boolean;
+  authMessage?: string;
   onOpenChannel: (channelId: number) => void;
+  onSelectStore: (externalOrgId: string) => void;
+  onAuthRequired?: () => void;
+  onLogout?: () => void | Promise<void>;
   refreshKey?: number;
 }
 
@@ -20,7 +29,17 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "other", label: "过道/其他" },
 ];
 
-export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5MonitorProps) {
+export function H5Monitor({
+  externalOrgId,
+  auth,
+  loggingOut = false,
+  authMessage = "",
+  onOpenChannel,
+  onSelectStore,
+  onAuthRequired,
+  onLogout,
+  refreshKey = 0,
+}: H5MonitorProps) {
   const [data, setData] = useState<H5MonitorHomeResponse | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [visibleCount, setVisibleCount] = useState(() => h5InitialVisibleCount(0, 0));
@@ -35,6 +54,10 @@ export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5Mo
   }, []);
 
   useEffect(() => {
+    setActiveTab("all");
+  }, [externalOrgId]);
+
+  useEffect(() => {
     let cancelled = false;
     setLoading(true);
     h5Api
@@ -46,6 +69,10 @@ export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5Mo
       })
       .catch((err) => {
         if (cancelled) return;
+        if (err instanceof H5ApiError && err.status === 401) {
+          onAuthRequired?.();
+          return;
+        }
         setToast(errorMessage(err, "监控数据加载失败"));
       })
       .finally(() => {
@@ -54,7 +81,7 @@ export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5Mo
     return () => {
       cancelled = true;
     };
-  }, [externalOrgId, refreshKey]);
+  }, [externalOrgId, refreshKey, onAuthRequired]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -86,6 +113,12 @@ export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5Mo
     return TABS.filter((tab) => (categoryCount.get(tab.key) ?? 0) > 0 || tab.key === "all");
   }, [allChannels]);
 
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.key === activeTab)) {
+      setActiveTab("all");
+    }
+  }, [activeTab, visibleTabs]);
+
   const filteredChannels = useMemo(() => {
     if (activeTab === "all") return allChannels;
     return allChannels.filter((channel) => channel.category === activeTab);
@@ -97,6 +130,8 @@ export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5Mo
   if (loading) {
     return (
       <div className="h5-page h5-monitor-page">
+        <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
+        {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
         <div className="h5-loading">加载中...</div>
       </div>
     );
@@ -105,6 +140,8 @@ export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5Mo
   if (toast) {
     return (
       <div className="h5-page h5-monitor-page">
+        <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
+        {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
         <div className="h5-error">{toast}</div>
       </div>
     );
@@ -113,10 +150,19 @@ export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5Mo
   if (!data || allChannels.length === 0) {
     return (
       <div className="h5-page h5-monitor-page">
+        <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
+        {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
         <header className="h5-header">
           <h1>{data?.store_name || "门店监控"}</h1>
           {data?.city && <span className="h5-city">{data.city}</span>}
         </header>
+        <H5StoreSwitcher
+          currentExternalOrgId={externalOrgId}
+          currentStoreName={data?.store_name}
+          currentCity={data?.city}
+          onAuthRequired={onAuthRequired}
+          onSelectStore={onSelectStore}
+        />
         <div className="h5-empty">当前门店暂无有效监控通道。</div>
       </div>
     );
@@ -124,6 +170,8 @@ export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5Mo
 
   return (
     <div className="h5-page h5-monitor-page">
+      <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
+      {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
       <header className="h5-header h5-monitor-header">
         <div>
           <h1>{data.store_name}</h1>
@@ -131,6 +179,13 @@ export function H5Monitor({ externalOrgId, onOpenChannel, refreshKey = 0 }: H5Mo
         </div>
         <span className="h5-channel-count">共 {filteredChannels.length} 路，{filteredChannels.length} 路有效</span>
       </header>
+      <H5StoreSwitcher
+        currentExternalOrgId={externalOrgId}
+        currentStoreName={data.store_name}
+        currentCity={data.city}
+        onAuthRequired={onAuthRequired}
+        onSelectStore={onSelectStore}
+      />
 
       <nav className="h5-area-tabs" aria-label="区域导航">
         {visibleTabs.map((tab) => (
@@ -208,6 +263,7 @@ function displayImageURL(value: string): string {
 
 function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof H5ApiError) {
+    if (err.status === 403) return "暂无访问权限";
     const fieldMsgs = Object.values(err.fields).filter(Boolean);
     if (fieldMsgs.length > 0) return fieldMsgs.join("；");
     return err.message;

@@ -31,6 +31,22 @@ type MonitorHomeResponse struct {
 	Groups        []MonitorGroup `json:"groups"`
 }
 
+type MonitorStoreInfo struct {
+	ExternalOrgID         string `json:"external_org_id"`
+	StoreName             string `json:"store_name"`
+	City                  string `json:"city"`
+	AvailableChannelCount int    `json:"available_channel_count"`
+}
+
+type MonitorStoreCityGroup struct {
+	City   string             `json:"city"`
+	Stores []MonitorStoreInfo `json:"stores"`
+}
+
+type MonitorStoresResponse struct {
+	Cities []MonitorStoreCityGroup `json:"cities"`
+}
+
 type LiveURLRequest struct {
 	UserID   string `json:"user_id,omitempty"`
 	IsAdmin  bool   `json:"is_admin,omitempty"`

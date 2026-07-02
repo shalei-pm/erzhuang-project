@@ -35,7 +35,7 @@ func (r *H5MonitorRepository) GetStoreByExternalOrgID(ctx context.Context, exter
 		where external_org_id = $1
 	`, strings.TrimSpace(externalOrgID)).Scan(&store.ID, &store.Name, &store.City, &store.ExternalOrgID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+		return nil, h5monitor.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -76,13 +76,77 @@ func (r *H5MonitorRepository) ListActiveChannelsByOrgID(ctx context.Context, ext
 	return channels, nil
 }
 
+func (r *H5MonitorRepository) ListMonitorStores(ctx context.Context) ([]h5monitor.MonitorStoreInfo, error) {
+	rows, err := r.store.db.QueryContext(ctx, `
+		select
+			s.external_org_id,
+			s.name,
+			s.city,
+			ea.account_name,
+			count(c.id) as channel_count
+		from stores s
+		join video_recorders r on r.store_id = s.id
+		join video_channels c on c.recorder_id = r.id
+		join ezviz_accounts ea on ea.id = r.ezviz_account_id
+		where trim(s.external_org_id) <> ''
+			and c.is_active
+			and c.channel_no > 0
+			and trim(r.device_code) <> ''
+			and r.ezviz_account_id is not null
+		group by s.external_org_id, s.name, s.city, ea.account_name
+		order by s.city, s.name, s.external_org_id, ea.account_name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	storesByOrgID := map[string]*h5monitor.MonitorStoreInfo{}
+	order := []string{}
+	for rows.Next() {
+		var externalOrgID, storeName, city, accountName string
+		var channelCount int
+		if err := rows.Scan(&externalOrgID, &storeName, &city, &accountName, &channelCount); err != nil {
+			return nil, err
+		}
+		account, ok := r.accounts[strings.TrimSpace(accountName)]
+		if !ok || strings.TrimSpace(account.AppKey) == "" || strings.TrimSpace(account.AppSecret) == "" {
+			continue
+		}
+		externalOrgID = strings.TrimSpace(externalOrgID)
+		store := storesByOrgID[externalOrgID]
+		if store == nil {
+			storesByOrgID[externalOrgID] = &h5monitor.MonitorStoreInfo{
+				ExternalOrgID: externalOrgID,
+				StoreName:     storeName,
+				City:          city,
+			}
+			order = append(order, externalOrgID)
+			store = storesByOrgID[externalOrgID]
+		}
+		store.AvailableChannelCount += channelCount
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	stores := make([]h5monitor.MonitorStoreInfo, 0, len(order))
+	for _, externalOrgID := range order {
+		store := storesByOrgID[externalOrgID]
+		if store.AvailableChannelCount > 0 {
+			stores = append(stores, *store)
+		}
+	}
+	return stores, nil
+}
+
 func (r *H5MonitorRepository) GetChannelByID(ctx context.Context, channelID int64) (*h5monitor.ChannelInfo, error) {
 	row := r.store.db.QueryRowContext(ctx, h5MonitorChannelQuery(`
 		and c.id = $1
 	`), channelID)
 	channel, err := scanH5MonitorChannel(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+		return nil, h5monitor.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -139,8 +203,8 @@ func h5MonitorChannelQuery(extraCondition string) string {
 		where r.id = c.recorder_id
 			and s.id = r.store_id
 			and c.is_active
-			and c.status in ('confirmed_business', 'confirmed_non_business')
-			and r.device_code <> ''
+			and c.channel_no > 0
+			and trim(r.device_code) <> ''
 			and r.ezviz_account_id is not null
 	` + extraCondition
 }

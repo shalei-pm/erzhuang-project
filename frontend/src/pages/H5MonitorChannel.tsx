@@ -8,6 +8,8 @@ import {
 } from "../components/H5FlvPlayer";
 import { H5PlayerControls, type H5PlayerControlState } from "../components/H5PlayerControls";
 import { PlaybackSegmentSlider } from "../components/PlaybackSegmentSlider";
+import { SystemTopBar } from "../components/SystemTopBar";
+import type { AuthState } from "../domain/auth";
 import {
   dataUrlToFile,
   estimatePlaybackUnixAt,
@@ -27,7 +29,12 @@ import type {
 interface H5MonitorChannelProps {
   externalOrgId: string;
   channelId: number;
+  auth?: AuthState | null;
+  loggingOut?: boolean;
+  authMessage?: string;
   onBack: () => void;
+  onAuthRequired?: () => void;
+  onLogout?: () => void | Promise<void>;
 }
 
 type Mode = "live" | "playback";
@@ -44,7 +51,16 @@ type PlayerDiagnosticEntry = H5PlayerStatus & {
 const LONG_PLAY_LIMIT_MS = 15 * 60 * 1000;
 const MAX_PLAYER_DIAGNOSTIC_ENTRIES = 24;
 
-export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5MonitorChannelProps) {
+export function H5MonitorChannel({
+  externalOrgId,
+  channelId,
+  auth,
+  loggingOut = false,
+  authMessage = "",
+  onBack,
+  onAuthRequired,
+  onLogout,
+}: H5MonitorChannelProps) {
   const [mode, setMode] = useState<Mode>("live");
   const [liveUrl, setLiveUrl] = useState<H5LiveURLResponse | null>(null);
   const [playbackUrl, setPlaybackUrl] = useState<H5PlaybackURLResponse | null>(null);
@@ -88,6 +104,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   const playbackUrlRef = useRef<H5PlaybackURLResponse | null>(null);
   const loadingRef = useRef(false);
   const guardPlaybackStartRef = useRef<number | null>(null);
+  const liveRequestSeqRef = useRef(0);
   const playbackRequestSeqRef = useRef(0);
   const pendingLiveReleaseUrlIdRef = useRef<string | null>(null);
   const isAdmin = false;
@@ -122,6 +139,19 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
   function nextPlaybackRequestSeq() {
     playbackRequestSeqRef.current += 1;
     return playbackRequestSeqRef.current;
+  }
+
+  function nextLiveRequestSeq() {
+    liveRequestSeqRef.current += 1;
+    return liveRequestSeqRef.current;
+  }
+
+  function invalidateLiveRequest() {
+    liveRequestSeqRef.current += 1;
+  }
+
+  function isCurrentLiveRequest(seq: number) {
+    return liveRequestSeqRef.current === seq;
   }
 
   function invalidatePlaybackRequest() {
@@ -199,6 +229,7 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
   useEffect(() => {
     if (mode !== "live" || liveUrl) return;
+    const requestSeq = nextLiveRequestSeq();
     const previousLiveUrlId = pendingLiveReleaseUrlIdRef.current || latestUrlIdsRef.current.live;
     setLoading(true);
     setStatusAndRecord({
@@ -210,6 +241,10 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
     h5Api
       .getLiveUrl(externalOrgId, channelId, userId.current, isAdmin, preferredLiveProtocol(), streamQuality)
       .then(async (resp) => {
+        if (!isCurrentLiveRequest(requestSeq)) {
+          await releaseUrl(resp.url_id);
+          return;
+        }
         await releaseUrl(previousLiveUrlId);
         if (pendingLiveReleaseUrlIdRef.current === previousLiveUrlId) {
           pendingLiveReleaseUrlIdRef.current = null;
@@ -224,6 +259,8 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         });
       })
       .catch((err) => {
+        if (!isCurrentLiveRequest(requestSeq)) return;
+        if (isUnauthorizedError(err, onAuthRequired)) return;
         const message = errMessage(err, "直播地址获取失败");
         setToast(message);
         setStatusAndRecord({
@@ -233,11 +270,20 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
           severity: "error",
         });
       })
-      .finally(() => setLoading(false));
-  }, [mode, liveUrl, externalOrgId, channelId, releaseUrl, streamQuality, setStatusAndRecord]);
+      .finally(() => {
+        if (isCurrentLiveRequest(requestSeq)) setLoading(false);
+      });
+
+    return () => {
+      if (isCurrentLiveRequest(requestSeq)) {
+        invalidateLiveRequest();
+      }
+    };
+  }, [mode, liveUrl, externalOrgId, channelId, releaseUrl, streamQuality, setStatusAndRecord, onAuthRequired]);
 
   useEffect(() => {
     return () => {
+      invalidateLiveRequest();
       invalidatePlaybackRequest();
       const { live, playback } = latestUrlIdsRef.current;
       void releaseUrl(live);
@@ -344,7 +390,10 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         setSegments(resp);
         setToast("");
       })
-      .catch((err) => setToast(errMessage(err, "录像片段查询失败")))
+      .catch((err) => {
+        if (isUnauthorizedError(err, onAuthRequired)) return;
+        setToast(errMessage(err, "录像片段查询失败"));
+      })
       .finally(() => setLoading(false));
   }
 
@@ -409,6 +458,9 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
         });
       } catch (err) {
         if (!isCurrentPlaybackRequest(requestSeq)) {
+          return;
+        }
+        if (isUnauthorizedError(err, onAuthRequired)) {
           return;
         }
         const message = errMessage(err, "回放地址获取失败");
@@ -744,11 +796,15 @@ export function H5MonitorChannel({ externalOrgId, channelId, onBack }: H5Monitor
 
   return (
     <div className="h5-page h5-channel-page">
+      <SystemTopBar
+        backAction={{ label: "返回", onClick: onBack }}
+        auth={auth}
+        loggingOut={loggingOut}
+        onLogout={onLogout}
+      />
+      {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
       <main className="h5-viewer">
         <header className="h5-viewer-header">
-          <button className="h5-back-btn" onClick={onBack} aria-label="返回">
-            <BackIcon />
-          </button>
           <div className="h5-viewer-title">
             <h1>{channelTitle}</h1>
             <span>{mode === "live" ? "实时视频" : "录像回放"}</span>
@@ -1018,14 +1074,6 @@ function formatPlayerDiagnosticsForCopy({
     }
   }
   return lines.join("\n");
-}
-
-function BackIcon() {
-  return (
-    <svg className="h5-back-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path d="M10 3.5 5.5 8l4.5 4.5" />
-    </svg>
-  );
 }
 
 function preferredLiveProtocol(): "hls" | "flv" {
@@ -1357,6 +1405,7 @@ function pad2(value: number): string {
 
 function errMessage(err: unknown, fallback: string): string {
   if (err instanceof H5ApiError) {
+    if (err.status === 403) return "暂无访问权限";
     const fieldMsgs = Object.values(err.fields).filter(Boolean);
     return [
       fallback,
@@ -1370,4 +1419,12 @@ function errMessage(err: unknown, fallback: string): string {
   }
   if (err instanceof Error && err.message.trim()) return `${fallback} · ${err.name}: ${err.message}`;
   return fallback;
+}
+
+function isUnauthorizedError(err: unknown, onAuthRequired: (() => void) | undefined): boolean {
+  if (err instanceof H5ApiError && err.status === 401) {
+    onAuthRequired?.();
+    return true;
+  }
+  return false;
 }

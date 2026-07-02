@@ -18,6 +18,7 @@ type StoreRepository interface {
 	GetStoreByExternalOrgID(ctx context.Context, externalOrgID string) (*StoreInfo, error)
 	ListActiveChannelsByOrgID(ctx context.Context, externalOrgID string) ([]ChannelInfo, error)
 	GetChannelByID(ctx context.Context, channelID int64) (*ChannelInfo, error)
+	ListMonitorStores(ctx context.Context) ([]MonitorStoreInfo, error)
 }
 
 type StoreInfo struct {
@@ -57,26 +58,17 @@ type EzvizPlayer interface {
 	DisableLiveAddress(ctx context.Context, account ezviz.Account, input ezviz.DisableLiveAddressRequest) error
 }
 
-const (
-	beijingPilotExternalOrgID = "10030"
-	beijingPilotDeviceSerial  = "GN0941203"
-)
-
 type Service struct {
-	repo         StoreRepository
-	player       EzvizPlayer
-	pilotDevices map[string]string
-	mu           sync.Mutex
-	concurrency  map[string]*concurrencyState
+	repo        StoreRepository
+	player      EzvizPlayer
+	mu          sync.Mutex
+	concurrency map[string]*concurrencyState
 }
 
 func NewService(repo StoreRepository, player EzvizPlayer) *Service {
 	return &Service{
-		repo:   repo,
-		player: player,
-		pilotDevices: map[string]string{
-			beijingPilotExternalOrgID: beijingPilotDeviceSerial,
-		},
+		repo:        repo,
+		player:      player,
 		concurrency: map[string]*concurrencyState{},
 	}
 }
@@ -109,8 +101,35 @@ func (s *Service) GetMonitorHome(ctx context.Context, externalOrgID string) (Mon
 		ExternalOrgID: store.ExternalOrgID,
 		StoreName:     store.Name,
 		City:          store.City,
-		Groups:        groupChannels(s.filterPilotChannels(orgID, channels)),
+		Groups:        groupChannels(channels),
 	}, nil
+}
+
+func (s *Service) ListMonitorStores(ctx context.Context) (MonitorStoresResponse, error) {
+	stores, err := s.repo.ListMonitorStores(ctx)
+	if err != nil {
+		return MonitorStoresResponse{}, err
+	}
+	sort.SliceStable(stores, func(i, j int) bool {
+		leftCity, rightCity := monitorStoreCity(stores[i].City), monitorStoreCity(stores[j].City)
+		if leftCity != rightCity {
+			return leftCity < rightCity
+		}
+		if stores[i].StoreName != stores[j].StoreName {
+			return stores[i].StoreName < stores[j].StoreName
+		}
+		return stores[i].ExternalOrgID < stores[j].ExternalOrgID
+	})
+
+	groups := []MonitorStoreCityGroup{}
+	for _, store := range stores {
+		store.City = monitorStoreCity(store.City)
+		if len(groups) == 0 || groups[len(groups)-1].City != store.City {
+			groups = append(groups, MonitorStoreCityGroup{City: store.City})
+		}
+		groups[len(groups)-1].Stores = append(groups[len(groups)-1].Stores, store)
+	}
+	return MonitorStoresResponse{Cities: groups}, nil
 }
 
 func (s *Service) GetLiveURL(ctx context.Context, externalOrgID string, channelID int64, userID string, isAdmin bool, protocolValue string, qualityValue string) (LiveURLResponse, error) {
@@ -270,32 +289,10 @@ func (s *Service) validateChannel(ctx context.Context, externalOrgID string, cha
 	if err != nil {
 		return nil, err
 	}
-	if channel.StoreID != store.ID || !validChannel(*channel) || !s.isPilotAllowedChannel(orgID, *channel) {
+	if channel.StoreID != store.ID || !validChannel(*channel) {
 		return nil, ErrNotFound
 	}
-	if strings.TrimSpace(channel.DeviceSerial) == "" || channel.ChannelNo <= 0 || strings.TrimSpace(channel.AppKey) == "" || strings.TrimSpace(channel.AppSecret) == "" {
-		return nil, &ValidationError{Fields: map[string]string{"channel": "通道缺少可用的萤石云播放配置"}}
-	}
 	return channel, nil
-}
-
-func (s *Service) filterPilotChannels(externalOrgID string, channels []ChannelInfo) []ChannelInfo {
-	result := make([]ChannelInfo, 0, len(channels))
-	for _, channel := range channels {
-		if s.isPilotAllowedChannel(externalOrgID, channel) {
-			result = append(result, channel)
-		}
-	}
-	return result
-}
-
-func (s *Service) isPilotAllowedChannel(externalOrgID string, channel ChannelInfo) bool {
-	orgID := strings.TrimSpace(externalOrgID)
-	deviceSerial, requiresDeviceMatch := s.pilotDevices[orgID]
-	if !requiresDeviceMatch {
-		return true
-	}
-	return strings.EqualFold(strings.TrimSpace(channel.DeviceSerial), deviceSerial)
 }
 
 func (s *Service) acquireConcurrency(userID string, isAdmin bool) error {
@@ -383,10 +380,24 @@ func groupChannels(channels []ChannelInfo) []MonitorGroup {
 }
 
 func validChannel(channel ChannelInfo) bool {
-	if !channel.IsActive {
+	if !channel.IsActive || channel.ChannelNo <= 0 {
 		return false
 	}
-	return channel.Status == "confirmed_business" || channel.Status == "confirmed_non_business"
+	if strings.TrimSpace(channel.DeviceSerial) == "" || channel.EzvizAccountID <= 0 {
+		return false
+	}
+	if strings.TrimSpace(channel.AppKey) == "" || strings.TrimSpace(channel.AppSecret) == "" {
+		return false
+	}
+	return true
+}
+
+func monitorStoreCity(city string) string {
+	city = strings.TrimSpace(city)
+	if city == "" {
+		return "未分组"
+	}
+	return city
 }
 
 func channelCategory(channel ChannelInfo) string {

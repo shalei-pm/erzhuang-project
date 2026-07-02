@@ -27,6 +27,22 @@ export interface H5MonitorHomeResponse {
   groups: H5MonitorGroup[];
 }
 
+export interface H5MonitorStoreInfo {
+  external_org_id: string;
+  store_name: string;
+  city: string;
+  available_channel_count: number;
+}
+
+export interface H5MonitorStoreCityGroup {
+  city: string;
+  stores: H5MonitorStoreInfo[];
+}
+
+export interface H5MonitorStoresResponse {
+  cities: H5MonitorStoreCityGroup[];
+}
+
 export interface H5LiveURLResponse {
   url: string;
   expire_time: string;

@@ -44,6 +44,27 @@ func (r *fakeRepo) GetChannelByID(ctx context.Context, channelID int64) (*Channe
 	return &copy, nil
 }
 
+func (r *fakeRepo) ListMonitorStores(ctx context.Context) ([]MonitorStoreInfo, error) {
+	if r.store == nil {
+		return nil, nil
+	}
+	count := 0
+	for _, channel := range r.channels {
+		if validChannel(channel) {
+			count++
+		}
+	}
+	if count == 0 {
+		return nil, nil
+	}
+	return []MonitorStoreInfo{{
+		ExternalOrgID:         r.store.ExternalOrgID,
+		StoreName:             r.store.Name,
+		City:                  r.store.City,
+		AvailableChannelCount: count,
+	}}, nil
+}
+
 type fakePlayer struct {
 	liveInput     ezviz.LiveAddressRequest
 	playbackInput ezviz.PlaybackRequest
@@ -78,12 +99,12 @@ func (p *fakePlayer) DisableLiveAddress(ctx context.Context, account ezviz.Accou
 
 func newFakeService() (*Service, *fakePlayer) {
 	channels := []ChannelInfo{
-		{ID: 1, StoreID: 10, ChannelNo: 6, ChannelName: "治疗6", Status: "confirmed_business", IsActive: true, AreaType: "treatment", AreaNumber: 6, DeviceSerial: "GN0941203", AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
-		{ID: 2, StoreID: 10, ChannelNo: 2, ChannelName: "面诊2", Status: "confirmed_business", IsActive: true, AreaType: "consultation", AreaNumber: 2, DeviceSerial: "GN0941203", AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
-		{ID: 3, StoreID: 10, ChannelNo: 4, ChannelName: "VIP治疗", Status: "confirmed_business", IsActive: true, AreaType: "vip_treatment", AreaNumber: 1, DeviceSerial: "GN0941203", AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
-		{ID: 4, StoreID: 10, ChannelNo: 8, ChannelName: "前台", Status: "confirmed_non_business", IsActive: true, SceneType: "unknown", AreaNote: "前台等候区", DeviceSerial: "GN0941203", AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
-		{ID: 5, StoreID: 10, ChannelNo: 1, ChannelName: "过道", Status: "confirmed_non_business", IsActive: true, SceneType: "corridor", DeviceSerial: "GN0941203", AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
-		{ID: 6, StoreID: 10, ChannelNo: 9, ChannelName: "其他录像机", Status: "confirmed_business", IsActive: true, AreaType: "consultation", AreaNumber: 9, DeviceSerial: "GQ2603603", AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
+		{ID: 1, StoreID: 10, ChannelNo: 6, ChannelName: "治疗6", Status: "confirmed_business", IsActive: true, AreaType: "treatment", AreaNumber: 6, DeviceSerial: "GN0941203", EzvizAccountID: 1, AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
+		{ID: 2, StoreID: 10, ChannelNo: 2, ChannelName: "面诊2", Status: "confirmed_business", IsActive: true, AreaType: "consultation", AreaNumber: 2, DeviceSerial: "GN0941203", EzvizAccountID: 1, AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
+		{ID: 3, StoreID: 10, ChannelNo: 4, ChannelName: "VIP治疗", Status: "confirmed_business", IsActive: true, AreaType: "vip_treatment", AreaNumber: 1, DeviceSerial: "GN0941203", EzvizAccountID: 1, AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
+		{ID: 4, StoreID: 10, ChannelNo: 8, ChannelName: "前台", Status: "confirmed_non_business", IsActive: true, SceneType: "unknown", AreaNote: "前台等候区", DeviceSerial: "GN0941203", EzvizAccountID: 1, AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
+		{ID: 5, StoreID: 10, ChannelNo: 1, ChannelName: "过道", Status: "confirmed_non_business", IsActive: true, SceneType: "corridor", DeviceSerial: "GN0941203", EzvizAccountID: 1, AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
+		{ID: 6, StoreID: 10, ChannelNo: 9, ChannelName: "其他录像机", Status: "confirmed_business", IsActive: true, AreaType: "consultation", AreaNumber: 9, DeviceSerial: "GQ2603603", EzvizAccountID: 1, AccountName: "华北", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
 	}
 	repo := &fakeRepo{
 		store:    &StoreInfo{ID: 10, Name: "北京测试店", City: "北京", ExternalOrgID: "10030"},
@@ -105,6 +126,106 @@ func TestSnapshotRefreshRouteIsNotRegisteredForH5Monitor(t *testing.T) {
 	response := httptest.NewRecorder()
 
 	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%s, want 404", response.Code, response.Body.String())
+	}
+}
+
+func TestMonitorStoresListsCitiesAndStoresWithEffectiveChannels(t *testing.T) {
+	service, _ := newFakeService()
+	handler := NewHandler(service)
+	request := httptest.NewRequest(http.MethodGet, "/api/h5/monitor/stores", nil)
+	response := httptest.NewRecorder()
+
+	handler.getMonitorStores(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	var result MonitorStoresResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Cities) != 1 {
+		t.Fatalf("cities = %#v, want one city", result.Cities)
+	}
+	if result.Cities[0].City != "北京" {
+		t.Fatalf("city = %q, want 北京", result.Cities[0].City)
+	}
+	if len(result.Cities[0].Stores) != 1 {
+		t.Fatalf("stores = %#v, want one store", result.Cities[0].Stores)
+	}
+	store := result.Cities[0].Stores[0]
+	if store.ExternalOrgID != "10030" || store.StoreName != "北京测试店" || store.AvailableChannelCount != 6 {
+		t.Fatalf("unexpected store: %#v", store)
+	}
+}
+
+func TestMonitorStoresCanCountUnconfirmedEffectiveChannels(t *testing.T) {
+	channel := ChannelInfo{ID: 71, StoreID: 71, ChannelNo: 1, ChannelName: "待确认通道", Status: "pending_confirmation", IsActive: true, DeviceSerial: "PENDING001", EzvizAccountID: 7, AccountName: "华东", AppKey: "app-key", AppSecret: "app-secret"}
+	repo := &fakeRepo{
+		store:    &StoreInfo{ID: 71, Name: "待确认有效门店", City: "", ExternalOrgID: "10071"},
+		channels: []ChannelInfo{channel},
+		byID:     map[int64]ChannelInfo{71: channel},
+	}
+	handler := NewHandler(NewService(repo, &fakePlayer{}))
+	storesRequest := httptest.NewRequest(http.MethodGet, "/api/h5/monitor/stores", nil)
+	storesResponse := httptest.NewRecorder()
+
+	handler.getMonitorStores(storesResponse, storesRequest)
+
+	if storesResponse.Code != http.StatusOK {
+		t.Fatalf("stores status = %d body=%s", storesResponse.Code, storesResponse.Body.String())
+	}
+	var result MonitorStoresResponse
+	if err := json.NewDecoder(storesResponse.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Cities) != 1 || result.Cities[0].City != "未分组" || len(result.Cities[0].Stores) != 1 {
+		t.Fatalf("unexpected city grouping: %#v", result.Cities)
+	}
+	if result.Cities[0].Stores[0].AvailableChannelCount != 1 {
+		t.Fatalf("available channel count = %d, want 1", result.Cities[0].Stores[0].AvailableChannelCount)
+	}
+
+	homeRequest := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/10071/monitor", nil)
+	homeRequest.SetPathValue("externalOrgId", "10071")
+	homeResponse := httptest.NewRecorder()
+	handler.getMonitorHome(homeResponse, homeRequest)
+	if homeResponse.Code != http.StatusOK {
+		t.Fatalf("home status = %d body=%s", homeResponse.Code, homeResponse.Body.String())
+	}
+	if !strings.Contains(homeResponse.Body.String(), `"id":71`) || !strings.Contains(homeResponse.Body.String(), `"category":"other"`) {
+		t.Fatalf("pending effective channel did not appear in monitor home: %s", homeResponse.Body.String())
+	}
+}
+
+func TestMonitorHomeReturnsNotFoundForMissingStore(t *testing.T) {
+	handler := NewHandler(NewService(&fakeRepo{}, &fakePlayer{}))
+	request := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/404/monitor", nil)
+	request.SetPathValue("externalOrgId", "404")
+	response := httptest.NewRecorder()
+
+	handler.getMonitorHome(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%s, want 404", response.Code, response.Body.String())
+	}
+}
+
+func TestLiveURLReturnsNotFoundForMissingChannel(t *testing.T) {
+	repo := &fakeRepo{
+		store: &StoreInfo{ID: 80, Name: "测试门店", City: "北京", ExternalOrgID: "10080"},
+		byID:  map[int64]ChannelInfo{},
+	}
+	handler := NewHandler(NewService(repo, &fakePlayer{}))
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10080/monitor/channels/999/live-url", strings.NewReader(`{"user_id":"u1"}`))
+	request.SetPathValue("externalOrgId", "10080")
+	request.SetPathValue("channelId", "999")
+	response := httptest.NewRecorder()
+
+	handler.getLiveURL(response, request)
 
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status = %d body=%s, want 404", response.Code, response.Body.String())
@@ -144,11 +265,18 @@ func TestMonitorHomeGroupsChannelsAndDoesNotLeakSecrets(t *testing.T) {
 	if payload.Groups[1].Channels[0].ID != 3 || payload.Groups[1].Channels[1].ID != 1 {
 		t.Fatalf("treatment channels not sorted by area number: %#v", payload.Groups[1].Channels)
 	}
+	totalChannels := 0
+	for _, group := range payload.Groups {
+		totalChannels += len(group.Channels)
+	}
+	if totalChannels != 6 {
+		t.Fatalf("home channel count = %d, want 6 to match monitor store count", totalChannels)
+	}
 }
 
 func TestMonitorHomeAllowsAnyStoreWithExternalOrgID(t *testing.T) {
 	channels := []ChannelInfo{
-		{ID: 31, StoreID: 31, ChannelNo: 1, ChannelName: "治疗1", Status: "confirmed_business", IsActive: true, AreaType: "treatment", AreaNumber: 1, DeviceSerial: "ANY001", AccountName: "华东", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
+		{ID: 31, StoreID: 31, ChannelNo: 1, ChannelName: "治疗1", Status: "confirmed_business", IsActive: true, AreaType: "treatment", AreaNumber: 1, DeviceSerial: "ANY001", EzvizAccountID: 3, AccountName: "华东", AppKey: "app-key", AppSecret: "app-secret", AccessToken: "access-token"},
 	}
 	repo := &fakeRepo{
 		store:    &StoreInfo{ID: 31, Name: "非试点门店", City: "上海", ExternalOrgID: "10031"},
@@ -173,7 +301,7 @@ func TestMonitorHomeAllowsAnyStoreWithExternalOrgID(t *testing.T) {
 
 func TestShanghaiKaidePilotUsesStoreOwnChannels(t *testing.T) {
 	channels := []ChannelInfo{
-		{ID: 11, StoreID: 47, ChannelNo: 1, ChannelName: "上海通道1", Status: "confirmed_business", IsActive: true, AreaType: "consultation", AreaNumber: 1, DeviceSerial: "SHANGHAI001", AccountName: "华东", AppKey: "east-key", AppSecret: "east-secret", AccessToken: "east-token"},
+		{ID: 11, StoreID: 47, ChannelNo: 1, ChannelName: "上海通道1", Status: "confirmed_business", IsActive: true, AreaType: "consultation", AreaNumber: 1, DeviceSerial: "SHANGHAI001", EzvizAccountID: 4, AccountName: "华东", AppKey: "east-key", AppSecret: "east-secret", AccessToken: "east-token"},
 	}
 	repo := &fakeRepo{
 		store:    &StoreInfo{ID: 47, Name: "新氧青春诊所(上海凯德晶萃店)", City: "上海", ExternalOrgID: "10047"},
@@ -208,8 +336,8 @@ func TestShanghaiKaidePilotUsesStoreOwnChannels(t *testing.T) {
 	}
 }
 
-func TestPilotHomeAndPlaybackRejectNonPilotDevice(t *testing.T) {
-	service, _ := newFakeService()
+func TestBeijingHomeAndPlaybackAllowStoreOwnEffectiveChannels(t *testing.T) {
+	service, player := newFakeService()
 	handler := NewHandler(service)
 
 	homeRequest := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/10030/monitor", nil)
@@ -219,8 +347,8 @@ func TestPilotHomeAndPlaybackRejectNonPilotDevice(t *testing.T) {
 	if homeResponse.Code != http.StatusOK {
 		t.Fatalf("home status = %d body=%s", homeResponse.Code, homeResponse.Body.String())
 	}
-	if strings.Contains(homeResponse.Body.String(), `"id":6`) {
-		t.Fatalf("non-pilot device channel appeared in home response: %s", homeResponse.Body.String())
+	if !strings.Contains(homeResponse.Body.String(), `"id":6`) {
+		t.Fatalf("store-owned effective channel did not appear in home response: %s", homeResponse.Body.String())
 	}
 
 	playRequest := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/6/live-url", strings.NewReader(`{"user_id":"u1"}`))
@@ -228,8 +356,11 @@ func TestPilotHomeAndPlaybackRejectNonPilotDevice(t *testing.T) {
 	playRequest.SetPathValue("channelId", "6")
 	playResponse := httptest.NewRecorder()
 	handler.getLiveURL(playResponse, playRequest)
-	if playResponse.Code != http.StatusNotFound {
-		t.Fatalf("play status = %d body=%s, want 404", playResponse.Code, playResponse.Body.String())
+	if playResponse.Code != http.StatusOK {
+		t.Fatalf("play status = %d body=%s", playResponse.Code, playResponse.Body.String())
+	}
+	if player.liveInput.DeviceSerial != "GQ2603603" || player.liveInput.ChannelNo != 9 {
+		t.Fatalf("unexpected Beijing live input: %#v", player.liveInput)
 	}
 }
 

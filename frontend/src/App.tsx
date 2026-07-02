@@ -14,11 +14,11 @@ import { EditStoreModal } from "./components/EditStoreModal";
 import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
 import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
 import { StoreList } from "./components/StoreList";
+import { SystemTopBar } from "./components/SystemTopBar";
 import {
   authCompanyEntryPath,
   authLoginPath,
   authLogoutPath,
-  authUserDisplayName,
   shouldBlockBusinessData,
   shouldShowForbiddenAccess,
   shouldShowLoginWelcome,
@@ -410,9 +410,23 @@ function AdminApp() {
     }
   }
 
+  function returnToStoreList() {
+    detailRequestIdRef.current += 1;
+    setActiveStore(null);
+    setLoadedDetailTabs(new Set());
+    setLoadingDetailTabs(new Set());
+    void loadStores();
+  }
+
   if (activeStore) {
     return (
       <main className="app-shell">
+        <SystemTopBar
+          backAction={{ label: "返回列表", onClick: returnToStoreList }}
+          auth={showLogoutEntry ? auth : null}
+          loggingOut={loggingOut}
+          onLogout={logout}
+        />
         {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
         <StoreDetail
           store={activeStore}
@@ -424,14 +438,6 @@ function AdminApp() {
           aiSettings={aiSettings}
           switchingAIModel={switchingAIModel}
           h5MonitorUrl={canOpenH5Monitor(activeStore) ? h5MonitorPath(activeStore.externalOrgId) : undefined}
-          authActions={showLogoutEntry && auth ? <AuthUserActions auth={auth} loggingOut={loggingOut} onLogout={logout} /> : null}
-          onBack={() => {
-            detailRequestIdRef.current += 1;
-            setActiveStore(null);
-            setLoadedDetailTabs(new Set());
-            setLoadingDetailTabs(new Set());
-            void loadStores();
-          }}
           onTabChange={(tab) => void ensureDetailTabLoaded(tab)}
           onToggleAIModel={toggleAIModel}
           onStoreUpdated={handleStoreUpdated}
@@ -470,13 +476,13 @@ function AdminApp() {
 
   return (
     <main className="app-shell">
+      <SystemTopBar auth={showLogoutEntry ? auth : null} loggingOut={loggingOut} onLogout={logout} />
       <header className="page-header">
         <div>
           <p className="eyebrow">空间资源管理</p>
           <h1>门店空间资源管理系统</h1>
         </div>
         <div className="page-header-actions">
-          {showLogoutEntry && auth ? <AuthUserActions auth={auth} loggingOut={loggingOut} onLogout={logout} /> : null}
           <button className="primary-button" onClick={() => setCreateOpen(true)}>
             <span aria-hidden="true">+</span>
             添加门店
@@ -612,35 +618,81 @@ function ForbiddenAccess({ appVersion }: { appVersion: string }) {
   );
 }
 
-function AuthUserActions({
-  auth,
-  loggingOut,
-  onLogout,
-}: {
-  auth: AuthState;
-  loggingOut: boolean;
-  onLogout: () => void | Promise<void>;
-}) {
-  const displayName = authUserDisplayName(auth.user);
-
-  return (
-    <div className="auth-user-chip" aria-label="当前登录用户">
-      <span className="auth-user-name">{displayName}</span>
-      <button className="plain-button auth-logout-button" onClick={() => void onLogout()} disabled={loggingOut}>
-        {loggingOut ? "退出中..." : "退出登录"}
-      </button>
-    </div>
-  );
-}
-
 function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
   const [route, setRoute] = useState<H5Route>(initialRoute);
+  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
+  const showLogoutEntry = shouldShowLogoutEntry(auth);
 
   useEffect(() => {
     const onPopState = () => setRoute(parseH5Route());
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    void storeSpaceApi
+      .getAuthMe()
+      .then((nextAuth) => {
+        setAuth(nextAuth);
+        setAuthMessage("");
+      })
+      .catch((error) => {
+        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 401) {
+          setAuth({ enabled: true, authenticated: false, login_url: authLoginPath() });
+          return;
+        }
+        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 403) {
+          setAuth({ enabled: true, authenticated: false, forbidden: true });
+          return;
+        }
+        setAuth({ enabled: false, authenticated: false });
+        setAuthMessage(errorMessage(error, "登录状态加载失败，请稍后重试。"));
+      })
+      .finally(() => setAuthLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (auth?.authenticated) {
+      window.sessionStorage.removeItem("erzhuang:h5-sso-entry-redirected");
+    }
+  }, [auth]);
+
+  useEffect(() => {
+    if (!shouldShowLoginWelcome(auth)) return;
+    const companyEntryPath = authCompanyEntryPath();
+    if (!companyEntryPath) return;
+    const redirectKey = "erzhuang:h5-sso-entry-redirected";
+    if (window.sessionStorage.getItem(redirectKey) === "1") return;
+    window.sessionStorage.setItem(redirectKey, "1");
+    window.location.replace(companyEntryPath);
+  }, [auth]);
+
+  async function logout() {
+    const logoutPath = authLogoutPath();
+    setLoggingOut(true);
+    if (shouldUseGatewayLogout()) {
+      window.location.assign(logoutPath);
+      return;
+    }
+    try {
+      await storeSpaceApi.logout();
+      setAuth({ enabled: true, authenticated: false, login_url: logoutPath });
+      window.location.assign(logoutPath);
+    } catch (error) {
+      setAuthMessage(errorMessage(error, "本地退出状态清理失败，正在尝试退出 SSO。"));
+      window.location.assign(logoutPath);
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
+  function handleAuthRequired() {
+    setAuth({ enabled: true, authenticated: false, login_url: authLoginPath() });
+    setAuthMessage("");
+  }
 
   if (!route) {
     return (
@@ -650,15 +702,49 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     );
   }
 
+  if (authLoading) {
+    return (
+      <main className="app-shell">
+        <div className="auth-loading">正在确认登录状态...</div>
+      </main>
+    );
+  }
+
+  if (shouldShowForbiddenAccess(auth)) {
+    return <ForbiddenAccess appVersion={APP_VERSION} />;
+  }
+
+  if (shouldShowLoginWelcome(auth) && authCompanyEntryPath()) {
+    return (
+      <main className="app-shell">
+        <div className="auth-loading">正在进入公司 SSO 登录...</div>
+      </main>
+    );
+  }
+
+  if (shouldShowLoginWelcome(auth)) {
+    return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
+  }
+
   if (route.name === "home") {
     return (
       <Suspense fallback={<div className="h5-loading">加载中...</div>}>
         <H5MonitorPage
           externalOrgId={route.externalOrgId}
+          auth={showLogoutEntry ? auth : null}
+          loggingOut={loggingOut}
+          authMessage={authMessage}
+          onLogout={logout}
+          onAuthRequired={handleAuthRequired}
           onOpenChannel={(channelId) => {
             const url = `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(route.externalOrgId)}/monitor/channels/${channelId}`;
             window.history.pushState({}, "", url);
             setRoute({ name: "channel", externalOrgId: route.externalOrgId, channelId });
+          }}
+          onSelectStore={(externalOrgId) => {
+            const url = `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor`;
+            window.history.pushState({}, "", url);
+            setRoute({ name: "home", externalOrgId });
           }}
         />
       </Suspense>
@@ -670,9 +756,14 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
       <H5MonitorChannelPage
         externalOrgId={route.externalOrgId}
         channelId={route.channelId}
+        auth={showLogoutEntry ? auth : null}
+        loggingOut={loggingOut}
+        authMessage={authMessage}
+        onLogout={logout}
+        onAuthRequired={handleAuthRequired}
         onBack={() => {
           const url = `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(route.externalOrgId)}/monitor`;
-          window.history.pushState({}, "", url);
+          window.history.replaceState({}, "", url);
           setRoute({ name: "home", externalOrgId: route.externalOrgId });
         }}
       />

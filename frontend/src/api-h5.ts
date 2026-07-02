@@ -1,5 +1,6 @@
 import type {
   H5MonitorHomeResponse,
+  H5MonitorStoresResponse,
   H5LiveURLResponse,
   H5RecordSegmentsResponse,
   H5PlaybackURLResponse,
@@ -80,6 +81,13 @@ export class H5ApiError extends Error {
 }
 
 export const h5Api = {
+  async listMonitorStores(): Promise<H5MonitorStoresResponse> {
+    if (import.meta.env.DEV) {
+      return mockMonitorStores();
+    }
+    return requestJSON(`${API_BASE}/h5/monitor/stores`);
+  },
+
   async getMonitorHome(externalOrgId: string): Promise<H5MonitorHomeResponse> {
     if (import.meta.env.DEV && externalOrgId === "demo") {
       return mockMonitorHome();
@@ -157,6 +165,47 @@ export const h5Api = {
     });
   },
 };
+
+function mockMonitorStores(): H5MonitorStoresResponse {
+  return {
+    cities: [
+      {
+        city: "北京",
+        stores: [
+          {
+            external_org_id: "demo",
+            store_name: "新氧青春演示门店",
+            city: "北京",
+            available_channel_count: 36,
+          },
+          {
+            external_org_id: "10030",
+            store_name: "新氧青春国贸门店",
+            city: "北京",
+            available_channel_count: 18,
+          },
+        ],
+      },
+      {
+        city: "上海",
+        stores: [
+          {
+            external_org_id: "10047",
+            store_name: "新氧青春静安门店",
+            city: "上海",
+            available_channel_count: 24,
+          },
+          {
+            external_org_id: "10031",
+            store_name: "新氧青春徐汇门店",
+            city: "上海",
+            available_channel_count: 12,
+          },
+        ],
+      },
+    ],
+  };
+}
 
 function mockMonitorHome(): H5MonitorHomeResponse {
   const groups: H5MonitorHomeResponse["groups"] = [

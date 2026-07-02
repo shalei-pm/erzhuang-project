@@ -20,11 +20,21 @@ func NewHandler(service *Service) *Handler {
 
 func RegisterRoutes(mux *http.ServeMux, service *Service) {
 	handler := NewHandler(service)
+	mux.HandleFunc("GET /api/h5/monitor/stores", handler.getMonitorStores)
 	mux.HandleFunc("GET /api/h5/orgs/{externalOrgId}/monitor", handler.getMonitorHome)
 	mux.HandleFunc("POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/live-url", handler.getLiveURL)
 	mux.HandleFunc("GET /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/record-segments", handler.getRecordSegments)
 	mux.HandleFunc("POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/playback-url", handler.getPlaybackURL)
 	mux.HandleFunc("POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/disable-url", handler.disableURL)
+}
+
+func (h *Handler) getMonitorStores(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.ListMonitorStores(r.Context())
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) getMonitorHome(w http.ResponseWriter, r *http.Request) {

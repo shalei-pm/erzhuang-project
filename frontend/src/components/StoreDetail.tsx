@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { AISettings, EzvizAccount, StoreDetail as StoreDetailType, VideoRecorder } from "../api";
 import { DesignPlanTab } from "./DesignPlanTab";
 import { VideoChannelTab } from "./VideoChannelTab";
@@ -15,8 +15,6 @@ type StoreDetailProps = {
   aiSettings: AISettings | null;
   switchingAIModel: boolean;
   h5MonitorUrl?: string;
-  authActions?: ReactNode;
-  onBack: () => void;
   onTabChange: (tab: StoreDetailTab) => void;
   onToggleAIModel: () => void;
   onStoreUpdated: (update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType)) => void;
@@ -33,8 +31,6 @@ export function StoreDetail({
   aiSettings,
   switchingAIModel,
   h5MonitorUrl,
-  authActions,
-  onBack,
   onTabChange,
   onToggleAIModel,
   onStoreUpdated,
@@ -70,10 +66,6 @@ export function StoreDetail({
     <section className="detail-page">
       <header className="detail-header">
         <div className="detail-header-main">
-          <button className="detail-back-button" onClick={onBack} aria-label="返回机构列表">
-            <span aria-hidden="true">←</span>
-            <span>返回列表</span>
-          </button>
           <h1>{store.name}</h1>
           <div className="detail-metrics" aria-label="门店资源概览">
             <div>
@@ -98,14 +90,11 @@ export function StoreDetail({
             </div>
           </div>
         </div>
-        {h5MonitorUrl || authActions ? (
+        {h5MonitorUrl ? (
           <div className="detail-header-side">
-            {h5MonitorUrl ? (
-              <button className="detail-back-button" onClick={() => window.location.assign(h5MonitorUrl)}>
-                查看监控
-              </button>
-            ) : null}
-            {authActions}
+            <button className="secondary-action-button" onClick={() => window.location.assign(h5MonitorUrl)}>
+              查看监控
+            </button>
           </div>
         ) : null}
       </header>

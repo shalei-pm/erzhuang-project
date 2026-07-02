@@ -4071,3 +4071,27 @@ git pull --ff-only
 - 验证：
   - `cd frontend && npm test` 通过，26 tests passed。
   - `cd frontend && npm run build` 通过。
+
+## 2026-07-02 系统顶栏与 H5 门店切换 2.25.0 开发记录
+
+- 背景：
+  - 用户希望门店列表、机构详情、H5 Monitor 的返回与登出位置统一，后续权限接入后维护更简单。
+  - H5 Monitor 需要在页面内切换有有效监控通道的门店，且门店不要求完成确认或业务区域确认。
+  - SSO 未授权用户需要明确显示“暂无访问权限”，未登录不能继续请求 H5 业务数据。
+- 实现：
+  - 新增共享 `SystemTopBar`，后台列表页右上角统一登出，详情页左侧 `返回列表`、右侧登出；详情页的 `查看监控` 保留在业务区。
+  - 新增 `GET /api/h5/monitor/stores`，按城市返回有有效监控通道的门店及可用通道数。
+  - 统一 H5 Monitor 有效通道口径：通道 active、`channel_no > 0`、录像机设备号非空、萤石账号存在且运行时凭证可用；不再依赖通道确认状态，也移除北京试点设备特例。
+  - 新增 H5 门店切换器，按城市分组、当前门店高亮，当前门店不在列表时仍可兜底显示。
+  - H5 首页和频道页接入 `SystemTopBar`，频道页返回改为 `replaceState` 回到监控首页，避免浏览器历史栈反复回到频道页。
+  - H5 401 统一进入 SSO/login 阻断流程，403 统一显示“暂无访问权限”。
+  - 加强播放器直播取流竞态保护：直播 URL 请求失效后若晚返回，会立即调用失效接口释放 `url_id`，避免异常占用萤石并发。
+- 验证：
+  - `cd frontend && npm test` 通过，2 files / 29 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/h5monitor` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+- 备注：
+  - 本次仅完成开发准备，尚未发布公司环境。
+  - `internal/storespace.H5MonitorRepository.ListMonitorStores` 的 SQL/runtime credentials 过滤尚无 repository-level SQL 测试，当前以 service/handler 边界测试和编译门禁覆盖；后续如补数据库测试基建，应补充这一层。
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。
