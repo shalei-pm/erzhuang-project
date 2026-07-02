@@ -686,6 +686,23 @@ func TestOSSSmokeEndpointRunsWhenOpsEnabledForAdmin(t *testing.T) {
 	}
 }
 
+func TestOSSSmokeEndpointAcceptsK8SSecretOpsEnabled(t *testing.T) {
+	t.Setenv("K8S_SECRET_OPS_ENABLED", "true")
+	restore := setOSSSmokeRunnerForTest(func(ctx context.Context) (*ossSmokeResult, error) {
+		return &ossSmokeResult{Key: "smoke-tests/k8s.txt", ContentType: "text/plain; charset=utf-8", Bytes: 32}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/oss-smoke", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestOSSSmokeEndpointRequiresAdminPermission(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("OPS_ENABLED", "true")

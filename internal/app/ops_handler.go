@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"regexp"
@@ -51,15 +52,49 @@ func (h *Handler) ossSmokeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func opsEnabled() bool {
-	return strings.EqualFold(strings.TrimSpace(os.Getenv("OPS_ENABLED")), "true")
+	return envBool("OPS_ENABLED") || envBool("K8S_SECRET_OPS_ENABLED")
 }
 
 func runOSSSmokeFromEnv(ctx context.Context) (*ossSmokeResult, error) {
+	if envValue("ASSET_STORE", "K8S_SECRET_ASSET_STORE") == "oss" {
+		return runOSSSmokeWithOSSSecretFallback(ctx)
+	}
 	store, err := assets.NewStoreFromEnv()
 	if err != nil {
 		return nil, err
 	}
 	return osssmoke.Run(ctx, store, osssmoke.Options{Apply: true})
+}
+
+func runOSSSmokeWithOSSSecretFallback(ctx context.Context) (*ossSmokeResult, error) {
+	bucket := envValue("OSS_BUCKET", "K8S_SECRET_OSS_BUCKET")
+	endpoint := envValue("OSS_ENDPOINT", "K8S_SECRET_OSS_ENDPOINT")
+	accessKeyID := envValue("OSS_ACCESS_KEY_ID", "K8S_SECRET_OSS_ACCESS_KEY_ID")
+	accessKeySecret := envValue("OSS_ACCESS_KEY_SECRET", "K8S_SECRET_OSS_ACCESS_KEY_SECRET")
+	if bucket == "" || endpoint == "" || accessKeyID == "" || accessKeySecret == "" {
+		return nil, errors.New("ASSET_STORE=oss requires OSS bucket, endpoint, access key id, and access key secret")
+	}
+	store := assets.NewOSSStore(assets.OSSConfig{
+		Bucket:          bucket,
+		Endpoint:        endpoint,
+		AccessKeyID:     accessKeyID,
+		AccessKeySecret: accessKeySecret,
+	})
+	return osssmoke.Run(ctx, store, osssmoke.Options{Apply: true})
+}
+
+func envBool(names ...string) bool {
+	return strings.EqualFold(envValue(names...), "true")
+}
+
+func envValue(names ...string) string {
+	for _, name := range names {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 var opsSensitivePatterns = []*regexp.Regexp{

@@ -209,7 +209,8 @@ func TestOSSStoreSaveOpenDeletePrefix(t *testing.T) {
 	var listDate string
 
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		requests = append(requests, r.Method+" "+r.URL.Path)
+		requestPath := requestPathForTest(r.URL.Path)
+		requests = append(requests, r.Method+" "+requestPath)
 		if r.Header.Get("Authorization") == "" {
 			t.Fatalf("missing Authorization header")
 		}
@@ -224,7 +225,7 @@ func TestOSSStoreSaveOpenDeletePrefix(t *testing.T) {
 			return textResponse(r, http.StatusOK, "", "text/plain"), nil
 		case r.Method == http.MethodGet && r.URL.Path == "/uploads/tmp_1/preview.png":
 			return textResponse(r, http.StatusOK, "oss-png", "image/png"), nil
-		case r.Method == http.MethodGet && r.URL.Path == "/" && r.URL.Query().Get("list-type") == "2":
+		case r.Method == http.MethodGet && requestPath == "/" && r.URL.Query().Get("list-type") == "2":
 			listAuthorization = r.Header.Get("Authorization")
 			listDate = r.Header.Get("Date")
 			return textResponse(r, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult><Contents><Key>uploads/tmp_1/preview.png</Key></Contents></ListBucketResult>`, "application/xml"), nil
@@ -276,6 +277,13 @@ func TestOSSStoreSaveOpenDeletePrefix(t *testing.T) {
 	if listAuthorization != "OSS test-id:"+expectedListSignature {
 		t.Fatalf("unexpected list authorization: got %q want %q", listAuthorization, "OSS test-id:"+expectedListSignature)
 	}
+}
+
+func requestPathForTest(path string) string {
+	if path == "" {
+		return "/"
+	}
+	return path
 }
 
 func TestOSSStoreOpenMissingMapsToErrNotFound(t *testing.T) {
