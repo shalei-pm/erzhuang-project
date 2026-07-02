@@ -472,6 +472,93 @@ func TestAuthUserPermissionsForAdminEditorViewer(t *testing.T) {
 	}
 }
 
+func TestListAuthUsersRequiresAdmin(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":  "编辑用户",
+			"mail":     "changwenxia@soyoung.com",
+			"username": "changwenxia",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
+	}
+}
+
+func TestListAuthUsersUsesSSOTokenWhileSSODisabled(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "false")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":  "编辑用户",
+			"mail":     "wangxiaofan@soyoung.com",
+			"username": "wangxiaofan",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
+	}
+}
+
+func TestListAuthUsersReturnsSeededUsersForAdmin(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":  "沙磊",
+			"mail":     "shalei@soyoung.com",
+			"username": "shalei",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Users []AuthUserRecord `json:"users"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Users) < 4 {
+		t.Fatalf("expected seeded users, got %#v", response.Users)
+	}
+	if !authUsersContain(response.Users, "maming@soyoung.com", RoleAdmin) {
+		t.Fatalf("expected maming admin in %#v", response.Users)
+	}
+	if !authUsersContain(response.Users, "changwenxia@soyoung.com", RoleEditor) {
+		t.Fatalf("expected changwenxia editor in %#v", response.Users)
+	}
+}
+
 func TestAuthMeRejectsUnprovisionedSSOUser(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("SSO_ENABLED", "true")
@@ -654,6 +741,18 @@ func (failingStore) UpdateAuthUserProfile(ctx context.Context, patch AuthUserPat
 	return AuthUserRecord{}, errors.New("auth user failed")
 }
 
+func (failingStore) ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error) {
+	return nil, errors.New("auth user failed")
+}
+
+func (failingStore) CreateAuthUser(ctx context.Context, input AuthUserMutation) (AuthUserRecord, error) {
+	return AuthUserRecord{}, errors.New("auth user failed")
+}
+
+func (failingStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error) {
+	return AuthUserRecord{}, errors.New("auth user failed")
+}
+
 func newTestRSAKey(t *testing.T) *rsa.PrivateKey {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -694,6 +793,15 @@ func signAPISIXSSOToken(t *testing.T, privateKey *rsa.PrivateKey, claims map[str
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func authUsersContain(users []AuthUserRecord, email string, role string) bool {
+	for _, user := range users {
+		if user.Email == email && user.Role == role {
 			return true
 		}
 	}

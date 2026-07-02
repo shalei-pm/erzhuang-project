@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -115,6 +116,61 @@ func (s *MemoryStore) UpdateAuthUserProfile(ctx context.Context, patch AuthUserP
 	user.LastLoginAt = &now
 	s.authUsers[email] = user
 	return user, nil
+}
+
+func (s *MemoryStore) ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	users := make([]AuthUserRecord, 0, len(s.authUsers))
+	for _, user := range s.authUsers {
+		users = append(users, user)
+	}
+	sort.Slice(users, func(i, j int) bool {
+		if users[i].Enabled != users[j].Enabled {
+			return users[i].Enabled
+		}
+		return users[i].Email < users[j].Email
+	})
+	return users, nil
+}
+
+func (s *MemoryStore) CreateAuthUser(ctx context.Context, input AuthUserMutation) (AuthUserRecord, error) {
+	email := normalizeEmail(input.Email)
+	if email == "" {
+		return AuthUserRecord{}, errors.New("missing email")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.authUsers[email]; ok {
+		return AuthUserRecord{}, errors.New("auth user exists")
+	}
+	user := AuthUserRecord{
+		ID:          int64(len(s.authUsers) + 1),
+		Email:       email,
+		Username:    strings.TrimSpace(input.Username),
+		DisplayName: strings.TrimSpace(input.DisplayName),
+		Role:        normalizeRole(input.Role),
+		Enabled:     input.Enabled,
+	}
+	s.authUsers[email] = user
+	return user, nil
+}
+
+func (s *MemoryStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for email, user := range s.authUsers {
+		if user.ID != id {
+			continue
+		}
+		user.Username = strings.TrimSpace(input.Username)
+		user.DisplayName = strings.TrimSpace(input.DisplayName)
+		user.Role = normalizeRole(input.Role)
+		user.Enabled = input.Enabled
+		s.authUsers[email] = user
+		return user, nil
+	}
+	return AuthUserRecord{}, errAuthUserNotFound
 }
 
 func (s *MemoryStore) setAuthUserForTest(user AuthUserRecord) error {

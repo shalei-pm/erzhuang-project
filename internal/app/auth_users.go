@@ -42,9 +42,20 @@ type AuthUserPatch struct {
 	Phone        string
 }
 
+type AuthUserMutation struct {
+	Email       string `json:"email"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Role        string `json:"role"`
+	Enabled     bool   `json:"enabled"`
+}
+
 type AuthUserStore interface {
 	GetAuthUserByEmail(ctx context.Context, email string) (AuthUserRecord, error)
 	UpdateAuthUserProfile(ctx context.Context, patch AuthUserPatch) (AuthUserRecord, error)
+	ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error)
+	CreateAuthUser(ctx context.Context, input AuthUserMutation) (AuthUserRecord, error)
+	UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error)
 }
 
 func (record AuthUserRecord) permissions() []string {
@@ -70,6 +81,17 @@ func (record AuthUserRecord) applyToResponse(user AuthUserResponse) AuthUserResp
 
 func normalizeEmail(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func normalizeRole(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case RoleAdmin:
+		return RoleAdmin
+	case RoleEditor:
+		return RoleEditor
+	default:
+		return RoleViewer
+	}
 }
 
 func scanAuthUser(scanner interface {

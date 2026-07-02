@@ -115,6 +115,68 @@ func (s *PostgresStore) UpdateAuthUserProfile(ctx context.Context, patch AuthUse
 	return record, err
 }
 
+func (s *PostgresStore) ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select id, email, username, display_name, feishu_user_id, phone, role, enabled, last_login_at
+		from tb_users
+		order by enabled desc, lower(email) asc
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	users := []AuthUserRecord{}
+	for rows.Next() {
+		user, err := scanAuthUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+func (s *PostgresStore) CreateAuthUser(ctx context.Context, input AuthUserMutation) (AuthUserRecord, error) {
+	record, err := scanAuthUser(s.db.QueryRowContext(ctx, `
+		insert into tb_users (email, username, display_name, role, enabled)
+		values ($1, $2, $3, $4, $5)
+		returning id, email, username, display_name, feishu_user_id, phone, role, enabled, last_login_at
+	`,
+		normalizeEmail(input.Email),
+		strings.TrimSpace(input.Username),
+		strings.TrimSpace(input.DisplayName),
+		normalizeRole(input.Role),
+		input.Enabled,
+	))
+	return record, err
+}
+
+func (s *PostgresStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error) {
+	record, err := scanAuthUser(s.db.QueryRowContext(ctx, `
+		update tb_users
+		set username = $2,
+			display_name = $3,
+			role = $4,
+			enabled = $5,
+			updated_at = now()
+		where id = $1
+		returning id, email, username, display_name, feishu_user_id, phone, role, enabled, last_login_at
+	`,
+		id,
+		strings.TrimSpace(input.Username),
+		strings.TrimSpace(input.DisplayName),
+		normalizeRole(input.Role),
+		input.Enabled,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return AuthUserRecord{}, errAuthUserNotFound
+	}
+	return record, err
+}
+
 func EnsurePostgresSchema(ctx context.Context, db *sql.DB) error {
 	statements := []string{
 		`create table if not exists tasks (
