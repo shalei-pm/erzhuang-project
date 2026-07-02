@@ -25,6 +25,8 @@
 
 - `internal/assets/oss.go`：OSS asset store provider。
 - `cmd/oss-smoke/main.go`：OSS 连通性 smoke 工具，默认 dry-run。
+- `POST /api/admin/ops/oss-smoke`：公司 Pod 内 OSS smoke 受控入口。
+- `POST /api/admin/ops/asset-migrate`：公司 Pod 内 Stage A 样本迁移受控入口，默认 dry-run。
 - `db/oss_asset_schema_patch_tb.sql`：`tb_asset_objects` 迁移追踪字段补丁。
 - `db/oss_asset_inventory_sql_tb.sql`：历史对象引用清单。
 - `db/oss_asset_validation_sql_tb.sql`：迁移后校验 SQL。
@@ -43,9 +45,9 @@
 4. 执行迁移清单 dry-run：
    - `db/oss_asset_inventory_sql_tb.sql`
    - 先看样本门店 `10030` 的结果。
-5. 用迁移程序或临时受控脚本复制样本门店对象到 OSS。
+5. 用迁移程序或应用内受控入口复制样本门店对象到 OSS。
    - 第一阶段 `target_oss_key = logical_key`。
-   - 成功后 upsert `tb_asset_objects`：
+   - 成功后审查生成 SQL，再更新 `tb_asset_objects`：
      - `storage_provider = 'oss'`
      - `bucket = 'sy-camera-erzhuang-project'`
      - `storage_key = logical_key`
@@ -115,6 +117,52 @@ TARGET_OSS_ACCESS_KEY_SECRET=<from secret>
 
 样本 apply 时可以附加 `--result-sql /tmp/oss-inventory-10030-result.sql`，生成待审查的数据库状态回写 SQL。该 SQL 只包含 `action=copied` 行，主会话审查后再执行，不由迁移工具自动写库。
 
+## 应用内受控迁移入口
+
+公司运行环境无法假设有容器终端，因此 Stage A 可以通过应用内受控入口执行。该入口复用公司 Pod 内的运行时网络和密钥环境，避免在本地或浏览器暴露 Supabase/OSS 密钥。
+
+入口：
+
+```text
+POST /api/admin/ops/asset-migrate
+```
+
+保护规则：
+
+- 仅 `OPS_ENABLED=true` 或 `K8S_SECRET_OPS_ENABLED=true` 时开放。
+- 仅管理员权限 `user:manage` 可调用。
+- 请求体最多 2MB。
+- 默认 `external_org_id=10030`，默认 `max_rows=20`。
+- `apply=true` 当前只允许样本门店 `10030`。
+- dry-run 不写 OSS。
+- apply 只把对象复制到 OSS，并返回 `result_sql`；接口不直接写 MySQL。
+
+请求体：
+
+```json
+{
+  "manifest_csv": "<db/oss_asset_inventory_sql_tb.sql 导出的 CSV 文本>",
+  "external_org_id": "10030",
+  "max_rows": 20,
+  "apply": false,
+  "batch_id": "stage-a-10030-oss-smoke"
+}
+```
+
+执行顺序：
+
+1. 从测试库导出 `external_org_id=10030` 的 inventory CSV。
+2. 调用受控入口，`apply=false`。
+3. 确认返回：
+   - `summary.errors = 0`
+   - rank=1 行为 `would_copy`
+   - rank=2 重复引用为 `skipped / duplicate_logical_key`
+4. 调用受控入口，`apply=true`。
+5. 审查返回的 `result_sql`。
+6. 执行前确认 `tb_asset_objects` 已有对应 logical key 的 pending 记录；当前 `result_sql` 只 update，不 insert/upsert。
+7. 人工执行 `result_sql`。
+8. 执行 `db/oss_asset_validation_sql_tb.sql`。
+
 ## 验收口径
 
 样本门店 `10030` 通过条件：
@@ -170,7 +218,7 @@ Stage A 不删除历史对象，不改前端路径，因此回滚优先级如下
 2. **Stage B 历史资产迁移**：样本对象迁移、后端代理访问、`db/oss_asset_validation_sql_tb.sql` 均通过后进入，迁设计图和通道截图对象。
 3. **业务数据库历史迁移**：MySQL schema、权限模型、资产映射、冻结窗口、备份和回滚方案都确认后进入；它和 OSS 对象迁移分开排期。
 
-当前状态：测试库 Stage A 数据和 inventory dry-run 已通过，但 OSS 内网 smoke 尚未在公司环境通过，因此还不能执行样本对象 apply，更不能进入全量历史数据迁移。
+当前状态：测试库 Stage A 数据和 inventory dry-run 已通过，OSS 内网 smoke 也已在公司环境通过。下一步可以发布受控迁移入口，导出 `10030` inventory CSV 后执行应用内 dry-run。dry-run 通过后，才执行样本 apply；仍不能进入全量历史数据迁移。
 
 ## 2026-07-02 测试库 Stage A 记录
 
@@ -201,5 +249,6 @@ Stage A 不删除历史对象，不改前端路径，因此回滚优先级如下
 结论：
 
 - 当前 Mac 环境不具备访问 OSS 内网 endpoint 的网络条件。
-- 真实 OSS smoke 需要在公司 K8s/阿里云 VPC 内环境执行，或由运维确认是否允许提供外网 endpoint 做临时验证。
-- 在内网 smoke 未通过前，不应执行 `asset-migrate --apply`，也不应切换公司环境 `ASSET_STORE=oss`。
+- 真实 OSS smoke 需要在公司 K8s/阿里云 VPC 内环境执行。
+- 2026-07-02 已通过 `POST /api/admin/ops/oss-smoke` 在公司 Pod 内完成 PUT/GET/DELETE smoke，返回 `ok=true`。
+- 可以进入 Stage A 样本对象迁移准备；在样本 dry-run、apply、SQL 回写和 validation 全部通过前，不应切换公司环境 `ASSET_STORE=oss`。

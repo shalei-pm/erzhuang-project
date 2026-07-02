@@ -4271,3 +4271,33 @@ git pull --ff-only
   - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
 - 备注：
   - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
+
+## 2026-07-02 OSS Stage A 受控迁移入口 2.27.0 开发记录
+
+- 背景：
+  - 公司 Pod 已通过 `POST /api/admin/ops/oss-smoke` 完成 OSS 内网 PUT/GET/DELETE smoke。
+  - 本机无法访问 OSS 内网 endpoint，因此样本对象复制应在公司运行环境内执行。
+  - 当前业务资产读写仍保持 `ASSET_STORE=supabase`，不切全局 OSS。
+- 实现：
+  - 新增 `POST /api/admin/ops/asset-migrate` 受控入口。
+  - 入口仅在 `OPS_ENABLED` / `K8S_SECRET_OPS_ENABLED` 开启且管理员具备 `user:manage` 权限时可用。
+  - 请求体接收 inventory CSV，默认 `external_org_id=10030`、`max_rows=20`，请求体限制 2MB。
+  - `apply=true` 当前只允许样本门店 `10030`。
+  - dry-run 不写 OSS；apply 只复制对象到 OSS，并返回待审查 `result_sql`，不直接写 MySQL。
+  - 源存储默认复用现有业务 Supabase 运行时变量，目标 OSS 优先复用 `K8S_SECRET_*` 变量。
+- DBA 审查要点：
+  - `result_sql` 当前只 update 已存在的 `tb_asset_objects` 行，不 insert/upsert。
+  - 执行 `result_sql` 前必须确认样本 logical key 已有 pending 记录，否则可能影响 0 行。
+  - `mysql_schema_tb.sql` 与 `mysql_business_schema_patch_tb.sql` 存在重复字段风险，后续需要明确“完整初始化路径”和“旧库补丁路径”。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/assetmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/assets` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build ./cmd/server ./cmd/asset-migrate ./cmd/oss-smoke` 通过。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `go test ./...` 执行阶段仍受本机 Go runtime `dyld missing LC_UUID` 问题阻断，编译级门禁通过。
+- 下一步：
+  - 发布该入口到公司环境。
+  - 从 MySQL 测试库导出 `external_org_id=10030` inventory CSV。
+  - 先在线上已登录管理员浏览器中调用 `apply=false` dry-run。
+  - dry-run 无 failed 后，再调用 `apply=true`，审查返回的 `result_sql` 后手工回写 MySQL。

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +20,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/assetmigration"
 )
 
 func TestHealth(t *testing.T) {
@@ -810,6 +813,148 @@ func TestOSSSmokeEndpointSanitizesFailureDetails(t *testing.T) {
 	}
 }
 
+func TestAssetMigrationEndpointHiddenUnlessOpsEnabled(t *testing.T) {
+	called := false
+	restore := setAssetMigrationRunnerForTest(func(ctx context.Context, request assetMigrationRunRequest) (*assetMigrationRunResult, error) {
+		called = true
+		return &assetMigrationRunResult{}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/asset-migrate", strings.NewReader(`{"manifest_csv":"x"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusNotFound, recorder.Code, recorder.Body.String())
+	}
+	if called {
+		t.Fatal("expected disabled ops endpoint not to call migration runner")
+	}
+}
+
+func TestAssetMigrationEndpointRunsDryRunForAdmin(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setAssetMigrationRunnerForTest(func(ctx context.Context, request assetMigrationRunRequest) (*assetMigrationRunResult, error) {
+		if request.Apply {
+			t.Fatal("expected dry-run request")
+		}
+		if request.ExternalOrgID != "10030" || request.MaxRows != defaultOpsMigrationMaxRows {
+			t.Fatalf("unexpected request defaults: %#v", request)
+		}
+		return &assetMigrationRunResult{
+			Summary: assetmigration.Summary{Total: 2, WouldCopy: 1, Skipped: 1},
+			Results: []assetmigration.RowResult{
+				{
+					Action: "would_copy",
+					Row: assetmigration.ManifestRow{
+						ExternalOrgID: "10030",
+						LogicalKey:    "channel-snapshots/sample.jpg",
+						TargetOSSKey:  "channel-snapshots/sample.jpg",
+					},
+				},
+				{
+					Action: "skipped",
+					Error:  "duplicate_logical_key",
+					Row: assetmigration.ManifestRow{
+						ExternalOrgID:  "10030",
+						LogicalKey:     "channel-snapshots/sample.jpg",
+						TargetOSSKey:   "channel-snapshots/sample.jpg",
+						LogicalKeyRank: 2,
+					},
+				},
+			},
+			ResultCSV: "action,external_org_id,logical_key,target_oss_key,bytes,content_type,error\nwould_copy,10030,channel-snapshots/sample.jpg,channel-snapshots/sample.jpg,0,,\n",
+			Warnings:  []string{"check pending rows"},
+		}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/asset-migrate", strings.NewReader(`{"manifest_csv":"logical_key,target_oss_key,suggested_migration_status\nchannel-snapshots/sample.jpg,channel-snapshots/sample.jpg,pending\n"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var response assetMigrationResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.OK || response.Apply || response.Summary.WouldCopy != 1 || len(response.Results) != 2 {
+		t.Fatalf("unexpected migration response: %#v", response)
+	}
+	if response.ResultSQL != "" {
+		t.Fatalf("dry-run should not return result SQL: %s", response.ResultSQL)
+	}
+}
+
+func TestAssetMigrationEndpointLimitsApplyScope(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setAssetMigrationRunnerForTest(func(ctx context.Context, request assetMigrationRunRequest) (*assetMigrationRunResult, error) {
+		t.Fatal("invalid apply request should not call runner")
+		return nil, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/asset-migrate", strings.NewReader(`{"manifest_csv":"logical_key,target_oss_key,suggested_migration_status\nx,x,pending\n","external_org_id":"10047","apply":true}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAssetMigrationEndpointReturnsSanitizedApplySQL(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setAssetMigrationRunnerForTest(func(ctx context.Context, request assetMigrationRunRequest) (*assetMigrationRunResult, error) {
+		if !request.Apply || request.BatchID != "stage-a-test" {
+			t.Fatalf("unexpected apply request: %#v", request)
+		}
+		return &assetMigrationRunResult{
+			Summary: assetmigration.Summary{Total: 1, Copied: 1},
+			Results: []assetmigration.RowResult{
+				{
+					Action:      "copied",
+					Bytes:       12,
+					ContentType: "image/jpeg",
+					Row: assetmigration.ManifestRow{
+						ExternalOrgID: "10030",
+						LogicalKey:    "channel-snapshots/sample.jpg",
+						TargetOSSKey:  "channel-snapshots/sample.jpg",
+					},
+				},
+			},
+			ResultCSV: "action,external_org_id,logical_key,target_oss_key,bytes,content_type,error\ncopied,10030,channel-snapshots/sample.jpg,channel-snapshots/sample.jpg,12,image/jpeg,\n",
+			ResultSQL: "update tb_asset_objects set storage_provider = 'oss' where logical_key_hash = sha2('channel-snapshots/sample.jpg', 256);\n",
+		}, nil
+	})
+	defer restore()
+
+	body := fmt.Sprintf(`{"manifest_csv":%q,"apply":true,"batch_id":"stage-a-test"}`, "logical_key,target_oss_key,suggested_migration_status\nchannel-snapshots/sample.jpg,channel-snapshots/sample.jpg,pending\n")
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/asset-migrate", strings.NewReader(body))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	responseBody := recorder.Body.String()
+	for _, sensitive := range []string{"Authorization", "OSS_ACCESS_KEY_SECRET", "very-secret", "Signature", "StringToSign"} {
+		if strings.Contains(responseBody, sensitive) {
+			t.Fatalf("expected response to redact %q, got %s", sensitive, responseBody)
+		}
+	}
+	if !strings.Contains(responseBody, "update tb_asset_objects") {
+		t.Fatalf("expected result SQL in response, got %s", responseBody)
+	}
+}
+
 func TestAuthMeRejectsUnprovisionedSSOUser(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("SSO_ENABLED", "true")
@@ -1064,5 +1209,13 @@ func setOSSSmokeRunnerForTest(runner ossSmokeRunner) func() {
 	currentOSSSmokeRunner = runner
 	return func() {
 		currentOSSSmokeRunner = previous
+	}
+}
+
+func setAssetMigrationRunnerForTest(runner assetMigrationRunner) func() {
+	previous := currentAssetMigrationRunner
+	currentAssetMigrationRunner = runner
+	return func() {
+		currentAssetMigrationRunner = previous
 	}
 }

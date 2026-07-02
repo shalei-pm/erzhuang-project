@@ -6,7 +6,7 @@
 
 验证公司运行环境是否能访问 OSS 内网 endpoint，并验证对象存储账号对 bucket 具备最小读写删权限。该步骤通过后，才允许进入样本对象迁移；该步骤未通过前，不切换 `ASSET_STORE=oss`，不执行全量数据迁移。
 
-## 当前阻塞
+## 当前状态
 
 本机访问以下内网 endpoint 超时：
 
@@ -15,6 +15,19 @@ sy-camera-erzhuang-project.oss-cn-beijing-internal.aliyuncs.com
 ```
 
 因此 smoke 必须在公司 K8s / 阿里云 VPC 内执行，或由运维确认可临时使用外网 endpoint。
+
+2026-07-02 已通过应用内受控入口完成公司 Pod smoke：
+
+```json
+{
+  "ok": true,
+  "key": "smoke-tests/20260702T121916Z-715bab6dab3c.txt",
+  "bytes": 48,
+  "content_type": "text/plain; charset=utf-8"
+}
+```
+
+结论：公司运行时 Pod 可以访问 OSS 内网 endpoint，运行时变量已注入，bucket 权限支持 PUT/GET/DELETE。可以进入 Stage A 样本对象迁移准备，但仍不能切换全局 `ASSET_STORE=oss`。
 
 ## 需要注入的环境变量
 
@@ -132,6 +145,61 @@ go build -o /tmp/asset-migrate-check ./cmd/asset-migrate
 - 重复引用应被标记为 skipped，例如 `duplicate_logical_key`。
 - 不出现 `failed`。
 
+### 方式 A：应用内受控入口
+
+推荐优先使用该方式。请求在公司应用 Pod 内执行，复用已验证通过的运行环境；接口只迁用户提交的 inventory CSV，不查询数据库、不写数据库。
+
+入口：
+
+```text
+POST /api/admin/ops/asset-migrate
+```
+
+保护规则：
+
+- `OPS_ENABLED=true` 或 `K8S_SECRET_OPS_ENABLED=true` 时才开放。
+- 需要管理员权限，即 `user:manage`。
+- 请求体最多 2MB。
+- 默认 `external_org_id=10030`，默认 `max_rows=20`。
+- `apply=true` 目前只允许 `external_org_id=10030`。
+- dry-run 不写 OSS。
+- apply 只复制对象到 OSS，并返回待人工审查的 `result_sql`；接口不直接写 MySQL。
+
+请求示例：
+
+```js
+fetch('/erzhuang-project/api/admin/ops/asset-migrate', {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    manifest_csv: '<inventory csv text>',
+    external_org_id: '10030',
+    max_rows: 20,
+    apply: false
+  })
+}).then(async r => ({ status: r.status, body: await r.json() })).then(console.log)
+```
+
+dry-run 成功后，才允许把 `apply` 改为 `true` 并附加批次号：
+
+```js
+fetch('/erzhuang-project/api/admin/ops/asset-migrate', {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    manifest_csv: '<inventory csv text>',
+    external_org_id: '10030',
+    max_rows: 20,
+    apply: true,
+    batch_id: 'stage-a-10030-oss-smoke'
+  })
+}).then(async r => ({ status: r.status, body: await r.json() })).then(console.log)
+```
+
+返回中的 `result_sql` 只会更新已存在的 `tb_asset_objects` 记录。执行前必须先确认样本 logical key 已有 pending 记录，否则 SQL 可能影响 0 行。
+
 ## 样本迁移 Apply
 
 仅当以下条件都满足，才允许执行样本 apply：
@@ -168,4 +236,4 @@ go build -o /tmp/asset-migrate-check ./cmd/asset-migrate
 2. **Stage B 历史资产迁移**：样本迁移、代理访问、validation SQL 均通过后进入，迁设计图和截图对象。
 3. **业务数据库历史迁移**：MySQL schema、权限、资产映射、回滚方案、冻结窗口都确认后进入，和 OSS 对象迁移分开排期。
 
-当前状态：可以准备 Stage A 样本迁移，但还不能执行，因为 OSS 内网 smoke 尚未在公司环境通过。
+当前状态：OSS 内网 smoke 已在公司环境通过，可以准备 Stage A 样本迁移。下一步是导出 `external_org_id=10030` 的 inventory CSV，先通过应用内受控入口 dry-run，再做样本 apply。

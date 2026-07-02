@@ -45,9 +45,10 @@ type Store interface {
 }
 
 type Handler struct {
-	store          Store
-	auth           AuthConfig
-	ossSmokeRunner ossSmokeRunner
+	store                Store
+	auth                 AuthConfig
+	ossSmokeRunner       ossSmokeRunner
+	assetMigrationRunner assetMigrationRunner
 }
 
 func NewHandler() http.Handler {
@@ -71,7 +72,7 @@ func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designpl
 }
 
 func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner}
+	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
@@ -86,6 +87,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("POST /api/ai-settings/toggle", handler.requirePermissionHandler(PermissionUserManage, handler.toggleAISettingsHandler))
 	mux.HandleFunc("GET /api/admin/ops/env-check", handler.ossEnvCheckHandler)
 	mux.HandleFunc("POST /api/admin/ops/oss-smoke", handler.ossSmokeHandler)
+	mux.HandleFunc("POST /api/admin/ops/asset-migrate", handler.assetMigrationHandler)
 	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
 	storespace.RegisterRoutesWithWriteGuard(mux, storeSpaceService, handler.storeWriteGuard)
 	if h5MonitorService != nil {
@@ -97,6 +99,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 
 type ossSmokeResult = osssmoke.Result
 type ossSmokeRunner func(ctx context.Context) (*ossSmokeResult, error)
+type assetMigrationRunner func(ctx context.Context, request assetMigrationRunRequest) (*assetMigrationRunResult, error)
 
 func (h *Handler) storeWriteGuard(next http.HandlerFunc) http.HandlerFunc {
 	return h.requirePermissionHandler(PermissionStoreWrite, next)
