@@ -71,9 +71,23 @@ func (s *MySQLStore) SetAIProvider(ctx context.Context, provider string) error {
 
 func (s *MySQLStore) GetAuthUserByEmail(ctx context.Context, email string) (AuthUserRecord, error) {
 	record, err := scanAuthUser(s.db.QueryRowContext(ctx, `
-		select id, email, username, display_name, feishu_user_id, coalesce(nullif(phone, ''), mobile), role, enabled, last_login_at
-		from tb_users
-		where lower(email) = lower(?)
+		select u.id, u.email, u.username, u.display_name, u.feishu_user_id, u.mobile,
+			coalesce((
+				select r.code
+				from tb_user_roles ur, tb_roles r
+				where ur.user_id = u.id
+					and r.id = ur.role_id
+				order by case r.code
+					when 'admin' then 1
+					when 'editor' then 2
+					else 3
+				end
+				limit 1
+			), 'viewer') as role,
+			u.enabled,
+			u.last_login_at
+		from tb_users u
+		where lower(u.email) = lower(?)
 	`, normalizeEmail(email)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return AuthUserRecord{}, errAuthUserNotFound
@@ -87,7 +101,6 @@ func (s *MySQLStore) UpdateAuthUserProfile(ctx context.Context, patch AuthUserPa
 		set username = case when ? <> '' then ? else username end,
 			display_name = case when ? <> '' then ? else display_name end,
 			feishu_user_id = case when ? <> '' then ? else feishu_user_id end,
-			phone = case when ? <> '' then ? else phone end,
 			mobile = case when ? <> '' then ? else mobile end,
 			last_login_at = current_timestamp(3),
 			updated_at = current_timestamp(3)
@@ -96,7 +109,6 @@ func (s *MySQLStore) UpdateAuthUserProfile(ctx context.Context, patch AuthUserPa
 		strings.TrimSpace(patch.Username), strings.TrimSpace(patch.Username),
 		strings.TrimSpace(patch.DisplayName), strings.TrimSpace(patch.DisplayName),
 		strings.TrimSpace(patch.FeishuUserID), strings.TrimSpace(patch.FeishuUserID),
-		strings.TrimSpace(patch.Phone), strings.TrimSpace(patch.Phone),
 		strings.TrimSpace(patch.Phone), strings.TrimSpace(patch.Phone),
 		normalizeEmail(patch.Email),
 	)
@@ -115,9 +127,23 @@ func (s *MySQLStore) UpdateAuthUserProfile(ctx context.Context, patch AuthUserPa
 
 func (s *MySQLStore) ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, email, username, display_name, feishu_user_id, coalesce(nullif(phone, ''), mobile), role, enabled, last_login_at
-		from tb_users
-		order by enabled desc, lower(email) asc
+		select u.id, u.email, u.username, u.display_name, u.feishu_user_id, u.mobile,
+			coalesce((
+				select r.code
+				from tb_user_roles ur, tb_roles r
+				where ur.user_id = u.id
+					and r.id = ur.role_id
+				order by case r.code
+					when 'admin' then 1
+					when 'editor' then 2
+					else 3
+				end
+				limit 1
+			), 'viewer') as role,
+			u.enabled,
+			u.last_login_at
+		from tb_users u
+		order by u.enabled desc, lower(u.email) asc
 	`)
 	if err != nil {
 		return nil, err
@@ -136,14 +162,19 @@ func (s *MySQLStore) ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error
 }
 
 func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation) (AuthUserRecord, error) {
-	result, err := s.db.ExecContext(ctx, `
-		insert into tb_users (email, username, display_name, role, enabled)
-		values (?, ?, ?, ?, ?)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AuthUserRecord{}, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
+		insert into tb_users (email, username, display_name, enabled)
+		values (?, ?, ?, ?)
 	`,
 		normalizeEmail(input.Email),
 		strings.TrimSpace(input.Username),
 		strings.TrimSpace(input.DisplayName),
-		normalizeRole(input.Role),
 		input.Enabled,
 	)
 	if err != nil {
@@ -153,19 +184,30 @@ func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation)
 	if err != nil {
 		return AuthUserRecord{}, err
 	}
+	if err := setMySQLUserRole(ctx, tx, id, normalizeRole(input.Role)); err != nil {
+		return AuthUserRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return AuthUserRecord{}, err
+	}
 	return s.getAuthUserByID(ctx, id)
 }
 
 func (s *MySQLStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error) {
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AuthUserRecord{}, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
 		update tb_users
 		set username = ?,
 			display_name = ?,
-			role = ?,
 			enabled = ?,
 			updated_at = current_timestamp(3)
 		where id = ?
-	`, strings.TrimSpace(input.Username), strings.TrimSpace(input.DisplayName), normalizeRole(input.Role), input.Enabled, id)
+	`, strings.TrimSpace(input.Username), strings.TrimSpace(input.DisplayName), input.Enabled, id)
 	if err != nil {
 		return AuthUserRecord{}, err
 	}
@@ -176,17 +218,50 @@ func (s *MySQLStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUse
 	if affected == 0 {
 		return AuthUserRecord{}, errAuthUserNotFound
 	}
+	if err := setMySQLUserRole(ctx, tx, id, normalizeRole(input.Role)); err != nil {
+		return AuthUserRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return AuthUserRecord{}, err
+	}
 	return s.getAuthUserByID(ctx, id)
 }
 
 func (s *MySQLStore) getAuthUserByID(ctx context.Context, id int64) (AuthUserRecord, error) {
 	record, err := scanAuthUser(s.db.QueryRowContext(ctx, `
-		select id, email, username, display_name, feishu_user_id, coalesce(nullif(phone, ''), mobile), role, enabled, last_login_at
-		from tb_users
-		where id = ?
+		select u.id, u.email, u.username, u.display_name, u.feishu_user_id, u.mobile,
+			coalesce((
+				select r.code
+				from tb_user_roles ur, tb_roles r
+				where ur.user_id = u.id
+					and r.id = ur.role_id
+				order by case r.code
+					when 'admin' then 1
+					when 'editor' then 2
+					else 3
+				end
+				limit 1
+			), 'viewer') as role,
+			u.enabled,
+			u.last_login_at
+		from tb_users u
+		where u.id = ?
 	`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return AuthUserRecord{}, errAuthUserNotFound
 	}
 	return record, err
+}
+
+func setMySQLUserRole(ctx context.Context, tx *sql.Tx, userID int64, role string) error {
+	if _, err := tx.ExecContext(ctx, `delete from tb_user_roles where user_id = ?`, userID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `
+		insert ignore into tb_user_roles (user_id, role_id)
+		select ?, r.id
+		from tb_roles r
+		where r.code = ?
+	`, userID, normalizeRole(role))
+	return err
 }

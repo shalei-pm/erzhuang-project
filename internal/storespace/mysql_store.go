@@ -115,20 +115,23 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 			s.updated_at,
 			(select count(*) from tb_video_recorders r where r.store_id = s.id) as recorder_count,
 			(select count(*)
-				from tb_video_channels c
+				from tb_video_channels c, tb_video_recorders r
 				where c.is_active = 1
-					and c.recorder_id in (select r.id from tb_video_recorders r where r.store_id = s.id)
+					and c.recorder_id = r.id
+					and r.store_id = s.id
 			) as channel_count,
 			(select count(*)
-				from tb_video_channels c
+				from tb_video_channels c, tb_video_recorders r
 				where c.is_active = 1
-					and c.recorder_id in (select r.id from tb_video_recorders r where r.store_id = s.id)
+					and c.recorder_id = r.id
+					and r.store_id = s.id
 			) > 0
 				and (select count(*)
-					from tb_video_channels c
+					from tb_video_channels c, tb_video_recorders r
 					where c.is_active = 1
 						and c.status not in ('confirmed_business', 'confirmed_non_business')
-						and c.recorder_id in (select r.id from tb_video_recorders r where r.store_id = s.id)
+						and c.recorder_id = r.id
+						and r.store_id = s.id
 				) = 0 as channels_fully_confirmed,
 			(select count(*) from tb_store_areas a where a.store_id = s.id and a.area_type in ('treatment', 'vip_treatment')) as treatment_count,
 			(select count(*) from tb_store_areas a where a.store_id = s.id and a.area_type = 'consultation') as consultation_count,

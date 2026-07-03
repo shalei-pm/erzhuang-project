@@ -33,10 +33,10 @@ func NewStoreFromEnv() (Store, error) {
 		return NewLocalStore(root), nil
 	}
 	if mode == "oss" {
-		bucket := envValue("OSS_BUCKET", "K8S_SECRET_OSS_BUCKET")
-		endpoint := envValue("OSS_ENDPOINT", "K8S_SECRET_OSS_ENDPOINT")
-		accessKeyID := envValue("OSS_ACCESS_KEY_ID", "K8S_SECRET_OSS_ACCESS_KEY_ID")
-		accessKeySecret := envValue("OSS_ACCESS_KEY_SECRET", "K8S_SECRET_OSS_ACCESS_KEY_SECRET")
+		bucket := envValue("K8S_SECRET_OSS_BUCKET", "OSS_BUCKET")
+		endpoint := envValue("K8S_SECRET_OSS_ENDPOINT", "OSS_ENDPOINT")
+		accessKeyID := envValue("K8S_SECRET_OSS_ACCESS_KEY_ID", "OSS_ACCESS_KEY_ID")
+		accessKeySecret := envValue("K8S_SECRET_OSS_ACCESS_KEY_SECRET", "OSS_ACCESS_KEY_SECRET")
 		if bucket == "" || endpoint == "" || accessKeyID == "" || accessKeySecret == "" {
 			return nil, errors.New("ASSET_STORE=oss requires OSS_BUCKET, OSS_ENDPOINT, OSS_ACCESS_KEY_ID, and OSS_ACCESS_KEY_SECRET")
 		}
@@ -50,9 +50,9 @@ func NewStoreFromEnv() (Store, error) {
 	if mode != "supabase" {
 		return nil, fmt.Errorf("unsupported ASSET_STORE %q", mode)
 	}
-	baseURL := envValue("SUPABASE_URL", "K8S_SECRET_SUPABASE_URL")
-	serviceKey := envValue("SUPABASE_SERVICE_ROLE_KEY", "K8S_SECRET_SUPABASE_SERVICE_ROLE_KEY")
-	bucket := envValue("SUPABASE_STORAGE_BUCKET", "K8S_SECRET_SUPABASE_STORAGE_BUCKET")
+	baseURL := envValue("K8S_SECRET_SUPABASE_URL", "SUPABASE_URL")
+	serviceKey := envValue("K8S_SECRET_SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_ROLE_KEY")
+	bucket := envValue("K8S_SECRET_SUPABASE_STORAGE_BUCKET", "SUPABASE_STORAGE_BUCKET")
 	if bucket == "" {
 		bucket = defaultBucket
 	}
@@ -67,13 +67,13 @@ func NewStoreFromEnv() (Store, error) {
 }
 
 func ModeFromEnv() string {
-	mode := strings.ToLower(envValue("ASSET_STORE", "K8S_SECRET_ASSET_STORE"))
+	mode := strings.ToLower(envValue("K8S_SECRET_ASSET_STORE", "ASSET_STORE"))
 	if mode != "" {
 		return mode
 	}
-	if envValue("SUPABASE_URL", "K8S_SECRET_SUPABASE_URL") != "" &&
-		envValue("SUPABASE_SERVICE_ROLE_KEY", "K8S_SECRET_SUPABASE_SERVICE_ROLE_KEY") != "" &&
-		envValue("SUPABASE_STORAGE_BUCKET", "K8S_SECRET_SUPABASE_STORAGE_BUCKET") != "" {
+	if envValue("K8S_SECRET_SUPABASE_URL", "SUPABASE_URL") != "" &&
+		envValue("K8S_SECRET_SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_ROLE_KEY") != "" &&
+		envValue("K8S_SECRET_SUPABASE_STORAGE_BUCKET", "SUPABASE_STORAGE_BUCKET") != "" {
 		return "supabase"
 	}
 	return "local"
