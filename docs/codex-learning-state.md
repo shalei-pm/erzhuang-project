@@ -4812,3 +4812,21 @@ git pull --ff-only
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+
+## 2026-07-03 批量通道识别网关超时保护 2.30.17
+
+- 现象：
+  - `POST /api/store-space/recorders/64/scan-channels` 已返回 `200`，录像机 `GQ2603587` 从离线变为在线，并写入 41 个有效通道。
+  - 控制台继续手动调用 `POST /api/store-space/recorders/64/recognize-channels` 时返回 APISIX `504 Gateway Time-out` HTML。
+- 根因：
+  - `recognize-channels` 是历史批量接口，会同步逐路抓图、保存截图、调用 AI，并在每路之间等待 1.2 秒。
+  - 41 路通道一次性同步处理超过公司网关超时窗口；这不是 AI 配置断开，也不是扫描写入失败。
+  - 前端页面当前“识别区域”按钮已经走逐通道 `/channels/{channel_id}/recognize`，更适合线上使用。
+- 修复：
+  - 后端历史批量接口按通道号排序后，每个请求最多处理 5 路待识别通道。
+  - 剩余未识别通道保留给下一轮请求或页面逐通道流程，避免一个请求长时间阻塞到 504。
+- 验证：
+  - 新增 `TestRecognizeRecorderChannelsLimitsWorkPerRequest` 覆盖 6 路待识别时单次只处理 5 路。
+  - 本机直接执行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。

@@ -1177,6 +1177,62 @@ func TestRecognizeRecorderChannelsSkipsConfirmedChannel(t *testing.T) {
 	}
 }
 
+func TestRecognizeRecorderChannelsLimitsWorkPerRequest(t *testing.T) {
+	repo := NewMemoryStore()
+	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	scanner := &countingFakeChannelScanner{
+		channels: []ScannedChannel{
+			{ChannelNo: 1, ChannelName: "通道1", Active: true},
+			{ChannelNo: 2, ChannelName: "通道2", Active: true},
+			{ChannelNo: 3, ChannelName: "通道3", Active: true},
+			{ChannelNo: 4, ChannelName: "通道4", Active: true},
+			{ChannelNo: 5, ChannelName: "通道5", Active: true},
+			{ChannelNo: 6, ChannelName: "通道6", Active: true},
+		},
+	}
+	service := NewServiceWithScannerAndRecognizer(repo, scanner, fakeChannelRecognizer{
+		result: ChannelRecognitionResult{
+			SceneType:      string(SceneTypeUnknown),
+			AreaType:       "",
+			DecisionSource: "scene_context",
+			Confidence:     "medium",
+		},
+	})
+	store, err := service.CreateStore(context.Background(), CreateStoreInput{
+		City: "北京",
+		Name: "北京测试店",
+		Recorders: []RecorderInput{
+			{EzvizAccountID: account.ID, DeviceCode: "GN0941203"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	recorder, err := service.ScanRecorderChannels(context.Background(), store.Recorders[0].ID)
+	if err != nil {
+		t.Fatalf("scan channels: %v", err)
+	}
+
+	updated, err := service.RecognizeRecorderChannels(context.Background(), recorder.ID)
+	if err != nil {
+		t.Fatalf("recognize recorder channels: %v", err)
+	}
+
+	if scanner.captureCount != 5 {
+		t.Fatalf("expected one request to capture 5 channels, got %d", scanner.captureCount)
+	}
+	byNo := channelsByNo(updated.Channels)
+	if byNo[5].RecognitionAttempts != 1 {
+		t.Fatalf("expected channel 5 to be recognized, got %#v", byNo[5])
+	}
+	if byNo[6].RecognitionAttempts != 0 {
+		t.Fatalf("expected channel 6 to wait for the next request, got %#v", byNo[6])
+	}
+}
+
 func TestRecognizeChannelRejectsConfirmedChannel(t *testing.T) {
 	repo := NewMemoryStore()
 	account, err := repo.CreateEzvizAccount(context.Background(), CreateEzvizAccountInput{AccountName: "华北"})

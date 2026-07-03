@@ -26,6 +26,8 @@ type Service struct {
 	snapshotStore SnapshotStore
 }
 
+const maxRecorderRecognitionChannelsPerRequest = 5
+
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
@@ -507,6 +509,12 @@ func (s *Service) RecognizeRecorderChannels(ctx context.Context, recorderID int6
 			continue
 		}
 		channels = append(channels, channel)
+	}
+	sort.SliceStable(channels, func(left, right int) bool {
+		return channels[left].ChannelNo < channels[right].ChannelNo
+	})
+	if len(channels) > maxRecorderRecognitionChannelsPerRequest {
+		channels = channels[:maxRecorderRecognitionChannelsPerRequest]
 	}
 	for index, channel := range channels {
 		if _, err := s.recognizeChannel(ctx, *account, *recorder, channel); err != nil {
