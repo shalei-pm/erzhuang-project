@@ -35,6 +35,31 @@ func TestFilterClauseScopesStoreRelatedTables(t *testing.T) {
 	}
 }
 
+func TestBuildExportQueryUsesTableSpecificOrderColumn(t *testing.T) {
+	spec := tableSpec{
+		Source:  "app_settings",
+		Target:  "tb_app_settings",
+		OrderBy: "key",
+	}
+	got := buildExportQuery(spec, Options{}, map[string]bool{"key": true})
+	want := `select * from "app_settings" order by "key"`
+	if got != want {
+		t.Fatalf("buildExportQuery()=%q, want %q", got, want)
+	}
+}
+
+func TestBuildExportQueryOmitsOrderWhenColumnMissing(t *testing.T) {
+	spec := tableSpec{
+		Source: "app_settings",
+		Target: "tb_app_settings",
+	}
+	got := buildExportQuery(spec, Options{}, map[string]bool{"key": true})
+	want := `select * from "app_settings"`
+	if got != want {
+		t.Fatalf("buildExportQuery()=%q, want %q", got, want)
+	}
+}
+
 func TestMySQLValueFormatsTimeAsShanghaiDateTime(t *testing.T) {
 	value := time.Date(2026, 7, 2, 10, 30, 11, 123000000, time.UTC)
 	got := mysqlValue(value, columnSpec{Kind: kindDateTime})

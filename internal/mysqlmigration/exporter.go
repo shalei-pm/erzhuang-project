@@ -43,6 +43,7 @@ type tableSpec struct {
 	Target      string
 	Columns     []columnSpec
 	Filter      filterKind
+	OrderBy     string
 	IncludeWhen func(Options) bool
 }
 
@@ -93,6 +94,7 @@ var tableSpecs = []tableSpec{
 	{
 		Source: "app_settings",
 		Target: "tb_app_settings",
+		OrderBy: "key",
 		Columns: []columnSpec{
 			{Target: "key", Source: "key"},
 			{Target: "value", Source: "value", Default: ""},
@@ -415,7 +417,7 @@ func exportTable(ctx context.Context, db *sql.DB, spec tableSpec, options Option
 	if err != nil {
 		return nil, err
 	}
-	query := "select * from " + pqIdent(spec.Source) + filterClause(spec.Filter, options.ExternalOrgIDs) + " order by id"
+	query := buildExportQuery(spec, options, sourceColumns)
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -461,6 +463,18 @@ func exportTable(ctx context.Context, db *sql.DB, spec tableSpec, options Option
 		return nil, err
 	}
 	return result, nil
+}
+
+func buildExportQuery(spec tableSpec, options Options, sourceColumns map[string]bool) string {
+	query := "select * from " + pqIdent(spec.Source) + filterClause(spec.Filter, options.ExternalOrgIDs)
+	orderBy := strings.TrimSpace(spec.OrderBy)
+	if orderBy == "" {
+		orderBy = "id"
+	}
+	if sourceColumns[orderBy] {
+		query += " order by " + pqIdent(orderBy)
+	}
+	return query
 }
 
 func tableExists(ctx context.Context, db *sql.DB, name string) (bool, error) {

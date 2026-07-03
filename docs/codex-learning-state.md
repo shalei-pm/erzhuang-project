@@ -4424,3 +4424,23 @@ git pull --ff-only
   - 发布公司环境。
   - 用浏览器控制台调用 `POST /erzhuang-project/api/admin/ops/pg-mysql-export` 导出 `external_org_id=10030` 小样本。
   - 审核 report 和 import SQL 后，再决定是否写入 MySQL 测试库。
+
+## 2026-07-03 Postgres -> MySQL 导出 502 修复记录 2.28.1
+
+- 现象：
+  - 公司环境 `POST /erzhuang-project/api/admin/ops/pg-mysql-export` 已命中新入口，但返回 502。
+  - 控制台可见 `ok=false`、`external_org_ids=["10030"]`、`import_sql_chars=0`。
+- 根因：
+  - 导出器默认对每张源表拼接 `order by id`。
+  - `app_settings` 源表主键为 `key`，没有 `id` 字段，因此导出到该表时 PostgreSQL 查询失败。
+- 修复：
+  - 为 `tableSpec` 增加 `OrderBy`。
+  - `app_settings` 指定 `OrderBy: "key"`。
+  - 查询构造改为：排序列存在才追加 `order by`，避免无 `id` 表阻断迁移探针。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/pg-to-mysql-export-check ./cmd/pg-to-mysql-export` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 再次调用 `pg-mysql-export` 导出 `external_org_id=10030`，这次重点检查返回 `detail`、表行数、SQL 字符数和导出范围。
