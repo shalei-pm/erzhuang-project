@@ -4654,3 +4654,45 @@ git pull --ff-only
   - 发布公司环境。
   - 配置公司运行时白名单为 `10030,10047`。
   - 对 `10047` 重复执行 Postgres -> MySQL -> OSS -> 台账回写 -> inventory 幂等验证。
+
+## 2026-07-03 Postgres 下线前运行时切换门槛
+
+- 产品目标：
+  - 最终会删除 Postgres 数据库，因此不能只完成数据搬迁；所有线上运行时接口必须切到 MySQL/OSS 后，才能认为迁移完成。
+  - 用户期望今天尽量完成可让运营使用的切换。
+- 硬门槛：
+  - MySQL 全量业务数据导入完成，并通过 orphan/invalid JSON 校验。
+  - Supabase 图片对象迁到 OSS，`tb_asset_objects` 台账完整且 inventory 可幂等识别 `already_migrated`。
+  - 后端运行时接口不再依赖 Postgres；至少机构列表、机构详情、通道映射、H5 Monitor 首页、截图读取等运营核心只读链路要支持 MySQL。
+  - 图片读取接口路径保持不变，内部优先从 OSS 读；未迁完前可 fallback 旧存储，正式删除 Postgres/Supabase 前必须确认 fallback 不再被依赖。
+  - 必须保留运行时开关，例如 `APP_DB_DRIVER=postgres|mysql` 或等价配置，确保公司环境切换后可以回滚。
+- 今日建议推进顺序：
+  - 先完成 Stage B 多门店 OSS 迁移闭环。
+  - 随后优先实现“只读运行时 MySQL repo + OSS 图片读取优先”的切换，不先动编辑/识别等写入重链路。
+  - 运营验收只读和查看监控主流程稳定后，再逐步切写操作。
+
+## 2026-07-03 Stage B 第一批多门店迁移闭环完成
+
+- 范围：
+  - `10047`、`10011`、`10070`、`10054`、`10062`。
+  - 加上已完成的 `10030`，当前已完成 6 个门店的 Postgres -> MySQL 与通道截图 OSS/台账迁移闭环。
+- 已完成动作：
+  - 对上述 5 个门店重新刷新当前通道截图，确认 H5 monitor 返回结构为 `groups[].channels[].id`，不再读取根级 `channels`。
+  - 分门店执行 Postgres -> MySQL 导出与导入，所有导入结果 `orphan=0`、`invalid_json=0`。
+  - 执行 `mysql-asset-inventory` 并用 `asset-migrate apply=false` dry-run，确认待复制数量与重复引用关系正常。
+  - 使用 `max_rows=10` 分批执行 `asset-migrate apply=true`，每批成功后立刻调用 `asset-state-backfill` 回写 `tb_asset_objects`，避免单次大量复制触发 504。
+- OSS 复制与台账回写结果：
+  - `10047`：复制并回写 26 个 logical assets，最终 `pending=0`。
+  - `10011`：复制并回写 43 个 logical assets，最终 `pending=0`。
+  - `10070`：复制并回写 38 个 logical assets，最终 `pending=0`。
+  - `10054`：复制并回写 56 个 logical assets，最终 `pending=0`。
+  - `10062`：复制并回写 51 个 logical assets，最终 `pending=0`。
+  - 本批合计新增迁移 214 个 logical assets。
+- 验收结论：
+  - 本批所有资产复制批次 `Errors=0`。
+  - 所有台账回写批次 `errors=0`。
+  - 该批门店已完成“业务数据进 MySQL、当前通道截图进 OSS、MySQL 资产台账可幂等识别”的迁移闭环。
+- 后续规划：
+  - 继续处理白名单中的 `10051`。
+  - 随后进入运行时切换：后端核心只读链路需要支持从 MySQL 读取，图片读取路径保持前端 URL 不变，内部优先按 `tb_asset_objects` 从 OSS 读取。
+  - Postgres/Supabase 删除前必须完成运行时切换和回滚开关验证。
