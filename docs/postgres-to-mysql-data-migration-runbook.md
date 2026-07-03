@@ -126,6 +126,14 @@ GET /erzhuang-project/api/admin/ops/mysql-canary-validate?external_org_id=10030
 
 该入口只读 MySQL，不执行导入 SQL，不修改数据；返回摘要字段与 `mysql-canary-import` 一致。
 
+校验通过后，可以用只读资产清单入口基于 MySQL 真实业务行生成 OSS 迁移 manifest：
+
+```text
+GET /erzhuang-project/api/admin/ops/mysql-asset-inventory?external_org_id=10030
+```
+
+该入口只读 MySQL，不复制对象，不修改 `tb_asset_objects`；返回 `manifest_csv` 可在人工审查后传给 `POST /api/admin/ops/asset-migrate`。
+
 敏感数据注意：
 
 - 导入 SQL 可能包含手机号、飞书 ID、通道截图 proxy path、模型识别原始文本。

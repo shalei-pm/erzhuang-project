@@ -4537,3 +4537,27 @@ git pull --ff-only
   - 发布公司环境。
   - 调用只读校验入口，确认摘要仍为 `store_count=1`、`recorder_count=1`、`channel_count=4`、`snapshot_count=4`、`orphan_count=0`、`invalid_json_count=0`。
   - 校验通过后，进入基于 MySQL 真实数据生成 OSS 资产清单。
+
+## 2026-07-03 MySQL 真实资产清单只读入口 2.29.4
+
+- 背景：
+  - `10030` 金丝雀导入后只读校验已返回 `ok=true`，且外键孤儿和非法 JSON 均为 0。
+  - 下一步 OSS 迁移必须基于 MySQL 真实业务行生成 manifest，不能继续使用 Stage A 假数据代表历史资产。
+- 实现：
+  - 新增 `GET /api/admin/ops/mysql-asset-inventory?external_org_id=10030`。
+  - 入口仅在 ops 开启且管理员具备 `user:manage` 权限时可用。
+  - 入口只读 MySQL，不复制对象，不修改 `tb_asset_objects`。
+  - 清单来源包括 `tb_store_design_plans` 的设计图路径和 `tb_channel_snapshots` 的通道截图路径。
+  - Go 侧归一化 `/api/store-space/channel-snapshots/{name}`、`channel-snapshots/{name}`、`/api/design-plan/uploads/{upload_id}/{asset}`、`uploads/{upload_id}/{asset}` 等路径。
+  - 对 `http(s)` 临时或签名 URL 标记为 `skipped/remote_http_url`，不强行迁移。
+  - 对同一 logical key 的多处引用输出 `logical_key_rank` 和 `logical_key_ref_count`，后续复制时只应复制 rank=1。
+- 验证：
+  - 新增 handler 测试覆盖返回 manifest CSV、拒绝非 10030 范围。
+  - 新增归一化测试覆盖通道截图 proxy path、重复引用、远程 URL 跳过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 调用资产清单入口，审查 `summary` 和 `manifest_csv`。
+  - 若清单合理，再把 `manifest_csv` 传入 `asset-migrate apply=false` 做 dry-run。

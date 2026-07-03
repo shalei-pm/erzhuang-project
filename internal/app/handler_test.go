@@ -921,6 +921,73 @@ func TestMySQLCanaryValidateEndpointRejectsNonCanaryScope(t *testing.T) {
 	}
 }
 
+func TestMySQLAssetInventoryEndpointReturnsManifestCSV(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setMySQLAssetInventoryRunnerForTest(func(ctx context.Context, request mysqlAssetInventoryRunRequest) (*mysqlAssetInventoryRunResult, error) {
+		if request.ExternalOrgID != "10030" {
+			t.Fatalf("unexpected request: %#v", request)
+		}
+		return &mysqlAssetInventoryRunResult{
+			Summary:     mysqlAssetInventorySummary{Total: 2, Pending: 1, Skipped: 1, Sensitive: 1, SnapshotRows: 2},
+			ManifestCSV: "logical_key,target_oss_key,suggested_migration_status\nchannel-snapshots/a.jpg,channel-snapshots/a.jpg,pending\n",
+			Warnings:    []string{"read-only inventory"},
+		}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/ops/mysql-asset-inventory?external_org_id=10030", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var response mysqlAssetInventoryResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.OK || response.Summary.Pending != 1 || !strings.Contains(response.ManifestCSV, "channel-snapshots/a.jpg") {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestMySQLAssetInventoryEndpointRejectsNonCanaryApplyScope(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setMySQLAssetInventoryRunnerForTest(func(ctx context.Context, request mysqlAssetInventoryRunRequest) (*mysqlAssetInventoryRunResult, error) {
+		t.Fatal("invalid inventory request should not call runner")
+		return nil, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/ops/mysql-asset-inventory?external_org_id=10047", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestBuildMySQLAssetInventoryNormalizesSnapshotProxyPathsAndDuplicates(t *testing.T) {
+	rows := []mysqlAssetInventoryRawRow{
+		{SourceTable: "tb_channel_snapshots", SourceID: "1", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", OldPath: "/api/store-space/channel-snapshots/a.jpg", SourceKey: "/api/store-space/channel-snapshots/a.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+		{SourceTable: "tb_channel_snapshots", SourceID: "1", SourceColumn: "full_image_path", AssetRole: "snapshot_full_image", ExternalOrgID: "10030", OldPath: "/api/store-space/channel-snapshots/a.jpg", SourceKey: "/api/store-space/channel-snapshots/a.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+		{SourceTable: "tb_channel_snapshots", SourceID: "2", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", OldPath: "https://example.com/signed.jpg", SourceKey: "https://example.com/signed.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+	}
+	result, err := buildMySQLAssetInventory(rows)
+	if err != nil {
+		t.Fatalf("buildMySQLAssetInventory: %v", err)
+	}
+	if result.Summary.Total != 3 || result.Summary.Pending != 2 || result.Summary.Skipped != 1 || result.Summary.DuplicateRefs != 2 {
+		t.Fatalf("unexpected summary: %#v", result.Summary)
+	}
+	if !strings.Contains(result.ManifestCSV, "channel-snapshots/a.jpg") || !strings.Contains(result.ManifestCSV, "remote_http_url") {
+		t.Fatalf("unexpected manifest csv:\n%s", result.ManifestCSV)
+	}
+}
+
 func TestNormalizeOpsExportOrgIDs(t *testing.T) {
 	got := normalizeOpsExportOrgIDs("10047, 10030,10047,,")
 	want := []string{"10047", "10030"}
@@ -1596,5 +1663,13 @@ func setMySQLCanaryValidateRunnerForTest(runner mysqlCanaryValidateRunner) func(
 	currentMySQLCanaryValidateRunner = runner
 	return func() {
 		currentMySQLCanaryValidateRunner = previous
+	}
+}
+
+func setMySQLAssetInventoryRunnerForTest(runner mysqlAssetInventoryRunner) func() {
+	previous := currentMySQLAssetInventoryRunner
+	currentMySQLAssetInventoryRunner = runner
+	return func() {
+		currentMySQLAssetInventoryRunner = previous
 	}
 }

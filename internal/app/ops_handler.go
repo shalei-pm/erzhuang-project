@@ -28,6 +28,7 @@ var currentStageASourceSampleRunner stageASourceSampleRunner = runStageASourceSa
 var currentStageATargetSampleRunner stageATargetSampleRunner = runStageATargetSampleFromEnv
 var currentMySQLCanaryImportRunner mysqlCanaryImportRunner = runMySQLCanaryImportFromEnv
 var currentMySQLCanaryValidateRunner mysqlCanaryValidateRunner = runMySQLCanaryValidateFromEnv
+var currentMySQLAssetInventoryRunner mysqlAssetInventoryRunner = runMySQLAssetInventoryFromEnv
 
 const (
 	defaultOpsMigrationOrgID   = "10030"
@@ -221,6 +222,55 @@ type mysqlCanaryImportRunResult struct {
 type mysqlCanaryValidateResult struct {
 	Summary  mysqlCanaryImportSummary
 	Warnings []string
+}
+
+type mysqlAssetInventoryResponse struct {
+	OK            bool                       `json:"ok"`
+	ExternalOrgID string                     `json:"external_org_id,omitempty"`
+	Summary       mysqlAssetInventorySummary `json:"summary,omitempty"`
+	ManifestCSV   string                     `json:"manifest_csv,omitempty"`
+	Warnings      []string                   `json:"warnings,omitempty"`
+	Error         string                     `json:"error,omitempty"`
+	Detail        string                     `json:"detail,omitempty"`
+}
+
+type mysqlAssetInventorySummary struct {
+	Total         int `json:"total"`
+	Pending       int `json:"pending"`
+	Skipped       int `json:"skipped"`
+	Sensitive     int `json:"sensitive"`
+	DesignRows    int `json:"design_rows"`
+	SnapshotRows  int `json:"snapshot_rows"`
+	DuplicateRefs int `json:"duplicate_refs"`
+}
+
+type mysqlAssetInventoryRunRequest struct {
+	ExternalOrgID string
+}
+
+type mysqlAssetInventoryRunResult struct {
+	Summary     mysqlAssetInventorySummary
+	ManifestCSV string
+	Warnings    []string
+}
+
+type mysqlAssetInventoryRawRow struct {
+	SourceTable         string
+	SourceID            string
+	SourceColumn        string
+	AssetRole           string
+	StoreID             string
+	ExternalOrgID       string
+	RecorderID          string
+	ChannelID           string
+	OwnerEntityType     string
+	OwnerEntityID       string
+	UploadID            string
+	OldPath             string
+	SourceKey           string
+	ProxyPath           string
+	ExpectedContentType string
+	Sensitivity         string
 }
 
 func (h *Handler) ossEnvCheckHandler(w http.ResponseWriter, r *http.Request) {
@@ -586,6 +636,48 @@ func (h *Handler) mysqlCanaryValidateHandler(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+func (h *Handler) mysqlAssetInventoryHandler(w http.ResponseWriter, r *http.Request) {
+	if !opsEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+		return
+	}
+	externalOrgID := strings.TrimSpace(r.URL.Query().Get("external_org_id"))
+	if externalOrgID == "" {
+		externalOrgID = defaultOpsMigrationOrgID
+	}
+	if externalOrgID != defaultOpsMigrationOrgID {
+		writeJSON(w, http.StatusBadRequest, mysqlAssetInventoryResponse{
+			OK:            false,
+			ExternalOrgID: externalOrgID,
+			Error:         "invalid asset inventory request",
+			Detail:        fmt.Sprintf("mysql asset inventory is limited to external_org_id %s", defaultOpsMigrationOrgID),
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	result, err := h.mysqlInventoryRunner(ctx, mysqlAssetInventoryRunRequest{ExternalOrgID: externalOrgID})
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, mysqlAssetInventoryResponse{
+			OK:            false,
+			ExternalOrgID: externalOrgID,
+			Error:         "mysql asset inventory failed",
+			Detail:        sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, mysqlAssetInventoryResponse{
+		OK:            true,
+		ExternalOrgID: externalOrgID,
+		Summary:       result.Summary,
+		ManifestCSV:   result.ManifestCSV,
+		Warnings:      result.Warnings,
+	})
+}
+
 func opsEnabled() bool {
 	return envBool("OPS_ENABLED") || envBool("K8S_SECRET_OPS_ENABLED")
 }
@@ -719,6 +811,300 @@ func runMySQLCanaryValidateFromEnv(ctx context.Context, externalOrgID string) (*
 			"Canary endpoint is limited to external_org_id 10030.",
 		},
 	}, nil
+}
+
+func runMySQLAssetInventoryFromEnv(ctx context.Context, request mysqlAssetInventoryRunRequest) (*mysqlAssetInventoryRunResult, error) {
+	dsn := envValue("MYSQL_DSN", "K8S_SECRET_MYSQL_DSN")
+	if dsn == "" {
+		return nil, errors.New("MYSQL_DSN or K8S_SECRET_MYSQL_DSN is required")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql: %w", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(2)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("ping mysql: %w", err)
+	}
+	if err := ensureMySQLCanaryTables(ctx, db); err != nil {
+		return nil, err
+	}
+	rows, err := queryMySQLAssetInventoryRows(ctx, db, request.ExternalOrgID)
+	if err != nil {
+		return nil, err
+	}
+	result, err := buildMySQLAssetInventory(rows)
+	if err != nil {
+		return nil, err
+	}
+	result.Warnings = append(result.Warnings,
+		"Read-only inventory. This endpoint does not copy assets or mutate MySQL.",
+		"Review manifest_csv before passing it to asset-migrate.",
+	)
+	return result, nil
+}
+
+func queryMySQLAssetInventoryRows(ctx context.Context, db *sql.DB, externalOrgID string) ([]mysqlAssetInventoryRawRow, error) {
+	rows := []mysqlAssetInventoryRawRow{}
+	queries := []string{
+		`select
+			'tb_store_design_plans', cast(p.id as char), 'original_pdf_path', 'design_original',
+			cast(p.store_id as char), s.external_org_id, '', '',
+			'store_design_plan', cast(p.id as char), p.upload_id,
+			p.original_pdf_path, p.original_pdf_path,
+			concat('/api/design-plan/uploads/', p.upload_id, '/original'),
+			'application/pdf', 'internal'
+		from tb_store_design_plans p, tb_stores s
+		where s.id = p.store_id and s.external_org_id = ? and coalesce(p.original_pdf_path, '') <> ''`,
+		`select
+			'tb_store_design_plans', cast(p.id as char), 'preview_image_path', 'design_preview',
+			cast(p.store_id as char), s.external_org_id, '', '',
+			'store_design_plan', cast(p.id as char), p.upload_id,
+			p.preview_image_path, p.preview_image_path,
+			concat('/api/design-plan/uploads/', p.upload_id, '/preview'),
+			'image/png', 'internal'
+		from tb_store_design_plans p, tb_stores s
+		where s.id = p.store_id and s.external_org_id = ? and coalesce(p.preview_image_path, '') <> ''`,
+		`select
+			'tb_store_design_plans', cast(p.id as char), 'thumbnail_path', 'design_thumbnail',
+			cast(p.store_id as char), s.external_org_id, '', '',
+			'store_design_plan', cast(p.id as char), p.upload_id,
+			p.thumbnail_path, p.thumbnail_path,
+			concat('/api/design-plan/uploads/', p.upload_id, '/thumbnail'),
+			'image/png', 'internal'
+		from tb_store_design_plans p, tb_stores s
+		where s.id = p.store_id and s.external_org_id = ? and coalesce(p.thumbnail_path, '') <> ''`,
+		`select
+			'tb_channel_snapshots', cast(cs.id as char), 'thumbnail_path', 'snapshot_thumbnail',
+			cast(r.store_id as char), s.external_org_id, cast(r.id as char), cast(c.id as char),
+			'video_channel', cast(c.id as char), '',
+			cs.thumbnail_path, cs.thumbnail_path, cs.thumbnail_path,
+			'image/jpeg', 'sensitive'
+		from tb_channel_snapshots cs, tb_video_channels c, tb_video_recorders r, tb_stores s
+		where c.id = cs.channel_id and r.id = c.recorder_id and s.id = r.store_id and s.external_org_id = ? and coalesce(cs.thumbnail_path, '') <> ''`,
+		`select
+			'tb_channel_snapshots', cast(cs.id as char), 'full_image_path', 'snapshot_full_image',
+			cast(r.store_id as char), s.external_org_id, cast(r.id as char), cast(c.id as char),
+			'video_channel', cast(c.id as char), '',
+			cs.full_image_path, cs.full_image_path, cs.full_image_path,
+			'image/jpeg', 'sensitive'
+		from tb_channel_snapshots cs, tb_video_channels c, tb_video_recorders r, tb_stores s
+		where c.id = cs.channel_id and r.id = c.recorder_id and s.id = r.store_id and s.external_org_id = ? and coalesce(cs.full_image_path, '') <> ''`,
+	}
+	for _, query := range queries {
+		queryRows, err := db.QueryContext(ctx, query, externalOrgID)
+		if err != nil {
+			return nil, fmt.Errorf("query mysql asset inventory: %w", err)
+		}
+		for queryRows.Next() {
+			var row mysqlAssetInventoryRawRow
+			if err := queryRows.Scan(
+				&row.SourceTable,
+				&row.SourceID,
+				&row.SourceColumn,
+				&row.AssetRole,
+				&row.StoreID,
+				&row.ExternalOrgID,
+				&row.RecorderID,
+				&row.ChannelID,
+				&row.OwnerEntityType,
+				&row.OwnerEntityID,
+				&row.UploadID,
+				&row.OldPath,
+				&row.SourceKey,
+				&row.ProxyPath,
+				&row.ExpectedContentType,
+				&row.Sensitivity,
+			); err != nil {
+				queryRows.Close()
+				return nil, fmt.Errorf("scan mysql asset inventory: %w", err)
+			}
+			rows = append(rows, row)
+		}
+		if err := queryRows.Err(); err != nil {
+			queryRows.Close()
+			return nil, fmt.Errorf("read mysql asset inventory: %w", err)
+		}
+		queryRows.Close()
+	}
+	return rows, nil
+}
+
+func buildMySQLAssetInventory(rows []mysqlAssetInventoryRawRow) (*mysqlAssetInventoryRunResult, error) {
+	type inventoryRow struct {
+		raw                      mysqlAssetInventoryRawRow
+		logicalKey               string
+		targetOSSKey             string
+		suggestedMigrationStatus string
+		skipReason               string
+		logicalKeyRank           int
+		logicalKeyRefCount       int
+	}
+	inventory := make([]inventoryRow, 0, len(rows))
+	counts := map[string]int{}
+	for _, raw := range rows {
+		logicalKey, status, reason := normalizeMySQLAssetLogicalKey(raw)
+		item := inventoryRow{
+			raw:                      raw,
+			logicalKey:               logicalKey,
+			targetOSSKey:             logicalKey,
+			suggestedMigrationStatus: status,
+			skipReason:               reason,
+		}
+		inventory = append(inventory, item)
+		if logicalKey != "" {
+			counts[logicalKey]++
+		}
+	}
+	ranks := map[string]int{}
+	summary := mysqlAssetInventorySummary{Total: len(inventory)}
+	for index := range inventory {
+		item := &inventory[index]
+		if item.logicalKey != "" {
+			ranks[item.logicalKey]++
+			item.logicalKeyRank = ranks[item.logicalKey]
+			item.logicalKeyRefCount = counts[item.logicalKey]
+			if item.logicalKeyRefCount > 1 {
+				summary.DuplicateRefs++
+			}
+		}
+		if item.suggestedMigrationStatus == "pending" {
+			summary.Pending++
+		} else {
+			summary.Skipped++
+		}
+		if strings.TrimSpace(item.raw.Sensitivity) == "sensitive" {
+			summary.Sensitive++
+		}
+		if item.raw.SourceTable == "tb_store_design_plans" {
+			summary.DesignRows++
+		}
+		if item.raw.SourceTable == "tb_channel_snapshots" {
+			summary.SnapshotRows++
+		}
+	}
+	var buffer bytes.Buffer
+	writer := csv.NewWriter(&buffer)
+	header := []string{
+		"source_table",
+		"source_id",
+		"source_column",
+		"asset_role",
+		"store_id",
+		"external_org_id",
+		"recorder_id",
+		"channel_id",
+		"owner_entity_type",
+		"owner_entity_id",
+		"upload_id",
+		"old_path",
+		"source_key",
+		"logical_key",
+		"target_oss_key",
+		"proxy_path",
+		"expected_content_type",
+		"sensitivity",
+		"suggested_migration_status",
+		"skip_reason",
+		"logical_key_rank",
+		"logical_key_ref_count",
+	}
+	if err := writer.Write(header); err != nil {
+		return nil, err
+	}
+	for _, item := range inventory {
+		row := []string{
+			item.raw.SourceTable,
+			item.raw.SourceID,
+			item.raw.SourceColumn,
+			item.raw.AssetRole,
+			item.raw.StoreID,
+			item.raw.ExternalOrgID,
+			item.raw.RecorderID,
+			item.raw.ChannelID,
+			item.raw.OwnerEntityType,
+			item.raw.OwnerEntityID,
+			item.raw.UploadID,
+			item.raw.OldPath,
+			item.raw.SourceKey,
+			item.logicalKey,
+			item.targetOSSKey,
+			item.raw.ProxyPath,
+			item.raw.ExpectedContentType,
+			item.raw.Sensitivity,
+			item.suggestedMigrationStatus,
+			item.skipReason,
+			fmt.Sprint(item.logicalKeyRank),
+			fmt.Sprint(item.logicalKeyRefCount),
+		}
+		if err := writer.Write(row); err != nil {
+			return nil, err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+	return &mysqlAssetInventoryRunResult{Summary: summary, ManifestCSV: buffer.String()}, nil
+}
+
+func normalizeMySQLAssetLogicalKey(row mysqlAssetInventoryRawRow) (string, string, string) {
+	oldPath := stripAssetQuery(strings.TrimSpace(row.OldPath))
+	sourceKey := stripAssetQuery(strings.TrimSpace(row.SourceKey))
+	if oldPath == "" && sourceKey == "" {
+		return "", "skipped", "empty_path"
+	}
+	if strings.HasPrefix(sourceKey, "http://") || strings.HasPrefix(sourceKey, "https://") || strings.HasPrefix(oldPath, "http://") || strings.HasPrefix(oldPath, "https://") {
+		return "", "skipped", "remote_http_url"
+	}
+	candidates := []string{sourceKey, oldPath}
+	for _, candidate := range candidates {
+		if key := normalizeAssetPathCandidate(candidate); key != "" {
+			return key, "pending", ""
+		}
+	}
+	return "", "skipped", "unrecognized_path"
+}
+
+func stripAssetQuery(value string) string {
+	if index := strings.IndexAny(value, "?#"); index >= 0 {
+		return value[:index]
+	}
+	return value
+}
+
+func normalizeAssetPathCandidate(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "uploads/") || strings.HasPrefix(value, "channel-snapshots/") {
+		return value
+	}
+	if strings.HasPrefix(value, "/api/store-space/channel-snapshots/") {
+		return "channel-snapshots/" + strings.TrimPrefix(value, "/api/store-space/channel-snapshots/")
+	}
+	if strings.HasPrefix(value, "/api/design-plan/uploads/") {
+		rest := strings.TrimPrefix(value, "/api/design-plan/uploads/")
+		parts := strings.Split(rest, "/")
+		if len(parts) < 2 || strings.TrimSpace(parts[0]) == "" {
+			return ""
+		}
+		switch parts[1] {
+		case "original":
+			return "uploads/" + parts[0] + "/original.pdf"
+		case "preview":
+			return "uploads/" + parts[0] + "/preview.png"
+		case "thumbnail":
+			return "uploads/" + parts[0] + "/thumbnail.png"
+		default:
+			return ""
+		}
+	}
+	return ""
 }
 
 func ensureMySQLCanaryTables(ctx context.Context, db *sql.DB) error {
