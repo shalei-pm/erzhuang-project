@@ -103,6 +103,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("POST /api/admin/ops/stage-a-source-sample", handler.stageASourceSampleHandler)
 	mux.HandleFunc("POST /api/admin/ops/stage-a-target-sample", handler.stageATargetSampleHandler)
 	mux.HandleFunc("POST /api/admin/ops/pg-mysql-export", handler.pgMySQLExportHandler)
+	mux.HandleFunc("GET /api/admin/ops/pg-mysql-source-orgs", handler.pgMySQLSourceOrgsHandler)
 	mux.HandleFunc("POST /api/admin/ops/mysql-canary-import", handler.mysqlCanaryImportHandler)
 	mux.HandleFunc("GET /api/admin/ops/mysql-canary-validate", handler.mysqlCanaryValidateHandler)
 	mux.HandleFunc("GET /api/admin/ops/mysql-asset-inventory", handler.mysqlAssetInventoryHandler)
@@ -206,18 +207,22 @@ func frontendHandler(frontendDir string, basePath string) http.Handler {
 		path := strings.TrimPrefix(r.URL.Path, basePath)
 		path = strings.TrimPrefix(path, "/")
 		if path == "" {
-			http.ServeFile(w, r, filepath.Join(frontendDir, "index.html"))
+			http.ServeFile(w, r, frontendPath(frontendDir, "index.html"))
 			return
 		}
 
-		if _, err := os.Stat(filepath.Join(frontendDir, path)); err != nil && filepath.Ext(path) == "" {
-			http.ServeFile(w, r, filepath.Join(frontendDir, "index.html"))
+		if _, err := os.Stat(frontendPath(frontendDir, path)); err != nil && filepath.Ext(path) == "" {
+			http.ServeFile(w, r, frontendPath(frontendDir, "index.html"))
 			return
 		}
 
 		r.URL.Path = path
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+func frontendPath(frontendDir string, name string) string {
+	return filepath.Clean(frontendDir + string(os.PathSeparator) + name)
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
