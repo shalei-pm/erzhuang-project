@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -45,6 +46,42 @@ type pgMySQLSourceOrg struct {
 	Batchable           bool   `json:"batchable"`
 }
 
+type pgMySQLStoreAuditRunner func(ctx context.Context) (*pgMySQLStoreAuditResponse, error)
+
+type pgMySQLStoreAuditResponse struct {
+	OK                               bool                     `json:"ok"`
+	Summary                          pgMySQLStoreAuditSummary `json:"summary,omitempty"`
+	PostgresMissingExternalOrgStores []storeAuditRow          `json:"postgres_missing_external_org_stores,omitempty"`
+	MySQLMissingExternalOrgStores    []storeAuditRow          `json:"mysql_missing_external_org_stores,omitempty"`
+	Error                            string                   `json:"error,omitempty"`
+	Detail                           string                   `json:"detail,omitempty"`
+	Warnings                         []string                 `json:"warnings,omitempty"`
+}
+
+type pgMySQLStoreAuditSummary struct {
+	PostgresStoreCount              int `json:"postgres_store_count"`
+	PostgresExternalOrgStoreCount   int `json:"postgres_external_org_store_count"`
+	PostgresExternalOrgCount        int `json:"postgres_external_org_count"`
+	PostgresMissingExternalOrgCount int `json:"postgres_missing_external_org_count"`
+	MySQLStoreCount                 int `json:"mysql_store_count"`
+	MySQLExternalOrgStoreCount      int `json:"mysql_external_org_store_count"`
+	MySQLExternalOrgCount           int `json:"mysql_external_org_count"`
+	MySQLMissingExternalOrgCount    int `json:"mysql_missing_external_org_count"`
+}
+
+type storeAuditRow struct {
+	ID                int64  `json:"id"`
+	City              string `json:"city"`
+	Name              string `json:"name"`
+	ExternalOrgID     string `json:"external_org_id"`
+	RecorderCount     int    `json:"recorder_count,omitempty"`
+	ChannelCount      int    `json:"channel_count,omitempty"`
+	SnapshotCount     int    `json:"snapshot_count,omitempty"`
+	OperationLogCount int    `json:"operation_log_count,omitempty"`
+}
+
+var currentPGMySQLStoreAuditRunner pgMySQLStoreAuditRunner = runPGMySQLStoreAuditFromEnv
+
 func (h *Handler) pgMySQLSourceOrgsHandler(w http.ResponseWriter, r *http.Request) {
 	if !opsEnabled() {
 		http.NotFound(w, r)
@@ -73,6 +110,36 @@ func (h *Handler) pgMySQLSourceOrgsHandler(w http.ResponseWriter, r *http.Reques
 			"Only batchable orgs are both missing from MySQL and present in the migration allowlist.",
 		},
 	})
+}
+
+func (h *Handler) pgMySQLStoreAuditHandler(w http.ResponseWriter, r *http.Request) {
+	if !opsEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	result, err := h.pgMySQLStoreAuditRunner(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, pgMySQLStoreAuditResponse{
+			OK:     false,
+			Error:  "postgres mysql store audit failed",
+			Detail: sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	if result == nil {
+		result = &pgMySQLStoreAuditResponse{}
+	}
+	result.OK = true
+	result.Warnings = append(result.Warnings,
+		"Read-only audit. This endpoint does not import data, copy assets, or mutate MySQL.",
+		"Postgres source org migration only includes stores whose external_org_id is not blank.",
+	)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func queryPGMySQLSourceOrgsFromEnv(ctx context.Context) (*pgMySQLSourceOrgsResponse, error) {
@@ -139,6 +206,50 @@ func queryPGMySQLSourceOrgsFromEnv(ctx context.Context) (*pgMySQLSourceOrgsRespo
 	return &pgMySQLSourceOrgsResponse{Summary: summary, Orgs: sourceOrgs}, nil
 }
 
+func runPGMySQLStoreAuditFromEnv(ctx context.Context) (*pgMySQLStoreAuditResponse, error) {
+	pgDSN := envValue("DATABASE_URL", "K8S_SECRET_DATABASE_URL")
+	if pgDSN == "" {
+		return nil, errors.New("DATABASE_URL or K8S_SECRET_DATABASE_URL is required")
+	}
+	mysqlDSN := envValue("MYSQL_DSN", "K8S_SECRET_MYSQL_DSN")
+	if mysqlDSN == "" {
+		return nil, errors.New("MYSQL_DSN or K8S_SECRET_MYSQL_DSN is required")
+	}
+	pgDB, err := sql.Open("pgx", pgDSN)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres source: %w", err)
+	}
+	defer pgDB.Close()
+	mysqlDB, err := sql.Open("mysql", mysqlDSN)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql target: %w", err)
+	}
+	defer mysqlDB.Close()
+	if err := pgDB.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("ping postgres source: %w", err)
+	}
+	if err := mysqlDB.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("ping mysql target: %w", err)
+	}
+	summary, pgMissing, err := queryPostgresStoreAudit(ctx, pgDB)
+	if err != nil {
+		return nil, err
+	}
+	mysqlSummary, mysqlMissing, err := queryMySQLStoreAudit(ctx, mysqlDB)
+	if err != nil {
+		return nil, err
+	}
+	summary.MySQLStoreCount = mysqlSummary.MySQLStoreCount
+	summary.MySQLExternalOrgStoreCount = mysqlSummary.MySQLExternalOrgStoreCount
+	summary.MySQLExternalOrgCount = mysqlSummary.MySQLExternalOrgCount
+	summary.MySQLMissingExternalOrgCount = mysqlSummary.MySQLMissingExternalOrgCount
+	return &pgMySQLStoreAuditResponse{
+		Summary:                          summary,
+		PostgresMissingExternalOrgStores: pgMissing,
+		MySQLMissingExternalOrgStores:    mysqlMissing,
+	}, nil
+}
+
 func queryPostgresSourceOrgs(ctx context.Context, db *sql.DB) ([]pgMySQLSourceOrg, int, error) {
 	rows, err := db.QueryContext(ctx, `
 		select
@@ -199,6 +310,58 @@ func queryPostgresSourceOrgs(ctx context.Context, db *sql.DB) ([]pgMySQLSourceOr
 	return orgs, duplicates, nil
 }
 
+func queryPostgresStoreAudit(ctx context.Context, db *sql.DB) (pgMySQLStoreAuditSummary, []storeAuditRow, error) {
+	rows, err := db.QueryContext(ctx, `
+		select
+			s.id,
+			coalesce(s.city, ''),
+			coalesce(s.name, ''),
+			coalesce(s.external_org_id, ''),
+			(select count(*) from video_recorders r where r.store_id = s.id),
+			(select count(*) from video_channels c where c.recorder_id in (select r.id from video_recorders r where r.store_id = s.id)),
+			(select count(*) from channel_snapshots cs where cs.channel_id in (select c.id from video_channels c where c.recorder_id in (select r.id from video_recorders r where r.store_id = s.id))),
+			(select count(*) from operation_logs l where l.store_id = s.id)
+		from stores s
+		order by s.id
+	`)
+	if err != nil {
+		return pgMySQLStoreAuditSummary{}, nil, fmt.Errorf("query postgres store audit: %w", err)
+	}
+	defer rows.Close()
+	summary := pgMySQLStoreAuditSummary{}
+	missing := []storeAuditRow{}
+	externalOrgIDs := map[string]struct{}{}
+	for rows.Next() {
+		var row storeAuditRow
+		if err := rows.Scan(
+			&row.ID,
+			&row.City,
+			&row.Name,
+			&row.ExternalOrgID,
+			&row.RecorderCount,
+			&row.ChannelCount,
+			&row.SnapshotCount,
+			&row.OperationLogCount,
+		); err != nil {
+			return pgMySQLStoreAuditSummary{}, nil, fmt.Errorf("scan postgres store audit: %w", err)
+		}
+		summary.PostgresStoreCount++
+		cleanExternalOrgID := strings.TrimSpace(row.ExternalOrgID)
+		if cleanExternalOrgID == "" {
+			summary.PostgresMissingExternalOrgCount++
+			missing = append(missing, row)
+			continue
+		}
+		summary.PostgresExternalOrgStoreCount++
+		externalOrgIDs[cleanExternalOrgID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return pgMySQLStoreAuditSummary{}, nil, fmt.Errorf("read postgres store audit: %w", err)
+	}
+	summary.PostgresExternalOrgCount = len(externalOrgIDs)
+	return summary, missing, nil
+}
+
 func queryMySQLTargetOrgStores(ctx context.Context, db *sql.DB) (map[string]int64, int, error) {
 	rows, err := db.QueryContext(ctx, `
 		select coalesce(external_org_id, ''), id
@@ -228,4 +391,39 @@ func queryMySQLTargetOrgStores(ctx context.Context, db *sql.DB) (map[string]int6
 		return nil, 0, fmt.Errorf("read mysql target org stores: %w", err)
 	}
 	return stores, duplicates, nil
+}
+
+func queryMySQLStoreAudit(ctx context.Context, db *sql.DB) (pgMySQLStoreAuditSummary, []storeAuditRow, error) {
+	rows, err := db.QueryContext(ctx, `
+		select id, coalesce(city, ''), coalesce(name, ''), coalesce(external_org_id, '')
+		from tb_stores
+		order by id
+	`)
+	if err != nil {
+		return pgMySQLStoreAuditSummary{}, nil, fmt.Errorf("query mysql store audit: %w", err)
+	}
+	defer rows.Close()
+	summary := pgMySQLStoreAuditSummary{}
+	missing := []storeAuditRow{}
+	externalOrgIDs := map[string]struct{}{}
+	for rows.Next() {
+		var row storeAuditRow
+		if err := rows.Scan(&row.ID, &row.City, &row.Name, &row.ExternalOrgID); err != nil {
+			return pgMySQLStoreAuditSummary{}, nil, fmt.Errorf("scan mysql store audit: %w", err)
+		}
+		summary.MySQLStoreCount++
+		cleanExternalOrgID := strings.TrimSpace(row.ExternalOrgID)
+		if cleanExternalOrgID == "" {
+			summary.MySQLMissingExternalOrgCount++
+			missing = append(missing, row)
+			continue
+		}
+		summary.MySQLExternalOrgStoreCount++
+		externalOrgIDs[cleanExternalOrgID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return pgMySQLStoreAuditSummary{}, nil, fmt.Errorf("read mysql store audit: %w", err)
+	}
+	summary.MySQLExternalOrgCount = len(externalOrgIDs)
+	return summary, missing, nil
 }

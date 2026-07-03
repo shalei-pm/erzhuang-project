@@ -60,6 +60,7 @@ type Handler struct {
 	mysqlCanaryRunner        mysqlCanaryImportRunner
 	mysqlValidateRunner      mysqlCanaryValidateRunner
 	mysqlInventoryRunner     mysqlAssetInventoryRunner
+	pgMySQLStoreAuditRunner  pgMySQLStoreAuditRunner
 }
 
 func NewHandler() http.Handler {
@@ -83,7 +84,7 @@ func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designpl
 }
 
 func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner}
+	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner, pgMySQLStoreAuditRunner: currentPGMySQLStoreAuditRunner}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
@@ -104,6 +105,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("POST /api/admin/ops/stage-a-target-sample", handler.stageATargetSampleHandler)
 	mux.HandleFunc("POST /api/admin/ops/pg-mysql-export", handler.pgMySQLExportHandler)
 	mux.HandleFunc("GET /api/admin/ops/pg-mysql-source-orgs", handler.pgMySQLSourceOrgsHandler)
+	mux.HandleFunc("GET /api/admin/ops/pg-mysql-store-audit", handler.pgMySQLStoreAuditHandler)
 	mux.HandleFunc("POST /api/admin/ops/mysql-canary-import", handler.mysqlCanaryImportHandler)
 	mux.HandleFunc("GET /api/admin/ops/mysql-canary-validate", handler.mysqlCanaryValidateHandler)
 	mux.HandleFunc("GET /api/admin/ops/mysql-asset-inventory", handler.mysqlAssetInventoryHandler)

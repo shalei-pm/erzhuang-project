@@ -4774,3 +4774,21 @@ git pull --ff-only
 - 验证：
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+
+## 2026-07-03 MySQL 迁移第 55 家门店只读审计 2.30.15
+
+- 现象：
+  - Postgres -> MySQL 主数据迁移完成后，`pg-mysql-source-orgs` 返回 `source_count=54`、`mysql_count=54`、`remaining_count=0`。
+  - 用户业务记忆里总门店数为 55，需要确认是否有 1 家漏迁。
+- 根因判断：
+  - `pg-mysql-source-orgs` 的源清单口径是 `external_org_id` 非空的门店/机构。
+  - 没有录像机不会被排除；`10056`、`10071`、`10076`、`10077`、`10078` 等 `channel_count=0` 门店已经正常导入。
+  - 最可能的差异是 Postgres `stores` 里存在 1 家 `external_org_id` 为空的门店，不属于按机构 ID 迁移链路。
+- 本次实现：
+  - 新增 `GET /api/admin/ops/pg-mysql-store-audit` 只读诊断端点。
+  - 返回 Postgres `stores` 总数、`external_org_id` 非空门店数、非空 distinct 机构数、空 `external_org_id` 门店列表。
+  - 同时返回 MySQL `tb_stores` 总数、`external_org_id` 非空门店数、非空 distinct 机构数、空 `external_org_id` 门店列表。
+  - 端点只读，不导入、不复制资产、不写 MySQL。
+- 验证：
+  - 新增 `TestPGMySQLStoreAuditEndpointReturnsMissingExternalOrgStores` 覆盖端点响应会列出空 `external_org_id` 源门店。
+  - 本机直接运行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`；按项目既定方式使用 `go test -c` 与 `go build` 做编译验证。
