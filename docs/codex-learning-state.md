@@ -4759,3 +4759,18 @@ git pull --ff-only
   - 发布公司环境。
   - 重新刷新 `10051` 通道截图，再执行 `mysql-asset-inventory` 确认最新 manifest 指向新截图 key。
   - 继续 `applyOrgInBatches('10051', 20)` 完成 OSS 复制和资产台账回写。
+
+## 2026-07-03 MySQL 刷新截图 collation 修复 2.30.14
+
+- 现象：
+  - `2.30.13` 部署后，`POST /api/store-space/channels/{channel_id}/snapshot` 不再返回 `501 not implemented`。
+  - 刷新 `10051` 通道截图时返回 `500`，诊断 detail 为 `Error 1267 (HY000): Illegal mix of collations ... for operation 'nullif'`。
+- 根因：
+  - MySQL 更新语句使用 `nullif(?, '')` 判断空字符串。
+  - 公司 MySQL runtime 中参数与空字符串字面量可能带不同 collation，`nullif` 会触发字符串比较并报 1267。
+- 修复：
+  - 将 MySQL 通道截图更新 SQL 的空字符串判断改为 `char_length(?)`。
+  - 保持刷新语义不变：刷新截图不增加识别次数、不覆盖已有识别状态；识别链路传入状态时仍可更新识别字段。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。

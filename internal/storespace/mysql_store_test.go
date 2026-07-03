@@ -84,13 +84,13 @@ func TestMySQLChannelSnapshotUpdateArgsForRefresh(t *testing.T) {
 		FullImagePath: "/api/store-space/channel-snapshots/fresh.jpg",
 	}, 607)
 
-	if len(args) != 16 {
-		t.Fatalf("len(args) = %d, want 16: %#v", len(args), args)
+	if len(args) != 18 {
+		t.Fatalf("len(args) = %d, want 18: %#v", len(args), args)
 	}
 	if args[0] != false {
 		t.Fatalf("count attempt arg = %#v, want false", args[0])
 	}
-	if args[1] != false || args[2] != "" || args[4] != "" || args[7] != "" || args[9] != "" || args[11] != 0 || args[13] != "" || args[15] != int64(607) {
+	if args[1] != false || args[2] != "" || args[5] != "" || args[8] != "" || args[10] != "" || args[13] != 0 || args[15] != "" || args[17] != int64(607) {
 		t.Fatalf("unexpected refresh args: %#v", args)
 	}
 }

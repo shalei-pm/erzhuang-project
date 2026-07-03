@@ -394,13 +394,13 @@ func (s *MySQLStore) SaveChannelSnapshot(ctx context.Context, channelID int64, i
 	if _, err := tx.ExecContext(ctx, `
 		update tb_video_channels
 		set recognition_attempts = recognition_attempts + case when ? then 1 else 0 end,
-			recognition_result = case when ? or nullif(?, '') is not null then nullif(?, '') else recognition_result end,
-			status = case when nullif(?, '') is null then status else ? end,
-			scene_type = case when nullif(?, '') is null then scene_type else ? end,
-			area_type = case when nullif(?, '') is null then area_type else nullif(?, '') end,
-			area_number = case when nullif(?, '') is null then area_number else nullif(?, 0) end,
-			area_note = case when nullif(?, '') is null then area_note else ? end,
-			bed_label = case when nullif(?, '') is null then bed_label else '' end,
+			recognition_result = case when ? or char_length(?) > 0 then case when char_length(?) = 0 then null else ? end else recognition_result end,
+			status = case when char_length(?) = 0 then status else ? end,
+			scene_type = case when char_length(?) = 0 then scene_type else ? end,
+			area_type = case when char_length(?) = 0 then area_type else case when char_length(?) = 0 then null else ? end end,
+			area_number = case when char_length(?) = 0 then area_number else nullif(?, 0) end,
+			area_note = case when char_length(?) = 0 then area_note else ? end,
+			bed_label = case when char_length(?) = 0 then bed_label else '' end,
 			updated_at = current_timestamp(3)
 		where id = ?
 	`, mysqlChannelSnapshotUpdateArgs(input, channelID)...); err != nil {
@@ -434,11 +434,13 @@ func mysqlChannelSnapshotUpdateArgs(input ChannelSnapshotInput, channelID int64)
 		countAttempt,
 		recognitionResult,
 		recognitionResult,
+		recognitionResult,
 		status,
 		status,
 		status,
 		sceneType,
 		status,
+		areaType,
 		areaType,
 		status,
 		areaNumber,
