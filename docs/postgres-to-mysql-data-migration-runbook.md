@@ -71,7 +71,7 @@ SOURCE_DATABASE_URL='postgres://...' ./.tools/go/bin/go run ./cmd/pg-to-mysql-ex
 | `video_channels` | `tb_video_channels` | 通道，包含 `bed_label` |
 | `channel_snapshots` | `tb_channel_snapshots` | 通道截图路径，不含二进制 |
 | `operation_logs` | `tb_operation_logs` | 操作日志 |
-| `tb_users` | `tb_users` + `tb_user_roles` | 第一版保留 `tb_users.role` 兼容现有代码，同时把角色转入 MySQL 角色关系 |
+| `tb_users` | `tb_users` + `tb_user_roles` | 用户主表按当前公司测试库字段导入；Postgres `phone` 写入 MySQL `mobile`，Postgres `role` 转入 MySQL 角色关系 |
 
 ## 关键校验
 
@@ -80,8 +80,8 @@ SOURCE_DATABASE_URL='postgres://...' ./.tools/go/bin/go run ./cmd/pg-to-mysql-ex
 - Postgres 源表是否存在。
 - `stores.external_org_id` 是否包含金丝雀 `10030`。
 - Postgres 当前 `video_channels` 是否已经包含 `bed_label`。
-- `tb_users` 是否包含 `role`，以便保留第一版单字段角色并同步转入 `tb_user_roles`。
-- MySQL `tb_users` 是否包含 `phone`、`mobile`、`role` 兼容字段；`phone`/`mobile` 在迁移期会用同一源值写入。
+- Postgres `tb_users` 是否包含 `role`，以便同步转入 MySQL `tb_user_roles`。
+- MySQL `tb_users` 是否包含 `mobile`、`department`、`sso_subject` 等当前测试库字段；当前迁移不再要求 MySQL `tb_users.phone` 或 `tb_users.role` 必须存在。
 
 ## 受控金丝雀导入入口
 
@@ -147,6 +147,6 @@ OSS 对象迁移必须在 MySQL 业务行导入后进行，理由：
 ## 未完成事项
 
 - Go 后端 MySQL repository 尚未实现，当前生产代码仍是 PostgreSQL 方言。
-- DBA 专项已复核并指出：MySQL 第一版必须兼容当前 `tb_users.role` 单字段模型，RBAC 多表可作为未来扩展。
+- DBA 专项已复核并指出：第一版应用仍可保留 Postgres `tb_users.role` 单字段逻辑；本次 MySQL 测试库迁移按当前治理表结构写入 `tb_user_roles`，后续 MySQL repository 适配时再统一权限读取口径。
 - 需要确认真实 Postgres 源连接是在本地、公司 Pod，还是只能通过运行时环境变量读取。
 - MySQL 小样本导入前，需要确认是否允许清理 Stage A 假数据，或重建测试库 schema。

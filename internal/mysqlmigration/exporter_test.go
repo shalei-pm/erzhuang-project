@@ -77,6 +77,36 @@ func TestMySQLValueEscapesBackslashesInJSONLiteral(t *testing.T) {
 	}
 }
 
+func TestUserExportColumnsMatchCurrentMySQLGovernanceTable(t *testing.T) {
+	var userSpec tableSpec
+	for _, spec := range tableSpecs {
+		if spec.Source == "tb_users" && spec.Target == "tb_users" {
+			userSpec = spec
+			break
+		}
+	}
+	columns := targetColumns(userSpec.Columns)
+	for _, forbidden := range []string{"phone", "role"} {
+		for _, column := range columns {
+			if column == forbidden {
+				t.Fatalf("tb_users export should not include %q for current MySQL schema: %v", forbidden, columns)
+			}
+		}
+	}
+	for _, required := range []string{"email", "mobile", "enabled"} {
+		found := false
+		for _, column := range columns {
+			if column == required {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("tb_users export missing %q: %v", required, columns)
+		}
+	}
+}
+
 func TestWriteInsertStatementsPreservesIDAndUsesUpsert(t *testing.T) {
 	spec := tableSpec{
 		Source: "stores",

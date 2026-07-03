@@ -15,7 +15,7 @@
   - `cmd/pg-to-mysql-export`：只读 Postgres，生成 MySQL 导入 SQL、auto increment SQL 和 `report.json`。
   - `internal/mysqlmigration`：保存表映射、字段转换和 SQL 生成逻辑。
   - 迁移工具支持 `--external-org-id 10030` 小样本导出，也支持后续全量导出。
-  - `tb_users.phone` 会迁为 MySQL `tb_users.mobile`，Postgres 当前 `role` 单字段会转成 MySQL `tb_user_roles` 关系。
+  - Postgres `tb_users.phone` 会迁为 MySQL `tb_users.mobile`，Postgres 当前 `role` 单字段会转成 MySQL `tb_user_roles` 关系。
 - 新增文档：
   - `docs/postgres-to-mysql-data-migration-runbook.md`。
 - 已发起 DBA 专项复核：
@@ -4411,7 +4411,7 @@ git pull --ff-only
   - 新增 `POST /api/admin/ops/pg-mysql-export` 受控入口。
   - 入口只读 Postgres，不写 MySQL；仅在 `OPS_ENABLED` / `K8S_SECRET_OPS_ENABLED` 开启且管理员具备 `user:manage` 权限时可用。
   - 默认导出 `external_org_id=10030`，最多允许一次传 5 个机构 ID，避免误导全量大 SQL。
-  - MySQL governance DDL 补齐 `tb_users.phone`、`tb_users.role`，兼容当前第一版 SSO/用户管理单字段角色模型，同时保留 RBAC 扩展表。
+  - MySQL governance DDL 当时按 `tb_users.phone`、`tb_users.role` 兼容口径设计；后续公司测试库实测以 `mobile` + `tb_user_roles` 为准，导出器已在 2.29.2 调整。
   - 新增 `docs/postgres-to-mysql-data-migration-runbook.md`，明确顺序为：Postgres 真实业务数据 -> MySQL 测试库 -> 基于 MySQL 真实资产清单迁 OSS。
 - 验证：
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
@@ -4495,3 +4495,24 @@ git pull --ff-only
   - 发布公司环境。
   - 重新用 `pg-mysql-export -> mysql-canary-import apply=true` 执行 `10030` 金丝雀导入。
   - 预期摘要应出现 `store_count=1`、`recorder_count=1`、`channel_count=4`、`snapshot_count=4`，且 `orphan_count=0`、`invalid_json_count=0`。
+
+## 2026-07-03 MySQL 金丝雀导入用户字段兼容修复 2.29.2
+
+- 现象：
+  - 2.29.1 修复 JSON 转义后，`apply=true` 继续执行到用户表，返回 502。
+  - MySQL 报 `Unknown column 'phone' in 'field list'`。
+- 根因：
+  - Postgres 用户表包含 `phone`、`role` 单字段。
+  - 公司 MySQL 测试库当前用户主表以 `mobile`、`department`、`sso_subject` 和角色关系表为准，并不存在 `tb_users.phone`。
+  - 旧导出器仍按早期 governance 草案同时写 `phone`、`mobile`、`role`，与真实测试库不一致。
+- 修复：
+  - `tb_users` 导出列去掉 `phone` 和 `role`。
+  - Postgres `phone` 继续写入 MySQL `mobile`。
+  - 增加 `department`、`sso_subject` 目标列，源库缺失时写默认空值。
+  - 角色仍通过 `writeRoleStatements` 写入 `tb_user_roles`。
+  - 新增测试约束 `tb_users` 导出列不再包含 `phone`、`role`，且保留 `email`、`mobile`、`enabled`。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 再次执行 `10030` 金丝雀 `apply=true`，继续观察是否还有下一层真实 schema 差异。
