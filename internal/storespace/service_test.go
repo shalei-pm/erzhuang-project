@@ -1221,12 +1221,15 @@ func TestRecognizeRecorderChannelsLimitsWorkPerRequest(t *testing.T) {
 		t.Fatalf("recognize recorder channels: %v", err)
 	}
 
-	if scanner.captureCount != 5 {
-		t.Fatalf("expected one request to capture 5 channels, got %d", scanner.captureCount)
+	if scanner.captureCount != 1 {
+		t.Fatalf("expected one request to capture 1 channel, got %d", scanner.captureCount)
 	}
 	byNo := channelsByNo(updated.Channels)
-	if byNo[5].RecognitionAttempts != 1 {
-		t.Fatalf("expected channel 5 to be recognized, got %#v", byNo[5])
+	if byNo[1].RecognitionAttempts != 1 {
+		t.Fatalf("expected channel 1 to be recognized, got %#v", byNo[1])
+	}
+	if byNo[2].RecognitionAttempts != 0 {
+		t.Fatalf("expected channel 2 to wait for the next request, got %#v", byNo[2])
 	}
 	if byNo[6].RecognitionAttempts != 0 {
 		t.Fatalf("expected channel 6 to wait for the next request, got %#v", byNo[6])

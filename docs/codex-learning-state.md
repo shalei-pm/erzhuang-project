@@ -4830,3 +4830,16 @@ git pull --ff-only
   - 本机直接执行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`。
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+
+## 2026-07-03 批量通道识别进一步降载 2.30.18
+
+- 现象：
+  - `2.30.17` 将老批量接口限制为单次 5 路后，前 4 轮返回 `200`，第 5 轮仍出现 APISIX `504 Gateway Time-out`。
+  - 说明 5 路抓图、存储和 AI 识别在部分通道组合下仍可能超过公司网关窗口。
+- 修复：
+  - 将老批量接口 `POST /api/store-space/recorders/{recorder_id}/recognize-channels` 单次处理上限从 5 路降为 1 路。
+  - 页面逐通道识别路径保持不变；控制台或旧调用方即使继续调用老批量接口，也只推进 1 路，避免一次请求阻塞过久。
+- 验证：
+  - 更新 `TestRecognizeRecorderChannelsLimitsWorkPerRequest`，覆盖 6 路待识别时单次只处理 1 路。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。

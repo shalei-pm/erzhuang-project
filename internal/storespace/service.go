@@ -26,7 +26,7 @@ type Service struct {
 	snapshotStore SnapshotStore
 }
 
-const maxRecorderRecognitionChannelsPerRequest = 5
+const maxRecorderRecognitionChannelsPerRequest = 1
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
