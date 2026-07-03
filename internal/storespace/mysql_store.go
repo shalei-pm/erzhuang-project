@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
@@ -76,22 +77,8 @@ func (s *MySQLStore) UpsertEzvizAccountName(ctx context.Context, accountName str
 
 func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {
 	filters = normalizeFilters(filters)
-	rawLike, hasSearch := mysqlStoreSearchLike(filters.Query)
-	city := strings.TrimSpace(filters.City)
+	whereSQL, whereArgs := mysqlStoreListWhere(filters)
 	offset := (filters.Page - 1) * filters.PageSize
-	whereSQL := `
-		where (? = '' or coalesce(nullif(trim(s.city), ''), '未设置') = ?)
-	`
-	whereArgs := []any{city, city}
-	if hasSearch {
-		whereSQL += `
-			and (
-				replace(lower(coalesce(s.name, '')), ' ', '') like ?
-				or coalesce(s.external_org_id, '') like ?
-			)
-		`
-		whereArgs = append(whereArgs, rawLike, rawLike)
-	}
 
 	var total int
 	countArgs := append([]any{}, whereArgs...)
@@ -102,6 +89,7 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 		return StoreListResult{}, fmt.Errorf("mysql list stores count: %w", err)
 	}
 
+	rawLike, hasSearch := mysqlStoreSearchLike(filters.Query)
 	cities, err := s.listStoreCities(ctx, rawLike, hasSearch)
 	if err != nil {
 		cities = []string{}
@@ -118,7 +106,7 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 			coalesce(s.external_org_id, ''),
 			coalesce(s.design_plan_status, 'not_uploaded'),
 			coalesce(s.overall_status, 'partial'),
-			s.updated_at
+			date_format(coalesce(s.updated_at, s.created_at, current_timestamp(3)), '%Y-%m-%d %H:%i:%s.%f')
 		from tb_stores s
 	`+whereSQL+`
 		order by coalesce(s.updated_at, s.created_at, current_timestamp(3)) desc
@@ -132,13 +120,11 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 	items := []StoreListItem{}
 	for rows.Next() {
 		var item StoreListItem
-		var updatedAt sql.NullTime
+		var updatedAt mysqlDateTimeText
 		if err := rows.Scan(&item.ID, &item.City, &item.Name, &item.ShortName, &item.ExternalOrgID, &item.DesignPlanStatus, &item.OverallStatus, &updatedAt); err != nil {
 			return StoreListResult{}, fmt.Errorf("mysql list stores scan: %w", err)
 		}
-		if updatedAt.Valid {
-			item.UpdatedAt = updatedAt.Time
-		}
+		item.UpdatedAt = updatedAt.Time()
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -154,12 +140,81 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 	return StoreListResult{Items: items, Page: filters.Page, PageSize: filters.PageSize, Total: total, Summary: summary, Cities: cities}, nil
 }
 
+func mysqlStoreListWhere(filters StoreFilters) (string, []any) {
+	rawLike, hasSearch := mysqlStoreSearchLike(filters.Query)
+	city := strings.TrimSpace(filters.City)
+	whereSQL := ""
+	args := []any{}
+	if city != "" {
+		whereSQL = mysqlAppendStoreListClause(whereSQL, "coalesce(nullif(trim(s.city), ''), '未设置') = ?")
+		args = append(args, city)
+	}
+	if hasSearch {
+		whereSQL = mysqlAppendStoreListClause(whereSQL, "(replace(lower(coalesce(s.name, '')), ' ', '') like ? or coalesce(s.external_org_id, '') like ?)")
+		args = append(args, rawLike, rawLike)
+	}
+	return whereSQL, args
+}
+
+func mysqlAppendStoreListClause(whereSQL string, clause string) string {
+	if whereSQL == "" {
+		return "\n\t\twhere " + clause
+	}
+	return whereSQL + "\n\t\t\tand " + clause
+}
+
 func mysqlStoreSearchLike(query string) (string, bool) {
 	cleanQuery := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(query), " ", ""))
 	if cleanQuery == "" {
 		return "", false
 	}
 	return "%" + cleanQuery + "%", true
+}
+
+type mysqlDateTimeText struct {
+	value string
+	valid bool
+}
+
+func (t *mysqlDateTimeText) Scan(value any) error {
+	if value == nil {
+		t.value = ""
+		t.valid = false
+		return nil
+	}
+	t.valid = true
+	switch v := value.(type) {
+	case time.Time:
+		t.value = v.Format("2006-01-02 15:04:05.999999")
+	case []byte:
+		t.value = string(v)
+	case string:
+		t.value = v
+	default:
+		return fmt.Errorf("unsupported mysql datetime type %T", value)
+	}
+	return nil
+}
+
+func (t mysqlDateTimeText) Time() time.Time {
+	if !t.valid {
+		return time.Time{}
+	}
+	value := strings.TrimSpace(t.value)
+	if value == "" || strings.HasPrefix(value, "0000-00-00") {
+		return time.Time{}
+	}
+	location := time.FixedZone("Asia/Shanghai", 8*60*60)
+	for _, layout := range []string{
+		"2006-01-02 15:04:05.999999",
+		"2006-01-02 15:04:05",
+		time.RFC3339Nano,
+	} {
+		if parsed, err := time.ParseInLocation(layout, value, location); err == nil {
+			return parsed
+		}
+	}
+	return time.Time{}
 }
 
 func (s *MySQLStore) populateStoreListItemMetrics(ctx context.Context, item *StoreListItem) error {
