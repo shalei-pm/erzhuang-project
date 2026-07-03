@@ -106,12 +106,12 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 	rows, err := s.db.QueryContext(ctx, `
 		select
 			s.id,
-			s.city,
-			s.name,
-			s.short_name,
-			s.external_org_id,
-			s.design_plan_status,
-			s.overall_status,
+			coalesce(s.city, ''),
+			coalesce(s.name, ''),
+			coalesce(s.short_name, ''),
+			coalesce(s.external_org_id, ''),
+			coalesce(s.design_plan_status, 'not_uploaded'),
+			coalesce(s.overall_status, 'partial'),
 			s.updated_at,
 			(select count(*) from tb_video_recorders r where r.store_id = s.id) as recorder_count,
 			(select count(*)
@@ -155,9 +155,11 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 	items := []StoreListItem{}
 	for rows.Next() {
 		var item StoreListItem
-		if err := rows.Scan(&item.ID, &item.City, &item.Name, &item.ShortName, &item.ExternalOrgID, &item.DesignPlanStatus, &item.OverallStatus, &item.UpdatedAt, &item.RecorderCount, &item.ChannelCount, &item.ChannelsFullyConfirmed, &item.TreatmentCount, &item.ConsultationCount, &item.BeautyCount, &item.AreaCount); err != nil {
+		var channelsFullyConfirmed int
+		if err := rows.Scan(&item.ID, &item.City, &item.Name, &item.ShortName, &item.ExternalOrgID, &item.DesignPlanStatus, &item.OverallStatus, &item.UpdatedAt, &item.RecorderCount, &item.ChannelCount, &channelsFullyConfirmed, &item.TreatmentCount, &item.ConsultationCount, &item.BeautyCount, &item.AreaCount); err != nil {
 			return StoreListResult{}, err
 		}
+		item.ChannelsFullyConfirmed = channelsFullyConfirmed != 0
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {

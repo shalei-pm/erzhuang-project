@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -144,16 +145,28 @@ func (h *Handler) authMeHandler(w http.ResponseWriter, r *http.Request) {
 		Phone:        user.Phone,
 	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update auth user failed"})
-		return
+		log.Printf("auth: profile sync failed email=%s error=%q", safeAuthLogValue(user.Email), err.Error())
+	} else {
+		user = record.applyToResponse(user)
 	}
-	user = record.applyToResponse(user)
 	writeJSON(w, http.StatusOK, AuthResponse{
 		Enabled:       true,
 		Authenticated: true,
 		User:          &user,
 		Permissions:   record.permissions(),
 	})
+}
+
+func safeAuthLogValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	at := strings.Index(value, "@")
+	if at <= 1 {
+		return "***"
+	}
+	return value[:1] + "***" + value[at:]
 }
 
 func (h *Handler) writeLocalAdminAuth(w http.ResponseWriter) {
