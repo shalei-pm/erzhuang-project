@@ -921,6 +921,29 @@ func TestMySQLCanaryValidateEndpointRejectsNonCanaryScope(t *testing.T) {
 	}
 }
 
+func TestMySQLCanaryValidateEndpointAllowsConfiguredScope(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	t.Setenv("OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS", "10030,10047")
+	restore := setMySQLCanaryValidateRunnerForTest(func(ctx context.Context, externalOrgID string) (*mysqlCanaryValidateResult, error) {
+		if externalOrgID != "10047" {
+			t.Fatalf("unexpected external org id: %s", externalOrgID)
+		}
+		return &mysqlCanaryValidateResult{
+			Summary: mysqlCanaryImportSummary{StoreCount: 1},
+		}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/ops/mysql-canary-validate?external_org_id=10047", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestMySQLAssetInventoryEndpointReturnsManifestCSV(t *testing.T) {
 	t.Setenv("OPS_ENABLED", "true")
 	restore := setMySQLAssetInventoryRunnerForTest(func(ctx context.Context, request mysqlAssetInventoryRunRequest) (*mysqlAssetInventoryRunResult, error) {
@@ -967,6 +990,29 @@ func TestMySQLAssetInventoryEndpointRejectsNonCanaryApplyScope(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestMySQLAssetInventoryEndpointAllowsConfiguredScope(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	t.Setenv("OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS", "10030,10047")
+	restore := setMySQLAssetInventoryRunnerForTest(func(ctx context.Context, request mysqlAssetInventoryRunRequest) (*mysqlAssetInventoryRunResult, error) {
+		if request.ExternalOrgID != "10047" {
+			t.Fatalf("unexpected request: %#v", request)
+		}
+		return &mysqlAssetInventoryRunResult{
+			Summary: mysqlAssetInventorySummary{Total: 1, Pending: 1},
+		}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/ops/mysql-asset-inventory?external_org_id=10047", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -1209,6 +1255,30 @@ func TestAssetMigrationEndpointLimitsApplyScope(t *testing.T) {
 	}
 }
 
+func TestAssetMigrationEndpointAllowsConfiguredApplyScope(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	t.Setenv("OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS", "10030,10047")
+	restore := setAssetMigrationRunnerForTest(func(ctx context.Context, request assetMigrationRunRequest) (*assetMigrationRunResult, error) {
+		if request.ExternalOrgID != "10047" || !request.Apply {
+			t.Fatalf("unexpected request: %#v", request)
+		}
+		return &assetMigrationRunResult{
+			Summary: assetmigration.Summary{Total: 1, Copied: 1},
+			ResultCSV: "action,external_org_id,logical_key,target_oss_key,bytes,content_type,error\ncopied,10047,x,x,1,image/jpeg,\n",
+		}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/asset-migrate", strings.NewReader(`{"manifest_csv":"logical_key,target_oss_key,suggested_migration_status\nx,x,pending\n","external_org_id":"10047","apply":true}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestAssetMigrationEndpointReturnsSanitizedApplySQL(t *testing.T) {
 	t.Setenv("OPS_ENABLED", "true")
 	restore := setAssetMigrationRunnerForTest(func(ctx context.Context, request assetMigrationRunRequest) (*assetMigrationRunResult, error) {
@@ -1309,6 +1379,29 @@ func TestAssetStateBackfillEndpointLimitsScope(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAssetStateBackfillEndpointAllowsConfiguredScope(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	t.Setenv("OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS", "10030,10047")
+	restore := setAssetStateBackfillRunnerForTest(func(ctx context.Context, request assetStateBackfillRunRequest) (*assetStateBackfillRunResult, error) {
+		if request.ExternalOrgID != "10047" {
+			t.Fatalf("unexpected request: %#v", request)
+		}
+		return &assetStateBackfillRunResult{
+			Summary: assetStateBackfillSummary{Total: 1, Migrated: 1, Upserted: 1},
+		}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/asset-state-backfill", strings.NewReader(`{"external_org_id":"10047","manifest_csv":"logical_key,target_oss_key,suggested_migration_status,logical_key_rank\nx,x,pending,1\n","result_csv":"action,external_org_id,logical_key,target_oss_key,bytes,content_type,error\ncopied,10047,x,x,1,image/jpeg,\n"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
 }
 

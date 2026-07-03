@@ -4632,3 +4632,25 @@ git pull --ff-only
   - `mysql-asset-inventory?external_org_id=10030` 返回 `total=8`、`pending=0`、`skipped=8`、`snapshot_rows=8`、`duplicate_refs=8`。
   - manifest 中 8 条通道截图引用均为 `suggested_migration_status=skipped`、`skip_reason=already_migrated`。
   - 结论：`10030` 金丝雀门店当前通道截图已完成“Postgres 业务数据 -> MySQL、Supabase 源对象 -> OSS、MySQL 资产台账回写、inventory 幂等跳过”的闭环验证。
+
+## 2026-07-03 Stage B 多门店金丝雀白名单 2.29.8
+
+- 背景：
+  - `10030` 单门店已完成完整闭环。
+  - 下一步需要扩大到真实业务门店，但仍不能开放全量迁移，避免误导出/误写/误复制。
+- 实现：
+  - 新增运行时白名单环境变量：`OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS`，K8s Secret 兼容名为 `K8S_SECRET_OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS`。
+  - 默认白名单始终包含 `10030`。
+  - 配置示例：`OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS=10030,10047`。
+  - `mysql-canary-validate`、`mysql-asset-inventory`、`asset-migrate apply=true`、`asset-state-backfill` 改为统一使用白名单校验。
+  - `mysql-canary-import` 的 SQL scope comment 改为匹配当前请求的 `external_org_id`，不再硬编码 `10030`。
+- 验证：
+  - 新增测试覆盖 `10047` 在白名单中时 validate、inventory、asset apply、asset-state-backfill 均允许进入 runner。
+  - 保留非白名单机构拒绝测试。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 配置公司运行时白名单为 `10030,10047`。
+  - 对 `10047` 重复执行 Postgres -> MySQL -> OSS -> 台账回写 -> inventory 幂等验证。

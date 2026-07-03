@@ -44,6 +44,41 @@ const (
 	stageASourceSampleType     = "image/jpeg"
 )
 
+func allowedOpsMigrationOrgIDs() []string {
+	ids := []string{defaultOpsMigrationOrgID}
+	configured := envValue("OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS", "K8S_SECRET_OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS")
+	for _, id := range strings.Split(configured, ",") {
+		clean := strings.TrimSpace(id)
+		if clean != "" {
+			ids = append(ids, clean)
+		}
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+func opsMigrationOrgAllowed(externalOrgID string) bool {
+	clean := strings.TrimSpace(externalOrgID)
+	for _, allowed := range allowedOpsMigrationOrgIDs() {
+		if clean == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func allowedOpsMigrationOrgIDsText() string {
+	return strings.Join(allowedOpsMigrationOrgIDs(), ",")
+}
+
 type ossSmokeResponse struct {
 	OK          bool   `json:"ok"`
 	Key         string `json:"key,omitempty"`
@@ -703,12 +738,12 @@ func (h *Handler) mysqlCanaryValidateHandler(w http.ResponseWriter, r *http.Requ
 	if externalOrgID == "" {
 		externalOrgID = defaultOpsMigrationOrgID
 	}
-	if externalOrgID != defaultOpsMigrationOrgID {
+	if !opsMigrationOrgAllowed(externalOrgID) {
 		writeJSON(w, http.StatusBadRequest, mysqlCanaryValidateResponse{
 			OK:            false,
 			ExternalOrgID: externalOrgID,
 			Error:         "invalid canary validate request",
-			Detail:        fmt.Sprintf("mysql canary validation is limited to external_org_id %s", defaultOpsMigrationOrgID),
+			Detail:        fmt.Sprintf("mysql canary validation is limited to external_org_id in %s", allowedOpsMigrationOrgIDsText()),
 		})
 		return
 	}
@@ -744,12 +779,12 @@ func (h *Handler) mysqlAssetInventoryHandler(w http.ResponseWriter, r *http.Requ
 	if externalOrgID == "" {
 		externalOrgID = defaultOpsMigrationOrgID
 	}
-	if externalOrgID != defaultOpsMigrationOrgID {
+	if !opsMigrationOrgAllowed(externalOrgID) {
 		writeJSON(w, http.StatusBadRequest, mysqlAssetInventoryResponse{
 			OK:            false,
 			ExternalOrgID: externalOrgID,
 			Error:         "invalid asset inventory request",
-			Detail:        fmt.Sprintf("mysql asset inventory is limited to external_org_id %s", defaultOpsMigrationOrgID),
+			Detail:        fmt.Sprintf("mysql asset inventory is limited to external_org_id in %s", allowedOpsMigrationOrgIDsText()),
 		})
 		return
 	}
@@ -800,15 +835,15 @@ func normalizeMySQLCanaryImportRequest(input mysqlCanaryImportRequest) (mysqlCan
 	if externalOrgID == "" {
 		externalOrgID = defaultOpsMigrationOrgID
 	}
-	if externalOrgID != defaultOpsMigrationOrgID {
-		return mysqlCanaryImportRunRequest{}, fmt.Errorf("mysql canary import is limited to external_org_id %s", defaultOpsMigrationOrgID)
+	if !opsMigrationOrgAllowed(externalOrgID) {
+		return mysqlCanaryImportRunRequest{}, fmt.Errorf("mysql canary import is limited to external_org_id in %s", allowedOpsMigrationOrgIDsText())
 	}
 	importSQL := strings.TrimSpace(input.ImportSQL)
 	if importSQL == "" {
 		return mysqlCanaryImportRunRequest{}, errors.New("import_sql is required")
 	}
-	if !strings.Contains(importSQL, "-- Scope external_org_id: "+defaultOpsMigrationOrgID) {
-		return mysqlCanaryImportRunRequest{}, fmt.Errorf("import_sql must include scope comment for external_org_id %s", defaultOpsMigrationOrgID)
+	if !strings.Contains(importSQL, "-- Scope external_org_id: "+externalOrgID) {
+		return mysqlCanaryImportRunRequest{}, fmt.Errorf("import_sql must include scope comment for external_org_id %s", externalOrgID)
 	}
 	if mentionsOtherStoreExternalOrgID(importSQL, externalOrgID) {
 		return mysqlCanaryImportRunRequest{}, errors.New("import_sql appears to include a non-canary store external_org_id")
@@ -1438,8 +1473,8 @@ func normalizeAssetMigrationRequest(input assetMigrationRequest) (assetMigration
 	if maxRows > maxOpsMigrationRows {
 		return assetMigrationRunRequest{}, fmt.Errorf("max_rows must be <= %d", maxOpsMigrationRows)
 	}
-	if input.Apply && externalOrgID != defaultOpsMigrationOrgID {
-		return assetMigrationRunRequest{}, fmt.Errorf("apply is currently limited to external_org_id %s", defaultOpsMigrationOrgID)
+	if input.Apply && !opsMigrationOrgAllowed(externalOrgID) {
+		return assetMigrationRunRequest{}, fmt.Errorf("apply is currently limited to external_org_id in %s", allowedOpsMigrationOrgIDsText())
 	}
 	return assetMigrationRunRequest{
 		ManifestCSV:   manifest,
@@ -1463,8 +1498,8 @@ func normalizeAssetStateBackfillRequest(input assetStateBackfillRequest) (assetS
 	if externalOrgID == "" {
 		externalOrgID = defaultOpsMigrationOrgID
 	}
-	if externalOrgID != defaultOpsMigrationOrgID {
-		return assetStateBackfillRunRequest{}, fmt.Errorf("backfill is currently limited to external_org_id %s", defaultOpsMigrationOrgID)
+	if !opsMigrationOrgAllowed(externalOrgID) {
+		return assetStateBackfillRunRequest{}, fmt.Errorf("backfill is currently limited to external_org_id in %s", allowedOpsMigrationOrgIDsText())
 	}
 	return assetStateBackfillRunRequest{
 		ExternalOrgID: externalOrgID,
