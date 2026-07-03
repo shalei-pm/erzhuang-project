@@ -107,12 +107,12 @@ type databaseConfig struct {
 }
 
 func databaseConfigFromEnv() (databaseConfig, error) {
-	driver := strings.ToLower(strings.TrimSpace(os.Getenv("APP_DB_DRIVER")))
+	driver := strings.ToLower(envValue("APP_DB_DRIVER", "K8S_SECRET_APP_DB_DRIVER"))
 	if driver == "" {
-		if strings.TrimSpace(os.Getenv("DATABASE_URL")) != "" {
-			driver = "postgres"
-		} else if envValue("MYSQL_DSN", "K8S_SECRET_MYSQL_DSN") != "" {
+		if envValue("MYSQL_DSN", "K8S_SECRET_MYSQL_DSN") != "" {
 			driver = "mysql"
+		} else if strings.TrimSpace(os.Getenv("DATABASE_URL")) != "" {
+			driver = "postgres"
 		}
 	}
 

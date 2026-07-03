@@ -20,7 +20,42 @@ func TestDatabaseConfigFromEnvSelectsMySQL(t *testing.T) {
 	}
 }
 
-func TestDatabaseConfigFromEnvDefaultsToPostgres(t *testing.T) {
+func TestDatabaseConfigFromEnvDefaultsToMySQLWhenBothDSNsExist(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("MYSQL_DSN", "mysql-user:mysql-pass@tcp(mysql:3306)/erzhuang")
+
+	config, err := databaseConfigFromEnv()
+	if err != nil {
+		t.Fatalf("database config: %v", err)
+	}
+
+	if config.Driver != "mysql" {
+		t.Fatalf("driver = %q, want mysql", config.Driver)
+	}
+	if config.DSN != "mysql-user:mysql-pass@tcp(mysql:3306)/erzhuang?parseTime=true" {
+		t.Fatalf("dsn = %q, want MYSQL_DSN with parseTime", config.DSN)
+	}
+}
+
+func TestDatabaseConfigFromEnvReadsMySQLFromK8SSecret(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("K8S_SECRET_MYSQL_DSN", "mysql-user:mysql-pass@tcp(mysql:3306)/erzhuang")
+
+	config, err := databaseConfigFromEnv()
+	if err != nil {
+		t.Fatalf("database config: %v", err)
+	}
+
+	if config.Driver != "mysql" {
+		t.Fatalf("driver = %q, want mysql", config.Driver)
+	}
+	if config.DSN != "mysql-user:mysql-pass@tcp(mysql:3306)/erzhuang?parseTime=true" {
+		t.Fatalf("dsn = %q, want K8S_SECRET_MYSQL_DSN with parseTime", config.DSN)
+	}
+}
+
+func TestDatabaseConfigFromEnvExplicitPostgresKeepsPostgres(t *testing.T) {
+	t.Setenv("APP_DB_DRIVER", "postgres")
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("MYSQL_DSN", "mysql-user:mysql-pass@tcp(mysql:3306)/erzhuang")
 

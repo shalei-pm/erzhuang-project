@@ -33,10 +33,10 @@ func NewStoreFromEnv() (Store, error) {
 		return NewLocalStore(root), nil
 	}
 	if mode == "oss" {
-		bucket := strings.TrimSpace(os.Getenv("OSS_BUCKET"))
-		endpoint := strings.TrimSpace(os.Getenv("OSS_ENDPOINT"))
-		accessKeyID := strings.TrimSpace(os.Getenv("OSS_ACCESS_KEY_ID"))
-		accessKeySecret := strings.TrimSpace(os.Getenv("OSS_ACCESS_KEY_SECRET"))
+		bucket := envValue("OSS_BUCKET", "K8S_SECRET_OSS_BUCKET")
+		endpoint := envValue("OSS_ENDPOINT", "K8S_SECRET_OSS_ENDPOINT")
+		accessKeyID := envValue("OSS_ACCESS_KEY_ID", "K8S_SECRET_OSS_ACCESS_KEY_ID")
+		accessKeySecret := envValue("OSS_ACCESS_KEY_SECRET", "K8S_SECRET_OSS_ACCESS_KEY_SECRET")
 		if bucket == "" || endpoint == "" || accessKeyID == "" || accessKeySecret == "" {
 			return nil, errors.New("ASSET_STORE=oss requires OSS_BUCKET, OSS_ENDPOINT, OSS_ACCESS_KEY_ID, and OSS_ACCESS_KEY_SECRET")
 		}
@@ -50,9 +50,9 @@ func NewStoreFromEnv() (Store, error) {
 	if mode != "supabase" {
 		return nil, fmt.Errorf("unsupported ASSET_STORE %q", mode)
 	}
-	baseURL := strings.TrimSpace(os.Getenv("SUPABASE_URL"))
-	serviceKey := strings.TrimSpace(os.Getenv("SUPABASE_SERVICE_ROLE_KEY"))
-	bucket := strings.TrimSpace(os.Getenv("SUPABASE_STORAGE_BUCKET"))
+	baseURL := envValue("SUPABASE_URL", "K8S_SECRET_SUPABASE_URL")
+	serviceKey := envValue("SUPABASE_SERVICE_ROLE_KEY", "K8S_SECRET_SUPABASE_SERVICE_ROLE_KEY")
+	bucket := envValue("SUPABASE_STORAGE_BUCKET", "K8S_SECRET_SUPABASE_STORAGE_BUCKET")
 	if bucket == "" {
 		bucket = defaultBucket
 	}
@@ -67,16 +67,26 @@ func NewStoreFromEnv() (Store, error) {
 }
 
 func ModeFromEnv() string {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("ASSET_STORE")))
+	mode := strings.ToLower(envValue("ASSET_STORE", "K8S_SECRET_ASSET_STORE"))
 	if mode != "" {
 		return mode
 	}
-	if strings.TrimSpace(os.Getenv("SUPABASE_URL")) != "" &&
-		strings.TrimSpace(os.Getenv("SUPABASE_SERVICE_ROLE_KEY")) != "" &&
-		strings.TrimSpace(os.Getenv("SUPABASE_STORAGE_BUCKET")) != "" {
+	if envValue("SUPABASE_URL", "K8S_SECRET_SUPABASE_URL") != "" &&
+		envValue("SUPABASE_SERVICE_ROLE_KEY", "K8S_SECRET_SUPABASE_SERVICE_ROLE_KEY") != "" &&
+		envValue("SUPABASE_STORAGE_BUCKET", "K8S_SECRET_SUPABASE_STORAGE_BUCKET") != "" {
 		return "supabase"
 	}
 	return "local"
+}
+
+func envValue(keys ...string) string {
+	for _, key := range keys {
+		value := strings.TrimSpace(os.Getenv(key))
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func cleanKey(key string) (string, error) {
