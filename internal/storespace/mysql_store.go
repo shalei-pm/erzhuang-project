@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -363,11 +364,239 @@ func (s *MySQLStore) GetEzvizAccount(ctx context.Context, accountID int64) (*Ezv
 }
 
 func (s *MySQLStore) ReplaceRecorderChannels(ctx context.Context, recorderID int64, channels []ChannelInput) (*Recorder, error) {
-	return nil, ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	recorder, err := s.queryRecorder(ctx, recorderID)
+	if err != nil {
+		return nil, err
+	}
+
+	scannedNumbers := []int{}
+	for _, channel := range channels {
+		if channel.ChannelNo <= 0 {
+			continue
+		}
+		scannedNumbers = append(scannedNumbers, channel.ChannelNo)
+		if channel.IsActive {
+			if _, err := tx.ExecContext(ctx, `
+				insert into tb_video_channels (recorder_id, channel_no, channel_name, status, is_active, scene_type)
+				values (?, ?, ?, ?, true, ?)
+				on duplicate key update
+					channel_name = values(channel_name),
+					is_active = true,
+					status = case
+						when status = ? and area_type is not null then ?
+						when status = ? and (
+							area_id is not null
+							or area_number is not null
+							or confirmed_at is not null
+						) then ?
+						when status = ? then ?
+						else status
+					end,
+					scene_type = case
+						when status = ? and (
+							area_id is not null
+							or area_type is not null
+							or area_number is not null
+							or confirmed_at is not null
+						) then scene_type
+						when status = ? then ?
+						else scene_type
+					end,
+					area_type = case
+						when status = ? and (
+							area_id is not null
+							or area_type is not null
+							or area_number is not null
+							or confirmed_at is not null
+						) then area_type
+						when status = ? then null
+						else area_type
+					end,
+					area_number = case
+						when status = ? and (
+							area_id is not null
+							or area_type is not null
+							or area_number is not null
+							or confirmed_at is not null
+						) then area_number
+						when status = ? then null
+						else area_number
+					end,
+					area_id = case
+						when status = ? and (
+							area_id is not null
+							or area_type is not null
+							or area_number is not null
+							or confirmed_at is not null
+						) then area_id
+						when status = ? then null
+						else area_id
+					end,
+					confirmed_at = case
+						when status = ? and (
+							area_id is not null
+							or area_type is not null
+							or area_number is not null
+							or confirmed_at is not null
+						) then confirmed_at
+						when status = ? then null
+						else confirmed_at
+					end,
+					area_note = case
+						when status = ? and (
+							area_id is not null
+							or area_type is not null
+							or area_number is not null
+							or confirmed_at is not null
+						) then area_note
+						when status = ? then ''
+						else area_note
+					end,
+					bed_label = case
+						when status = ? and (
+							area_id is not null
+							or area_type is not null
+							or area_number is not null
+							or confirmed_at is not null
+						) then bed_label
+						when status = ? then ''
+						else bed_label
+					end,
+					updated_at = current_timestamp(3)
+			`, recorderID, channel.ChannelNo, strings.TrimSpace(channel.ChannelName), ChannelStatusPendingRecognition, SceneTypeUnknown,
+				ChannelStatusInactive, ChannelStatusConfirmedBusiness,
+				ChannelStatusInactive, ChannelStatusConfirmedNonBusiness,
+				ChannelStatusInactive, ChannelStatusPendingRecognition,
+				ChannelStatusInactive, ChannelStatusInactive, SceneTypeUnknown,
+				ChannelStatusInactive, ChannelStatusInactive,
+				ChannelStatusInactive, ChannelStatusInactive,
+				ChannelStatusInactive, ChannelStatusInactive,
+				ChannelStatusInactive, ChannelStatusInactive,
+				ChannelStatusInactive, ChannelStatusInactive,
+				ChannelStatusInactive, ChannelStatusInactive,
+			); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			update tb_video_channels
+			set is_active = false,
+				status = ?,
+				updated_at = current_timestamp(3)
+			where recorder_id = ? and channel_no = ?
+		`, ChannelStatusInactive, recorderID, channel.ChannelNo); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := mysqlDeactivateMissingChannels(ctx, tx, recorderID, scannedNumbers); err != nil {
+		return nil, err
+	}
+	activeCount, err := mysqlActiveChannelCount(ctx, tx, recorderID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update tb_video_recorders
+		set status = ?,
+			effective_channel_count = ?,
+			last_scanned_at = current_timestamp(3),
+			updated_at = current_timestamp(3)
+		where id = ?
+	`, mysqlRecorderStatusForActiveCount(activeCount), activeCount, recorderID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `update tb_stores set updated_at = current_timestamp(3) where id = ?`, recorder.StoreID); err != nil {
+		return nil, err
+	}
+	if err := mysqlInsertOperationLog(ctx, tx, "scan_channels", "recorder", recorderID, recorder.StoreID, fmt.Sprintf("scanned recorder %s", recorder.DeviceCode)); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetRecorder(ctx, recorderID)
 }
 
 func (s *MySQLStore) UpsertRecorderChannel(ctx context.Context, recorderID int64, channel ChannelInput) (*Channel, error) {
-	return nil, ErrNotImplemented
+	if _, err := mysqlValidateScannedChannel(channel); err != nil {
+		return nil, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := s.queryRecorder(ctx, recorderID); err != nil {
+		return nil, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		insert into tb_video_channels (recorder_id, channel_no, channel_name, status, is_active, scene_type)
+		values (?, ?, ?, ?, true, ?)
+		on duplicate key update
+			channel_name = values(channel_name),
+			is_active = true,
+			status = case
+				when status = ? and (
+					area_id is not null
+					or area_type is not null
+					or area_number is not null
+					or confirmed_at is not null
+				) then case
+					when area_type is not null then ?
+					else ?
+				end
+				when status = ? then ?
+				else status
+			end,
+			scene_type = case
+				when status = ? then ?
+				else scene_type
+			end,
+			updated_at = current_timestamp(3)
+	`, recorderID, channel.ChannelNo, strings.TrimSpace(channel.ChannelName), ChannelStatusPendingRecognition, SceneTypeUnknown,
+		ChannelStatusInactive, ChannelStatusConfirmedBusiness, ChannelStatusConfirmedNonBusiness,
+		ChannelStatusInactive, ChannelStatusPendingRecognition,
+		ChannelStatusInactive, SceneTypeUnknown,
+	)
+	if err != nil {
+		return nil, err
+	}
+	channelID, err := result.LastInsertId()
+	if err != nil || channelID == 0 {
+		if err := tx.QueryRowContext(ctx, `
+			select id
+			from tb_video_channels
+			where recorder_id = ? and channel_no = ?
+		`, recorderID, channel.ChannelNo).Scan(&channelID); err != nil {
+			return nil, err
+		}
+	}
+	activeCount, err := mysqlActiveChannelCount(ctx, tx, recorderID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update tb_video_recorders
+		set status = ?,
+			effective_channel_count = ?,
+			last_scanned_at = current_timestamp(3),
+			updated_at = current_timestamp(3)
+		where id = ?
+	`, mysqlRecorderStatusForActiveCount(activeCount), activeCount, recorderID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetChannel(ctx, channelID)
 }
 
 func (s *MySQLStore) SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error) {
@@ -452,11 +681,105 @@ func mysqlChannelSnapshotUpdateArgs(input ChannelSnapshotInput, channelID int64)
 }
 
 func (s *MySQLStore) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Channel, error) {
-	return nil, ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var storeID int64
+	var status ChannelStatus
+	var isActive bool
+	err = tx.QueryRowContext(ctx, `
+		select r.store_id, c.status, c.is_active
+		from tb_video_channels c, tb_video_recorders r
+		where r.id = c.recorder_id and c.id = ?
+	`, channelID).Scan(&storeID, &status, &isActive)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if status == ChannelStatusInactive || !isActive {
+		return nil, &ValidationError{Fields: map[string]string{"channel": "通道已失效，无法编辑"}}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update tb_video_channels
+		set status = ?,
+			confirmed_at = null,
+			updated_at = current_timestamp(3)
+		where id = ?
+	`, ChannelStatusPendingConfirmation, channelID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `update tb_stores set updated_at = current_timestamp(3) where id = ?`, storeID); err != nil {
+		return nil, err
+	}
+	if err := mysqlInsertOperationLog(ctx, tx, "unlock_channel", "channel", channelID, storeID, "unlocked video channel for editing"); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetChannel(ctx, channelID)
 }
 
 func (s *MySQLStore) ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error) {
-	return nil, ErrNotImplemented
+	if input.AreaType == "" {
+		return s.confirmNonBusinessChannel(ctx, channelID, input)
+	}
+	number, err := mysqlConfirmationAreaNumber(input)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	storeID, err := mysqlChannelStoreID(ctx, tx, channelID)
+	if err != nil {
+		return nil, err
+	}
+	area, err := s.mysqlUpdateOrCreateVideoArea(ctx, tx, storeID, input.AreaType, number)
+	if err != nil {
+		return nil, err
+	}
+	if area.Source != AreaSourceVideoChannel && area.Source != AreaSourceMultiple {
+		if _, err := tx.ExecContext(ctx, `
+			update tb_store_areas
+			set source = ?, updated_at = current_timestamp(3)
+			where id = ?
+		`, AreaSourceMultiple, area.ID); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update tb_video_channels
+		set status = ?,
+			scene_type = ?,
+			area_type = ?,
+			area_number = ?,
+			bed_label = ?,
+			area_note = '',
+			area_id = ?,
+			confirmed_at = current_timestamp(3),
+			updated_at = current_timestamp(3)
+		where id = ?
+	`, ChannelStatusConfirmedBusiness, SceneType(input.AreaType), input.AreaType, number, strings.TrimSpace(input.BedLabel), area.ID, channelID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `update tb_stores set updated_at = current_timestamp(3) where id = ?`, storeID); err != nil {
+		return nil, err
+	}
+	if err := mysqlInsertOperationLog(ctx, tx, "confirm_channel", "channel", channelID, storeID, "confirmed video channel mapping"); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, storeID)
 }
 
 func (s *MySQLStore) DeleteStore(ctx context.Context, id int64) error {
@@ -527,7 +850,190 @@ func (s *MySQLStore) DeviceCodeExists(ctx context.Context, deviceCode string, ex
 }
 
 func (s *MySQLStore) FindOrCreateArea(ctx context.Context, input AreaLookup, areaNumber int) (*Area, error) {
-	return nil, ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	area, err := s.mysqlUpdateOrCreateVideoArea(ctx, tx, input.StoreID, input.Type, areaNumber)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return area, nil
+}
+
+func mysqlValidateScannedChannel(channel ChannelInput) (ChannelInput, error) {
+	if channel.ChannelNo <= 0 || !channel.IsActive {
+		return ChannelInput{}, ErrNotFound
+	}
+	channel.ChannelName = strings.TrimSpace(channel.ChannelName)
+	return channel, nil
+}
+
+func mysqlRecorderStatusForActiveCount(activeCount int) RecorderStatus {
+	if activeCount > 0 {
+		return RecorderStatusOnline
+	}
+	return RecorderStatusOffline
+}
+
+type mysqlQueryRower interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func mysqlActiveChannelCount(ctx context.Context, q mysqlQueryRower, recorderID int64) (int, error) {
+	var activeCount int
+	err := q.QueryRowContext(ctx, `
+		select count(*)
+		from tb_video_channels
+		where recorder_id = ? and is_active and status <> ?
+	`, recorderID, ChannelStatusInactive).Scan(&activeCount)
+	return activeCount, err
+}
+
+func mysqlDeactivateMissingChannels(ctx context.Context, tx *sql.Tx, recorderID int64, scannedNumbers []int) error {
+	if len(scannedNumbers) == 0 {
+		_, err := tx.ExecContext(ctx, `
+			update tb_video_channels
+			set is_active = false,
+				status = ?,
+				updated_at = current_timestamp(3)
+			where recorder_id = ?
+		`, ChannelStatusInactive, recorderID)
+		return err
+	}
+	args := []any{ChannelStatusInactive, recorderID}
+	placeholders := ""
+	for index, channelNo := range scannedNumbers {
+		if index > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+		args = append(args, channelNo)
+	}
+	_, err := tx.ExecContext(ctx, `
+		update tb_video_channels
+		set is_active = false,
+			status = ?,
+			updated_at = current_timestamp(3)
+		where recorder_id = ? and channel_no not in (`+placeholders+`)
+	`, args...)
+	return err
+}
+
+func mysqlInsertOperationLog(ctx context.Context, tx *sql.Tx, action string, targetType string, targetID int64, storeID int64, summary string) error {
+	_, err := tx.ExecContext(ctx, `
+		insert into tb_operation_logs (store_id, action, entity_type, entity_id, summary)
+		values (?, ?, ?, ?, ?)
+	`, storeID, action, targetType, targetID, summary)
+	return err
+}
+
+func mysqlChannelStoreID(ctx context.Context, q mysqlQueryRower, channelID int64) (int64, error) {
+	var storeID int64
+	err := q.QueryRowContext(ctx, `
+		select r.store_id
+		from tb_video_channels c, tb_video_recorders r
+		where r.id = c.recorder_id and c.id = ?
+	`, channelID).Scan(&storeID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return storeID, err
+}
+
+func mysqlConfirmationAreaNumber(input ChannelConfirmationInput) (int, error) {
+	if strings.TrimSpace(input.AreaNumber) == "" {
+		if input.AreaType == AreaTypeVIPTreatment {
+			return 0, nil
+		}
+		return 0, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
+	}
+	number, err := strconv.Atoi(strings.TrimSpace(input.AreaNumber))
+	if err != nil || number <= 0 {
+		return 0, &ValidationError{Fields: map[string]string{"area_number": "区域编号必须是正整数"}}
+	}
+	return number, nil
+}
+
+func (s *MySQLStore) confirmNonBusinessChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	storeID, err := mysqlChannelStoreID(ctx, tx, channelID)
+	if err != nil {
+		return nil, err
+	}
+	sceneType := input.SceneType
+	if sceneType == "" {
+		sceneType = SceneTypeUnknown
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update tb_video_channels
+		set status = ?,
+			scene_type = ?,
+			area_type = null,
+			area_number = null,
+			bed_label = '',
+			area_note = ?,
+			area_id = null,
+			confirmed_at = current_timestamp(3),
+			updated_at = current_timestamp(3)
+		where id = ?
+	`, ChannelStatusConfirmedNonBusiness, sceneType, strings.TrimSpace(input.AreaNote), channelID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `update tb_stores set updated_at = current_timestamp(3) where id = ?`, storeID); err != nil {
+		return nil, err
+	}
+	if err := mysqlInsertOperationLog(ctx, tx, "confirm_channel", "channel", channelID, storeID, "confirmed video channel mapping"); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, storeID)
+}
+
+func (s *MySQLStore) mysqlUpdateOrCreateVideoArea(ctx context.Context, tx *sql.Tx, storeID int64, areaType AreaType, number int) (*Area, error) {
+	displayName := areaDisplayName(areaType, number)
+	var area Area
+	err := tx.QueryRowContext(ctx, `
+		select id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
+		from tb_store_areas
+		where store_id = ? and area_type = ? and area_number = ?
+		limit 1
+	`, storeID, areaType, number).Scan(&area.ID, &area.StoreID, &area.Type, &area.Number, &area.DisplayName, &area.Source, &area.Status, &area.CreatedAt, &area.UpdatedAt)
+	if err == nil {
+		return &area, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		insert into tb_store_areas (store_id, area_type, area_number, display_name, source, status)
+		values (?, ?, ?, ?, ?, ?)
+	`, storeID, areaType, number, displayName, AreaSourceVideoChannel, AreaStatusConfirmed)
+	if err != nil {
+		return nil, err
+	}
+	areaID, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	area.ID = areaID
+	area.StoreID = storeID
+	area.Type = areaType
+	area.Number = number
+	area.DisplayName = displayName
+	area.Source = AreaSourceVideoChannel
+	area.Status = AreaStatusConfirmed
+	return &area, nil
 }
 
 func (s *MySQLStore) getStoreBase(ctx context.Context, id int64) (*Store, error) {

@@ -4792,3 +4792,23 @@ git pull --ff-only
 - 验证：
   - 新增 `TestPGMySQLStoreAuditEndpointReturnsMissingExternalOrgStores` 覆盖端点响应会列出空 `external_org_id` 源门店。
   - 本机直接运行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`；按项目既定方式使用 `go test -c` 与 `go build` 做编译验证。
+
+## 2026-07-03 MySQL Runtime 通道写链路补齐 2.30.16
+
+- 现象：
+  - MySQL/OSS 切换后，线上读链路可用，但录像机 `scan-channels` 返回 `501 not implemented`。
+  - 前端把 `501` 统一翻译为“截图识别能力还在接入中”，容易误判为所有识图模型断开。
+  - 实际诊断显示 `ai-settings` 为 `minimax / MiniMax-M3`，但 `scan-channels` 对 MySQL runtime 仍走到未实现写接口。
+- 根因：
+  - `MySQLStore.ReplaceRecorderChannels`、`MySQLStore.UpsertRecorderChannel`、通道解锁/确认写接口仍返回 `ErrNotImplemented`。
+  - 通道 recognizer 的挂载被启动时环境变量可用性 gate 住；MySQL runtime 下 AI provider 实际从 `tb_app_settings` 动态读取，不能只按启动时默认 OpenAI 环境判断。
+- 修复：
+  - 实现 MySQL 录像机扫描结果写回：新增/恢复通道、下线缺失通道、更新录像机在线状态和有效通道数、写操作日志。
+  - 实现 MySQL 探测识别通道 upsert，支持扫描未入库通道后保存截图和识别结果。
+  - 实现 MySQL 通道解锁和确认，支持人工修正识别结果。
+  - 通道 recognizer 改为始终挂载动态 provider，具体 OpenAI/MiniMax 配置在请求时按运行时 AI 设置读取。
+- 验证：
+  - 新增 MySQL 写链路 helper 测试覆盖无效通道校验和录像机状态计算。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。

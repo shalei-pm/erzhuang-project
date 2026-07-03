@@ -94,3 +94,21 @@ func TestMySQLChannelSnapshotUpdateArgsForRefresh(t *testing.T) {
 		t.Fatalf("unexpected refresh args: %#v", args)
 	}
 }
+
+func TestMySQLUpsertRecorderChannelRejectsInvalidChannel(t *testing.T) {
+	if _, err := mysqlValidateScannedChannel(ChannelInput{ChannelNo: 0, IsActive: true}); err == nil {
+		t.Fatal("expected invalid channel to return an error")
+	}
+	if _, err := mysqlValidateScannedChannel(ChannelInput{ChannelNo: 1, IsActive: false}); err == nil {
+		t.Fatal("expected inactive channel to return an error")
+	}
+}
+
+func TestMySQLRecorderStatusForActiveCount(t *testing.T) {
+	if got := mysqlRecorderStatusForActiveCount(0); got != RecorderStatusOffline {
+		t.Fatalf("status for no active channels = %q, want %q", got, RecorderStatusOffline)
+	}
+	if got := mysqlRecorderStatusForActiveCount(3); got != RecorderStatusOnline {
+		t.Fatalf("status for active channels = %q, want %q", got, RecorderStatusOnline)
+	}
+}

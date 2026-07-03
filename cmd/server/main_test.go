@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestDatabaseConfigFromEnvSelectsMySQL(t *testing.T) {
 	t.Setenv("APP_DB_DRIVER", "mysql")
@@ -78,4 +81,23 @@ func TestMySQLDSNWithParseTimePreservesExistingQuery(t *testing.T) {
 	if got != want {
 		t.Fatalf("dsn = %q, want %q", got, want)
 	}
+}
+
+func TestNewDynamicChannelRecognizerAlwaysReturnsRuntimeRecognizer(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("VISION_API_KEY", "")
+	t.Setenv("CHANNEL_AI_PROVIDER", "")
+
+	recognizer := newDynamicChannelRecognizer(fakeProviderReader{provider: "minimax"})
+	if recognizer == nil {
+		t.Fatal("recognizer is nil, want dynamic recognizer")
+	}
+}
+
+type fakeProviderReader struct {
+	provider string
+}
+
+func (r fakeProviderReader) GetAIProvider(ctx context.Context) (string, error) {
+	return r.provider, nil
 }

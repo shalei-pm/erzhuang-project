@@ -65,13 +65,8 @@ func main() {
 		storeSpaceService := storespace.NewService(storeSpaceRepo)
 		storeSpaceService.UseSnapshotStore(storespace.NewAssetSnapshotStore(assetStore))
 		var h5MonitorService *h5monitor.Service
-		var channelRecognizer storespace.ChannelRecognizer
-		if _, enabled, err := channelai.NewRecognizerFromEnv(); err != nil {
-			log.Printf("channel ai recognizer disabled: %v", err)
-		} else if enabled {
-			channelRecognizer = storespace.NewChannelAIAdapter(channelai.NewDynamicRecognizer(appStore))
-			log.Print("channel ai recognizer enabled")
-		}
+		channelRecognizer := newDynamicChannelRecognizer(appStore)
+		log.Print("channel ai recognizer enabled with runtime provider settings")
 		if ezvizAccounts, enabled, err := storespace.EzvizAccountsFromEnv(); err != nil {
 			log.Fatalf("ezviz scanner setup failed: %v", err)
 		} else if enabled {
@@ -200,4 +195,8 @@ func getenv(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func newDynamicChannelRecognizer(providerReader channelai.ProviderReader) storespace.ChannelRecognizer {
+	return storespace.NewChannelAIAdapter(channelai.NewDynamicRecognizer(providerReader))
 }
