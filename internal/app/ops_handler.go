@@ -27,6 +27,7 @@ var currentAssetMigrationRunner assetMigrationRunner = runAssetMigrationFromEnv
 var currentStageASourceSampleRunner stageASourceSampleRunner = runStageASourceSampleFromEnv
 var currentStageATargetSampleRunner stageATargetSampleRunner = runStageATargetSampleFromEnv
 var currentMySQLCanaryImportRunner mysqlCanaryImportRunner = runMySQLCanaryImportFromEnv
+var currentMySQLCanaryValidateRunner mysqlCanaryValidateRunner = runMySQLCanaryValidateFromEnv
 
 const (
 	defaultOpsMigrationOrgID   = "10030"
@@ -185,6 +186,15 @@ type mysqlCanaryImportResponse struct {
 	Detail        string                   `json:"detail,omitempty"`
 }
 
+type mysqlCanaryValidateResponse struct {
+	OK            bool                     `json:"ok"`
+	ExternalOrgID string                   `json:"external_org_id,omitempty"`
+	Summary       mysqlCanaryImportSummary `json:"summary,omitempty"`
+	Warnings      []string                 `json:"warnings,omitempty"`
+	Error         string                   `json:"error,omitempty"`
+	Detail        string                   `json:"detail,omitempty"`
+}
+
 type mysqlCanaryImportSummary struct {
 	StoreCount        int `json:"store_count"`
 	RecorderCount     int `json:"recorder_count"`
@@ -204,6 +214,11 @@ type mysqlCanaryImportRunRequest struct {
 }
 
 type mysqlCanaryImportRunResult struct {
+	Summary  mysqlCanaryImportSummary
+	Warnings []string
+}
+
+type mysqlCanaryValidateResult struct {
 	Summary  mysqlCanaryImportSummary
 	Warnings []string
 }
@@ -530,6 +545,47 @@ func (h *Handler) mysqlCanaryImportHandler(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+func (h *Handler) mysqlCanaryValidateHandler(w http.ResponseWriter, r *http.Request) {
+	if !opsEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+		return
+	}
+	externalOrgID := strings.TrimSpace(r.URL.Query().Get("external_org_id"))
+	if externalOrgID == "" {
+		externalOrgID = defaultOpsMigrationOrgID
+	}
+	if externalOrgID != defaultOpsMigrationOrgID {
+		writeJSON(w, http.StatusBadRequest, mysqlCanaryValidateResponse{
+			OK:            false,
+			ExternalOrgID: externalOrgID,
+			Error:         "invalid canary validate request",
+			Detail:        fmt.Sprintf("mysql canary validation is limited to external_org_id %s", defaultOpsMigrationOrgID),
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	result, err := h.mysqlValidateRunner(ctx, externalOrgID)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, mysqlCanaryValidateResponse{
+			OK:            false,
+			ExternalOrgID: externalOrgID,
+			Error:         "mysql canary validation failed",
+			Detail:        sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, mysqlCanaryValidateResponse{
+		OK:            true,
+		ExternalOrgID: externalOrgID,
+		Summary:       result.Summary,
+		Warnings:      result.Warnings,
+	})
+}
+
 func opsEnabled() bool {
 	return envBool("OPS_ENABLED") || envBool("K8S_SECRET_OPS_ENABLED")
 }
@@ -631,6 +687,38 @@ func runMySQLCanaryImportFromEnv(ctx context.Context, request mysqlCanaryImportR
 		warnings = append(warnings, "Dry-run connected to MySQL and validated schema but did not execute import_sql.")
 	}
 	return &mysqlCanaryImportRunResult{Summary: summary, Warnings: warnings}, nil
+}
+
+func runMySQLCanaryValidateFromEnv(ctx context.Context, externalOrgID string) (*mysqlCanaryValidateResult, error) {
+	dsn := envValue("MYSQL_DSN", "K8S_SECRET_MYSQL_DSN")
+	if dsn == "" {
+		return nil, errors.New("MYSQL_DSN or K8S_SECRET_MYSQL_DSN is required")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql: %w", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(2)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("ping mysql: %w", err)
+	}
+	if err := ensureMySQLCanaryTables(ctx, db); err != nil {
+		return nil, err
+	}
+	summary, err := queryMySQLCanarySummary(ctx, db, externalOrgID)
+	if err != nil {
+		return nil, err
+	}
+	return &mysqlCanaryValidateResult{
+		Summary: summary,
+		Warnings: []string{
+			"Read-only validation. This endpoint does not execute import SQL or mutate MySQL.",
+			"Canary endpoint is limited to external_org_id 10030.",
+		},
+	}, nil
 }
 
 func ensureMySQLCanaryTables(ctx context.Context, db *sql.DB) error {

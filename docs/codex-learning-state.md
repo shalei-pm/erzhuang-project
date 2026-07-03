@@ -4516,3 +4516,24 @@ git pull --ff-only
 - 下一步：
   - 发布公司环境。
   - 再次执行 `10030` 金丝雀 `apply=true`，继续观察是否还有下一层真实 schema 差异。
+
+## 2026-07-03 MySQL 金丝雀导入后只读校验入口 2.29.3
+
+- 背景：
+  - `external_org_id=10030` 金丝雀已成功导入 MySQL 测试库。
+  - 导入后需要可重复、低风险地确认 MySQL 当前状态，避免每次都重新携带大段 `import_sql`。
+- 实现：
+  - 新增 `GET /api/admin/ops/mysql-canary-validate?external_org_id=10030`。
+  - 入口仅在 ops 开启且管理员具备 `user:manage` 权限时可用。
+  - 入口只读 MySQL，不执行导入 SQL，不修改数据。
+  - 复用 `ensureMySQLCanaryTables` 和 `queryMySQLCanarySummary`，返回门店、录像机、通道、截图、操作日志、用户、外键孤儿和非法 JSON 摘要。
+  - 仍限制 `external_org_id=10030`，避免误扫全量数据。
+- 验证：
+  - 新增 handler 测试覆盖只读校验成功返回摘要、拒绝非 10030 范围。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 调用只读校验入口，确认摘要仍为 `store_count=1`、`recorder_count=1`、`channel_count=4`、`snapshot_count=4`、`orphan_count=0`、`invalid_json_count=0`。
+  - 校验通过后，进入基于 MySQL 真实数据生成 OSS 资产清单。

@@ -57,6 +57,7 @@ type Handler struct {
 	stageASampleRunner   stageASourceSampleRunner
 	stageATargetRunner   stageATargetSampleRunner
 	mysqlCanaryRunner    mysqlCanaryImportRunner
+	mysqlValidateRunner  mysqlCanaryValidateRunner
 }
 
 func NewHandler() http.Handler {
@@ -80,7 +81,7 @@ func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designpl
 }
 
 func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner}
+	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
@@ -100,6 +101,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("POST /api/admin/ops/stage-a-target-sample", handler.stageATargetSampleHandler)
 	mux.HandleFunc("POST /api/admin/ops/pg-mysql-export", handler.pgMySQLExportHandler)
 	mux.HandleFunc("POST /api/admin/ops/mysql-canary-import", handler.mysqlCanaryImportHandler)
+	mux.HandleFunc("GET /api/admin/ops/mysql-canary-validate", handler.mysqlCanaryValidateHandler)
 	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
 	storespace.RegisterRoutesWithWriteGuard(mux, storeSpaceService, handler.storeWriteGuard)
 	if h5MonitorService != nil {
@@ -115,6 +117,7 @@ type assetMigrationRunner func(ctx context.Context, request assetMigrationRunReq
 type stageASourceSampleRunner func(ctx context.Context, action string) (*stageASourceSampleResult, error)
 type stageATargetSampleRunner func(ctx context.Context) (*stageATargetSampleResult, error)
 type mysqlCanaryImportRunner func(ctx context.Context, request mysqlCanaryImportRunRequest) (*mysqlCanaryImportRunResult, error)
+type mysqlCanaryValidateRunner func(ctx context.Context, externalOrgID string) (*mysqlCanaryValidateResult, error)
 
 func (h *Handler) storeWriteGuard(next http.HandlerFunc) http.HandlerFunc {
 	return h.requirePermissionHandler(PermissionStoreWrite, next)

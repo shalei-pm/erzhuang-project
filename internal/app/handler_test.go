@@ -866,6 +866,61 @@ func TestMySQLCanaryImportEndpointRejectsOtherStoreExternalOrgID(t *testing.T) {
 	}
 }
 
+func TestMySQLCanaryValidateEndpointRunsReadOnlySummaryForAdmin(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setMySQLCanaryValidateRunnerForTest(func(ctx context.Context, externalOrgID string) (*mysqlCanaryValidateResult, error) {
+		if externalOrgID != "10030" {
+			t.Fatalf("unexpected external org id %q", externalOrgID)
+		}
+		return &mysqlCanaryValidateResult{
+			Summary: mysqlCanaryImportSummary{
+				StoreCount:        1,
+				RecorderCount:     1,
+				ChannelCount:      4,
+				SnapshotCount:     4,
+				OperationLogCount: 6,
+				UserCount:         6,
+			},
+			Warnings: []string{"read-only validation"},
+		}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/ops/mysql-canary-validate?external_org_id=10030", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var response mysqlCanaryValidateResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.OK || response.ExternalOrgID != "10030" || response.Summary.ChannelCount != 4 {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestMySQLCanaryValidateEndpointRejectsNonCanaryScope(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setMySQLCanaryValidateRunnerForTest(func(ctx context.Context, externalOrgID string) (*mysqlCanaryValidateResult, error) {
+		t.Fatal("invalid validate request should not call runner")
+		return nil, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/ops/mysql-canary-validate?external_org_id=10047", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestNormalizeOpsExportOrgIDs(t *testing.T) {
 	got := normalizeOpsExportOrgIDs("10047, 10030,10047,,")
 	want := []string{"10047", "10030"}
@@ -1533,5 +1588,13 @@ func setMySQLCanaryImportRunnerForTest(runner mysqlCanaryImportRunner) func() {
 	currentMySQLCanaryImportRunner = runner
 	return func() {
 		currentMySQLCanaryImportRunner = previous
+	}
+}
+
+func setMySQLCanaryValidateRunnerForTest(runner mysqlCanaryValidateRunner) func() {
+	previous := currentMySQLCanaryValidateRunner
+	currentMySQLCanaryValidateRunner = runner
+	return func() {
+		currentMySQLCanaryValidateRunner = previous
 	}
 }

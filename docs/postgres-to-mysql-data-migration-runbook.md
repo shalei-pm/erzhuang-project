@@ -118,6 +118,14 @@ POST /erzhuang-project/api/admin/ops/mysql-canary-import
 - 外键孤儿数量。
 - JSON 非法数量。
 
+导入后可以用只读校验入口反复确认当前 MySQL 金丝雀状态，不需要再次携带 import SQL：
+
+```text
+GET /erzhuang-project/api/admin/ops/mysql-canary-validate?external_org_id=10030
+```
+
+该入口只读 MySQL，不执行导入 SQL，不修改数据；返回摘要字段与 `mysql-canary-import` 一致。
+
 敏感数据注意：
 
 - 导入 SQL 可能包含手机号、飞书 ID、通道截图 proxy path、模型识别原始文本。
