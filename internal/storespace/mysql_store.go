@@ -76,7 +76,6 @@ func (s *MySQLStore) UpsertEzvizAccountName(ctx context.Context, accountName str
 func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (StoreListResult, error) {
 	filters = normalizeFilters(filters)
 	rawLike := "%" + strings.ToLower(strings.ReplaceAll(strings.TrimSpace(filters.Query), " ", "")) + "%"
-	normalizedLike := "%" + NormalizeStoreName(filters.Query) + "%"
 	city := strings.TrimSpace(filters.City)
 	offset := (filters.Page - 1) * filters.PageSize
 
@@ -87,20 +86,16 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 		where (? = '' or coalesce(nullif(trim(s.city), ''), '未设置') = ?)
 			and (
 				? = '%%'
-				or replace(lower(s.name), ' ', '') like ?
-				or (? <> '%%' and s.normalized_name like ?)
+				or replace(lower(coalesce(s.name, '')), ' ', '') like ?
+				or coalesce(s.external_org_id, '') like ?
 			)
-	`, city, city, rawLike, rawLike, normalizedLike, normalizedLike).Scan(&total); err != nil {
+	`, city, city, rawLike, rawLike, rawLike).Scan(&total); err != nil {
 		return StoreListResult{}, err
 	}
 
-	cities, err := s.listStoreCities(ctx, rawLike, normalizedLike)
+	cities, err := s.listStoreCities(ctx, rawLike)
 	if err != nil {
-		return StoreListResult{}, err
-	}
-	summary, err := s.storeListSummary(ctx, rawLike, normalizedLike, city)
-	if err != nil {
-		return StoreListResult{}, err
+		cities = []string{}
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
@@ -117,12 +112,12 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 		where (? = '' or coalesce(nullif(trim(s.city), ''), '未设置') = ?)
 			and (
 				? = '%%'
-				or replace(lower(s.name), ' ', '') like ?
-				or (? <> '%%' and s.normalized_name like ?)
+				or replace(lower(coalesce(s.name, '')), ' ', '') like ?
+				or coalesce(s.external_org_id, '') like ?
 			)
-		order by s.updated_at desc
+		order by coalesce(s.updated_at, s.created_at, current_timestamp(3)) desc
 		limit ? offset ?
-	`, city, city, rawLike, rawLike, normalizedLike, normalizedLike, filters.PageSize, offset)
+	`, city, city, rawLike, rawLike, rawLike, filters.PageSize, offset)
 	if err != nil {
 		return StoreListResult{}, err
 	}
@@ -141,9 +136,11 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 	}
 	for index := range items {
 		if err := s.populateStoreListItemMetrics(ctx, &items[index]); err != nil {
-			return StoreListResult{}, err
+			items[index].ChannelsFullyConfirmed = false
 		}
 	}
+	summary := summarizeStoreListItems(items)
+	summary.StoreCount = total
 	return StoreListResult{Items: items, Page: filters.Page, PageSize: filters.PageSize, Total: total, Summary: summary, Cities: cities}, nil
 }
 
@@ -621,15 +618,15 @@ func mysqlChannelSelect(extra string) string {
 	` + extra
 }
 
-func (s *MySQLStore) listStoreCities(ctx context.Context, rawLike string, normalizedLike string) ([]string, error) {
+func (s *MySQLStore) listStoreCities(ctx context.Context, rawLike string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		select distinct coalesce(nullif(trim(city), ''), '未设置') as city_option
 		from tb_stores s
 		where ? = '%%'
-			or replace(lower(s.name), ' ', '') like ?
-			or (? <> '%%' and s.normalized_name like ?)
+			or replace(lower(coalesce(s.name, '')), ' ', '') like ?
+			or coalesce(s.external_org_id, '') like ?
 		order by city_option
-	`, rawLike, rawLike, normalizedLike, normalizedLike)
+	`, rawLike, rawLike, rawLike)
 	if err != nil {
 		return nil, err
 	}
