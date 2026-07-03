@@ -4737,3 +4737,25 @@ git pull --ff-only
   - 发布公司环境后先调用该端点，确认源库约 55 家门店、MySQL 已完成 6 家、剩余门店列表和当前白名单状态。
   - 将下一批 5 个 `batchable=true` 的机构按现有闭环继续迁移：Postgres 导出、MySQL 单店导入、资产 `max_rows=10` 分批复制、每批后资产台账回写。
   - 如剩余机构不在 `OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS`，先追加白名单再迁移。
+
+## 2026-07-03 MySQL Runtime 刷新通道截图写链路 2.30.13
+
+- 现象：
+  - `10051` 已完成 Postgres -> MySQL 业务数据导入。
+  - 资产迁移第一批失败，`asset-migrate max_rows=1` 返回源对象 `404 not_found`。
+  - 尝试用 `POST /api/store-space/channels/{channel_id}/snapshot` 刷新当前截图时，公司 MySQL runtime 返回 `501 not implemented`。
+- 根因：
+  - `10051` 历史截图源对象已在旧存储中缺失，不能直接从旧 key 迁移到 OSS。
+  - MySQL runtime 只先实现了核心只读链路，`SaveChannelSnapshot` 仍返回 `ErrNotImplemented`，导致无法在 MySQL 下刷新并落库新截图。
+- 修复：
+  - 实现 `storespace.MySQLStore.SaveChannelSnapshot`。
+  - 刷新截图时可插入 `tb_channel_snapshots` 最新行，并按刷新语义清空识别状态字段、不增加识别次数。
+  - 返回通道时沿用 `GetChannel` 最新截图查询逻辑。
+- 验证：
+  - 新增 `TestMySQLChannelSnapshotUpdateArgsForRefresh` 覆盖刷新截图的 MySQL 更新参数。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 重新刷新 `10051` 通道截图，再执行 `mysql-asset-inventory` 确认最新 manifest 指向新截图 key。
+  - 继续 `applyOrgInBatches('10051', 20)` 完成 OSS 复制和资产台账回写。

@@ -371,7 +371,82 @@ func (s *MySQLStore) UpsertRecorderChannel(ctx context.Context, recorderID int64
 }
 
 func (s *MySQLStore) SaveChannelSnapshot(ctx context.Context, channelID int64, input ChannelSnapshotInput) (*Channel, error) {
-	return nil, ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var recorderID int64
+	if err := tx.QueryRowContext(ctx, `select recorder_id from tb_video_channels where id = ?`, channelID).Scan(&recorderID); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.ThumbnailPath) != "" || strings.TrimSpace(input.FullImagePath) != "" {
+		if _, err := tx.ExecContext(ctx, `
+			insert into tb_channel_snapshots (channel_id, thumbnail_path, full_image_path, full_image_expires_at, created_at)
+			values (?, ?, ?, ?, current_timestamp(3))
+		`, channelID, input.ThumbnailPath, input.FullImagePath, input.FullImageExpiresAt); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update tb_video_channels
+		set recognition_attempts = recognition_attempts + case when ? then 1 else 0 end,
+			recognition_result = case when ? or nullif(?, '') is not null then nullif(?, '') else recognition_result end,
+			status = case when nullif(?, '') is null then status else ? end,
+			scene_type = case when nullif(?, '') is null then scene_type else ? end,
+			area_type = case when nullif(?, '') is null then area_type else nullif(?, '') end,
+			area_number = case when nullif(?, '') is null then area_number else nullif(?, 0) end,
+			area_note = case when nullif(?, '') is null then area_note else ? end,
+			bed_label = case when nullif(?, '') is null then bed_label else '' end,
+			updated_at = current_timestamp(3)
+		where id = ?
+	`, mysqlChannelSnapshotUpdateArgs(input, channelID)...); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	channels, err := s.listChannels(ctx, recorderID)
+	if err != nil {
+		return nil, err
+	}
+	for index := range channels {
+		if channels[index].ID == channelID {
+			return &channels[index], nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func mysqlChannelSnapshotUpdateArgs(input ChannelSnapshotInput, channelID int64) []any {
+	countAttempt := input.CountAttempt
+	recognitionResult := strings.TrimSpace(input.RecognitionResult)
+	status := string(input.Status)
+	sceneType := string(input.SceneType)
+	areaType := string(input.AreaType)
+	areaNumber := mustPositiveInt(input.AreaNumberText)
+	areaNote := strings.TrimSpace(input.AreaNote)
+	return []any{
+		countAttempt,
+		countAttempt,
+		recognitionResult,
+		recognitionResult,
+		status,
+		status,
+		status,
+		sceneType,
+		status,
+		areaType,
+		status,
+		areaNumber,
+		status,
+		areaNote,
+		status,
+		channelID,
+	}
 }
 
 func (s *MySQLStore) UnlockChannelForEdit(ctx context.Context, channelID int64) (*Channel, error) {

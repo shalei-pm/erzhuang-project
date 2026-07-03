@@ -77,3 +77,20 @@ func TestMySQLDateTimeTextIgnoresZeroDate(t *testing.T) {
 		t.Fatalf("Time = %s, want zero", value.Time().Format(time.RFC3339Nano))
 	}
 }
+
+func TestMySQLChannelSnapshotUpdateArgsForRefresh(t *testing.T) {
+	args := mysqlChannelSnapshotUpdateArgs(ChannelSnapshotInput{
+		ThumbnailPath: "/api/store-space/channel-snapshots/fresh.jpg",
+		FullImagePath: "/api/store-space/channel-snapshots/fresh.jpg",
+	}, 607)
+
+	if len(args) != 16 {
+		t.Fatalf("len(args) = %d, want 16: %#v", len(args), args)
+	}
+	if args[0] != false {
+		t.Fatalf("count attempt arg = %#v, want false", args[0])
+	}
+	if args[1] != false || args[2] != "" || args[4] != "" || args[7] != "" || args[9] != "" || args[11] != 0 || args[13] != "" || args[15] != int64(607) {
+		t.Fatalf("unexpected refresh args: %#v", args)
+	}
+}
