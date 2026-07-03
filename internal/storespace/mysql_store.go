@@ -107,7 +107,7 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 			coalesce(s.external_org_id, ''),
 			coalesce(s.design_plan_status, 'not_uploaded'),
 			coalesce(s.overall_status, 'partial'),
-			coalesce(s.updated_at, s.created_at, current_timestamp(3))
+			s.updated_at
 		from tb_stores s
 		where (? = '' or coalesce(nullif(trim(s.city), ''), '未设置') = ?)
 			and (
@@ -126,8 +126,12 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 	items := []StoreListItem{}
 	for rows.Next() {
 		var item StoreListItem
-		if err := rows.Scan(&item.ID, &item.City, &item.Name, &item.ShortName, &item.ExternalOrgID, &item.DesignPlanStatus, &item.OverallStatus, &item.UpdatedAt); err != nil {
+		var updatedAt sql.NullTime
+		if err := rows.Scan(&item.ID, &item.City, &item.Name, &item.ShortName, &item.ExternalOrgID, &item.DesignPlanStatus, &item.OverallStatus, &updatedAt); err != nil {
 			return StoreListResult{}, err
+		}
+		if updatedAt.Valid {
+			item.UpdatedAt = updatedAt.Time
 		}
 		items = append(items, item)
 	}
