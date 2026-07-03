@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
@@ -98,7 +99,7 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 		select count(*)
 		from tb_stores s
 	`+whereSQL, countArgs...).Scan(&total); err != nil {
-		return StoreListResult{}, err
+		return StoreListResult{}, fmt.Errorf("mysql list stores count: %w", err)
 	}
 
 	cities, err := s.listStoreCities(ctx, rawLike, hasSearch)
@@ -124,7 +125,7 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 		limit ? offset ?
 	`, rowArgs...)
 	if err != nil {
-		return StoreListResult{}, err
+		return StoreListResult{}, fmt.Errorf("mysql list stores rows: %w", err)
 	}
 	defer rows.Close()
 
@@ -133,7 +134,7 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 		var item StoreListItem
 		var updatedAt sql.NullTime
 		if err := rows.Scan(&item.ID, &item.City, &item.Name, &item.ShortName, &item.ExternalOrgID, &item.DesignPlanStatus, &item.OverallStatus, &updatedAt); err != nil {
-			return StoreListResult{}, err
+			return StoreListResult{}, fmt.Errorf("mysql list stores scan: %w", err)
 		}
 		if updatedAt.Valid {
 			item.UpdatedAt = updatedAt.Time
@@ -141,7 +142,7 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return StoreListResult{}, err
+		return StoreListResult{}, fmt.Errorf("mysql list stores read rows: %w", err)
 	}
 	for index := range items {
 		if err := s.populateStoreListItemMetrics(ctx, &items[index]); err != nil {

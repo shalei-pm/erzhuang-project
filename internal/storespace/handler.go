@@ -106,7 +106,8 @@ func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {
 		PageSize: parsePositiveInt(r.URL.Query().Get("page_size"), 20),
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "list stores failed", nil)
+		log.Printf("storespace: list stores failed query=%q city=%q page=%s page_size=%s error=%q", r.URL.Query().Get("q"), r.URL.Query().Get("city"), r.URL.Query().Get("page"), r.URL.Query().Get("page_size"), err.Error())
+		writeDiagnosticError(w, http.StatusInternalServerError, "list stores failed", "list_stores_failed", "storespace_list", err.Error(), nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
