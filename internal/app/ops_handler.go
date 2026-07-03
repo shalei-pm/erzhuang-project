@@ -312,6 +312,13 @@ type mysqlAssetInventoryRawRow struct {
 	Sensitivity         string
 }
 
+type mysqlAssetState struct {
+	MigrationStatus string
+	StorageProvider string
+	Bucket          string
+	StorageKey      string
+}
+
 func (h *Handler) ossEnvCheckHandler(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
 		return
@@ -925,7 +932,11 @@ func runMySQLAssetInventoryFromEnv(ctx context.Context, request mysqlAssetInvent
 	if err != nil {
 		return nil, err
 	}
-	result, err := buildMySQLAssetInventory(rows)
+	assetStates, err := queryMySQLAssetStates(ctx, db, rows)
+	if err != nil {
+		return nil, err
+	}
+	result, err := buildMySQLAssetInventory(rows, assetStates)
 	if err != nil {
 		return nil, err
 	}
@@ -1032,7 +1043,39 @@ func queryMySQLAssetInventoryRows(ctx context.Context, db *sql.DB, externalOrgID
 	return rows, nil
 }
 
-func buildMySQLAssetInventory(rows []mysqlAssetInventoryRawRow) (*mysqlAssetInventoryRunResult, error) {
+func queryMySQLAssetStates(ctx context.Context, db *sql.DB, rows []mysqlAssetInventoryRawRow) (map[string]mysqlAssetState, error) {
+	logicalKeys := make([]string, 0, len(rows))
+	seen := map[string]struct{}{}
+	for _, row := range rows {
+		logicalKey, status, _ := normalizeMySQLAssetLogicalKey(row)
+		if status != "pending" || logicalKey == "" {
+			continue
+		}
+		if _, ok := seen[logicalKey]; ok {
+			continue
+		}
+		seen[logicalKey] = struct{}{}
+		logicalKeys = append(logicalKeys, logicalKey)
+	}
+	states := make(map[string]mysqlAssetState, len(logicalKeys))
+	for _, logicalKey := range logicalKeys {
+		var state mysqlAssetState
+		err := db.QueryRowContext(ctx, `select migration_status, storage_provider, bucket, storage_key
+from tb_asset_objects
+where logical_key_hash = sha2(?, 256)
+limit 1`, logicalKey).Scan(&state.MigrationStatus, &state.StorageProvider, &state.Bucket, &state.StorageKey)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("query mysql asset state: %w", err)
+		}
+		states[logicalKey] = state
+	}
+	return states, nil
+}
+
+func buildMySQLAssetInventory(rows []mysqlAssetInventoryRawRow, assetStates map[string]mysqlAssetState) (*mysqlAssetInventoryRunResult, error) {
 	type inventoryRow struct {
 		raw                      mysqlAssetInventoryRawRow
 		logicalKey               string
@@ -1047,6 +1090,10 @@ func buildMySQLAssetInventory(rows []mysqlAssetInventoryRawRow) (*mysqlAssetInve
 	counts := map[string]int{}
 	for _, raw := range rows {
 		logicalKey, status, reason := normalizeMySQLAssetLogicalKey(raw)
+		if isMigratedMySQLAsset(assetStates[logicalKey]) {
+			status = "skipped"
+			reason = "already_migrated"
+		}
 		item := inventoryRow{
 			raw:                      raw,
 			logicalKey:               logicalKey,
@@ -1180,6 +1227,13 @@ func latestMySQLSnapshotRows(rows []mysqlAssetInventoryRawRow) []mysqlAssetInven
 		}
 	}
 	return filtered
+}
+
+func isMigratedMySQLAsset(state mysqlAssetState) bool {
+	return strings.TrimSpace(state.MigrationStatus) == "migrated" &&
+		strings.TrimSpace(state.StorageProvider) == "oss" &&
+		strings.TrimSpace(state.Bucket) != "" &&
+		strings.TrimSpace(state.StorageKey) != ""
 }
 
 func normalizeMySQLAssetLogicalKey(row mysqlAssetInventoryRawRow) (string, string, string) {

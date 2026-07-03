@@ -981,7 +981,7 @@ func TestBuildMySQLAssetInventoryUsesLatestSnapshotPerChannel(t *testing.T) {
 		{SourceTable: "tb_channel_snapshots", SourceID: "4", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", ChannelID: "1541", OldPath: "/api/store-space/channel-snapshots/new-2.jpg", SourceKey: "/api/store-space/channel-snapshots/new-2.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
 		{SourceTable: "tb_channel_snapshots", SourceID: "4", SourceColumn: "full_image_path", AssetRole: "snapshot_full_image", ExternalOrgID: "10030", ChannelID: "1541", OldPath: "/api/store-space/channel-snapshots/new-2.jpg", SourceKey: "/api/store-space/channel-snapshots/new-2.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
 	}
-	result, err := buildMySQLAssetInventory(rows)
+	result, err := buildMySQLAssetInventory(rows, nil)
 	if err != nil {
 		t.Fatalf("buildMySQLAssetInventory: %v", err)
 	}
@@ -996,13 +996,40 @@ func TestBuildMySQLAssetInventoryUsesLatestSnapshotPerChannel(t *testing.T) {
 	}
 }
 
+func TestBuildMySQLAssetInventorySkipsAlreadyMigratedAssets(t *testing.T) {
+	rows := []mysqlAssetInventoryRawRow{
+		{SourceTable: "tb_channel_snapshots", SourceID: "1", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", OldPath: "/api/store-space/channel-snapshots/a.jpg", SourceKey: "/api/store-space/channel-snapshots/a.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+		{SourceTable: "tb_channel_snapshots", SourceID: "1", SourceColumn: "full_image_path", AssetRole: "snapshot_full_image", ExternalOrgID: "10030", OldPath: "/api/store-space/channel-snapshots/a.jpg", SourceKey: "/api/store-space/channel-snapshots/a.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+	}
+	result, err := buildMySQLAssetInventory(rows, map[string]mysqlAssetState{
+		"channel-snapshots/a.jpg": {
+			MigrationStatus: "migrated",
+			StorageProvider: "oss",
+			Bucket:          "sy-camera-erzhuang-project",
+			StorageKey:      "channel-snapshots/a.jpg",
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildMySQLAssetInventory: %v", err)
+	}
+	if result.Summary.Total != 2 || result.Summary.Pending != 0 || result.Summary.Skipped != 2 {
+		t.Fatalf("unexpected summary: %#v", result.Summary)
+	}
+	if strings.Contains(result.ManifestCSV, ",pending,") {
+		t.Fatalf("already migrated manifest rows should not remain pending:\n%s", result.ManifestCSV)
+	}
+	if !strings.Contains(result.ManifestCSV, "already_migrated") {
+		t.Fatalf("manifest should explain migrated skip reason:\n%s", result.ManifestCSV)
+	}
+}
+
 func TestBuildMySQLAssetInventoryNormalizesSnapshotProxyPathsAndDuplicates(t *testing.T) {
 	rows := []mysqlAssetInventoryRawRow{
 		{SourceTable: "tb_channel_snapshots", SourceID: "1", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", OldPath: "/api/store-space/channel-snapshots/a.jpg", SourceKey: "/api/store-space/channel-snapshots/a.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
 		{SourceTable: "tb_channel_snapshots", SourceID: "1", SourceColumn: "full_image_path", AssetRole: "snapshot_full_image", ExternalOrgID: "10030", OldPath: "/api/store-space/channel-snapshots/a.jpg", SourceKey: "/api/store-space/channel-snapshots/a.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
 		{SourceTable: "tb_channel_snapshots", SourceID: "2", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", OldPath: "https://example.com/signed.jpg", SourceKey: "https://example.com/signed.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
 	}
-	result, err := buildMySQLAssetInventory(rows)
+	result, err := buildMySQLAssetInventory(rows, nil)
 	if err != nil {
 		t.Fatalf("buildMySQLAssetInventory: %v", err)
 	}

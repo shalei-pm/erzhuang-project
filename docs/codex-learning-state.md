@@ -4606,3 +4606,24 @@ git pull --ff-only
   - 发布公司环境。
   - 用刚刚成功的 `manifest_csv` 和 `result_csv` 调用台账回写接口。
   - 回写后再次调用 `mysql-asset-inventory`，预期当前这 4 个 logical key 不再需要重新复制；如清单入口仍只从业务表判断 pending，需要继续把 inventory 与 `tb_asset_objects` 状态联动。
+
+## 2026-07-03 MySQL 资产清单联动台账状态 2.29.7
+
+- 现象：
+  - `asset-state-backfill` 成功返回 `total=8`、`migrated=4`、`skipped=4`、`upserted=4`、`errors=0`。
+  - 随后再次调用 `mysql-asset-inventory`，仍显示 `pending=8`。
+- 根因：
+  - 资产清单入口只根据业务表路径生成 manifest，没有查询 `tb_asset_objects`。
+  - 因此即使台账已标记 `migration_status=migrated`，清单仍会机械标记为 `pending`。
+- 修复：
+  - `mysql-asset-inventory` 在生成 manifest 前按 logical key 查询 `tb_asset_objects`。
+  - 当台账状态满足 `migration_status=migrated`、`storage_provider=oss`、bucket/storage key 非空时，manifest 行标记为 `skipped`，原因 `already_migrated`。
+  - 保留重复引用统计，thumbnail/full 两个引用都会显示为已迁移跳过，不再建议复制。
+- 验证：
+  - 新增测试覆盖已迁移 logical key 进入 inventory 时，`pending=0`、`skipped=2`，CSV 包含 `already_migrated`。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 再次调用 `mysql-asset-inventory?external_org_id=10030`，预期 `pending=0`、`skipped=8`，manifest 中 skip reason 为 `already_migrated`。
