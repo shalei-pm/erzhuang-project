@@ -112,31 +112,7 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 			coalesce(s.external_org_id, ''),
 			coalesce(s.design_plan_status, 'not_uploaded'),
 			coalesce(s.overall_status, 'partial'),
-			s.updated_at,
-			(select count(*) from tb_video_recorders r where r.store_id = s.id) as recorder_count,
-			(select count(*)
-				from tb_video_channels c, tb_video_recorders r
-				where c.is_active = 1
-					and c.recorder_id = r.id
-					and r.store_id = s.id
-			) as channel_count,
-			(select count(*)
-				from tb_video_channels c, tb_video_recorders r
-				where c.is_active = 1
-					and c.recorder_id = r.id
-					and r.store_id = s.id
-			) > 0
-				and (select count(*)
-					from tb_video_channels c, tb_video_recorders r
-					where c.is_active = 1
-						and c.status not in ('confirmed_business', 'confirmed_non_business')
-						and c.recorder_id = r.id
-						and r.store_id = s.id
-				) = 0 as channels_fully_confirmed,
-			(select count(*) from tb_store_areas a where a.store_id = s.id and a.area_type in ('treatment', 'vip_treatment')) as treatment_count,
-			(select count(*) from tb_store_areas a where a.store_id = s.id and a.area_type = 'consultation') as consultation_count,
-			(select count(*) from tb_store_areas a where a.store_id = s.id and a.area_type = 'beauty') as beauty_count,
-			(select count(*) from tb_store_areas a where a.store_id = s.id) as area_count
+			coalesce(s.updated_at, s.created_at, current_timestamp(3))
 		from tb_stores s
 		where (? = '' or coalesce(nullif(trim(s.city), ''), '未设置') = ?)
 			and (
@@ -155,17 +131,57 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 	items := []StoreListItem{}
 	for rows.Next() {
 		var item StoreListItem
-		var channelsFullyConfirmed int
-		if err := rows.Scan(&item.ID, &item.City, &item.Name, &item.ShortName, &item.ExternalOrgID, &item.DesignPlanStatus, &item.OverallStatus, &item.UpdatedAt, &item.RecorderCount, &item.ChannelCount, &channelsFullyConfirmed, &item.TreatmentCount, &item.ConsultationCount, &item.BeautyCount, &item.AreaCount); err != nil {
+		if err := rows.Scan(&item.ID, &item.City, &item.Name, &item.ShortName, &item.ExternalOrgID, &item.DesignPlanStatus, &item.OverallStatus, &item.UpdatedAt); err != nil {
 			return StoreListResult{}, err
 		}
-		item.ChannelsFullyConfirmed = channelsFullyConfirmed != 0
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return StoreListResult{}, err
 	}
+	for index := range items {
+		if err := s.populateStoreListItemMetrics(ctx, &items[index]); err != nil {
+			return StoreListResult{}, err
+		}
+	}
 	return StoreListResult{Items: items, Page: filters.Page, PageSize: filters.PageSize, Total: total, Summary: summary, Cities: cities}, nil
+}
+
+func (s *MySQLStore) populateStoreListItemMetrics(ctx context.Context, item *StoreListItem) error {
+	if err := s.db.QueryRowContext(ctx, `
+		select count(*)
+		from tb_video_recorders
+		where store_id = ?
+	`, item.ID).Scan(&item.RecorderCount); err != nil {
+		return err
+	}
+
+	var unconfirmedCount int
+	if err := s.db.QueryRowContext(ctx, `
+		select
+			count(*),
+			coalesce(sum(case when c.status not in ('confirmed_business', 'confirmed_non_business') then 1 else 0 end), 0)
+		from tb_video_channels c, tb_video_recorders r
+		where c.is_active = 1
+			and c.recorder_id = r.id
+			and r.store_id = ?
+	`, item.ID).Scan(&item.ChannelCount, &unconfirmedCount); err != nil {
+		return err
+	}
+	item.ChannelsFullyConfirmed = item.ChannelCount > 0 && unconfirmedCount == 0
+
+	if err := s.db.QueryRowContext(ctx, `
+		select
+			count(*),
+			coalesce(sum(case when area_type in ('treatment', 'vip_treatment') then 1 else 0 end), 0),
+			coalesce(sum(case when area_type = 'consultation' then 1 else 0 end), 0),
+			coalesce(sum(case when area_type = 'beauty' then 1 else 0 end), 0)
+		from tb_store_areas
+		where store_id = ?
+	`, item.ID).Scan(&item.AreaCount, &item.TreatmentCount, &item.ConsultationCount, &item.BeautyCount); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *MySQLStore) GetStore(ctx context.Context, id int64) (*Store, error) {
