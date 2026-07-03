@@ -113,27 +113,34 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 			s.design_plan_status,
 			s.overall_status,
 			s.updated_at,
-			count(distinct r.id) as recorder_count,
-			count(distinct case when c.is_active = 1 then c.id end) as channel_count,
-			count(distinct case when c.is_active = 1 then c.id end) > 0
-				and count(distinct case
-					when c.is_active = 1 and c.status not in ('confirmed_business', 'confirmed_non_business') then c.id
-				end) = 0 as channels_fully_confirmed,
-			count(distinct case when a.area_type in ('treatment', 'vip_treatment') then a.id end) as treatment_count,
-			count(distinct case when a.area_type = 'consultation' then a.id end) as consultation_count,
-			count(distinct case when a.area_type = 'beauty' then a.id end) as beauty_count,
-			count(distinct a.id) as area_count
+			(select count(*) from tb_video_recorders r where r.store_id = s.id) as recorder_count,
+			(select count(*)
+				from tb_video_channels c
+				where c.is_active = 1
+					and c.recorder_id in (select r.id from tb_video_recorders r where r.store_id = s.id)
+			) as channel_count,
+			(select count(*)
+				from tb_video_channels c
+				where c.is_active = 1
+					and c.recorder_id in (select r.id from tb_video_recorders r where r.store_id = s.id)
+			) > 0
+				and (select count(*)
+					from tb_video_channels c
+					where c.is_active = 1
+						and c.status not in ('confirmed_business', 'confirmed_non_business')
+						and c.recorder_id in (select r.id from tb_video_recorders r where r.store_id = s.id)
+				) = 0 as channels_fully_confirmed,
+			(select count(*) from tb_store_areas a where a.store_id = s.id and a.area_type in ('treatment', 'vip_treatment')) as treatment_count,
+			(select count(*) from tb_store_areas a where a.store_id = s.id and a.area_type = 'consultation') as consultation_count,
+			(select count(*) from tb_store_areas a where a.store_id = s.id and a.area_type = 'beauty') as beauty_count,
+			(select count(*) from tb_store_areas a where a.store_id = s.id) as area_count
 		from tb_stores s
-		left join tb_store_areas a on a.store_id = s.id
-		left join tb_video_recorders r on r.store_id = s.id
-		left join tb_video_channels c on c.recorder_id = r.id
 		where (? = '' or coalesce(nullif(trim(s.city), ''), '未设置') = ?)
 			and (
 				? = '%%'
 				or replace(lower(s.name), ' ', '') like ?
 				or (? <> '%%' and s.normalized_name like ?)
 			)
-		group by s.id, s.city, s.name, s.short_name, s.external_org_id, s.design_plan_status, s.overall_status, s.updated_at
 		order by s.updated_at desc
 		limit ? offset ?
 	`, city, city, rawLike, rawLike, normalizedLike, normalizedLike, filters.PageSize, offset)
@@ -382,30 +389,40 @@ func (s *MySQLStore) listAreas(ctx context.Context, storeID int64) ([]Area, erro
 			a.display_name,
 			a.source,
 			a.status,
-			annotation.box_x,
-			annotation.box_y,
-			annotation.box_width,
-			annotation.box_height,
+			(select dpa.box_x
+				from tb_design_plan_annotations dpa, tb_store_design_plans sdp
+				where sdp.id = dpa.design_plan_id
+					and sdp.store_id = a.store_id
+					and dpa.area_id = a.id
+				order by dpa.updated_at desc, dpa.id desc
+				limit 1),
+			(select dpa.box_y
+				from tb_design_plan_annotations dpa, tb_store_design_plans sdp
+				where sdp.id = dpa.design_plan_id
+					and sdp.store_id = a.store_id
+					and dpa.area_id = a.id
+				order by dpa.updated_at desc, dpa.id desc
+				limit 1),
+			(select dpa.box_width
+				from tb_design_plan_annotations dpa, tb_store_design_plans sdp
+				where sdp.id = dpa.design_plan_id
+					and sdp.store_id = a.store_id
+					and dpa.area_id = a.id
+				order by dpa.updated_at desc, dpa.id desc
+				limit 1),
+			(select dpa.box_height
+				from tb_design_plan_annotations dpa, tb_store_design_plans sdp
+				where sdp.id = dpa.design_plan_id
+					and sdp.store_id = a.store_id
+					and dpa.area_id = a.id
+				order by dpa.updated_at desc, dpa.id desc
+				limit 1),
 			a.created_at,
 			a.updated_at
 		from tb_store_areas a
-		left join (
-			select dpa.area_id, dpa.box_x, dpa.box_y, dpa.box_width, dpa.box_height
-			from tb_design_plan_annotations dpa
-			join tb_store_design_plans sdp on sdp.id = dpa.design_plan_id
-			where sdp.store_id = ?
-				and not exists (
-					select 1
-					from tb_design_plan_annotations newer
-					join tb_store_design_plans newer_plan on newer_plan.id = newer.design_plan_id
-					where newer.area_id = dpa.area_id
-						and newer_plan.store_id = sdp.store_id
-						and (newer.updated_at > dpa.updated_at or (newer.updated_at = dpa.updated_at and newer.id > dpa.id))
-				)
-		) annotation on annotation.area_id = a.id
 		where a.store_id = ?
 		order by a.area_type, a.area_number
-	`, storeID, storeID)
+	`, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -531,8 +548,11 @@ func (s *MySQLStore) listChannels(ctx context.Context, recorderID int64) ([]Chan
 
 func (s *MySQLStore) listChannelsForStore(ctx context.Context, storeID int64) ([]Channel, error) {
 	rows, err := s.db.QueryContext(ctx, mysqlChannelSelect(`
-		join tb_video_recorders filter_r on filter_r.id = c.recorder_id
-		where filter_r.store_id = ?
+		where c.recorder_id in (
+			select r.id
+			from tb_video_recorders r
+			where r.store_id = ?
+		)
 		order by c.recorder_id, c.channel_no
 	`), storeID)
 	if err != nil {
@@ -560,17 +580,23 @@ func mysqlChannelSelect(extra string) string {
 			c.scene_type, coalesce(c.area_type, ''), coalesce(c.area_number, 0),
 			coalesce(c.bed_label, ''), coalesce(c.area_note, ''), coalesce(c.area_id, 0), c.recognition_attempts,
 			coalesce(cast(c.recognition_result as char), ''),
-			snapshot.thumbnail_path, snapshot.full_image_path, snapshot.full_image_expires_at,
+			(select snapshot.thumbnail_path
+				from tb_channel_snapshots snapshot
+				where snapshot.channel_id = c.id
+				order by snapshot.created_at desc, snapshot.id desc
+				limit 1),
+			(select snapshot.full_image_path
+				from tb_channel_snapshots snapshot
+				where snapshot.channel_id = c.id
+				order by snapshot.created_at desc, snapshot.id desc
+				limit 1),
+			(select snapshot.full_image_expires_at
+				from tb_channel_snapshots snapshot
+				where snapshot.channel_id = c.id
+				order by snapshot.created_at desc, snapshot.id desc
+				limit 1),
 			c.confirmed_at, c.created_at, c.updated_at
 		from tb_video_channels c
-		left join tb_channel_snapshots snapshot
-			on snapshot.channel_id = c.id
-			and not exists (
-				select 1
-				from tb_channel_snapshots newer
-				where newer.channel_id = c.id
-					and (newer.created_at > snapshot.created_at or (newer.created_at = snapshot.created_at and newer.id > snapshot.id))
-			)
 	` + extra
 }
 
@@ -711,11 +737,11 @@ func (r *MySQLH5MonitorRepository) ListMonitorStores(ctx context.Context) ([]h5m
 			s.city,
 			ea.account_name,
 			count(c.id) as channel_count
-		from tb_stores s
-		join tb_video_recorders r on r.store_id = s.id
-		join tb_video_channels c on c.recorder_id = r.id
-		join tb_ezviz_accounts ea on ea.id = r.ezviz_account_id
+		from tb_stores s, tb_video_recorders r, tb_video_channels c, tb_ezviz_accounts ea
 		where trim(s.external_org_id) <> ''
+			and r.store_id = s.id
+			and c.recorder_id = r.id
+			and ea.id = r.ezviz_account_id
 			and c.is_active = 1
 			and c.channel_no > 0
 			and trim(r.device_code) <> ''
@@ -811,23 +837,21 @@ func mysqlH5MonitorChannelQuery(extraCondition string) string {
 			coalesce(c.area_number, 0),
 			coalesce(c.bed_label, ''),
 			coalesce(c.area_note, ''),
-			coalesce(snapshot.thumbnail_path, ''),
+			coalesce((select snapshot.thumbnail_path
+				from tb_channel_snapshots snapshot
+				where snapshot.channel_id = c.id
+				order by snapshot.created_at desc, snapshot.id desc
+				limit 1), ''),
 			r.device_code,
 			coalesce(r.ezviz_account_id, 0),
-			coalesce(ea.account_name, '')
-		from tb_video_channels c
-		join tb_video_recorders r on r.id = c.recorder_id
-		join tb_stores s on s.id = r.store_id
-		left join tb_ezviz_accounts ea on ea.id = r.ezviz_account_id
-		left join tb_channel_snapshots snapshot
-			on snapshot.channel_id = c.id
-			and not exists (
-				select 1
-				from tb_channel_snapshots newer
-				where newer.channel_id = c.id
-					and (newer.created_at > snapshot.created_at or (newer.created_at = snapshot.created_at and newer.id > snapshot.id))
-			)
+			coalesce((select ea.account_name
+				from tb_ezviz_accounts ea
+				where ea.id = r.ezviz_account_id
+				limit 1), '')
+		from tb_video_channels c, tb_video_recorders r, tb_stores s
 		where c.is_active = 1
+			and r.id = c.recorder_id
+			and s.id = r.store_id
 			and c.channel_no > 0
 			and trim(r.device_code) <> ''
 			and r.ezviz_account_id is not null
