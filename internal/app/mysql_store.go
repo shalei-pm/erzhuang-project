@@ -4,7 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
+
+	"github.com/shalei-pm/erzhuang-project/internal/mysqlmigration"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type MySQLStore struct {
@@ -21,6 +26,22 @@ func (s *MySQLStore) Name() string {
 
 func (s *MySQLStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
+}
+
+func (s *MySQLStore) ExportMySQLMigration(ctx context.Context, options mysqlmigration.Options) (*mysqlmigration.Export, error) {
+	dsn := envValue("DATABASE_URL", "K8S_SECRET_DATABASE_URL")
+	if dsn == "" {
+		return nil, errors.New("DATABASE_URL is required for PostgreSQL to MySQL export while APP_DB_DRIVER=mysql")
+	}
+	postgresDB, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres export source: %w", err)
+	}
+	defer postgresDB.Close()
+	if err := postgresDB.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("ping postgres export source: %w", err)
+	}
+	return mysqlmigration.ExportFromPostgres(ctx, postgresDB, options)
 }
 
 func (s *MySQLStore) ListTasks(ctx context.Context) ([]Task, error) {
