@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import {
+  ApiError,
   storeSpaceApi,
   type AISettings,
   type CreateStoreSpacePayload,
@@ -188,7 +189,7 @@ function AdminApp() {
       setTotal(0);
       setListSummary(EMPTY_STORE_LIST_SUMMARY);
       setCityOptions([]);
-      setToast(errorMessage(error, "门店列表加载失败，请稍后重试。"));
+      setToast(storeListLoadErrorMessage(error));
     } finally {
       if (listRequestIdRef.current === requestId) {
         setLoading(false);
@@ -611,6 +612,18 @@ function AdminApp() {
       ) : null}
     </main>
   );
+}
+
+function storeListLoadErrorMessage(error: unknown) {
+  const message = errorMessage(error, "门店列表加载失败，请稍后重试。");
+  if (error instanceof ApiError && (error.code || error.stage || error.detail)) {
+    let diagnostics = "";
+    if (error.code) diagnostics += ` code=${error.code}`;
+    if (error.stage) diagnostics += ` stage=${error.stage}`;
+    if (error.detail) diagnostics += ` detail=${error.detail}`;
+    return `${message} ·${diagnostics}`;
+  }
+  return message;
 }
 
 function LoginWelcome({ auth, appVersion }: { auth: AuthState | null; appVersion: string }) {
