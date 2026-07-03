@@ -4696,3 +4696,29 @@ git pull --ff-only
   - 继续处理白名单中的 `10051`。
   - 随后进入运行时切换：后端核心只读链路需要支持从 MySQL 读取，图片读取路径保持前端 URL 不变，内部优先按 `tb_asset_objects` 从 OSS 读取。
   - Postgres/Supabase 删除前必须完成运行时切换和回滚开关验证。
+
+## 2026-07-03 MySQL/OSS 运行时只读切换能力 2.30.0
+
+- 背景：
+  - 用户明确后续会删除 Postgres，因此数据迁移完成后必须让线上运行时接口可切到 MySQL/OSS。
+  - 目标是先让运营核心查看链路可用，不等待所有编辑写入链路一次性 MySQL 化。
+- 实现：
+  - 新增 `APP_DB_DRIVER=postgres|mysql` 运行时开关；未配置时保持原有 Postgres 优先逻辑，避免影响当前线上。
+  - `APP_DB_DRIVER=mysql` 时读取 `MYSQL_DSN` 或 `K8S_SECRET_MYSQL_DSN`，并自动追加 `parseTime=true`，避免 MySQL `datetime` 扫描失败。
+  - 新增 `app.MySQLStore`，支持 `/health`、任务示例、SSO 用户读取/回写、用户管理、AI 设置读写。
+  - 新增 `storespace.MySQLStore`，支持门店列表、门店详情、设计图数据、通道数据、萤石账号读取、重复门店检查、单通道上下文读取。
+  - 新增 `storespace.NewMySQLH5MonitorRepository`，支持 H5 Monitor 门店列表、机构监控首页、通道校验与直播/回放前置查询。
+  - MySQL 模式下 `design-plan` 独立旧接口暂时使用内存 repo；当前前端主流程已通过 `store-space` 接口读取门店/详情。
+  - MySQL 模式下未迁完的编辑写入动作先返回 `not implemented`，避免误写半套链路；后续再逐步补齐写入链路。
+- 验证：
+  - 新增 `cmd/server` 配置测试覆盖 MySQL 开关、Postgres 默认、MySQL DSN 自动追加 `parseTime=true`。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - `go test ./...` 在本机仍触发 macOS 测试二进制 `missing LC_UUID load command`，这是本地工具链执行问题；已用 `go test -c` 和 `go build` 验证关键包编译。
+- 发布/切换建议：
+  - 先发布公司环境但不配置 `APP_DB_DRIVER=mysql`，确认版本正常。
+  - 切换窗口配置 `APP_DB_DRIVER=mysql`、`ASSET_STORE=oss`，保留 `DATABASE_URL` 作为回滚后可用配置。
+  - 切换后验证 `/health` 返回 `database=mysql`、`asset_store=oss`，再验机构列表、机构详情、视频监控门店切换、监控首页、通道直播入口。
+  - 若只读链路异常，删除或改回 `APP_DB_DRIVER=postgres` 即可回滚运行时读库。
