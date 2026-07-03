@@ -4561,3 +4561,25 @@ git pull --ff-only
   - 发布公司环境。
   - 调用资产清单入口，审查 `summary` 和 `manifest_csv`。
   - 若清单合理，再把 `manifest_csv` 传入 `asset-migrate apply=false` 做 dry-run。
+
+## 2026-07-03 MySQL 通道截图资产清单最新记录口径修正 2.29.5
+
+- 现象：
+  - `10030` 刷新通道截图并重新导入 MySQL 后，资产清单从预期的 8 个引用变成 16 个引用。
+  - `snapshot_rows=16`、`duplicate_refs=16`，说明清单纳入了旧截图历史行和新截图行。
+- 根因：
+  - `tb_channel_snapshots` 会保留每次截图刷新产生的历史记录。
+  - 当前 OSS 迁移目标是迁移门店当前可展示的通道预览图，而不是迁移已物理删除或已过期的历史敏感截图。
+  - 资产清单入口原先扫描该门店所有 `tb_channel_snapshots`，导致同一通道历史截图也进入迁移范围。
+- 修复：
+  - `mysql-asset-inventory` 查询通道截图时，只取每个通道 `created_at/id` 最新的一条截图记录。
+  - Go 构建 manifest 时增加兜底过滤：同一通道只保留最新 `source_id` 的截图记录。
+  - 新增测试覆盖同一通道旧/新截图同时存在时，manifest 只包含新截图。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 重新调用 `mysql-asset-inventory?external_org_id=10030`。
+  - 预期 `summary.total=8`、`snapshot_rows=8`、`duplicate_refs=8`，再继续执行 `asset-migrate apply=false`。

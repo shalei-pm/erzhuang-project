@@ -970,6 +970,32 @@ func TestMySQLAssetInventoryEndpointRejectsNonCanaryApplyScope(t *testing.T) {
 	}
 }
 
+func TestBuildMySQLAssetInventoryUsesLatestSnapshotPerChannel(t *testing.T) {
+	rows := []mysqlAssetInventoryRawRow{
+		{SourceTable: "tb_channel_snapshots", SourceID: "1", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", ChannelID: "1540", OldPath: "/api/store-space/channel-snapshots/old-1.jpg", SourceKey: "/api/store-space/channel-snapshots/old-1.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+		{SourceTable: "tb_channel_snapshots", SourceID: "1", SourceColumn: "full_image_path", AssetRole: "snapshot_full_image", ExternalOrgID: "10030", ChannelID: "1540", OldPath: "/api/store-space/channel-snapshots/old-1.jpg", SourceKey: "/api/store-space/channel-snapshots/old-1.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+		{SourceTable: "tb_channel_snapshots", SourceID: "2", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", ChannelID: "1540", OldPath: "/api/store-space/channel-snapshots/new-1.jpg", SourceKey: "/api/store-space/channel-snapshots/new-1.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+		{SourceTable: "tb_channel_snapshots", SourceID: "2", SourceColumn: "full_image_path", AssetRole: "snapshot_full_image", ExternalOrgID: "10030", ChannelID: "1540", OldPath: "/api/store-space/channel-snapshots/new-1.jpg", SourceKey: "/api/store-space/channel-snapshots/new-1.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+		{SourceTable: "tb_channel_snapshots", SourceID: "3", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", ChannelID: "1541", OldPath: "/api/store-space/channel-snapshots/old-2.jpg", SourceKey: "/api/store-space/channel-snapshots/old-2.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+		{SourceTable: "tb_channel_snapshots", SourceID: "3", SourceColumn: "full_image_path", AssetRole: "snapshot_full_image", ExternalOrgID: "10030", ChannelID: "1541", OldPath: "/api/store-space/channel-snapshots/old-2.jpg", SourceKey: "/api/store-space/channel-snapshots/old-2.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+		{SourceTable: "tb_channel_snapshots", SourceID: "4", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", ChannelID: "1541", OldPath: "/api/store-space/channel-snapshots/new-2.jpg", SourceKey: "/api/store-space/channel-snapshots/new-2.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+		{SourceTable: "tb_channel_snapshots", SourceID: "4", SourceColumn: "full_image_path", AssetRole: "snapshot_full_image", ExternalOrgID: "10030", ChannelID: "1541", OldPath: "/api/store-space/channel-snapshots/new-2.jpg", SourceKey: "/api/store-space/channel-snapshots/new-2.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},
+	}
+	result, err := buildMySQLAssetInventory(rows)
+	if err != nil {
+		t.Fatalf("buildMySQLAssetInventory: %v", err)
+	}
+	if result.Summary.Total != 4 || result.Summary.SnapshotRows != 4 || result.Summary.Pending != 4 {
+		t.Fatalf("unexpected summary: %#v", result.Summary)
+	}
+	if strings.Contains(result.ManifestCSV, "old-1.jpg") || strings.Contains(result.ManifestCSV, "old-2.jpg") {
+		t.Fatalf("manifest should not include stale snapshots:\n%s", result.ManifestCSV)
+	}
+	if !strings.Contains(result.ManifestCSV, "new-1.jpg") || !strings.Contains(result.ManifestCSV, "new-2.jpg") {
+		t.Fatalf("manifest should include latest snapshots:\n%s", result.ManifestCSV)
+	}
+}
+
 func TestBuildMySQLAssetInventoryNormalizesSnapshotProxyPathsAndDuplicates(t *testing.T) {
 	rows := []mysqlAssetInventoryRawRow{
 		{SourceTable: "tb_channel_snapshots", SourceID: "1", SourceColumn: "thumbnail_path", AssetRole: "snapshot_thumbnail", ExternalOrgID: "10030", OldPath: "/api/store-space/channel-snapshots/a.jpg", SourceKey: "/api/store-space/channel-snapshots/a.jpg", ExpectedContentType: "image/jpeg", Sensitivity: "sensitive"},

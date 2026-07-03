@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -884,7 +885,12 @@ func queryMySQLAssetInventoryRows(ctx context.Context, db *sql.DB, externalOrgID
 			cs.thumbnail_path, cs.thumbnail_path, cs.thumbnail_path,
 			'image/jpeg', 'sensitive'
 		from tb_channel_snapshots cs, tb_video_channels c, tb_video_recorders r, tb_stores s
-		where c.id = cs.channel_id and r.id = c.recorder_id and s.id = r.store_id and s.external_org_id = ? and coalesce(cs.thumbnail_path, '') <> ''`,
+		where c.id = cs.channel_id and r.id = c.recorder_id and s.id = r.store_id and s.external_org_id = ? and coalesce(cs.thumbnail_path, '') <> ''
+			and not exists (
+				select 1 from tb_channel_snapshots newer
+				where newer.channel_id = cs.channel_id
+					and (newer.created_at > cs.created_at or (newer.created_at = cs.created_at and newer.id > cs.id))
+			)`,
 		`select
 			'tb_channel_snapshots', cast(cs.id as char), 'full_image_path', 'snapshot_full_image',
 			cast(r.store_id as char), s.external_org_id, cast(r.id as char), cast(c.id as char),
@@ -892,7 +898,12 @@ func queryMySQLAssetInventoryRows(ctx context.Context, db *sql.DB, externalOrgID
 			cs.full_image_path, cs.full_image_path, cs.full_image_path,
 			'image/jpeg', 'sensitive'
 		from tb_channel_snapshots cs, tb_video_channels c, tb_video_recorders r, tb_stores s
-		where c.id = cs.channel_id and r.id = c.recorder_id and s.id = r.store_id and s.external_org_id = ? and coalesce(cs.full_image_path, '') <> ''`,
+		where c.id = cs.channel_id and r.id = c.recorder_id and s.id = r.store_id and s.external_org_id = ? and coalesce(cs.full_image_path, '') <> ''
+			and not exists (
+				select 1 from tb_channel_snapshots newer
+				where newer.channel_id = cs.channel_id
+					and (newer.created_at > cs.created_at or (newer.created_at = cs.created_at and newer.id > cs.id))
+			)`,
 	}
 	for _, query := range queries {
 		queryRows, err := db.QueryContext(ctx, query, externalOrgID)
@@ -943,6 +954,7 @@ func buildMySQLAssetInventory(rows []mysqlAssetInventoryRawRow) (*mysqlAssetInve
 		logicalKeyRank           int
 		logicalKeyRefCount       int
 	}
+	rows = latestMySQLSnapshotRows(rows)
 	inventory := make([]inventoryRow, 0, len(rows))
 	counts := map[string]int{}
 	for _, raw := range rows {
@@ -1049,6 +1061,37 @@ func buildMySQLAssetInventory(rows []mysqlAssetInventoryRawRow) (*mysqlAssetInve
 		return nil, err
 	}
 	return &mysqlAssetInventoryRunResult{Summary: summary, ManifestCSV: buffer.String()}, nil
+}
+
+func latestMySQLSnapshotRows(rows []mysqlAssetInventoryRawRow) []mysqlAssetInventoryRawRow {
+	latestIDByChannel := map[string]int64{}
+	for _, row := range rows {
+		if row.SourceTable != "tb_channel_snapshots" || strings.TrimSpace(row.ChannelID) == "" {
+			continue
+		}
+		sourceID, err := strconv.ParseInt(strings.TrimSpace(row.SourceID), 10, 64)
+		if err != nil {
+			continue
+		}
+		if sourceID > latestIDByChannel[row.ChannelID] {
+			latestIDByChannel[row.ChannelID] = sourceID
+		}
+	}
+	if len(latestIDByChannel) == 0 {
+		return rows
+	}
+	filtered := make([]mysqlAssetInventoryRawRow, 0, len(rows))
+	for _, row := range rows {
+		if row.SourceTable != "tb_channel_snapshots" || strings.TrimSpace(row.ChannelID) == "" {
+			filtered = append(filtered, row)
+			continue
+		}
+		sourceID, err := strconv.ParseInt(strings.TrimSpace(row.SourceID), 10, 64)
+		if err != nil || sourceID == latestIDByChannel[row.ChannelID] {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
 }
 
 func normalizeMySQLAssetLogicalKey(row mysqlAssetInventoryRawRow) (string, string, string) {
