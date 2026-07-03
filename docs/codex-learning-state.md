@@ -4583,3 +4583,26 @@ git pull --ff-only
   - 发布公司环境。
   - 重新调用 `mysql-asset-inventory?external_org_id=10030`。
   - 预期 `summary.total=8`、`snapshot_rows=8`、`duplicate_refs=8`，再继续执行 `asset-migrate apply=false`。
+
+## 2026-07-03 MySQL 资产台账受控回写接口 2.29.6
+
+- 背景：
+  - `10030` 通道截图 OSS 实际复制成功：`Total=8`、`Copied=4`、`Skipped=4`、`Errors=0`。
+  - 再次查询 `mysql-asset-inventory` 仍显示 `pending=8`，说明 OSS 对象已复制，但 MySQL `tb_asset_objects` 台账尚未 upsert/标记 migrated。
+  - `asset-migrate` 返回的 `result_sql` 只 update 已存在行，不适合作为当前真实样本的唯一回写方式。
+- 实现：
+  - 新增 `POST /api/admin/ops/asset-state-backfill`。
+  - 输入 `manifest_csv`、`result_csv`、`external_org_id`、`batch_id`。
+  - 仅允许 `external_org_id=10030`。
+  - 只处理 `result_csv` 中 `action=copied`，并与 manifest 中 `logical_key_rank=1` 的行匹配。
+  - 使用参数化 SQL upsert `tb_asset_objects`，写入 `storage_provider=oss`、bucket、storage key、content type、size、owner、sensitivity、`migration_status=migrated`、batch id 和迁移时间。
+  - 同一 logical key 可重复执行，依赖 `logical_key_hash` 唯一键保持幂等；thumbnail/full 重复引用只登记一个资产对象。
+- 验证：
+  - 新增 handler 测试覆盖成功回写请求和拒绝非 10030 范围。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 用刚刚成功的 `manifest_csv` 和 `result_csv` 调用台账回写接口。
+  - 回写后再次调用 `mysql-asset-inventory`，预期当前这 4 个 logical key 不再需要重新复制；如清单入口仍只从业务表判断 pending，需要继续把 inventory 与 `tb_asset_objects` 状态联动。

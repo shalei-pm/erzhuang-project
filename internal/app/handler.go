@@ -50,15 +50,16 @@ type MySQLMigrationExporter interface {
 }
 
 type Handler struct {
-	store                Store
-	auth                 AuthConfig
-	ossSmokeRunner       ossSmokeRunner
-	assetMigrationRunner assetMigrationRunner
-	stageASampleRunner   stageASourceSampleRunner
-	stageATargetRunner   stageATargetSampleRunner
-	mysqlCanaryRunner    mysqlCanaryImportRunner
-	mysqlValidateRunner  mysqlCanaryValidateRunner
-	mysqlInventoryRunner mysqlAssetInventoryRunner
+	store                    Store
+	auth                     AuthConfig
+	ossSmokeRunner           ossSmokeRunner
+	assetMigrationRunner     assetMigrationRunner
+	assetStateBackfillRunner assetStateBackfillRunner
+	stageASampleRunner       stageASourceSampleRunner
+	stageATargetRunner       stageATargetSampleRunner
+	mysqlCanaryRunner        mysqlCanaryImportRunner
+	mysqlValidateRunner      mysqlCanaryValidateRunner
+	mysqlInventoryRunner     mysqlAssetInventoryRunner
 }
 
 func NewHandler() http.Handler {
@@ -82,7 +83,7 @@ func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designpl
 }
 
 func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner}
+	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
@@ -98,6 +99,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("GET /api/admin/ops/env-check", handler.ossEnvCheckHandler)
 	mux.HandleFunc("POST /api/admin/ops/oss-smoke", handler.ossSmokeHandler)
 	mux.HandleFunc("POST /api/admin/ops/asset-migrate", handler.assetMigrationHandler)
+	mux.HandleFunc("POST /api/admin/ops/asset-state-backfill", handler.assetStateBackfillHandler)
 	mux.HandleFunc("POST /api/admin/ops/stage-a-source-sample", handler.stageASourceSampleHandler)
 	mux.HandleFunc("POST /api/admin/ops/stage-a-target-sample", handler.stageATargetSampleHandler)
 	mux.HandleFunc("POST /api/admin/ops/pg-mysql-export", handler.pgMySQLExportHandler)
@@ -116,6 +118,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 type ossSmokeResult = osssmoke.Result
 type ossSmokeRunner func(ctx context.Context) (*ossSmokeResult, error)
 type assetMigrationRunner func(ctx context.Context, request assetMigrationRunRequest) (*assetMigrationRunResult, error)
+type assetStateBackfillRunner func(ctx context.Context, request assetStateBackfillRunRequest) (*assetStateBackfillRunResult, error)
 type stageASourceSampleRunner func(ctx context.Context, action string) (*stageASourceSampleResult, error)
 type stageATargetSampleRunner func(ctx context.Context) (*stageATargetSampleResult, error)
 type mysqlCanaryImportRunner func(ctx context.Context, request mysqlCanaryImportRunRequest) (*mysqlCanaryImportRunResult, error)

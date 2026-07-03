@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -25,6 +26,7 @@ import (
 
 var currentOSSSmokeRunner ossSmokeRunner = runOSSSmokeFromEnv
 var currentAssetMigrationRunner assetMigrationRunner = runAssetMigrationFromEnv
+var currentAssetStateBackfillRunner assetStateBackfillRunner = runAssetStateBackfillFromEnv
 var currentStageASourceSampleRunner stageASourceSampleRunner = runStageASourceSampleFromEnv
 var currentStageATargetSampleRunner stageATargetSampleRunner = runStageATargetSampleFromEnv
 var currentMySQLCanaryImportRunner mysqlCanaryImportRunner = runMySQLCanaryImportFromEnv
@@ -114,6 +116,42 @@ type assetMigrationRunResult struct {
 	ResultCSV string
 	ResultSQL string
 	Warnings  []string
+}
+
+type assetStateBackfillRequest struct {
+	ExternalOrgID string `json:"external_org_id"`
+	ManifestCSV   string `json:"manifest_csv"`
+	ResultCSV     string `json:"result_csv"`
+	BatchID       string `json:"batch_id"`
+}
+
+type assetStateBackfillResponse struct {
+	OK            bool                      `json:"ok"`
+	ExternalOrgID string                    `json:"external_org_id,omitempty"`
+	Summary       assetStateBackfillSummary `json:"summary,omitempty"`
+	Warnings      []string                  `json:"warnings,omitempty"`
+	Error         string                    `json:"error,omitempty"`
+	Detail        string                    `json:"detail,omitempty"`
+}
+
+type assetStateBackfillSummary struct {
+	Total    int `json:"total"`
+	Migrated int `json:"migrated"`
+	Skipped  int `json:"skipped"`
+	Upserted int `json:"upserted"`
+	Errors   int `json:"errors"`
+}
+
+type assetStateBackfillRunRequest struct {
+	ExternalOrgID string
+	ManifestCSV   string
+	ResultCSV     string
+	BatchID       string
+}
+
+type assetStateBackfillRunResult struct {
+	Summary  assetStateBackfillSummary
+	Warnings []string
 }
 
 type stageASourceSampleRequest struct {
@@ -379,6 +417,56 @@ func (h *Handler) assetMigrationHandler(w http.ResponseWriter, r *http.Request) 
 		Results:       assetMigrationResultsResponse(result.Results),
 		ResultCSV:     result.ResultCSV,
 		ResultSQL:     result.ResultSQL,
+		Warnings:      result.Warnings,
+	})
+}
+
+func (h *Handler) assetStateBackfillHandler(w http.ResponseWriter, r *http.Request) {
+	if !opsEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+		return
+	}
+	var input assetStateBackfillRequest
+	reader := http.MaxBytesReader(w, r.Body, maxOpsMigrationBodyBytes)
+	defer reader.Close()
+	decoder := json.NewDecoder(reader)
+	if err := decoder.Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, assetStateBackfillResponse{
+			OK:     false,
+			Error:  "invalid backfill request",
+			Detail: err.Error(),
+		})
+		return
+	}
+	request, err := normalizeAssetStateBackfillRequest(input)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, assetStateBackfillResponse{
+			OK:            false,
+			ExternalOrgID: strings.TrimSpace(input.ExternalOrgID),
+			Error:         "invalid backfill request",
+			Detail:        err.Error(),
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	result, err := h.assetStateBackfillRunner(ctx, request)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, assetStateBackfillResponse{
+			OK:            false,
+			ExternalOrgID: request.ExternalOrgID,
+			Error:         "asset state backfill failed",
+			Detail:        sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, assetStateBackfillResponse{
+		OK:            true,
+		ExternalOrgID: request.ExternalOrgID,
+		Summary:       result.Summary,
 		Warnings:      result.Warnings,
 	})
 }
@@ -1308,6 +1396,30 @@ func normalizeAssetMigrationRequest(input assetMigrationRequest) (assetMigration
 	}, nil
 }
 
+func normalizeAssetStateBackfillRequest(input assetStateBackfillRequest) (assetStateBackfillRunRequest, error) {
+	manifest := strings.TrimSpace(input.ManifestCSV)
+	if manifest == "" {
+		return assetStateBackfillRunRequest{}, errors.New("manifest_csv is required")
+	}
+	resultCSV := strings.TrimSpace(input.ResultCSV)
+	if resultCSV == "" {
+		return assetStateBackfillRunRequest{}, errors.New("result_csv is required")
+	}
+	externalOrgID := strings.TrimSpace(input.ExternalOrgID)
+	if externalOrgID == "" {
+		externalOrgID = defaultOpsMigrationOrgID
+	}
+	if externalOrgID != defaultOpsMigrationOrgID {
+		return assetStateBackfillRunRequest{}, fmt.Errorf("backfill is currently limited to external_org_id %s", defaultOpsMigrationOrgID)
+	}
+	return assetStateBackfillRunRequest{
+		ExternalOrgID: externalOrgID,
+		ManifestCSV:   manifest,
+		ResultCSV:     resultCSV,
+		BatchID:       strings.TrimSpace(input.BatchID),
+	}, nil
+}
+
 func runAssetMigrationFromEnv(ctx context.Context, request assetMigrationRunRequest) (*assetMigrationRunResult, error) {
 	rows, err := assetmigration.ReadManifest(strings.NewReader(request.ManifestCSV))
 	if err != nil {
@@ -1352,6 +1464,209 @@ func runAssetMigrationFromEnv(ctx context.Context, request assetMigrationRunRequ
 		ResultSQL: resultSQL,
 		Warnings:  warnings,
 	}, nil
+}
+
+type assetMigrationCSVResult struct {
+	Action      string
+	ExternalID  string
+	LogicalKey  string
+	TargetKey   string
+	Bytes       int64
+	ContentType string
+	Error       string
+}
+
+func runAssetStateBackfillFromEnv(ctx context.Context, request assetStateBackfillRunRequest) (*assetStateBackfillRunResult, error) {
+	manifestRows, err := assetmigration.ReadManifest(strings.NewReader(request.ManifestCSV))
+	if err != nil {
+		return nil, fmt.Errorf("read manifest: %w", err)
+	}
+	resultRows, err := readAssetMigrationResultCSV(strings.NewReader(request.ResultCSV))
+	if err != nil {
+		return nil, fmt.Errorf("read result csv: %w", err)
+	}
+	dsn := envValue("MYSQL_DSN", "K8S_SECRET_MYSQL_DSN")
+	if strings.TrimSpace(dsn) == "" {
+		return nil, errors.New("MYSQL_DSN or K8S_SECRET_MYSQL_DSN is required")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql: %w", err)
+	}
+	defer db.Close()
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("connect mysql: %w", err)
+	}
+	return runAssetStateBackfill(ctx, db, manifestRows, resultRows, request)
+}
+
+func runAssetStateBackfill(ctx context.Context, db *sql.DB, manifestRows []assetmigration.ManifestRow, resultRows []assetMigrationCSVResult, request assetStateBackfillRunRequest) (*assetStateBackfillRunResult, error) {
+	if db == nil {
+		return nil, errors.New("mysql db is required")
+	}
+	manifestByKey := map[string]assetmigration.ManifestRow{}
+	for _, row := range manifestRows {
+		key := strings.TrimSpace(row.LogicalKey)
+		if key == "" || row.LogicalKeyRank > 1 {
+			continue
+		}
+		manifestByKey[key] = row
+	}
+	bucket := envValue("OSS_BUCKET", "K8S_SECRET_OSS_BUCKET")
+	if strings.TrimSpace(bucket) == "" {
+		return nil, errors.New("OSS_BUCKET or K8S_SECRET_OSS_BUCKET is required")
+	}
+	batchID := strings.TrimSpace(request.BatchID)
+	if batchID == "" {
+		batchID = "asset-state-backfill-" + time.Now().UTC().Format("20060102T150405Z")
+	}
+	summary := assetStateBackfillSummary{Total: len(resultRows)}
+	for _, result := range resultRows {
+		if result.Action != "copied" {
+			summary.Skipped++
+			continue
+		}
+		if strings.TrimSpace(result.ExternalID) != request.ExternalOrgID {
+			summary.Skipped++
+			continue
+		}
+		manifest, ok := manifestByKey[strings.TrimSpace(result.LogicalKey)]
+		if !ok {
+			summary.Errors++
+			return nil, fmt.Errorf("missing manifest row for copied logical key %q", result.LogicalKey)
+		}
+		ownerID, err := parseNullableInt64(manifest.OwnerEntityID)
+		if err != nil {
+			summary.Errors++
+			return nil, fmt.Errorf("invalid owner_entity_id for %q: %w", result.LogicalKey, err)
+		}
+		contentType := strings.TrimSpace(result.ContentType)
+		if contentType == "" {
+			contentType = strings.TrimSpace(manifest.ExpectedContentType)
+		}
+		_, err = db.ExecContext(ctx, `insert into tb_asset_objects (
+  logical_key, logical_key_hash,
+  storage_provider, bucket, storage_key, storage_key_hash,
+  proxy_path, content_type, size_bytes, sensitivity,
+  owner_entity_type, owner_entity_id,
+  migration_status, migration_batch_id, migration_attempts,
+  last_attempt_at, last_error_code, last_error_message, migrated_at
+) values (
+  ?, sha2(?, 256),
+  'oss', ?, ?, sha2(?, 256),
+  ?, ?, ?, ?,
+  ?, ?,
+  'migrated', ?, 1,
+  current_timestamp(3), '', '', current_timestamp(3)
+) on duplicate key update
+  storage_provider = values(storage_provider),
+  bucket = values(bucket),
+  storage_key = values(storage_key),
+  storage_key_hash = values(storage_key_hash),
+  proxy_path = values(proxy_path),
+  content_type = values(content_type),
+  size_bytes = values(size_bytes),
+  sensitivity = values(sensitivity),
+  owner_entity_type = values(owner_entity_type),
+  owner_entity_id = values(owner_entity_id),
+  migration_status = 'migrated',
+  migration_batch_id = values(migration_batch_id),
+  migration_attempts = migration_attempts + 1,
+  last_attempt_at = current_timestamp(3),
+  last_error_code = '',
+  last_error_message = '',
+  migrated_at = current_timestamp(3)`,
+			result.LogicalKey, result.LogicalKey,
+			bucket, result.TargetKey, result.TargetKey,
+			manifest.ProxyPath, contentType, nullablePositiveInt64(result.Bytes), normalizedAssetSensitivity(manifest.Sensitivity),
+			strings.TrimSpace(manifest.OwnerEntityType), ownerID,
+			batchID,
+		)
+		if err != nil {
+			summary.Errors++
+			return nil, fmt.Errorf("upsert asset object %q: %w", result.LogicalKey, err)
+		}
+		summary.Migrated++
+		summary.Upserted++
+	}
+	return &assetStateBackfillRunResult{
+		Summary: summary,
+		Warnings: []string{
+			"Backfill only upserts rows with action=copied and manifest logical_key_rank=1.",
+			"Duplicate thumbnail/full references remain represented by one logical asset row.",
+		},
+	}, nil
+}
+
+func readAssetMigrationResultCSV(reader io.Reader) ([]assetMigrationCSVResult, error) {
+	csvReader := csv.NewReader(reader)
+	csvReader.TrimLeadingSpace = true
+	records, err := csvReader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, errors.New("result csv is empty")
+	}
+	header := map[string]int{}
+	for index, name := range records[0] {
+		header[strings.TrimSpace(name)] = index
+	}
+	for _, name := range []string{"action", "external_org_id", "logical_key", "target_oss_key"} {
+		if _, ok := header[name]; !ok {
+			return nil, fmt.Errorf("result csv missing required column %q", name)
+		}
+	}
+	results := make([]assetMigrationCSVResult, 0, len(records)-1)
+	for _, record := range records[1:] {
+		bytes, _ := strconv.ParseInt(strings.TrimSpace(csvValue(record, header, "bytes")), 10, 64)
+		results = append(results, assetMigrationCSVResult{
+			Action:      strings.TrimSpace(csvValue(record, header, "action")),
+			ExternalID:  strings.TrimSpace(csvValue(record, header, "external_org_id")),
+			LogicalKey:  strings.TrimSpace(csvValue(record, header, "logical_key")),
+			TargetKey:   strings.TrimSpace(csvValue(record, header, "target_oss_key")),
+			Bytes:       bytes,
+			ContentType: strings.TrimSpace(csvValue(record, header, "content_type")),
+			Error:       strings.TrimSpace(csvValue(record, header, "error")),
+		})
+	}
+	return results, nil
+}
+
+func csvValue(record []string, header map[string]int, name string) string {
+	index, ok := header[name]
+	if !ok || index < 0 || index >= len(record) {
+		return ""
+	}
+	return record[index]
+}
+
+func parseNullableInt64(value string) (any, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	return parsed, nil
+}
+
+func nullablePositiveInt64(value int64) any {
+	if value <= 0 {
+		return nil
+	}
+	return value
+}
+
+func normalizedAssetSensitivity(value string) string {
+	switch strings.TrimSpace(value) {
+	case "public", "internal", "sensitive":
+		return strings.TrimSpace(value)
+	default:
+		return "internal"
+	}
 }
 
 func sourceAssetStoreForMigration() (assets.Store, error) {

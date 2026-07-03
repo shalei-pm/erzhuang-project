@@ -1228,6 +1228,63 @@ func TestAssetMigrationEndpointReturnsSanitizedApplySQL(t *testing.T) {
 	}
 }
 
+func TestAssetStateBackfillEndpointUpsertsCopiedRows(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setAssetStateBackfillRunnerForTest(func(ctx context.Context, request assetStateBackfillRunRequest) (*assetStateBackfillRunResult, error) {
+		if request.ExternalOrgID != "10030" || request.BatchID != "canary-test" {
+			t.Fatalf("unexpected request: %#v", request)
+		}
+		if !strings.Contains(request.ManifestCSV, "channel-snapshots/sample.jpg") || !strings.Contains(request.ResultCSV, "copied") {
+			t.Fatalf("unexpected payload: %#v", request)
+		}
+		return &assetStateBackfillRunResult{
+			Summary: assetStateBackfillSummary{Total: 1, Migrated: 1, Upserted: 1},
+			Warnings: []string{"idempotent backfill"},
+		}, nil
+	})
+	defer restore()
+
+	body := `{
+		"external_org_id":"10030",
+		"batch_id":"canary-test",
+		"manifest_csv":"logical_key,target_oss_key,suggested_migration_status,logical_key_rank\nchannel-snapshots/sample.jpg,channel-snapshots/sample.jpg,pending,1\n",
+		"result_csv":"action,external_org_id,logical_key,target_oss_key,bytes,content_type,error\ncopied,10030,channel-snapshots/sample.jpg,channel-snapshots/sample.jpg,12,image/jpeg,\n"
+	}`
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/asset-state-backfill", strings.NewReader(body))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var response assetStateBackfillResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.OK || response.Summary.Migrated != 1 || response.Summary.Upserted != 1 {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestAssetStateBackfillEndpointLimitsScope(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setAssetStateBackfillRunnerForTest(func(ctx context.Context, request assetStateBackfillRunRequest) (*assetStateBackfillRunResult, error) {
+		t.Fatal("invalid backfill request should not call runner")
+		return nil, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/asset-state-backfill", strings.NewReader(`{"external_org_id":"10047","manifest_csv":"x","result_csv":"x"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestStageASourceSampleEndpointHiddenUnlessOpsEnabled(t *testing.T) {
 	called := false
 	restore := setStageASourceSampleRunnerForTest(func(ctx context.Context, action string) (*stageASourceSampleResult, error) {
@@ -1657,6 +1714,14 @@ func setAssetMigrationRunnerForTest(runner assetMigrationRunner) func() {
 	currentAssetMigrationRunner = runner
 	return func() {
 		currentAssetMigrationRunner = previous
+	}
+}
+
+func setAssetStateBackfillRunnerForTest(runner assetStateBackfillRunner) func() {
+	previous := currentAssetStateBackfillRunner
+	currentAssetStateBackfillRunner = runner
+	return func() {
+		currentAssetStateBackfillRunner = previous
 	}
 }
 
