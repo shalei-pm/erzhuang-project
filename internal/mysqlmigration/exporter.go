@@ -727,7 +727,9 @@ func valueString(value any) string {
 }
 
 func mysqlString(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, "'", "''")
+	return "'" + value + "'"
 }
 
 func mysqlIdent(value string) string {

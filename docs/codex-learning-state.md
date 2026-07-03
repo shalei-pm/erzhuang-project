@@ -4473,3 +4473,25 @@ git pull --ff-only
   - 发布公司环境。
   - 确认公司运行环境已配置 `K8S_SECRET_MYSQL_DSN` 或 `MYSQL_DSN`。
   - 用导出的 `10030` SQL 先调用 `apply=false` dry-run，再看摘要决定是否 `apply=true`。
+
+## 2026-07-03 MySQL 金丝雀导入 JSON 转义修复 2.29.1
+
+- 现象：
+  - `external_org_id=10030` 的 `apply=false` dry-run 已能连接 MySQL 并校验表结构。
+  - `apply=true` 执行导入时返回 502，MySQL 报 `Invalid JSON text: "Invalid escape character in string."`，位置落在 `tb_video_channels.recognition_result`。
+- 根因：
+  - Postgres 源数据里的 `recognition_result` JSON 本身需要保留 `\n`、`\"` 等反斜杠转义。
+  - 导出器生成 MySQL SQL 字符串时只转义了单引号，没有转义反斜杠。
+  - MySQL 执行 SQL 字符串字面量时先解释反斜杠，导致写入 JSON 列前内容被破坏。
+- 修复：
+  - `internal/mysqlmigration.mysqlString` 统一先转义反斜杠，再转义单引号。
+  - 新增测试覆盖 JSON 字符串中的换行转义、引号转义和路径反斜杠。
+- 验证：
+  - 新增测试先按旧实现失败，再修复通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 重新用 `pg-mysql-export -> mysql-canary-import apply=true` 执行 `10030` 金丝雀导入。
+  - 预期摘要应出现 `store_count=1`、`recorder_count=1`、`channel_count=4`、`snapshot_count=4`，且 `orphan_count=0`、`invalid_json_count=0`。

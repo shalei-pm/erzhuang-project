@@ -68,6 +68,15 @@ func TestMySQLValueFormatsTimeAsShanghaiDateTime(t *testing.T) {
 	}
 }
 
+func TestMySQLValueEscapesBackslashesInJSONLiteral(t *testing.T) {
+	value := `{"raw_notes":"line\nquote \"x\" path C:\\tmp"}`
+	got := mysqlValue(value, columnSpec{Kind: kindJSON})
+	want := `'{"raw_notes":"line\\nquote \\"x\\" path C:\\\\tmp"}'`
+	if got != want {
+		t.Fatalf("mysqlValue(json)=%s, want %s", got, want)
+	}
+}
+
 func TestWriteInsertStatementsPreservesIDAndUsesUpsert(t *testing.T) {
 	spec := tableSpec{
 		Source: "stores",
