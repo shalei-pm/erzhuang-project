@@ -4627,3 +4627,8 @@ git pull --ff-only
 - 下一步：
   - 发布公司环境。
   - 再次调用 `mysql-asset-inventory?external_org_id=10030`，预期 `pending=0`、`skipped=8`，manifest 中 skip reason 为 `already_migrated`。
+- 线上复验：
+  - 公司环境切到 `2.29.7` 后复查通过。
+  - `mysql-asset-inventory?external_org_id=10030` 返回 `total=8`、`pending=0`、`skipped=8`、`snapshot_rows=8`、`duplicate_refs=8`。
+  - manifest 中 8 条通道截图引用均为 `suggested_migration_status=skipped`、`skip_reason=already_migrated`。
+  - 结论：`10030` 金丝雀门店当前通道截图已完成“Postgres 业务数据 -> MySQL、Supabase 源对象 -> OSS、MySQL 资产台账回写、inventory 幂等跳过”的闭环验证。
