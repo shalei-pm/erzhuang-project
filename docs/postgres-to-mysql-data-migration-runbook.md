@@ -83,6 +83,47 @@ SOURCE_DATABASE_URL='postgres://...' ./.tools/go/bin/go run ./cmd/pg-to-mysql-ex
 - `tb_users` 是否包含 `role`，以便保留第一版单字段角色并同步转入 `tb_user_roles`。
 - MySQL `tb_users` 是否包含 `phone`、`mobile`、`role` 兼容字段；`phone`/`mobile` 在迁移期会用同一源值写入。
 
+## 受控金丝雀导入入口
+
+公司环境提供受控 ops 入口：
+
+```text
+POST /erzhuang-project/api/admin/ops/mysql-canary-import
+```
+
+请求体：
+
+```json
+{
+  "external_org_id": "10030",
+  "import_sql": "...",
+  "apply": false,
+  "batch_id": "canary-10030-YYYYMMDD"
+}
+```
+
+约束：
+
+- 仅在 `OPS_ENABLED` / `K8S_SECRET_OPS_ENABLED` 开启时可用。
+- 仅管理员可调用。
+- 仅允许 `external_org_id=10030`。
+- `import_sql` 必须包含 `-- Scope external_org_id: 10030`。
+- `apply=false` 只连接 MySQL、检查必要表、返回当前校验摘要，不执行导入 SQL。
+- `apply=true` 才在事务中执行导入 SQL，并返回校验摘要。
+- 入口读取 `MYSQL_DSN` 或 `K8S_SECRET_MYSQL_DSN`，不要把 MySQL 密码放入仓库、文档或前端变量。
+
+响应摘要包含：
+
+- 门店数、录像机数、通道数、截图数、操作日志数、用户数。
+- 外键孤儿数量。
+- JSON 非法数量。
+
+敏感数据注意：
+
+- 导入 SQL 可能包含手机号、飞书 ID、通道截图 proxy path、模型识别原始文本。
+- 不要把完整 SQL 粘贴到聊天、文档或 Git。
+- 仅在本机临时目录、浏览器下载文件、受控 ops 请求体中短期使用。
+
 导入后：
 
 - 执行 `docs/mysql-validation-sql.md`。

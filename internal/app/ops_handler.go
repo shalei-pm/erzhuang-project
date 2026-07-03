@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -17,12 +18,15 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/mysqlmigration"
 	"github.com/shalei-pm/erzhuang-project/internal/osssmoke"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 var currentOSSSmokeRunner ossSmokeRunner = runOSSSmokeFromEnv
 var currentAssetMigrationRunner assetMigrationRunner = runAssetMigrationFromEnv
 var currentStageASourceSampleRunner stageASourceSampleRunner = runStageASourceSampleFromEnv
 var currentStageATargetSampleRunner stageATargetSampleRunner = runStageATargetSampleFromEnv
+var currentMySQLCanaryImportRunner mysqlCanaryImportRunner = runMySQLCanaryImportFromEnv
 
 const (
 	defaultOpsMigrationOrgID   = "10030"
@@ -30,6 +34,7 @@ const (
 	maxOpsMigrationRows        = 100
 	maxOpsMigrationBodyBytes   = 2 << 20
 	maxOpsExportOrgCount       = 5
+	maxOpsCanaryImportBytes    = 1 << 20
 	stageASourceSampleKey      = "channel-snapshots/stage-a-10030-channel-1.jpg"
 	stageASourceSampleType     = "image/jpeg"
 )
@@ -161,6 +166,46 @@ type pgMySQLExportResponse struct {
 	Error            string                `json:"error,omitempty"`
 	Detail           string                `json:"detail,omitempty"`
 	Warnings         []string              `json:"warnings,omitempty"`
+}
+
+type mysqlCanaryImportRequest struct {
+	ExternalOrgID string `json:"external_org_id"`
+	ImportSQL     string `json:"import_sql"`
+	Apply         bool   `json:"apply"`
+	BatchID       string `json:"batch_id"`
+}
+
+type mysqlCanaryImportResponse struct {
+	OK            bool                     `json:"ok"`
+	Apply         bool                     `json:"apply"`
+	ExternalOrgID string                   `json:"external_org_id,omitempty"`
+	Summary       mysqlCanaryImportSummary `json:"summary,omitempty"`
+	Warnings      []string                 `json:"warnings,omitempty"`
+	Error         string                   `json:"error,omitempty"`
+	Detail        string                   `json:"detail,omitempty"`
+}
+
+type mysqlCanaryImportSummary struct {
+	StoreCount        int `json:"store_count"`
+	RecorderCount     int `json:"recorder_count"`
+	ChannelCount      int `json:"channel_count"`
+	SnapshotCount     int `json:"snapshot_count"`
+	OperationLogCount int `json:"operation_log_count"`
+	UserCount         int `json:"user_count"`
+	OrphanCount       int `json:"orphan_count"`
+	InvalidJSONCount  int `json:"invalid_json_count"`
+}
+
+type mysqlCanaryImportRunRequest struct {
+	ExternalOrgID string
+	ImportSQL     string
+	Apply         bool
+	BatchID       string
+}
+
+type mysqlCanaryImportRunResult struct {
+	Summary  mysqlCanaryImportSummary
+	Warnings []string
 }
 
 func (h *Handler) ossEnvCheckHandler(w http.ResponseWriter, r *http.Request) {
@@ -432,6 +477,59 @@ func (h *Handler) pgMySQLExportHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) mysqlCanaryImportHandler(w http.ResponseWriter, r *http.Request) {
+	if !opsEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+		return
+	}
+	var input mysqlCanaryImportRequest
+	reader := http.MaxBytesReader(w, r.Body, maxOpsCanaryImportBytes)
+	defer reader.Close()
+	decoder := json.NewDecoder(reader)
+	if err := decoder.Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, mysqlCanaryImportResponse{
+			OK:     false,
+			Error:  "invalid canary import request",
+			Detail: sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	request, err := normalizeMySQLCanaryImportRequest(input)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, mysqlCanaryImportResponse{
+			OK:            false,
+			Apply:         input.Apply,
+			ExternalOrgID: strings.TrimSpace(input.ExternalOrgID),
+			Error:         "invalid canary import request",
+			Detail:        err.Error(),
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	result, err := h.mysqlCanaryRunner(ctx, request)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, mysqlCanaryImportResponse{
+			OK:            false,
+			Apply:         request.Apply,
+			ExternalOrgID: request.ExternalOrgID,
+			Error:         "mysql canary import failed",
+			Detail:        sanitizeOpsError(err.Error()),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, mysqlCanaryImportResponse{
+		OK:            true,
+		Apply:         request.Apply,
+		ExternalOrgID: request.ExternalOrgID,
+		Summary:       result.Summary,
+		Warnings:      result.Warnings,
+	})
+}
+
 func opsEnabled() bool {
 	return envBool("OPS_ENABLED") || envBool("K8S_SECRET_OPS_ENABLED")
 }
@@ -451,6 +549,186 @@ func normalizeOpsExportOrgIDs(value string) []string {
 		result = append(result, clean)
 	}
 	return result
+}
+
+func normalizeMySQLCanaryImportRequest(input mysqlCanaryImportRequest) (mysqlCanaryImportRunRequest, error) {
+	externalOrgID := strings.TrimSpace(input.ExternalOrgID)
+	if externalOrgID == "" {
+		externalOrgID = defaultOpsMigrationOrgID
+	}
+	if externalOrgID != defaultOpsMigrationOrgID {
+		return mysqlCanaryImportRunRequest{}, fmt.Errorf("mysql canary import is limited to external_org_id %s", defaultOpsMigrationOrgID)
+	}
+	importSQL := strings.TrimSpace(input.ImportSQL)
+	if importSQL == "" {
+		return mysqlCanaryImportRunRequest{}, errors.New("import_sql is required")
+	}
+	if !strings.Contains(importSQL, "-- Scope external_org_id: "+defaultOpsMigrationOrgID) {
+		return mysqlCanaryImportRunRequest{}, fmt.Errorf("import_sql must include scope comment for external_org_id %s", defaultOpsMigrationOrgID)
+	}
+	if mentionsOtherStoreExternalOrgID(importSQL, externalOrgID) {
+		return mysqlCanaryImportRunRequest{}, errors.New("import_sql appears to include a non-canary store external_org_id")
+	}
+	return mysqlCanaryImportRunRequest{
+		ExternalOrgID: externalOrgID,
+		ImportSQL:     importSQL,
+		Apply:         input.Apply,
+		BatchID:       strings.TrimSpace(input.BatchID),
+	}, nil
+}
+
+var tbStoresExternalOrgPattern = regexp.MustCompile("insert into `tb_stores`[^\\n]*values \\([^\\n]*'([0-9]{5,})'[^\\n]*\\)")
+
+func mentionsOtherStoreExternalOrgID(importSQL string, expected string) bool {
+	for _, match := range tbStoresExternalOrgPattern.FindAllStringSubmatch(importSQL, -1) {
+		if len(match) > 1 && match[1] != expected {
+			return true
+		}
+	}
+	return false
+}
+
+func runMySQLCanaryImportFromEnv(ctx context.Context, request mysqlCanaryImportRunRequest) (*mysqlCanaryImportRunResult, error) {
+	dsn := envValue("MYSQL_DSN", "K8S_SECRET_MYSQL_DSN")
+	if dsn == "" {
+		return nil, errors.New("MYSQL_DSN or K8S_SECRET_MYSQL_DSN is required")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql: %w", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(2)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("ping mysql: %w", err)
+	}
+	if err := ensureMySQLCanaryTables(ctx, db); err != nil {
+		return nil, err
+	}
+	if request.Apply {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("begin mysql import transaction: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, request.ImportSQL); err != nil {
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("execute mysql canary import: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("commit mysql canary import: %w", err)
+		}
+	}
+	summary, err := queryMySQLCanarySummary(ctx, db, request.ExternalOrgID)
+	if err != nil {
+		return nil, err
+	}
+	warnings := []string{
+		"Canary endpoint is limited to external_org_id 10030.",
+	}
+	if !request.Apply {
+		warnings = append(warnings, "Dry-run connected to MySQL and validated schema but did not execute import_sql.")
+	}
+	return &mysqlCanaryImportRunResult{Summary: summary, Warnings: warnings}, nil
+}
+
+func ensureMySQLCanaryTables(ctx context.Context, db *sql.DB) error {
+	required := []string{
+		"tb_tasks",
+		"tb_app_settings",
+		"tb_stores",
+		"tb_ezviz_accounts",
+		"tb_video_recorders",
+		"tb_video_channels",
+		"tb_channel_snapshots",
+		"tb_operation_logs",
+		"tb_users",
+		"tb_roles",
+		"tb_user_roles",
+	}
+	for _, table := range required {
+		var exists int
+		if err := db.QueryRowContext(ctx, `
+			select count(*)
+			from information_schema.tables
+			where table_schema = database()
+			  and table_name = ?
+		`, table).Scan(&exists); err != nil {
+			return fmt.Errorf("check mysql table %s: %w", table, err)
+		}
+		if exists == 0 {
+			return fmt.Errorf("mysql table %s is missing", table)
+		}
+	}
+	return nil
+}
+
+func queryMySQLCanarySummary(ctx context.Context, db *sql.DB, externalOrgID string) (mysqlCanaryImportSummary, error) {
+	var summary mysqlCanaryImportSummary
+	queries := []struct {
+		name string
+		dest *int
+		sql  string
+		args []any
+	}{
+		{
+			name: "stores",
+			dest: &summary.StoreCount,
+			sql:  `select count(*) from tb_stores where external_org_id = ?`,
+			args: []any{externalOrgID},
+		},
+		{
+			name: "recorders",
+			dest: &summary.RecorderCount,
+			sql:  `select count(*) from tb_video_recorders where store_id in (select id from tb_stores where external_org_id = ?)`,
+			args: []any{externalOrgID},
+		},
+		{
+			name: "channels",
+			dest: &summary.ChannelCount,
+			sql:  `select count(*) from tb_video_channels where recorder_id in (select id from tb_video_recorders where store_id in (select id from tb_stores where external_org_id = ?))`,
+			args: []any{externalOrgID},
+		},
+		{
+			name: "snapshots",
+			dest: &summary.SnapshotCount,
+			sql:  `select count(*) from tb_channel_snapshots where channel_id in (select id from tb_video_channels where recorder_id in (select id from tb_video_recorders where store_id in (select id from tb_stores where external_org_id = ?)))`,
+			args: []any{externalOrgID},
+		},
+		{
+			name: "operation logs",
+			dest: &summary.OperationLogCount,
+			sql:  `select count(*) from tb_operation_logs where store_id in (select id from tb_stores where external_org_id = ?)`,
+			args: []any{externalOrgID},
+		},
+		{
+			name: "users",
+			dest: &summary.UserCount,
+			sql:  `select count(*) from tb_users`,
+		},
+		{
+			name: "orphan rows",
+			dest: &summary.OrphanCount,
+			sql: `select
+				(select count(*) from tb_video_recorders r where not exists (select 1 from tb_stores s where s.id = r.store_id)) +
+				(select count(*) from tb_video_channels c where not exists (select 1 from tb_video_recorders r where r.id = c.recorder_id)) +
+				(select count(*) from tb_channel_snapshots cs where not exists (select 1 from tb_video_channels c where c.id = cs.channel_id))`,
+		},
+		{
+			name: "invalid json",
+			dest: &summary.InvalidJSONCount,
+			sql: `select
+				(select count(*) from tb_store_design_plans where recognition_result is not null and json_valid(recognition_result) = 0) +
+				(select count(*) from tb_video_channels where recognition_result is not null and json_valid(recognition_result) = 0)`,
+		},
+	}
+	for _, query := range queries {
+		if err := db.QueryRowContext(ctx, query.sql, query.args...).Scan(query.dest); err != nil {
+			return mysqlCanaryImportSummary{}, fmt.Errorf("query mysql canary %s: %w", query.name, err)
+		}
+	}
+	return summary, nil
 }
 
 func runOSSSmokeFromEnv(ctx context.Context) (*ossSmokeResult, error) {

@@ -769,6 +769,103 @@ func TestPgMySQLExportEndpointRequiresExporterStore(t *testing.T) {
 	}
 }
 
+func TestMySQLCanaryImportEndpointHiddenUnlessOpsEnabled(t *testing.T) {
+	called := false
+	restore := setMySQLCanaryImportRunnerForTest(func(ctx context.Context, request mysqlCanaryImportRunRequest) (*mysqlCanaryImportRunResult, error) {
+		called = true
+		return &mysqlCanaryImportRunResult{}, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/mysql-canary-import", strings.NewReader(`{"import_sql":"-- Scope external_org_id: 10030"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusNotFound, recorder.Code, recorder.Body.String())
+	}
+	if called {
+		t.Fatal("expected disabled ops endpoint not to call runner")
+	}
+}
+
+func TestMySQLCanaryImportEndpointRunsDryRunForAdmin(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setMySQLCanaryImportRunnerForTest(func(ctx context.Context, request mysqlCanaryImportRunRequest) (*mysqlCanaryImportRunResult, error) {
+		if request.Apply {
+			t.Fatal("expected dry-run request")
+		}
+		if request.ExternalOrgID != "10030" || !strings.Contains(request.ImportSQL, "insert into `tb_stores`") {
+			t.Fatalf("unexpected request: %#v", request)
+		}
+		return &mysqlCanaryImportRunResult{
+			Summary: mysqlCanaryImportSummary{
+				StoreCount:    1,
+				RecorderCount: 1,
+				ChannelCount:  4,
+				SnapshotCount: 4,
+			},
+			Warnings: []string{"dry-run did not execute import sql"},
+		}, nil
+	})
+	defer restore()
+
+	body := `{"import_sql":"-- Scope external_org_id: 10030\ninsert into ` + "`tb_stores`" + ` (` + "`external_org_id`" + `) values ('10030');"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/mysql-canary-import", strings.NewReader(body))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var response mysqlCanaryImportResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.OK || response.Apply || response.Summary.ChannelCount != 4 {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestMySQLCanaryImportEndpointRejectsNonCanaryScope(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setMySQLCanaryImportRunnerForTest(func(ctx context.Context, request mysqlCanaryImportRunRequest) (*mysqlCanaryImportRunResult, error) {
+		t.Fatal("invalid import request should not call runner")
+		return nil, nil
+	})
+	defer restore()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/mysql-canary-import", strings.NewReader(`{"external_org_id":"10047","import_sql":"-- Scope external_org_id: 10047"}`))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestMySQLCanaryImportEndpointRejectsOtherStoreExternalOrgID(t *testing.T) {
+	t.Setenv("OPS_ENABLED", "true")
+	restore := setMySQLCanaryImportRunnerForTest(func(ctx context.Context, request mysqlCanaryImportRunRequest) (*mysqlCanaryImportRunResult, error) {
+		t.Fatal("invalid import request should not call runner")
+		return nil, nil
+	})
+	defer restore()
+
+	body := `{"import_sql":"-- Scope external_org_id: 10030\ninsert into ` + "`tb_stores`" + ` (` + "`external_org_id`" + `) values ('10047');"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/mysql-canary-import", strings.NewReader(body))
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestNormalizeOpsExportOrgIDs(t *testing.T) {
 	got := normalizeOpsExportOrgIDs("10047, 10030,10047,,")
 	want := []string{"10047", "10030"}
@@ -1428,5 +1525,13 @@ func setStageATargetSampleRunnerForTest(runner stageATargetSampleRunner) func() 
 	currentStageATargetSampleRunner = runner
 	return func() {
 		currentStageATargetSampleRunner = previous
+	}
+}
+
+func setMySQLCanaryImportRunnerForTest(runner mysqlCanaryImportRunner) func() {
+	previous := currentMySQLCanaryImportRunner
+	currentMySQLCanaryImportRunner = runner
+	return func() {
+		currentMySQLCanaryImportRunner = previous
 	}
 }

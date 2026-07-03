@@ -4444,3 +4444,32 @@ git pull --ff-only
 - 下一步：
   - 发布公司环境。
   - 再次调用 `pg-mysql-export` 导出 `external_org_id=10030`，这次重点检查返回 `detail`、表行数、SQL 字符数和导出范围。
+
+## 2026-07-03 MySQL 金丝雀导入受控入口 2.29.0 开发记录
+
+- 背景：
+  - `pg-mysql-export` 已能导出 `external_org_id=10030` 的真实金丝雀数据。
+  - 本机没有 MySQL 客户端，且不希望把公司 MySQL 连接散落到本机手工操作。
+  - 用户确认优先走公司 Pod 内受控 ops 入口。
+- 实现：
+  - 新增 `POST /api/admin/ops/mysql-canary-import`。
+  - 入口仅在 ops 开启且管理员具备 `user:manage` 权限时可用。
+  - 仅允许 `external_org_id=10030`。
+  - `import_sql` 必须包含 `-- Scope external_org_id: 10030`。
+  - 会拒绝 `tb_stores` insert 中出现非 10030 的门店机构 ID。
+  - `apply=false` 只连接 MySQL、检查必要表、返回当前摘要，不执行导入 SQL。
+  - `apply=true` 才在事务中执行导入 SQL，并返回门店、录像机、通道、截图、日志、用户、孤儿行、非法 JSON 的摘要。
+  - MySQL DSN 从 `MYSQL_DSN` 或 `K8S_SECRET_MYSQL_DSN` 读取。
+  - 新增依赖 `github.com/go-sql-driver/mysql`。
+- 敏感数据处理：
+  - 导入 SQL 可能包含手机号、飞书 ID、模型识别原始长文本和截图 proxy path。
+  - 完整 SQL 只应在临时文件、浏览器下载和受控 ops 请求体中短期使用，不写入仓库和文档。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - `go test ./internal/app -run ...` 执行阶段仍受本机 macOS Go runtime `dyld missing LC_UUID` 阻断；该问题为既有本机运行问题，编译级门禁通过。
+- 下一步：
+  - 发布公司环境。
+  - 确认公司运行环境已配置 `K8S_SECRET_MYSQL_DSN` 或 `MYSQL_DSN`。
+  - 用导出的 `10030` SQL 先调用 `apply=false` dry-run，再看摘要决定是否 `apply=true`。
