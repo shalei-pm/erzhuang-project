@@ -29,7 +29,7 @@ git push gitlab codex/containerize-single-image
 - `codex/containerize-single-image` 是公司受保护分支，不要 force push。
 - 合并时保留公司分支上的 Dockerfile、数据库、K8s 运行配置和路径前缀设置；不要用个人 Lighthouse 配置覆盖公司配置。
 - 公司运行时密钥必须通过 K8s Secret 或运行时环境变量注入，不要提交到仓库、Dockerfile、文档或前端 `VITE_*`。
-- 公司数据库当前应保持为运维配置的 Supabase PostgreSQL。发布后 `/health` 应返回 `database:"postgres"`。
+- 公司数据库当前应保持为运维配置的 MySQL，资产存储应保持为 OSS。发布后 `/health` 应返回 `database:"mysql"`、`asset_store:"oss"`。
 - 公司容器构建需要注入前端版本号。Dockerfile 应从 `VERSION` 和 `GIT_VERSION` 生成 `VITE_APP_VERSION`；线上页面不应显示 `local-dev`。
 - 推送后等待自动发布，再检查页面底部版本号。若构建系统传入 commit，预期为 `2.x.x (<short-sha>)`；若未传入，至少应显示 `2.x.x (container)`。
 

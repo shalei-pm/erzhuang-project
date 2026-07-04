@@ -4908,3 +4908,22 @@ git pull --ff-only
   - 新增 `TestOpenAIRecognizerFallsBackFromEntranceExplanation` 覆盖 GPT/OpenAI 返回 `<think>` 入口解释文本时的兜底。
   - 更新前端 channel recognition 测试，覆盖失败 2 次后不再进入批量自动识别。
   - 使用 `go test -c`、服务端 `go build`、前端测试和前端 build 做验证。
+
+## 2026-07-04 公司环境 PostgreSQL 运行时联系清理 2.30.23
+
+- 背景：
+  - 公司环境已完成 MySQL/OSS 主数据与资产迁移验收，线上 `/health` 返回 `database=mysql`、`asset_store=oss`。
+  - 用户明确确认不再保留旧库回滚连接，避免继续存在数据出海或误连旧库风险。
+- 清理：
+  - `cmd/server` 只接受 `APP_DB_DRIVER=mysql`，只读取 `MYSQL_DSN` / `K8S_SECRET_MYSQL_DSN`，不再读取旧 `DATABASE_URL` 作为数据库连接。
+  - 删除 pgx 依赖、旧 PostgreSQL repository、旧 schema 初始化、旧 H5 monitor repository、pg-to-mysql 导出 CLI、pg-mysql ops 导出/源清单/审计端点和对应测试。
+  - `designplan` 旧路由继续注册，但线上服务使用资产存储 + 内存 repo，不再持有旧库连接。
+  - 发布手册公司环境口径更新为 MySQL + OSS。
+- 验证：
+  - `rg -n "github.com/jackc/pgx|sql.Open\\(\"pgx\"|APP_DB_DRIVER=postgres|NewPostgresStore|EnsurePostgresSchema|pg-mysql|pg_mysql|mysqlmigration|ExportMySQLMigration|PostgresStore|PostgreSQL|postgres" cmd internal go.mod go.sum docs/deploy-runbook.md VERSION` 无结果。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/designplan -o /private/tmp/designplan.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - 本机直接运行 `go test ./cmd/server ./internal/app ./internal/storespace ./internal/designplan` 仍触发 macOS 测试二进制 `missing LC_UUID load command`，按项目既定方式以编译验证为准。

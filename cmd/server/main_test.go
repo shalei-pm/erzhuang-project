@@ -7,7 +7,6 @@ import (
 
 func TestDatabaseConfigFromEnvSelectsMySQL(t *testing.T) {
 	t.Setenv("APP_DB_DRIVER", "mysql")
-	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("MYSQL_DSN", "mysql-user:mysql-pass@tcp(mysql:3306)/erzhuang")
 
 	config, err := databaseConfigFromEnv()
@@ -24,7 +23,7 @@ func TestDatabaseConfigFromEnvSelectsMySQL(t *testing.T) {
 }
 
 func TestDatabaseConfigFromEnvDefaultsToMySQLWhenBothDSNsExist(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("DATABASE_URL", "legacy-database-url")
 	t.Setenv("MYSQL_DSN", "mysql-user:mysql-pass@tcp(mysql:3306)/erzhuang")
 
 	config, err := databaseConfigFromEnv()
@@ -41,7 +40,6 @@ func TestDatabaseConfigFromEnvDefaultsToMySQLWhenBothDSNsExist(t *testing.T) {
 }
 
 func TestDatabaseConfigFromEnvReadsMySQLFromK8SSecret(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("K8S_SECRET_MYSQL_DSN", "mysql-user:mysql-pass@tcp(mysql:3306)/erzhuang")
 
 	config, err := databaseConfigFromEnv()
@@ -57,21 +55,26 @@ func TestDatabaseConfigFromEnvReadsMySQLFromK8SSecret(t *testing.T) {
 	}
 }
 
-func TestDatabaseConfigFromEnvExplicitPostgresKeepsPostgres(t *testing.T) {
-	t.Setenv("APP_DB_DRIVER", "postgres")
-	t.Setenv("DATABASE_URL", "postgres://example")
-	t.Setenv("MYSQL_DSN", "mysql-user:mysql-pass@tcp(mysql:3306)/erzhuang")
+func TestDatabaseConfigFromEnvIgnoresDatabaseURLWithoutMySQLDSN(t *testing.T) {
+	t.Setenv("DATABASE_URL", "legacy-database-url")
 
 	config, err := databaseConfigFromEnv()
 	if err != nil {
 		t.Fatalf("database config: %v", err)
 	}
 
-	if config.Driver != "postgres" {
-		t.Fatalf("driver = %q, want postgres", config.Driver)
+	if config.Driver != "" || config.DSN != "" {
+		t.Fatalf("config = %#v, want empty config when only DATABASE_URL is set", config)
 	}
-	if config.DSN != "postgres://example" {
-		t.Fatalf("dsn = %q, want DATABASE_URL", config.DSN)
+}
+
+func TestDatabaseConfigFromEnvRejectsLegacyDriver(t *testing.T) {
+	t.Setenv("APP_DB_DRIVER", "legacy")
+	t.Setenv("DATABASE_URL", "legacy-database-url")
+	t.Setenv("MYSQL_DSN", "mysql-user:mysql-pass@tcp(mysql:3306)/erzhuang")
+
+	if _, err := databaseConfigFromEnv(); err == nil {
+		t.Fatal("database config returned nil error for legacy APP_DB_DRIVER, want unsupported driver error")
 	}
 }
 

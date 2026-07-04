@@ -2048,5 +2048,32 @@ func mysqlH5MonitorChannelQuery(extraCondition string) string {
 	` + extraCondition
 }
 
+type h5MonitorChannelScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanH5MonitorChannel(scanner h5MonitorChannelScanner) (h5monitor.ChannelInfo, error) {
+	var channel h5monitor.ChannelInfo
+	err := scanner.Scan(
+		&channel.StoreID,
+		&channel.RecorderID,
+		&channel.ID,
+		&channel.ChannelNo,
+		&channel.ChannelName,
+		&channel.Status,
+		&channel.IsActive,
+		&channel.AreaType,
+		&channel.SceneType,
+		&channel.AreaNumber,
+		&channel.BedLabel,
+		&channel.AreaNote,
+		&channel.ThumbnailURL,
+		&channel.DeviceSerial,
+		&channel.EzvizAccountID,
+		&channel.AccountName,
+	)
+	return channel, err
+}
+
 var _ Repository = (*MySQLStore)(nil)
 var _ h5monitor.StoreRepository = (*MySQLH5MonitorRepository)(nil)

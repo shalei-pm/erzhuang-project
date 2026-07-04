@@ -18,7 +18,6 @@ import (
 
 	"github.com/shalei-pm/erzhuang-project/internal/assetmigration"
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
-	"github.com/shalei-pm/erzhuang-project/internal/mysqlmigration"
 	"github.com/shalei-pm/erzhuang-project/internal/osssmoke"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -76,7 +75,15 @@ func opsMigrationOrgAllowed(externalOrgID string) bool {
 }
 
 func allowedOpsMigrationOrgIDsText() string {
-	return strings.Join(allowedOpsMigrationOrgIDs(), ",")
+	allowed := allowedOpsMigrationOrgIDs()
+	if len(allowed) == 0 {
+		return ""
+	}
+	text := allowed[0]
+	for _, id := range allowed[1:] {
+		text += "," + id
+	}
+	return text
 }
 
 type ossSmokeResponse struct {
@@ -225,23 +232,6 @@ type stageATargetSampleResponse struct {
 type stageATargetSampleResult struct {
 	Action string
 	Key    string
-}
-
-type pgMySQLExportRequest struct {
-	ExternalOrgID string `json:"external_org_id"`
-	IncludeUsers  bool   `json:"include_users"`
-	BatchID       string `json:"batch_id"`
-}
-
-type pgMySQLExportResponse struct {
-	OK               bool                  `json:"ok"`
-	ExternalOrgIDs   []string              `json:"external_org_ids,omitempty"`
-	Report           mysqlmigration.Report `json:"report"`
-	ImportSQL        string                `json:"import_sql,omitempty"`
-	AutoIncrementSQL string                `json:"auto_increment_sql,omitempty"`
-	Error            string                `json:"error,omitempty"`
-	Detail           string                `json:"detail,omitempty"`
-	Warnings         []string              `json:"warnings,omitempty"`
 }
 
 type mysqlCanaryImportRequest struct {
@@ -602,74 +592,6 @@ func (h *Handler) stageATargetSampleHandler(w http.ResponseWriter, r *http.Reque
 		OK:     true,
 		Action: result.Action,
 		Key:    result.Key,
-	})
-}
-
-func (h *Handler) pgMySQLExportHandler(w http.ResponseWriter, r *http.Request) {
-	if !opsEnabled() {
-		http.NotFound(w, r)
-		return
-	}
-	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
-		return
-	}
-	exporter, ok := h.store.(MySQLMigrationExporter)
-	if !ok {
-		writeJSON(w, http.StatusBadRequest, pgMySQLExportResponse{
-			OK:     false,
-			Error:  "migration export unavailable",
-			Detail: "current store does not support PostgreSQL to MySQL export",
-		})
-		return
-	}
-	var input pgMySQLExportRequest
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
-	if err := decoder.Decode(&input); err != nil {
-		writeJSON(w, http.StatusBadRequest, pgMySQLExportResponse{
-			OK:     false,
-			Error:  "invalid export request",
-			Detail: sanitizeOpsError(err.Error()),
-		})
-		return
-	}
-	orgIDs := normalizeOpsExportOrgIDs(input.ExternalOrgID)
-	if len(orgIDs) == 0 {
-		orgIDs = []string{defaultOpsMigrationOrgID}
-	}
-	if len(orgIDs) > maxOpsExportOrgCount {
-		writeJSON(w, http.StatusBadRequest, pgMySQLExportResponse{
-			OK:     false,
-			Error:  "invalid export request",
-			Detail: fmt.Sprintf("external_org_id count must be <= %d", maxOpsExportOrgCount),
-		})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
-	defer cancel()
-	export, err := exporter.ExportMySQLMigration(ctx, mysqlmigration.Options{
-		ExternalOrgIDs: orgIDs,
-		IncludeUsers:   input.IncludeUsers,
-		BatchID:        strings.TrimSpace(input.BatchID),
-	})
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, pgMySQLExportResponse{
-			OK:             false,
-			ExternalOrgIDs: orgIDs,
-			Error:          "postgres mysql export failed",
-			Detail:         sanitizeOpsError(err.Error()),
-		})
-		return
-	}
-	writeJSON(w, http.StatusOK, pgMySQLExportResponse{
-		OK:               true,
-		ExternalOrgIDs:   orgIDs,
-		Report:           export.Report,
-		ImportSQL:        export.ImportSQL,
-		AutoIncrementSQL: export.AutoIncrementSQL,
-		Warnings: []string{
-			"This endpoint is read-only against PostgreSQL and does not write MySQL.",
-			"Review import_sql before executing it in MySQL.",
-		},
 	})
 }
 

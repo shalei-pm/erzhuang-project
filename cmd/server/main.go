@@ -19,7 +19,6 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 
 	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
@@ -43,25 +42,14 @@ func main() {
 		var storeSpaceRepo storespace.Repository
 		var h5RepositoryFactory func([]ezviz.Account) h5monitor.StoreRepository
 		var designPlanService *designplan.Service
-		if config.Driver == "mysql" {
-			mysqlAppStore := app.NewMySQLStore(db)
-			mysqlStoreSpaceRepo := storespace.NewMySQLStore(db)
-			appStore = mysqlAppStore
-			storeSpaceRepo = mysqlStoreSpaceRepo
-			h5RepositoryFactory = func(accounts []ezviz.Account) h5monitor.StoreRepository {
-				return storespace.NewMySQLH5MonitorRepository(mysqlStoreSpaceRepo, accounts)
-			}
-			designPlanService = designplan.NewServiceWithAssetStore(designplan.NewMemoryStore(), assetStore)
-		} else {
-			postgresAppStore := app.NewPostgresStore(db)
-			postgresStoreSpaceRepo := storespace.NewPostgresStore(db)
-			appStore = postgresAppStore
-			storeSpaceRepo = postgresStoreSpaceRepo
-			h5RepositoryFactory = func(accounts []ezviz.Account) h5monitor.StoreRepository {
-				return storespace.NewH5MonitorRepository(postgresStoreSpaceRepo, accounts)
-			}
-			designPlanService = designplan.NewServiceWithAssetStoreAndAIProvider(designplan.NewPostgresStore(db), assetStore, postgresAppStore)
+		mysqlAppStore := app.NewMySQLStore(db)
+		mysqlStoreSpaceRepo := storespace.NewMySQLStore(db)
+		appStore = mysqlAppStore
+		storeSpaceRepo = mysqlStoreSpaceRepo
+		h5RepositoryFactory = func(accounts []ezviz.Account) h5monitor.StoreRepository {
+			return storespace.NewMySQLH5MonitorRepository(mysqlStoreSpaceRepo, accounts)
 		}
+		designPlanService = designplan.NewServiceWithAssetStore(designplan.NewMemoryStore(), assetStore)
 		storeSpaceService := storespace.NewService(storeSpaceRepo)
 		storeSpaceService.UseSnapshotStore(storespace.NewAssetSnapshotStore(assetStore))
 		var h5MonitorService *h5monitor.Service
@@ -106,20 +94,12 @@ func databaseConfigFromEnv() (databaseConfig, error) {
 	if driver == "" {
 		if envValue("MYSQL_DSN", "K8S_SECRET_MYSQL_DSN") != "" {
 			driver = "mysql"
-		} else if strings.TrimSpace(os.Getenv("DATABASE_URL")) != "" {
-			driver = "postgres"
 		}
 	}
 
 	switch driver {
 	case "":
 		return databaseConfig{}, nil
-	case "postgres", "postgresql":
-		dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
-		if dsn == "" {
-			return databaseConfig{}, errors.New("DATABASE_URL is required when APP_DB_DRIVER=postgres")
-		}
-		return databaseConfig{Driver: "postgres", DSN: dsn}, nil
 	case "mysql":
 		dsn := envValue("MYSQL_DSN", "K8S_SECRET_MYSQL_DSN")
 		if dsn == "" {
@@ -127,7 +107,7 @@ func databaseConfigFromEnv() (databaseConfig, error) {
 		}
 		return databaseConfig{Driver: "mysql", DSN: mysqlDSNWithParseTime(dsn)}, nil
 	default:
-		return databaseConfig{}, errors.New("APP_DB_DRIVER must be postgres or mysql")
+		return databaseConfig{}, errors.New("APP_DB_DRIVER must be mysql")
 	}
 }
 
@@ -144,11 +124,7 @@ func mysqlDSNWithParseTime(dsn string) string {
 }
 
 func openDatabase(config databaseConfig) (*sql.DB, error) {
-	sqlDriver := "pgx"
-	if config.Driver == "mysql" {
-		sqlDriver = "mysql"
-	}
-	db, err := sql.Open(sqlDriver, config.DSN)
+	db, err := sql.Open("mysql", config.DSN)
 	if err != nil {
 		return nil, err
 	}
@@ -161,18 +137,6 @@ func openDatabase(config databaseConfig) (*sql.DB, error) {
 	defer cancelPing()
 
 	if err := db.PingContext(pingCtx); err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	if config.Driver == "mysql" {
-		return db, nil
-	}
-
-	schemaCtx, cancelSchema := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancelSchema()
-
-	if err := app.EnsurePostgresSchema(schemaCtx, db); err != nil {
 		db.Close()
 		return nil, err
 	}

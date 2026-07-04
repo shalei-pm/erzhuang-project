@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -169,7 +168,7 @@ func TestTasksUnderConfiguredBasePath(t *testing.T) {
 func TestServesFrontendIndexUnderErzhuang(t *testing.T) {
 	frontendDir := t.TempDir()
 	t.Setenv("FRONTEND_DIR", frontendDir)
-	if err := os.WriteFile(filepath.Join(frontendDir, "index.html"), []byte("<html>container frontend</html>"), 0o644); err != nil {
+	if err := os.WriteFile(frontendDir+string(os.PathSeparator)+"index.html", []byte("<html>container frontend</html>"), 0o644); err != nil {
 		t.Fatalf("write index: %v", err)
 	}
 
@@ -190,7 +189,7 @@ func TestServesFrontendIndexUnderConfiguredBasePath(t *testing.T) {
 	frontendDir := t.TempDir()
 	t.Setenv("FRONTEND_DIR", frontendDir)
 	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
-	if err := os.WriteFile(filepath.Join(frontendDir, "index.html"), []byte("<html>project frontend</html>"), 0o644); err != nil {
+	if err := os.WriteFile(frontendDir+string(os.PathSeparator)+"index.html", []byte("<html>project frontend</html>"), 0o644); err != nil {
 		t.Fatalf("write index: %v", err)
 	}
 
@@ -211,7 +210,7 @@ func TestServesFrontendIndexForNestedRouteUnderConfiguredBasePath(t *testing.T) 
 	frontendDir := t.TempDir()
 	t.Setenv("FRONTEND_DIR", frontendDir)
 	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
-	if err := os.WriteFile(filepath.Join(frontendDir, "index.html"), []byte("<html>project nested frontend</html>"), 0o644); err != nil {
+	if err := os.WriteFile(frontendDir+string(os.PathSeparator)+"index.html", []byte("<html>project nested frontend</html>"), 0o644); err != nil {
 		t.Fatalf("write index: %v", err)
 	}
 
@@ -231,11 +230,11 @@ func TestServesFrontendIndexForNestedRouteUnderConfiguredBasePath(t *testing.T) 
 func TestServesFrontendAssetUnderErzhuang(t *testing.T) {
 	frontendDir := t.TempDir()
 	t.Setenv("FRONTEND_DIR", frontendDir)
-	assetsDir := filepath.Join(frontendDir, "assets")
+	assetsDir := frontendDir + string(os.PathSeparator) + "assets"
 	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
 		t.Fatalf("create assets dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(assetsDir, "app.js"), []byte("console.log('container asset')"), 0o644); err != nil {
+	if err := os.WriteFile(assetsDir+string(os.PathSeparator)+"app.js", []byte("console.log('container asset')"), 0o644); err != nil {
 		t.Fatalf("write asset: %v", err)
 	}
 
@@ -749,26 +748,6 @@ func TestOpsEnvCheckReturnsSanitizedRuntimeConfig(t *testing.T) {
 	}
 }
 
-func TestPgMySQLExportEndpointRequiresExporterStore(t *testing.T) {
-	t.Setenv("OPS_ENABLED", "true")
-
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/ops/pg-mysql-export", strings.NewReader(`{"external_org_id":"10030"}`))
-	recorder := httptest.NewRecorder()
-
-	NewHandler().ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
-	}
-	var response map[string]any
-	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response["ok"] != false || response["error"] != "migration export unavailable" {
-		t.Fatalf("unexpected export response: %#v", response)
-	}
-}
-
 func TestMySQLCanaryImportEndpointHiddenUnlessOpsEnabled(t *testing.T) {
 	called := false
 	restore := setMySQLCanaryImportRunnerForTest(func(ctx context.Context, request mysqlCanaryImportRunRequest) (*mysqlCanaryImportRunResult, error) {
@@ -1263,7 +1242,7 @@ func TestAssetMigrationEndpointAllowsConfiguredApplyScope(t *testing.T) {
 			t.Fatalf("unexpected request: %#v", request)
 		}
 		return &assetMigrationRunResult{
-			Summary: assetmigration.Summary{Total: 1, Copied: 1},
+			Summary:   assetmigration.Summary{Total: 1, Copied: 1},
 			ResultCSV: "action,external_org_id,logical_key,target_oss_key,bytes,content_type,error\ncopied,10047,x,x,1,image/jpeg,\n",
 		}, nil
 	})
@@ -1335,7 +1314,7 @@ func TestAssetStateBackfillEndpointUpsertsCopiedRows(t *testing.T) {
 			t.Fatalf("unexpected payload: %#v", request)
 		}
 		return &assetStateBackfillRunResult{
-			Summary: assetStateBackfillSummary{Total: 1, Migrated: 1, Upserted: 1},
+			Summary:  assetStateBackfillSummary{Total: 1, Migrated: 1, Upserted: 1},
 			Warnings: []string{"idempotent backfill"},
 		}, nil
 	})
