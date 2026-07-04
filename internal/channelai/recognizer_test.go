@@ -397,6 +397,39 @@ func TestOpenAIRecognizerParsesThinkWrappedJSON(t *testing.T) {
 	}
 }
 
+func TestOpenAIRecognizerFallsBackFromEntranceExplanation(t *testing.T) {
+	recognizer := &OpenAIRecognizer{
+		apiKey:  "test-key",
+		baseURL: "https://example.test/v1",
+		model:   "gpt-5.5",
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{
+			"output": [{
+				"content": [{
+					"type": "output_text",
+					"text": "<think>The image shows a door area. The bottom right text says \"北侧门\" (North Side Door). This is a passage or entrance area near a door, not a treatment room.</think>"
+				}]
+			}]
+		}`)),
+			}, nil
+		})},
+	}
+
+	result, err := recognizer.Recognize(context.Background(), "https://example.test/channel.jpg")
+	if err != nil {
+		t.Fatalf("recognize: %v", err)
+	}
+	if result.SceneType != "entrance" || result.AreaNumber != "北侧门" {
+		t.Fatalf("unexpected result %#v", result)
+	}
+	if !result.NeedsReview || result.Confidence != "low" {
+		t.Fatalf("expected fallback result to require review, got %#v", result)
+	}
+}
+
 func TestOpenAIProviderNameDetectsMiniMax(t *testing.T) {
 	if got := openAIProviderName("https://api.minimaxi.com/v1", "MiniMax-M3"); got != "minimax" {
 		t.Fatalf("expected minimax provider, got %q", got)

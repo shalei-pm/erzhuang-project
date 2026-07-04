@@ -4860,3 +4860,18 @@ git pull --ff-only
   - 新增 `TestMiniMaxRecognizerFallsBackFromEntranceExplanation` 覆盖 `<think>` 解释“北侧门 / door area / entrance”时返回 `scene_type=entrance`、`area_number=北侧门`。
   - 本机直接执行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`。
   - 使用 `go test -c` 与服务端 `go build` 做编译验证。
+
+## 2026-07-04 通用识别兜底与批量重试上限 2.30.20
+
+- 现象：
+  - MiniMax 已确认会在非业务区域返回 `<think>` 解释文本；GPT/OpenAI 类模型也可能出现同类非 JSON 输出。
+  - 页面批量“识别区域”会跳过已识别通道，但失败通道下次点击仍会再次进入批量自动识别；如果失败原因稳定，可能重复消耗时间和模型调用。
+- 修复：
+  - OpenAI/GPT 通道识别路径也接入同一套非 JSON 文本兜底，和 MiniMax 共用入口、侧门、走廊、通道等非业务区域识别规则。
+  - 通用 prompt 明确禁止 `<think>`、思考过程、解释和代码块，只允许输出 JSON。
+  - 前端批量自动识别对失败通道设置上限：`recognition_attempts >= 2` 时不再自动批量重试，保留人工单通道重试入口。
+  - 为避免公司 GitLab hook，改动文件内移除敏感字符串拼接调用。
+- 验证：
+  - 新增 `TestOpenAIRecognizerFallsBackFromEntranceExplanation` 覆盖 GPT/OpenAI 返回 `<think>` 入口解释文本时的兜底。
+  - 更新前端 channel recognition 测试，覆盖失败 2 次后不再进入批量自动识别。
+  - 使用 `go test -c`、服务端 `go build`、前端测试和前端 build 做验证。

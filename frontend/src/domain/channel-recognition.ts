@@ -1,5 +1,6 @@
 type ChannelRecognitionLike = {
   status?: string;
+  recognitionAttempts?: number;
   recognitionResult?: unknown;
 };
 
@@ -37,6 +38,7 @@ export function channelRecognitionMessage(channel: ChannelRecognitionLike) {
 
 export function shouldBatchRecognizeChannel(channel: ChannelRecognitionLike) {
   if (channel.status === "inactive") return false;
+  if ((channel.recognitionAttempts ?? 0) >= 2) return false;
   const result = parseRecognitionResult(channel.recognitionResult);
   if (!result) return true;
   if (result.status === "recognized") return false;
@@ -65,7 +67,7 @@ export function recorderRecognitionRunToast(deviceCode: string, summary: Channel
   if (summary.failed > 0) parts.push(`失败 ${summary.failed} 个`);
   if (summary.interrupted > 0) parts.push(`请求中断 ${summary.interrupted} 个`);
   if (summary.firstError) parts.push(summary.firstError);
-  return parts.join("，");
+  return combineParts(parts, "，");
 }
 
 export function recorderRecognitionToast(deviceCode: string, channels: ChannelRecognitionLike[]) {
@@ -89,14 +91,14 @@ function channelRecognitionMessageFromObject(value: unknown) {
   const result = value as ChannelRecognitionResult;
   const timing = recognitionTimingLabel(result);
   if (result.status === "capture_failed" || result.status === "recognition_failed") {
-    return ["失败", result.message, timing].filter(Boolean).join(" · ");
+    return combineParts(["失败", result.message, timing], " · ");
   }
   if (result.status === "recognized") {
     const confidence = result.confidence === "low" ? "低置信" : "";
-    return [confidence, timing].filter(Boolean).join(" · ");
+    return combineParts([confidence, timing], " · ");
   }
   if (result.status === "captured") {
-    return ["抓图", timing].filter(Boolean).join(" · ");
+    return combineParts(["抓图", timing], " · ");
   }
   return result.message || timing;
 }
@@ -137,7 +139,17 @@ function recognitionTimingLabel(result: { recognition_ms?: number; total_ms?: nu
   if (typeof result.total_ms === "number" && result.total_ms > 0) {
     parts.push(`总 ${formatDuration(result.total_ms)}`);
   }
-  return parts.join(" / ");
+  return combineParts(parts, " / ");
+}
+
+function combineParts(parts: Array<string | undefined>, separator: string) {
+  let output = "";
+  for (const part of parts) {
+    if (!part) continue;
+    if (output) output += separator;
+    output += part;
+  }
+  return output;
 }
 
 function formatDuration(ms: number) {

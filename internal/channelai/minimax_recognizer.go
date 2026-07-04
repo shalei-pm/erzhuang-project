@@ -103,7 +103,7 @@ func (r *MiniMaxRecognizer) Recognize(ctx context.Context, imageURL string) (Res
 	}
 	var output Result
 	if err := json.Unmarshal([]byte(extractModelJSONText(text)), &output); err != nil {
-		fallback, ok := fallbackMiniMaxTextResult(text)
+		fallback, ok := fallbackModelTextResult(text)
 		if !ok {
 			return Result{}, fmt.Errorf("parse minimax recognition json: %w: %s", err, compactModelText(text))
 		}
@@ -245,7 +245,7 @@ func firstJSONObject(value string) (string, bool) {
 	return "", false
 }
 
-func fallbackMiniMaxTextResult(value string) (Result, bool) {
+func fallbackModelTextResult(value string) (Result, bool) {
 	text := strings.ToLower(strings.TrimSpace(value))
 	if text == "" {
 		return Result{}, false

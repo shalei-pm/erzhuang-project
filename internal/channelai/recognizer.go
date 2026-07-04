@@ -216,7 +216,11 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, imageURL string) (Resu
 	}
 	var output Result
 	if err := json.Unmarshal([]byte(extractModelJSONText(text)), &output); err != nil {
-		return Result{}, fmt.Errorf("parse channel recognition json: %w", err)
+		fallback, ok := fallbackModelTextResult(text)
+		if !ok {
+			return Result{}, fmt.Errorf("parse channel recognition json: %w: %s", err, compactModelText(text))
+		}
+		output = fallback
 	}
 	output.RawResult = json.RawMessage(responseBody)
 	output.Provider = r.providerName()
@@ -393,7 +397,14 @@ func extractJSONText(value string) string {
 	if end <= 1 {
 		return text
 	}
-	return strings.TrimSpace(strings.Join(lines[1:end], "\n"))
+	var builder strings.Builder
+	for index := 1; index < end; index++ {
+		if index > 1 {
+			builder.WriteByte('\n')
+		}
+		builder.WriteString(lines[index])
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func looksLikeResult(result Result) bool {
@@ -516,7 +527,7 @@ func (r responsesResponse) firstOutputText() string {
 func prompt() string {
 	return strings.TrimSpace(`你是医疗门店监控画面识别助手。请判断这张摄像头截图对应的区域类型，并提取画面中编号卡片的信息。
 
-请只输出一个 JSON 对象，不要输出 Markdown，不要使用代码块，不要解释。
+请只输出一个 JSON 对象，不要输出 Markdown，不要使用代码块，不要解释，不要输出 <think> 或思考过程。
 
 业务区域允许：
 - treatment：治疗室，指医美治疗室。
