@@ -168,7 +168,15 @@ func (r chatCompletionsResponse) firstChoiceText() string {
 }
 
 func compactModelText(value string) string {
-	text := strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	fields := strings.Fields(strings.TrimSpace(value))
+	var builder strings.Builder
+	for index, field := range fields {
+		if index > 0 {
+			builder.WriteByte(' ')
+		}
+		builder.WriteString(field)
+	}
+	text := builder.String()
 	const maxLength = 500
 	if len(text) <= maxLength {
 		return text
@@ -251,6 +259,13 @@ func fallbackMiniMaxTextResult(value string) (Result, bool) {
 		{markers: []string{"弱电间"}, sceneType: "machine_room", areaNumber: "弱电间"},
 		{markers: []string{"机房", "machine room", "weak current room"}, sceneType: "machine_room", areaNumber: "机房"},
 		{markers: []string{"医生办公室", "doctor's office", "doctor office"}, sceneType: "unknown", areaNumber: "医生办公室"},
+		{markers: []string{"北侧门", "north side door"}, sceneType: "entrance", areaNumber: "北侧门"},
+		{markers: []string{"南侧门", "south side door"}, sceneType: "entrance", areaNumber: "南侧门"},
+		{markers: []string{"东侧门", "east side door"}, sceneType: "entrance", areaNumber: "东侧门"},
+		{markers: []string{"西侧门", "west side door"}, sceneType: "entrance", areaNumber: "西侧门"},
+		{markers: []string{"入口", "entrance", "door area"}, sceneType: "entrance", areaNumber: "入口"},
+		{markers: []string{"走廊", "corridor", "hallway"}, sceneType: "corridor", areaNumber: "走廊"},
+		{markers: []string{"通道", "passage"}, sceneType: "passage", areaNumber: "通道"},
 	} {
 		if !containsAny(text, fallback.markers) {
 			continue

@@ -4843,3 +4843,20 @@ git pull --ff-only
   - 更新 `TestRecognizeRecorderChannelsLimitsWorkPerRequest`，覆盖 6 路待识别时单次只处理 1 路。
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+
+## 2026-07-04 MiniMax 非 JSON 解释文本兜底 2.30.19
+
+- 现象：
+  - 页面逐通道识别已稳定走 `/api/store-space/channels/{channel_id}/recognize`。
+  - `GQ2603587` 最终 41 路全部识别成功，但过程中 MiniMax 偶发返回 `<think>...` 解释文本，导致 JSON 解析失败。
+  - `FU9610841` 识别 29 路时再次出现同类问题：门口/侧门画面返回解释文本，没有合法 JSON。
+- 根因：
+  - MiniMax M3 即使请求了 JSON schema，也可能在非业务区域画面输出 `<think>` 分析文本。
+  - 后端已有弱电室、机房、医生办公室的文本兜底，但没有覆盖侧门、入口、走廊、通道等常见非业务区域。
+- 修复：
+  - 扩展 MiniMax 文本 fallback：识别北/南/东/西侧门、入口、门口、走廊、通道等描述。
+  - fallback 结果统一标记低置信、需人工复核，避免误当作高置信自动结果。
+- 验证：
+  - 新增 `TestMiniMaxRecognizerFallsBackFromEntranceExplanation` 覆盖 `<think>` 解释“北侧门 / door area / entrance”时返回 `scene_type=entrance`、`area_number=北侧门`。
+  - 本机直接执行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`。
+  - 使用 `go test -c` 与服务端 `go build` 做编译验证。
