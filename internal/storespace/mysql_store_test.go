@@ -136,6 +136,13 @@ func TestMySQLStoreWriteMethodsAreImplemented(t *testing.T) {
 	}
 }
 
+func TestMySQLStoreAvoidsStringNullifCollationMismatch(t *testing.T) {
+	source := readMySQLStoreSourceForTest(t)
+	if strings.Contains(source, "nullif(?, '')") {
+		t.Fatal("mysql_store.go uses nullif on string parameters, which can fail with mixed MySQL collations")
+	}
+}
+
 func readMySQLStoreSourceForTest(t *testing.T) string {
 	t.Helper()
 	content, err := os.ReadFile("mysql_store.go")

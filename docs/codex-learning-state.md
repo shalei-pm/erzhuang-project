@@ -2,6 +2,22 @@
 
 最后更新：2026-07-04
 
+## 2026-07-04 MySQL 设计图保存 collation 修复 2.30.22
+
+- 现象：
+  - 线上临时门店写接口验收中，新增门店和编辑门店成功，保存设计图返回 500。
+  - 详细错误：`Error 1267 (HY000): Illegal mix of collations ... for operation 'nullif'`。
+- 根因：
+  - MySQL 设计图保存 SQL 使用 `nullif(?, '')` 写入 `recognition_result`。
+  - 参数 collation 与空字符串 literal collation 在公司 MySQL 环境不一致，触发字符串比较 collation 冲突。
+- 修复：
+  - 将设计图保存的 `recognition_result` 写法改为 `case when length(?) = 0 then null else ? end`，用长度判断代替字符串比较。
+  - 新增 MySQL Store 源码门禁测试，禁止重新引入字符串参数上的 `nullif(?, '')`。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+
 ## 2026-07-04 MySQL 门店空间写接口补齐 2.30.21
 
 - 现象：

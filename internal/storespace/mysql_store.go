@@ -1327,11 +1327,11 @@ func mysqlUpsertStoreDesignPlan(ctx context.Context, tx *sql.Tx, storeID int64, 
 				thumbnail_path = ?,
 				page_count = ?,
 				recognition_status = ?,
-				recognition_result = nullif(?, ''),
+				recognition_result = case when length(?) = 0 then null else ? end,
 				updated_at = current_timestamp(3)
 			where id = ?
 		`, input.UploadID, input.PDFFileName, input.OriginalPDFPath, input.PreviewImagePath, input.ThumbnailPath,
-			input.PageCount, RecognitionStatusCompleted, input.RecognitionResult, existingID); err != nil {
+			input.PageCount, RecognitionStatusCompleted, input.RecognitionResult, input.RecognitionResult, existingID); err != nil {
 			return nil, err
 		}
 		return mysqlQueryDesignPlan(ctx, tx, existingID)
@@ -1342,9 +1342,9 @@ func mysqlUpsertStoreDesignPlan(ctx context.Context, tx *sql.Tx, storeID int64, 
 			store_id, upload_id, pdf_file_name, original_pdf_path, preview_image_path,
 			thumbnail_path, page_count, recognition_status, recognition_result
 		)
-		values (?, ?, ?, ?, ?, ?, ?, ?, nullif(?, ''))
+		values (?, ?, ?, ?, ?, ?, ?, ?, case when length(?) = 0 then null else ? end)
 	`, storeID, input.UploadID, input.PDFFileName, input.OriginalPDFPath, input.PreviewImagePath,
-		input.ThumbnailPath, input.PageCount, RecognitionStatusCompleted, input.RecognitionResult)
+		input.ThumbnailPath, input.PageCount, RecognitionStatusCompleted, input.RecognitionResult, input.RecognitionResult)
 	if err != nil {
 		return nil, err
 	}
