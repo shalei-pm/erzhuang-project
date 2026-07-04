@@ -1,6 +1,23 @@
 # Codex Learning State
 
-最后更新：2026-06-24
+最后更新：2026-07-04
+
+## 2026-07-04 MySQL 门店空间写接口补齐 2.30.21
+
+- 现象：
+  - MySQL/OSS 切换后，读链路、扫描、识别、通道确认已经恢复，但仍需要继续排查创建、编辑、删除等前端可触达写接口。
+  - MySQL 仓储层仍有若干方法直接返回 `ErrNotImplemented`，会导致对应 API 在公司环境下返回 501/500。
+- 根因：
+  - PostgreSQL 到 MySQL 迁移期间优先补了读链路、迁移链路和通道识别链路，门店空间的常规运营写接口没有全部补齐到 `tb_` 表。
+- 修复：
+  - 实现 MySQL 新增萤石账号、新增门店、编辑门店基础信息、保存设计图标注、新增录像机。
+  - 实现 MySQL 删除门店、删除录像机、删除通道，沿用当前硬删除语义和外键级联约束。
+  - 新增 MySQL 写接口源码门禁测试，避免这些前端可触达写方法再次退回未实现状态。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - 本机直接执行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`，本次继续使用 `go test -c` 做编译门禁。
 
 ## 2026-07-02 Postgres -> MySQL 真实数据迁移方向纠正
 

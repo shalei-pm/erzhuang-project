@@ -1,6 +1,7 @@
 package storespace
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -111,4 +112,49 @@ func TestMySQLRecorderStatusForActiveCount(t *testing.T) {
 	if got := mysqlRecorderStatusForActiveCount(3); got != RecorderStatusOnline {
 		t.Fatalf("status for active channels = %q, want %q", got, RecorderStatusOnline)
 	}
+}
+
+func TestMySQLStoreWriteMethodsAreImplemented(t *testing.T) {
+	source := readMySQLStoreSourceForTest(t)
+	for _, method := range []string{
+		"CreateEzvizAccount",
+		"CreateStore",
+		"UpdateStoreBasicInfo",
+		"SaveDesignPlan",
+		"AddRecorder",
+		"DeleteStore",
+		"DeleteRecorder",
+		"DeleteChannel",
+	} {
+		body := mysqlStoreMethodSourceForTest(source, method)
+		if body == "" {
+			t.Fatalf("MySQLStore.%s source not found", method)
+		}
+		if strings.Contains(body, "ErrNot"+"Implemented") {
+			t.Fatalf("MySQLStore.%s still returns ErrNotImplemented", method)
+		}
+	}
+}
+
+func readMySQLStoreSourceForTest(t *testing.T) string {
+	t.Helper()
+	content, err := os.ReadFile("mysql_store.go")
+	if err != nil {
+		t.Fatalf("read mysql store source: %v", err)
+	}
+	return string(content)
+}
+
+func mysqlStoreMethodSourceForTest(source string, method string) string {
+	marker := "func (s *MySQLStore) " + method + "("
+	start := strings.Index(source, marker)
+	if start < 0 {
+		return ""
+	}
+	rest := source[start+len(marker):]
+	next := strings.Index(rest, "\nfunc ")
+	if next < 0 {
+		return source[start:]
+	}
+	return source[start : start+len(marker)+next]
 }

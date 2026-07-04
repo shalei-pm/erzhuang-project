@@ -44,7 +44,18 @@ func (s *MySQLStore) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, err
 }
 
 func (s *MySQLStore) CreateEzvizAccount(ctx context.Context, input CreateEzvizAccountInput) (*EzvizAccount, error) {
-	return nil, ErrNotImplemented
+	result, err := s.db.ExecContext(ctx, `
+		insert into tb_ezviz_accounts (account_name, app_key, app_secret_ciphertext, access_token_ciphertext, status)
+		values (?, '', '', '', 'unverified')
+	`, strings.TrimSpace(input.AccountName))
+	if err != nil {
+		return nil, err
+	}
+	accountID, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return s.GetEzvizAccount(ctx, accountID)
 }
 
 func (s *MySQLStore) EzvizAccountNameExists(ctx context.Context, accountName string) (bool, error) {
@@ -304,19 +315,177 @@ func (s *MySQLStore) GetStoreChannelData(ctx context.Context, id int64) (*Store,
 }
 
 func (s *MySQLStore) CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error) {
-	return nil, ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	designPlanStatus := DesignPlanStatusNotUploaded
+	if strings.TrimSpace(input.DesignPlanUploadID) != "" {
+		designPlanStatus = DesignPlanStatusPendingRecognition
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		insert into tb_stores (city, name, short_name, normalized_name, external_org_id, design_plan_status, overall_status)
+		values (?, ?, ?, ?, ?, ?, ?)
+	`, strings.TrimSpace(input.City), strings.TrimSpace(input.Name), strings.TrimSpace(input.ShortName), NormalizeStoreName(input.Name), strings.TrimSpace(input.ExternalOrgID),
+		designPlanStatus, OverallStatusPartial)
+	if err != nil {
+		return nil, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	if uploadID := strings.TrimSpace(input.DesignPlanUploadID); uploadID != "" {
+		if _, err := tx.ExecContext(ctx, `
+			insert into tb_store_design_plans (store_id, upload_id, recognition_status)
+			values (?, ?, ?)
+		`, id, uploadID, RecognitionStatusNotStarted); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, recorder := range input.Recorders {
+		code := normalizeDeviceCode(recorder.DeviceCode)
+		if code == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into tb_video_recorders (store_id, ezviz_account_id, device_code, status)
+			values (?, nullif(?, 0), ?, ?)
+		`, id, recorder.EzvizAccountID, code, RecorderStatusOffline); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := mysqlInsertOperationLog(ctx, tx, "create", "store", id, id, fmt.Sprintf("created store %s", strings.TrimSpace(input.Name))); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, id)
 }
 
 func (s *MySQLStore) UpdateStoreBasicInfo(ctx context.Context, id int64, input UpdateStoreBasicInfoInput) (*Store, error) {
-	return nil, ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
+		update tb_stores
+		set city = ?,
+			name = ?,
+			normalized_name = ?,
+			short_name = ?,
+			external_org_id = ?,
+			updated_at = current_timestamp(3)
+		where id = ?
+	`, strings.TrimSpace(input.City), strings.TrimSpace(input.Name), NormalizeStoreName(input.Name), strings.TrimSpace(input.ShortName), strings.TrimSpace(input.ExternalOrgID), id)
+	if err != nil {
+		return nil, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, ErrNotFound
+	}
+	if err := mysqlInsertOperationLog(ctx, tx, "update", "store", id, id, fmt.Sprintf("updated store basic info %s", strings.TrimSpace(input.Name))); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, id)
 }
 
 func (s *MySQLStore) SaveDesignPlan(ctx context.Context, storeID int64, input SaveDesignPlanInput) (*Store, error) {
-	return nil, ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var existingStoreID int64
+	if err := tx.QueryRowContext(ctx, `select id from tb_stores where id = ?`, storeID).Scan(&existingStoreID); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+
+	plan, err := mysqlUpsertStoreDesignPlan(ctx, tx, storeID, input)
+	if err != nil {
+		return nil, err
+	}
+	for _, areaInput := range input.Areas {
+		area, err := mysqlUpsertDesignArea(ctx, tx, storeID, areaInput)
+		if err != nil {
+			return nil, err
+		}
+		if err := mysqlUpsertDesignAnnotation(ctx, tx, plan.ID, area.ID, areaInput.Box); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update tb_stores
+		set design_plan_status = ?,
+			updated_at = current_timestamp(3)
+		where id = ?
+	`, DesignPlanStatusCompleted, storeID); err != nil {
+		return nil, err
+	}
+	if err := mysqlInsertOperationLog(ctx, tx, "save_design_plan", "store", storeID, storeID, "saved design plan annotations"); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, storeID)
 }
 
 func (s *MySQLStore) AddRecorder(ctx context.Context, storeID int64, input AddRecorderInput) (*Store, error) {
-	return nil, ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var existingStoreID int64
+	if err := tx.QueryRowContext(ctx, `select id from tb_stores where id = ?`, storeID).Scan(&existingStoreID); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+
+	code := normalizeDeviceCode(input.DeviceCode)
+	result, err := tx.ExecContext(ctx, `
+		insert into tb_video_recorders (store_id, ezviz_account_id, device_code, status)
+		values (?, nullif(?, 0), ?, ?)
+	`, storeID, input.EzvizAccountID, code, RecorderStatusOffline)
+	if err != nil {
+		return nil, err
+	}
+	recorderID, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `update tb_stores set updated_at = current_timestamp(3) where id = ?`, storeID); err != nil {
+		return nil, err
+	}
+	if err := mysqlInsertOperationLog(ctx, tx, "create", "recorder", recorderID, storeID, fmt.Sprintf("added recorder %s", code)); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, storeID)
 }
 
 func (s *MySQLStore) GetRecorder(ctx context.Context, recorderID int64) (*Recorder, error) {
@@ -783,15 +952,114 @@ func (s *MySQLStore) ConfirmChannel(ctx context.Context, channelID int64, input 
 }
 
 func (s *MySQLStore) DeleteStore(ctx context.Context, id int64) error {
-	return ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var name string
+	if err := tx.QueryRowContext(ctx, `select name from tb_stores where id = ?`, id).Scan(&name); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `delete from tb_stores where id = ?`, id); err != nil {
+		return err
+	}
+	if err := mysqlInsertOperationLog(ctx, tx, "delete", "store", id, id, fmt.Sprintf("deleted store %s", name)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *MySQLStore) DeleteRecorder(ctx context.Context, recorderID int64) error {
-	return ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var storeID int64
+	var deviceCode string
+	if err := tx.QueryRowContext(ctx, `
+		select store_id, device_code
+		from tb_video_recorders
+		where id = ?
+	`, recorderID).Scan(&storeID, &deviceCode); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `delete from tb_video_recorders where id = ?`, recorderID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `update tb_stores set updated_at = current_timestamp(3) where id = ?`, storeID); err != nil {
+		return err
+	}
+	if err := mysqlInsertOperationLog(ctx, tx, "delete", "recorder", recorderID, storeID, fmt.Sprintf("deleted recorder %s", deviceCode)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *MySQLStore) DeleteChannel(ctx context.Context, channelID int64) (*Store, error) {
-	return nil, ErrNotImplemented
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var storeID int64
+	var recorderID int64
+	var channelNo int
+	if err := tx.QueryRowContext(ctx, `
+		select r.store_id, c.recorder_id, c.channel_no
+		from tb_video_channels c, tb_video_recorders r
+		where r.id = c.recorder_id and c.id = ?
+	`, channelID).Scan(&storeID, &recorderID, &channelNo); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `delete from tb_video_channels where id = ?`, channelID); err != nil {
+		return nil, err
+	}
+	if err := mysqlDeleteUnusedVideoAreas(ctx, tx, storeID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update tb_video_recorders
+		set effective_channel_count = (
+				select count(*)
+				from tb_video_channels
+				where recorder_id = ? and is_active and status <> ?
+			),
+			status = case
+				when exists (
+					select 1
+					from tb_video_channels
+					where recorder_id = ? and is_active and status <> ?
+				) then ?
+				else ?
+			end,
+			updated_at = current_timestamp(3)
+		where id = ?
+	`, recorderID, ChannelStatusInactive, recorderID, ChannelStatusInactive, RecorderStatusOnline, RecorderStatusOffline, recorderID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `update tb_stores set updated_at = current_timestamp(3) where id = ?`, storeID); err != nil {
+		return nil, err
+	}
+	if err := mysqlInsertOperationLog(ctx, tx, "delete", "channel", channelID, storeID, fmt.Sprintf("deleted channel %d", channelNo)); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetStore(ctx, storeID)
 }
 
 func (s *MySQLStore) CheckDuplicate(ctx context.Context, name string, excludeStoreID int64) (DuplicateCheckResult, error) {
@@ -1034,6 +1302,246 @@ func (s *MySQLStore) mysqlUpdateOrCreateVideoArea(ctx context.Context, tx *sql.T
 	area.Source = AreaSourceVideoChannel
 	area.Status = AreaStatusConfirmed
 	return &area, nil
+}
+
+func mysqlUpsertStoreDesignPlan(ctx context.Context, tx *sql.Tx, storeID int64, input SaveDesignPlanInput) (*DesignPlan, error) {
+	var existingID int64
+	err := tx.QueryRowContext(ctx, `
+		select id
+		from tb_store_design_plans
+		where store_id = ?
+		order by updated_at desc, id desc
+		limit 1
+	`, storeID).Scan(&existingID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	if existingID != 0 {
+		if _, err := tx.ExecContext(ctx, `
+			update tb_store_design_plans
+			set upload_id = ?,
+				pdf_file_name = ?,
+				original_pdf_path = ?,
+				preview_image_path = ?,
+				thumbnail_path = ?,
+				page_count = ?,
+				recognition_status = ?,
+				recognition_result = nullif(?, ''),
+				updated_at = current_timestamp(3)
+			where id = ?
+		`, input.UploadID, input.PDFFileName, input.OriginalPDFPath, input.PreviewImagePath, input.ThumbnailPath,
+			input.PageCount, RecognitionStatusCompleted, input.RecognitionResult, existingID); err != nil {
+			return nil, err
+		}
+		return mysqlQueryDesignPlan(ctx, tx, existingID)
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		insert into tb_store_design_plans (
+			store_id, upload_id, pdf_file_name, original_pdf_path, preview_image_path,
+			thumbnail_path, page_count, recognition_status, recognition_result
+		)
+		values (?, ?, ?, ?, ?, ?, ?, ?, nullif(?, ''))
+	`, storeID, input.UploadID, input.PDFFileName, input.OriginalPDFPath, input.PreviewImagePath,
+		input.ThumbnailPath, input.PageCount, RecognitionStatusCompleted, input.RecognitionResult)
+	if err != nil {
+		return nil, err
+	}
+	planID, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return mysqlQueryDesignPlan(ctx, tx, planID)
+}
+
+func mysqlQueryDesignPlan(ctx context.Context, tx *sql.Tx, planID int64) (*DesignPlan, error) {
+	var plan DesignPlan
+	err := tx.QueryRowContext(ctx, `
+		select id, store_id, upload_id, pdf_file_name, original_pdf_path, preview_image_path,
+			thumbnail_path, page_count, recognition_status, created_at, updated_at
+		from tb_store_design_plans
+		where id = ?
+	`, planID).Scan(
+		&plan.ID,
+		&plan.StoreID,
+		&plan.UploadID,
+		&plan.PDFFileName,
+		&plan.OriginalPDFPath,
+		&plan.PreviewImagePath,
+		&plan.ThumbnailPath,
+		&plan.PageCount,
+		&plan.RecognitionStatus,
+		&plan.CreatedAt,
+		&plan.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &plan, nil
+}
+
+func mysqlUpsertDesignArea(ctx context.Context, tx *sql.Tx, storeID int64, input DesignAreaInput) (*Area, error) {
+	number, _ := strconv.Atoi(strings.TrimSpace(input.NumberText))
+	if input.ID != 0 {
+		if area, err := mysqlUpdateDesignAreaByID(ctx, tx, storeID, input, number); err == nil {
+			return area, nil
+		} else if !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+	}
+
+	area, err := mysqlQueryArea(ctx, tx, storeID, input.Type, number)
+	if err == nil {
+		return mysqlUpdateDesignAreaSource(ctx, tx, area, input, number)
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		insert into tb_store_areas (store_id, area_type, area_number, display_name, source, status)
+		values (?, ?, ?, ?, ?, ?)
+	`, storeID, input.Type, number, displayNameOrDefault(input.DisplayName, input.Type, number), AreaSourceDesignPlan, AreaStatusConfirmed)
+	if err != nil {
+		return nil, err
+	}
+	areaID, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return mysqlQueryAreaByID(ctx, tx, areaID, storeID)
+}
+
+func mysqlUpdateDesignAreaByID(ctx context.Context, tx *sql.Tx, storeID int64, input DesignAreaInput, number int) (*Area, error) {
+	area, err := mysqlQueryAreaByID(ctx, tx, input.ID, storeID)
+	if err != nil {
+		return nil, err
+	}
+	if area.Source == AreaSourceVideoChannel || area.Source == AreaSourceMultiple {
+		nextSource := mergeAreaSource(area.Source, AreaSourceDesignPlan)
+		if area.Source != nextSource {
+			if _, err := tx.ExecContext(ctx, `
+				update tb_store_areas
+				set source = ?, updated_at = current_timestamp(3)
+				where id = ?
+			`, nextSource, area.ID); err != nil {
+				return nil, err
+			}
+			area.Source = nextSource
+		}
+		return area, nil
+	}
+	return mysqlUpdateDesignAreaSource(ctx, tx, area, input, number)
+}
+
+func mysqlUpdateDesignAreaSource(ctx context.Context, tx *sql.Tx, area *Area, input DesignAreaInput, number int) (*Area, error) {
+	nextSource := mergeAreaSource(area.Source, AreaSourceDesignPlan)
+	if _, err := tx.ExecContext(ctx, `
+		update tb_store_areas
+		set area_type = ?,
+			area_number = ?,
+			display_name = ?,
+			source = ?,
+			status = ?,
+			updated_at = current_timestamp(3)
+		where id = ?
+	`, input.Type, number, displayNameOrDefault(input.DisplayName, input.Type, number), nextSource, AreaStatusConfirmed, area.ID); err != nil {
+		return nil, err
+	}
+	return mysqlQueryAreaByID(ctx, tx, area.ID, area.StoreID)
+}
+
+func mysqlQueryArea(ctx context.Context, tx *sql.Tx, storeID int64, areaType AreaType, number int) (*Area, error) {
+	var area Area
+	err := tx.QueryRowContext(ctx, `
+		select id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
+		from tb_store_areas
+		where store_id = ? and area_type = ? and area_number = ?
+	`, storeID, areaType, number).Scan(
+		&area.ID,
+		&area.StoreID,
+		&area.Type,
+		&area.Number,
+		&area.DisplayName,
+		&area.Source,
+		&area.Status,
+		&area.CreatedAt,
+		&area.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &area, nil
+}
+
+func mysqlQueryAreaByID(ctx context.Context, tx *sql.Tx, areaID int64, storeID int64) (*Area, error) {
+	var area Area
+	err := tx.QueryRowContext(ctx, `
+		select id, store_id, area_type, area_number, display_name, source, status, created_at, updated_at
+		from tb_store_areas
+		where id = ? and store_id = ?
+	`, areaID, storeID).Scan(
+		&area.ID,
+		&area.StoreID,
+		&area.Type,
+		&area.Number,
+		&area.DisplayName,
+		&area.Source,
+		&area.Status,
+		&area.CreatedAt,
+		&area.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &area, nil
+}
+
+func mysqlUpsertDesignAnnotation(ctx context.Context, tx *sql.Tx, planID int64, areaID int64, box *AreaBox) error {
+	if box == nil {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+		insert into tb_design_plan_annotations (
+			design_plan_id, area_id, box_x, box_y, box_width, box_height, status
+		)
+		values (?, ?, ?, ?, ?, ?, ?)
+		on duplicate key update
+			box_x = values(box_x),
+			box_y = values(box_y),
+			box_width = values(box_width),
+			box_height = values(box_height),
+			status = values(status),
+			updated_at = current_timestamp(3)
+	`, planID, areaID, box.X, box.Y, box.Width, box.Height, "confirmed")
+	return err
+}
+
+func mysqlDeleteUnusedVideoAreas(ctx context.Context, tx *sql.Tx, storeID int64) error {
+	_, err := tx.ExecContext(ctx, `
+		delete from tb_store_areas
+		where store_id = ?
+			and source = ?
+			and not exists (
+				select 1 from tb_design_plan_annotations dpa
+				where dpa.area_id = tb_store_areas.id
+			)
+			and not exists (
+				select 1 from tb_video_channels vc
+				where vc.area_id = tb_store_areas.id
+			)
+	`, storeID, AreaSourceVideoChannel)
+	return err
 }
 
 func (s *MySQLStore) getStoreBase(ctx context.Context, id int64) (*Store, error) {
