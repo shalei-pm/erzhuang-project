@@ -228,6 +228,7 @@ create table if not exists tb_asset_access_logs (
 
 insert ignore into tb_roles (code, name, description, is_system) values
   ('admin', '管理员', '全量机构和系统管理权限', 1),
+  ('editor', '编辑运维', '维护门店、设计图、录像机和通道', 1),
   ('operator', '运营人员', '按授权范围维护门店、设计图和通道', 1),
   ('viewer', '只读用户', '按授权范围查看门店、设计图、通道和监控', 1);
 
@@ -279,7 +280,7 @@ join tb_permissions p on p.code in (
   'h5_monitor.playback',
   'asset.sensitive.view'
 )
-where r.code = 'operator';
+where r.code in ('editor', 'operator');
 
 insert ignore into tb_role_permissions (role_id, permission_id)
 select r.id, p.id

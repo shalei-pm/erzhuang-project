@@ -254,6 +254,15 @@ func (s *MySQLStore) getAuthUserByID(ctx context.Context, id int64) (AuthUserRec
 }
 
 func setMySQLUserRole(ctx context.Context, tx *sql.Tx, userID int64, role string) error {
+	if _, err := tx.ExecContext(ctx, `
+		insert ignore into tb_roles (code, name, description, is_system)
+		values
+			('admin', '管理员', '全量机构和系统管理权限', 1),
+			('editor', '编辑运维', '维护门店、设计图、录像机和通道', 1),
+			('viewer', '普通查看', '查看门店、设计图、通道和监控', 1)
+	`); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `delete from tb_user_roles where user_id = ?`, userID); err != nil {
 		return err
 	}

@@ -7,6 +7,8 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -17,6 +19,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -471,6 +474,42 @@ func TestAuthUserPermissionsForAdminEditorViewer(t *testing.T) {
 				t.Fatalf("permissions()=%v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSetMySQLUserRoleSeedsKnownRolesBeforeAssignment(t *testing.T) {
+	recorder := newRecordingSQLDriver(t)
+	db, err := sql.Open(recorder.driverName, "")
+	if err != nil {
+		t.Fatalf("open recording db: %v", err)
+	}
+	defer db.Close()
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback()
+
+	if err := setMySQLUserRole(context.Background(), tx, 42, RoleEditor); err != nil {
+		t.Fatalf("set role: %v", err)
+	}
+
+	queries := recorder.queries()
+	if len(queries) < 3 {
+		t.Fatalf("expected role seed, delete, and assignment queries, got %#v", queries)
+	}
+	seedQuery := queries[0]
+	if !strings.Contains(seedQuery, "insert ignore into tb_roles") ||
+		!strings.Contains(seedQuery, "'admin'") ||
+		!strings.Contains(seedQuery, "'editor'") ||
+		!strings.Contains(seedQuery, "'viewer'") {
+		t.Fatalf("expected first query to seed admin/editor/viewer roles, got %q", seedQuery)
+	}
+	if !strings.Contains(queries[1], "delete from tb_user_roles") {
+		t.Fatalf("expected second query to clear current roles, got %q", queries[1])
+	}
+	if !strings.Contains(queries[2], "insert ignore into tb_user_roles") {
+		t.Fatalf("expected third query to assign requested role, got %q", queries[2])
 	}
 }
 
@@ -1862,4 +1901,68 @@ func setMySQLAssetInventoryRunnerForTest(runner mysqlAssetInventoryRunner) func(
 	return func() {
 		currentMySQLAssetInventoryRunner = previous
 	}
+}
+
+type recordingSQLDriver struct {
+	driverName  string
+	mu          sync.Mutex
+	execQueries []string
+}
+
+func newRecordingSQLDriver(t *testing.T) *recordingSQLDriver {
+	t.Helper()
+	driver := &recordingSQLDriver{driverName: "recording-sql-" + strings.ReplaceAll(t.Name(), "/", "-")}
+	sql.Register(driver.driverName, driver)
+	return driver
+}
+
+func (d *recordingSQLDriver) Open(name string) (driver.Conn, error) {
+	return &recordingSQLConn{driver: d}, nil
+}
+
+func (d *recordingSQLDriver) record(query string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.execQueries = append(d.execQueries, strings.Join(strings.Fields(query), " "))
+}
+
+func (d *recordingSQLDriver) queries() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.execQueries...)
+}
+
+type recordingSQLConn struct {
+	driver *recordingSQLDriver
+}
+
+func (c *recordingSQLConn) Prepare(query string) (driver.Stmt, error) {
+	return nil, errors.New("prepare not implemented")
+}
+
+func (c *recordingSQLConn) Close() error {
+	return nil
+}
+
+func (c *recordingSQLConn) Begin() (driver.Tx, error) {
+	return recordingSQLTx{}, nil
+}
+
+func (c *recordingSQLConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	return recordingSQLTx{}, nil
+}
+
+func (c *recordingSQLConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	c.driver.record(query)
+	return driver.RowsAffected(1), nil
+}
+
+type recordingSQLTx struct{}
+
+func (recordingSQLTx) Commit() error {
+	return nil
+}
+
+func (recordingSQLTx) Rollback() error {
+	return nil
 }
