@@ -23,7 +23,7 @@ import {
   shouldShowForbiddenAccess,
   shouldShowLoginWelcome,
   shouldShowLogoutEntry,
-  shouldUseGatewayLogout,
+  shouldSkipLocalLogoutBeforeRedirect,
 } from "./domain/auth";
 import { canOpenH5Monitor, h5MonitorPath } from "./domain/store-detail-navigation";
 
@@ -107,9 +107,9 @@ describe("auth helpers", () => {
     );
   });
 
-  it("uses gateway logout directly on the company domain", () => {
-    expect(shouldUseGatewayLogout("lite.sy.soyoung.com")).toBe(true);
-    expect(shouldUseGatewayLogout("127.0.0.1")).toBe(false);
+  it("does not skip local session cleanup before gateway logout on the company domain", () => {
+    expect(shouldSkipLocalLogoutBeforeRedirect("lite.sy.soyoung.com")).toBe(false);
+    expect(shouldSkipLocalLogoutBeforeRedirect("127.0.0.1")).toBe(false);
   });
 
   it("shows logout on the company sso domain even while backend auth remains in compatibility mode", () => {

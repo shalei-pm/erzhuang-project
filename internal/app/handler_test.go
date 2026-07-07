@@ -1703,7 +1703,7 @@ func TestAPISIXSSOLogoutGetUnderConfiguredBasePathRedirectsHome(t *testing.T) {
 	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
 	t.Setenv("SSO_ENABLED", "true")
 
-	request := httptest.NewRequest(http.MethodGet, "/erzhuang-project/logout", nil)
+	request := httptest.NewRequest(http.MethodGet, "https://lite.sy.soyoung.com/erzhuang-project/logout", nil)
 	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: "token-value"})
 	recorder := httptest.NewRecorder()
 
@@ -1716,11 +1716,11 @@ func TestAPISIXSSOLogoutGetUnderConfiguredBasePathRedirectsHome(t *testing.T) {
 		t.Fatalf("unexpected redirect location: %s", recorder.Header().Get("Location"))
 	}
 	cookies := recorder.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("expected logout to clear one cookie, got %#v", cookies)
+	if !hasClearedAuthCookie(cookies, "sy_sso_token", "") {
+		t.Fatalf("expected logout to clear host-only sso cookie, got %#v", cookies)
 	}
-	if cookies[0].Name != "sy_sso_token" || cookies[0].MaxAge != -1 {
-		t.Fatalf("expected cleared sso cookie, got %#v", cookies[0])
+	if !hasClearedAuthCookie(cookies, "sy_sso_token", "sy.soyoung.com") {
+		t.Fatalf("expected logout to clear parent-domain sso cookie, got %#v", cookies)
 	}
 }
 
@@ -1740,6 +1740,15 @@ func TestAuthLogoutPostKeepsJSONResponse(t *testing.T) {
 	if !response["ok"] {
 		t.Fatalf("unexpected logout response: %#v", response)
 	}
+}
+
+func hasClearedAuthCookie(cookies []*http.Cookie, name string, domain string) bool {
+	for _, cookie := range cookies {
+		if cookie.Name == name && cookie.Domain == domain && cookie.Path == "/" && cookie.MaxAge == -1 {
+			return true
+		}
+	}
+	return false
 }
 
 type failingStore struct{}

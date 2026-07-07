@@ -27,7 +27,7 @@ import {
   shouldShowForbiddenAccess,
   shouldShowLoginWelcome,
   shouldShowLogoutEntry,
-  shouldUseGatewayLogout,
+  shouldSkipLocalLogoutBeforeRedirect,
   type AuthState,
 } from "./domain/auth";
 import { errorMessage } from "./domain/format";
@@ -406,7 +406,7 @@ function AdminApp() {
   async function logout() {
     const logoutPath = authLogoutPath();
     setLoggingOut(true);
-    if (shouldUseGatewayLogout()) {
+    if (shouldSkipLocalLogoutBeforeRedirect()) {
       window.location.assign(logoutPath);
       return;
     }
@@ -722,7 +722,7 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
   async function logout() {
     const logoutPath = authLogoutPath();
     setLoggingOut(true);
-    if (shouldUseGatewayLogout()) {
+    if (shouldSkipLocalLogoutBeforeRedirect()) {
       window.location.assign(logoutPath);
       return;
     }

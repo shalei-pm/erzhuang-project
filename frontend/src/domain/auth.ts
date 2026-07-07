@@ -54,8 +54,8 @@ export function authLogoutPath(hostname = currentHostname()) {
   return `${authBasePath()}/logout`;
 }
 
-export function shouldUseGatewayLogout(hostname = currentHostname()) {
-  return isCompanySSODomain(hostname);
+export function shouldSkipLocalLogoutBeforeRedirect(_hostname = currentHostname()) {
+  return false;
 }
 
 export function shouldShowLogoutEntry(auth: Pick<AuthState, "enabled" | "authenticated"> | null, hostname = window.location.hostname) {

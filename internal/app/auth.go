@@ -204,7 +204,7 @@ func (h *Handler) authCallbackHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
-	h.clearAuthCookie(w)
+	h.clearAuthCookie(w, r)
 	if r.Method == http.MethodGet {
 		http.Redirect(w, r, normalizeBasePath(os.Getenv("APP_BASE_PATH"))+"/", http.StatusFound)
 		return
@@ -212,15 +212,51 @@ func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (h *Handler) clearAuthCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     h.auth.CookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-	})
+func (h *Handler) clearAuthCookie(w http.ResponseWriter, r *http.Request) {
+	for _, domain := range authCookieClearDomains(r.Host) {
+		cookie := &http.Cookie{
+			Name:     h.auth.CookieName,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		}
+		if domain != "" {
+			cookie.Domain = domain
+		}
+		http.SetCookie(w, cookie)
+	}
+}
+
+func authCookieClearDomains(host string) []string {
+	hostname := strings.ToLower(strings.TrimSpace(host))
+	if colon := strings.Index(hostname, ":"); colon >= 0 {
+		hostname = hostname[:colon]
+	}
+	domains := []string{""}
+	if hostname == "" || hostname == "localhost" || strings.Count(hostname, ".") == 0 {
+		return domains
+	}
+	domains = append(domains, hostname)
+	parts := strings.Split(hostname, ".")
+	if len(parts) >= 3 {
+		domains = append(domains, strings.Join(parts[len(parts)-3:], "."))
+	}
+	return uniqueStrings(domains)
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 func (config AuthConfig) validateAPISIXSSOToken(token string, now time.Time) (*apisixSSOTokenClaims, error) {
