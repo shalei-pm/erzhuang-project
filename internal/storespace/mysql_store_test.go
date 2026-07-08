@@ -142,11 +142,23 @@ func TestMySQLListStoresSummaryUsesFilteredDataset(t *testing.T) {
 	if body == "" {
 		t.Fatal("MySQLStore.ListStores source not found")
 	}
-	if !strings.Contains(body, "storeListSummary(ctx, rawLike, rawLike, filters.City)") {
+	if !strings.Contains(body, "storeListSummary(ctx, filters)") {
 		t.Fatalf("MySQLStore.ListStores must summarize the full filtered dataset, body=%s", body)
 	}
 	if strings.Contains(body, "summarizeStoreListItems(items)") {
 		t.Fatalf("MySQLStore.ListStores still summarizes only current page items, body=%s", body)
+	}
+	summaryBody := mysqlStoreMethodSourceForTest(source, "storeListSummary")
+	for _, want := range []string{
+		"mysqlStoreListWhere(filters)",
+		"binary coalesce(nullif(trim(s.city), ''), '未设置') = binary ?",
+		"select count(*) from tb_stores s",
+		"exists (select 1 from tb_stores s",
+		"binary a.area_type",
+	} {
+		if !strings.Contains(summaryBody, want) {
+			t.Fatalf("MySQLStore.storeListSummary missing %q, body=%s", want, summaryBody)
+		}
 	}
 }
 

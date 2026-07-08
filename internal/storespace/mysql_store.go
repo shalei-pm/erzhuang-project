@@ -147,7 +147,7 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 			items[index].ChannelsFullyConfirmed = false
 		}
 	}
-	summary, err := s.storeListSummary(ctx, rawLike, rawLike, filters.City)
+	summary, err := s.storeListSummary(ctx, filters)
 	if err != nil {
 		return StoreListResult{}, fmt.Errorf("mysql list stores summary: %w", err)
 	}
@@ -160,7 +160,7 @@ func mysqlStoreListWhere(filters StoreFilters) (string, []any) {
 	whereSQL := ""
 	args := []any{}
 	if city != "" {
-		whereSQL = mysqlAppendStoreListClause(whereSQL, "coalesce(nullif(trim(s.city), ''), '未设置') = ?")
+		whereSQL = mysqlAppendStoreListClause(whereSQL, "binary coalesce(nullif(trim(s.city), ''), '未设置') = binary ?")
 		args = append(args, city)
 	}
 	if hasSearch {
@@ -1817,48 +1817,27 @@ func (s *MySQLStore) listStoreCities(ctx context.Context, rawLike string, hasSea
 	return cities, rows.Err()
 }
 
-func (s *MySQLStore) storeListSummary(ctx context.Context, rawLike string, normalizedLike string, city string) (StoreListSummary, error) {
+func (s *MySQLStore) storeListSummary(ctx context.Context, filters StoreFilters) (StoreListSummary, error) {
 	var summary StoreListSummary
+	whereSQL, whereArgs := mysqlStoreListWhere(filters)
+	areaWhereSQL := mysqlAppendStoreListClause(whereSQL, "s.id = a.store_id")
+	args := append([]any{}, whereArgs...)
+	args = append(args, whereArgs...)
+	args = append(args, whereArgs...)
+	args = append(args, whereArgs...)
 	err := s.db.QueryRowContext(ctx, `
 		select
-			(select count(*)
-				from tb_stores s
-				where (? = '' or coalesce(nullif(trim(s.city), ''), '未设置') = ?)
-					and (? = '%%' or replace(lower(s.name), ' ', '') like ? or (? <> '%%' and s.normalized_name like ?))
-			),
-			(select count(*)
-				from tb_store_areas a
-				where a.area_type in ('treatment', 'vip_treatment')
-					and a.store_id in (
-						select s.id from tb_stores s
-						where (? = '' or coalesce(nullif(trim(s.city), ''), '未设置') = ?)
-							and (? = '%%' or replace(lower(s.name), ' ', '') like ? or (? <> '%%' and s.normalized_name like ?))
-					)
-			),
-			(select count(*)
-				from tb_store_areas a
-				where a.area_type = 'consultation'
-					and a.store_id in (
-						select s.id from tb_stores s
-						where (? = '' or coalesce(nullif(trim(s.city), ''), '未设置') = ?)
-							and (? = '%%' or replace(lower(s.name), ' ', '') like ? or (? <> '%%' and s.normalized_name like ?))
-					)
-			),
-			(select count(*)
-				from tb_store_areas a
-				where a.area_type = 'beauty'
-					and a.store_id in (
-						select s.id from tb_stores s
-						where (? = '' or coalesce(nullif(trim(s.city), ''), '未设置') = ?)
-							and (? = '%%' or replace(lower(s.name), ' ', '') like ? or (? <> '%%' and s.normalized_name like ?))
-					)
-			)
-	`,
-		city, city, rawLike, rawLike, normalizedLike, normalizedLike,
-		city, city, rawLike, rawLike, normalizedLike, normalizedLike,
-		city, city, rawLike, rawLike, normalizedLike, normalizedLike,
-		city, city, rawLike, rawLike, normalizedLike, normalizedLike,
-	).Scan(&summary.StoreCount, &summary.TreatmentCount, &summary.ConsultationCount, &summary.BeautyCount)
+			(select count(*) from tb_stores s `+whereSQL+`),
+			(select count(*) from tb_store_areas a
+				where binary a.area_type in (binary 'treatment', binary 'vip_treatment')
+					and exists (select 1 from tb_stores s `+areaWhereSQL+`)),
+			(select count(*) from tb_store_areas a
+				where binary a.area_type = binary 'consultation'
+					and exists (select 1 from tb_stores s `+areaWhereSQL+`)),
+			(select count(*) from tb_store_areas a
+				where binary a.area_type = binary 'beauty'
+					and exists (select 1 from tb_stores s `+areaWhereSQL+`))
+	`, args...).Scan(&summary.StoreCount, &summary.TreatmentCount, &summary.ConsultationCount, &summary.BeautyCount)
 	return summary, err
 }
 
