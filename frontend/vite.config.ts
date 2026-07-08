@@ -5,7 +5,12 @@ export default defineConfig({
   base: "/erzhuang-project/",
   plugins: [react()],
   test: {
-    include: ["src/api.test.ts", "src/components/**/*.test.{ts,tsx}", "src/domain/channel-recognition.test.ts"],
+    include: [
+      "src/api.test.ts",
+      "src/components/**/*.test.{ts,tsx}",
+      "src/domain/channel-recognition.test.ts",
+      "src/domain/h5-monitor-active-tab.test.ts",
+    ],
     env: {
       VITE_DESIGN_PLAN_API_BASE: "/erzhuang-project/api/design-plan",
       VITE_STORE_SPACE_API_BASE: "/erzhuang-project/api/store-space",

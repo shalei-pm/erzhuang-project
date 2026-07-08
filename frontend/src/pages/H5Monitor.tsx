@@ -3,8 +3,9 @@ import { h5Api, H5ApiError } from "../api-h5";
 import { H5StoreSwitcher } from "../components/H5StoreSwitcher";
 import { SystemTopBar } from "../components/SystemTopBar";
 import { h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from "../domain/h5-channel-display";
+import { h5MonitorTabs, readH5MonitorActiveTab, storeH5MonitorActiveTab, type H5MonitorTabKey } from "../domain/h5-monitor-active-tab";
 import type { AuthState } from "../domain/auth";
-import type { H5MonitorChannel, H5MonitorHomeResponse, MonitorCategory } from "../domain/h5-types";
+import type { H5MonitorChannel, H5MonitorHomeResponse } from "../domain/h5-types";
 
 interface H5MonitorProps {
   externalOrgId: string;
@@ -18,17 +19,6 @@ interface H5MonitorProps {
   refreshKey?: number;
 }
 
-type TabKey = "all" | MonitorCategory;
-
-const TABS: Array<{ key: TabKey; label: string }> = [
-  { key: "all", label: "全部" },
-  { key: "consultation", label: "面诊室" },
-  { key: "treatment", label: "治疗室" },
-  { key: "beauty", label: "美容室" },
-  { key: "front_waiting", label: "前台/等候区" },
-  { key: "other", label: "过道/其他" },
-];
-
 export function H5Monitor({
   externalOrgId,
   auth,
@@ -41,7 +31,7 @@ export function H5Monitor({
   refreshKey = 0,
 }: H5MonitorProps) {
   const [data, setData] = useState<H5MonitorHomeResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>("all");
+  const [activeTab, setActiveTab] = useState<H5MonitorTabKey>(() => readH5MonitorActiveTab(externalOrgId));
   const [visibleCount, setVisibleCount] = useState(() => h5InitialVisibleCount(0, 0));
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
@@ -54,7 +44,7 @@ export function H5Monitor({
   }, []);
 
   useEffect(() => {
-    setActiveTab("all");
+    setActiveTab(readH5MonitorActiveTab(externalOrgId));
   }, [externalOrgId]);
 
   useEffect(() => {
@@ -109,19 +99,28 @@ export function H5Monitor({
   }, [data]);
 
   const visibleTabs = useMemo(() => {
-    const categoryCount = new Map<TabKey, number>();
+    const categoryCount = new Map<H5MonitorTabKey, number>();
     categoryCount.set("all", allChannels.length);
     for (const channel of allChannels) {
       categoryCount.set(channel.category, (categoryCount.get(channel.category) ?? 0) + 1);
     }
-    return TABS.filter((tab) => (categoryCount.get(tab.key) ?? 0) > 0 || tab.key === "all");
+    return h5MonitorTabs.filter((tab) => (categoryCount.get(tab.key) ?? 0) > 0 || tab.key === "all");
   }, [allChannels]);
 
   useEffect(() => {
     if (!visibleTabs.some((tab) => tab.key === activeTab)) {
+      storeH5MonitorActiveTab(externalOrgId, "all");
       setActiveTab("all");
     }
-  }, [activeTab, visibleTabs]);
+  }, [activeTab, externalOrgId, visibleTabs]);
+
+  const selectActiveTab = useCallback(
+    (tab: H5MonitorTabKey) => {
+      storeH5MonitorActiveTab(externalOrgId, tab);
+      setActiveTab(tab);
+    },
+    [externalOrgId],
+  );
 
   const filteredChannels = useMemo(() => {
     if (activeTab === "all") return allChannels;
@@ -190,7 +189,7 @@ export function H5Monitor({
           <button
             key={tab.key}
             className={activeTab === tab.key ? "active" : ""}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => selectActiveTab(tab.key)}
           >
             {tab.label}
           </button>
