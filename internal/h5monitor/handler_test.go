@@ -73,6 +73,34 @@ type fakePlayer struct {
 	disabledIDs   []string
 }
 
+type fakeAuthorizer struct {
+	allowed map[string]bool
+}
+
+func (a fakeAuthorizer) CurrentUser(r *http.Request) (AuthContext, error) {
+	return AuthContext{UserID: 1, Role: "viewer"}, nil
+}
+
+func (a fakeAuthorizer) CanViewMonitorStore(r *http.Request, externalOrgID string) (bool, error) {
+	return a.allowed[externalOrgID], nil
+}
+
+func (a fakeAuthorizer) FilterMonitorStores(r *http.Request, response MonitorStoresResponse) (MonitorStoresResponse, error) {
+	filtered := MonitorStoresResponse{}
+	for _, group := range response.Cities {
+		nextGroup := MonitorStoreCityGroup{City: group.City}
+		for _, store := range group.Stores {
+			if a.allowed[store.ExternalOrgID] {
+				nextGroup.Stores = append(nextGroup.Stores, store)
+			}
+		}
+		if len(nextGroup.Stores) > 0 {
+			filtered.Cities = append(filtered.Cities, nextGroup)
+		}
+	}
+	return filtered, nil
+}
+
 func (p *fakePlayer) EnsureAACTransfer(ctx context.Context, account ezviz.Account, deviceSerial string, channelNo int) error {
 	return errors.New("aac best effort failure")
 }
@@ -159,6 +187,40 @@ func TestMonitorStoresListsCitiesAndStoresWithEffectiveChannels(t *testing.T) {
 	store := result.Cities[0].Stores[0]
 	if store.ExternalOrgID != "10030" || store.StoreName != "北京测试店" || store.AvailableChannelCount != 6 {
 		t.Fatalf("unexpected store: %#v", store)
+	}
+}
+
+func TestH5MonitorAuthorizerFiltersStores(t *testing.T) {
+	service, _ := newFakeService()
+	handler := NewHandlerWithAuthorizer(service, fakeAuthorizer{allowed: map[string]bool{}})
+	request := httptest.NewRequest(http.MethodGet, "/api/h5/monitor/stores", nil)
+	response := httptest.NewRecorder()
+
+	handler.getMonitorStores(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var result MonitorStoresResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Cities) != 0 {
+		t.Fatalf("expected no visible stores, got %#v", result.Cities)
+	}
+}
+
+func TestH5MonitorAuthorizerBlocksDirectMonitorHome(t *testing.T) {
+	service, _ := newFakeService()
+	handler := NewHandlerWithAuthorizer(service, fakeAuthorizer{allowed: map[string]bool{}})
+	request := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/10030/monitor", nil)
+	request.SetPathValue("externalOrgId", "10030")
+	response := httptest.NewRecorder()
+
+	handler.getMonitorHome(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s, want 403", response.Code, response.Body.String())
 	}
 }
 

@@ -11,15 +11,38 @@ import (
 )
 
 type Handler struct {
-	service *Service
+	service    *Service
+	authorizer Authorizer
 }
+
+type AuthContext struct {
+	UserID int64
+	Role   string
+}
+
+type Authorizer interface {
+	CurrentUser(r *http.Request) (AuthContext, error)
+	CanViewMonitorStore(r *http.Request, externalOrgID string) (bool, error)
+	FilterMonitorStores(r *http.Request, stores MonitorStoresResponse) (MonitorStoresResponse, error)
+}
+
+var ErrUnauthorized = errors.New("h5monitor: unauthorized")
+var ErrForbidden = errors.New("h5monitor: forbidden")
 
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
+func NewHandlerWithAuthorizer(service *Service, authorizer Authorizer) *Handler {
+	return &Handler{service: service, authorizer: authorizer}
+}
+
 func RegisterRoutes(mux *http.ServeMux, service *Service) {
-	handler := NewHandler(service)
+	RegisterRoutesWithAuthorizer(mux, service, nil)
+}
+
+func RegisterRoutesWithAuthorizer(mux *http.ServeMux, service *Service, authorizer Authorizer) {
+	handler := NewHandlerWithAuthorizer(service, authorizer)
 	mux.HandleFunc("GET /api/h5/monitor/stores", handler.getMonitorStores)
 	mux.HandleFunc("GET /api/h5/orgs/{externalOrgId}/monitor", handler.getMonitorHome)
 	mux.HandleFunc("POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/live-url", handler.getLiveURL)
@@ -34,10 +57,20 @@ func (h *Handler) getMonitorStores(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
+	if h.authorizer != nil {
+		result, err = h.authorizer.FilterMonitorStores(r, result)
+		if err != nil {
+			writeAuthzError(w, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) getMonitorHome(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureCanViewStore(w, r, r.PathValue("externalOrgId")) {
+		return
+	}
 	result, err := h.service.GetMonitorHome(r.Context(), r.PathValue("externalOrgId"))
 	if err != nil {
 		writeServiceError(w, err)
@@ -50,6 +83,9 @@ func (h *Handler) getLiveURL(w http.ResponseWriter, r *http.Request) {
 	channelID, err := parseChannelID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid channel id", nil)
+		return
+	}
+	if !h.ensureCanViewStore(w, r, r.PathValue("externalOrgId")) {
 		return
 	}
 	var request LiveURLRequest
@@ -72,6 +108,9 @@ func (h *Handler) getRecordSegments(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid channel id", nil)
 		return
 	}
+	if !h.ensureCanViewStore(w, r, r.PathValue("externalOrgId")) {
+		return
+	}
 	result, err := h.service.GetRecordSegments(r.Context(), r.PathValue("externalOrgId"), channelID, r.URL.Query().Get("date"))
 	if err != nil {
 		writeServiceError(w, err)
@@ -84,6 +123,9 @@ func (h *Handler) getPlaybackURL(w http.ResponseWriter, r *http.Request) {
 	channelID, err := parseChannelID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid channel id", nil)
+		return
+	}
+	if !h.ensureCanViewStore(w, r, r.PathValue("externalOrgId")) {
 		return
 	}
 	var request PlaybackURLRequest
@@ -104,6 +146,9 @@ func (h *Handler) disableURL(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid channel id", nil)
 		return
 	}
+	if !h.ensureCanViewStore(w, r, r.PathValue("externalOrgId")) {
+		return
+	}
 	var request DisableURLRequest
 	if !decodeJSON(w, r, &request) {
 		return
@@ -122,6 +167,22 @@ func (h *Handler) disableURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Handler) ensureCanViewStore(w http.ResponseWriter, r *http.Request, externalOrgID string) bool {
+	if h.authorizer == nil {
+		return true
+	}
+	ok, err := h.authorizer.CanViewMonitorStore(r, externalOrgID)
+	if err != nil {
+		writeAuthzError(w, err)
+		return false
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "暂无监控访问权限", nil)
+		return false
+	}
+	return true
 }
 
 func parseChannelID(r *http.Request) (int64, error) {
@@ -164,6 +225,18 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, ErrConcurrencyLimit) {
 		writeError(w, http.StatusTooManyRequests, err.Error(), nil)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, err.Error(), nil)
+}
+
+func writeAuthzError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrUnauthorized) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", nil)
+		return
+	}
+	if errors.Is(err, ErrForbidden) {
+		writeError(w, http.StatusForbidden, "暂无监控访问权限", nil)
 		return
 	}
 	writeError(w, http.StatusInternalServerError, err.Error(), nil)

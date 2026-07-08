@@ -13,13 +13,26 @@ type authUsersResponse struct {
 }
 
 type authUserItemResponse struct {
-	ID          int64   `json:"id"`
-	Email       string  `json:"email"`
-	Username    string  `json:"username"`
-	DisplayName string  `json:"display_name"`
-	Role        string  `json:"role"`
-	Enabled     bool    `json:"enabled"`
-	LastLoginAt *string `json:"last_login_at,omitempty"`
+	ID                     int64                       `json:"id"`
+	Email                  string                      `json:"email"`
+	Username               string                      `json:"username"`
+	DisplayName            string                      `json:"display_name"`
+	Role                   string                      `json:"role"`
+	Enabled                bool                        `json:"enabled"`
+	LastLoginAt            *string                     `json:"last_login_at,omitempty"`
+	MonitorStoreScopeCount int                         `json:"monitor_store_scope_count"`
+	MonitorStoreScopes     []monitorStoreScopeResponse `json:"monitor_store_scopes,omitempty"`
+}
+
+type monitorStoreScopeResponse struct {
+	StoreID       int64  `json:"store_id"`
+	City          string `json:"city"`
+	Name          string `json:"name"`
+	ExternalOrgID string `json:"external_org_id"`
+}
+
+type monitorStoreScopeCandidatesResponse struct {
+	Stores []monitorStoreScopeResponse `json:"stores"`
 }
 
 func (h *Handler) listUsersHandler(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +61,18 @@ func (h *Handler) createUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, authUserItem(user))
+}
+
+func (h *Handler) listMonitorStoreScopeCandidatesHandler(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+		return
+	}
+	stores, err := h.store.ListMonitorStoreScopeCandidates(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list monitor store scope candidates failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, monitorStoreScopeCandidatesResponse{Stores: monitorStoreScopesResponse(stores)})
 }
 
 func (h *Handler) updateUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -111,12 +136,30 @@ func authUserItem(user AuthUserRecord) authUserItemResponse {
 		lastLoginAt = &value
 	}
 	return authUserItemResponse{
-		ID:          user.ID,
-		Email:       user.Email,
-		Username:    user.Username,
-		DisplayName: user.DisplayName,
-		Role:        normalizeRole(user.Role),
-		Enabled:     user.Enabled,
-		LastLoginAt: lastLoginAt,
+		ID:                     user.ID,
+		Email:                  user.Email,
+		Username:               user.Username,
+		DisplayName:            user.DisplayName,
+		Role:                   normalizeRole(user.Role),
+		Enabled:                user.Enabled,
+		LastLoginAt:            lastLoginAt,
+		MonitorStoreScopeCount: user.MonitorStoreScopeCount,
+		MonitorStoreScopes:     monitorStoreScopesResponse(user.MonitorStoreScopes),
 	}
+}
+
+func monitorStoreScopesResponse(scopes []AuthUserResourceScope) []monitorStoreScopeResponse {
+	if len(scopes) == 0 {
+		return nil
+	}
+	result := make([]monitorStoreScopeResponse, 0, len(scopes))
+	for _, scope := range scopes {
+		result = append(result, monitorStoreScopeResponse{
+			StoreID:       scope.StoreID,
+			City:          scope.City,
+			Name:          scope.Name,
+			ExternalOrgID: scope.ExternalOrgID,
+		})
+	}
+	return result
 }

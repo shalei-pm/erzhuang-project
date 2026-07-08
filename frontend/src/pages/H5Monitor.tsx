@@ -73,6 +73,10 @@ export function H5Monitor({
           onAuthRequired?.();
           return;
         }
+        if (err instanceof H5ApiError && err.status === 403) {
+          setToast("暂无该门店监控访问权限");
+          return;
+        }
         setToast(errorMessage(err, "监控数据加载失败"));
       })
       .finally(() => {
@@ -257,7 +261,7 @@ function displayImageURL(value: string): string {
 
 function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof H5ApiError) {
-    if (err.status === 403) return "暂无访问权限";
+    if (err.status === 403) return "暂无该门店监控访问权限";
     const fieldMsgs = Object.values(err.fields).filter(Boolean);
     if (fieldMsgs.length > 0) return fieldMsgs.join("；");
     return err.message;

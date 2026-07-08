@@ -54,6 +54,7 @@ export type StoreSummary = {
   name: string;
   shortName: string;
   externalOrgId: string;
+  canViewMonitor: boolean;
   thumbnailUrl: string;
   designPlanStatus: DesignPlanStatus;
   recorderCount: number | undefined;
@@ -243,6 +244,13 @@ export type AISettings = {
 
 export type ManagedUserRole = "admin" | "editor" | "viewer";
 
+export type MonitorStoreScope = {
+  storeId: number;
+  city: string;
+  name: string;
+  externalOrgId: string;
+};
+
 export type ManagedUser = {
   id: number;
   email: string;
@@ -251,6 +259,8 @@ export type ManagedUser = {
   role: ManagedUserRole;
   enabled: boolean;
   lastLoginAt?: string;
+  monitorStoreScopeCount: number;
+  monitorStoreScopes: MonitorStoreScope[];
 };
 
 export type ManagedUserPayload = {
@@ -259,6 +269,7 @@ export type ManagedUserPayload = {
   displayName: string;
   role: ManagedUserRole;
   enabled: boolean;
+  monitorStoreScopeIds: number[];
 };
 
 type ApiMode = "auto" | "http" | "mock";
@@ -467,6 +478,19 @@ type BackendManagedUser = {
   enabled?: boolean;
   last_login_at?: string;
   lastLoginAt?: string;
+  monitor_store_scope_count?: number;
+  monitorStoreScopeCount?: number;
+  monitor_store_scopes?: BackendMonitorStoreScope[];
+  monitorStoreScopes?: BackendMonitorStoreScope[];
+};
+
+type BackendMonitorStoreScope = {
+  store_id?: number;
+  storeId?: number;
+  city?: string;
+  name?: string;
+  external_org_id?: string;
+  externalOrgId?: string;
 };
 
 type BackendStoreSpaceListResponse = {
@@ -520,6 +544,8 @@ type BackendStoreSpaceSummary = {
   areaCount?: number;
   updated_at?: string;
   updatedAt?: string;
+  can_view_monitor?: boolean;
+  canViewMonitor?: boolean;
 };
 
 type BackendStoreSpaceDetail = BackendStoreSpaceSummary & {
@@ -632,10 +658,10 @@ let nextChannelId = 5000;
 const mockUploads = new Map<string, string>();
 let mockAISettings: AISettings = { provider: "openai", model: "gpt-5.5", label: "OpenAI / gpt-5.5" };
 let mockManagedUsers: ManagedUser[] = [
-  { id: 1, email: "shalei@soyoung.com", username: "shalei", displayName: "沙磊", role: "admin", enabled: true },
-  { id: 2, email: "maming@soyoung.com", username: "maming", displayName: "马明", role: "admin", enabled: true },
-  { id: 3, email: "changwenxia@soyoung.com", username: "changwenxia", displayName: "常文霞", role: "editor", enabled: true },
-  { id: 4, email: "wangxiaofan@soyoung.com", username: "wangxiaofan", displayName: "王晓凡", role: "editor", enabled: true },
+  { id: 1, email: "shalei@soyoung.com", username: "shalei", displayName: "沙磊", role: "admin", enabled: true, monitorStoreScopeCount: 0, monitorStoreScopes: [] },
+  { id: 2, email: "maming@soyoung.com", username: "maming", displayName: "马明", role: "admin", enabled: true, monitorStoreScopeCount: 0, monitorStoreScopes: [] },
+  { id: 3, email: "changwenxia@soyoung.com", username: "changwenxia", displayName: "常文霞", role: "editor", enabled: true, monitorStoreScopeCount: 0, monitorStoreScopes: [] },
+  { id: 4, email: "wangxiaofan@soyoung.com", username: "wangxiaofan", displayName: "王晓凡", role: "editor", enabled: true, monitorStoreScopeCount: 0, monitorStoreScopes: [] },
 ];
 
 let mockEzvizAccounts: EzvizAccount[] = [
@@ -1244,6 +1270,11 @@ const storeSpaceHttpAdapter = {
     return mapManagedUser(response);
   },
 
+  async listMonitorStoreScopeCandidates(): Promise<MonitorStoreScope[]> {
+    const response = await requestJSON<{ stores: BackendMonitorStoreScope[] }>(`${APP_API_BASE}/users/monitor-store-scope-candidates`);
+    return (response.stores ?? []).map(mapMonitorStoreScope);
+  },
+
   async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores`, {
       method: "POST",
@@ -1547,6 +1578,8 @@ export const storeSpaceApi = {
         displayName: payload.displayName.trim(),
         role: payload.role,
         enabled: payload.enabled,
+        monitorStoreScopeCount: payload.monitorStoreScopeIds.length,
+        monitorStoreScopes: mockMonitorScopesByIds(payload.monitorStoreScopeIds),
       };
       mockManagedUsers = [...mockManagedUsers, user];
       return clone(user);
@@ -1564,11 +1597,22 @@ export const storeSpaceApi = {
         displayName: payload.displayName.trim(),
         role: payload.role,
         enabled: payload.enabled,
+        monitorStoreScopeCount: payload.monitorStoreScopeIds.length,
+        monitorStoreScopes: mockMonitorScopesByIds(payload.monitorStoreScopeIds),
       };
       mockManagedUsers = mockManagedUsers.map((item) => (item.id === id ? user : item));
       return clone(user);
     }
     return storeSpaceHttpAdapter.updateUser(id, payload);
+  },
+
+  async listMonitorStoreScopeCandidates(): Promise<MonitorStoreScope[]> {
+    if (API_MODE === "mock") {
+      return mockStores
+        .filter((store) => store.externalOrgId.trim())
+        .map((store) => ({ storeId: store.id, city: store.city, name: store.name, externalOrgId: store.externalOrgId }));
+    }
+    return storeSpaceHttpAdapter.listMonitorStoreScopeCandidates();
   },
 
   async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {
@@ -1898,10 +1942,12 @@ function mapBackendSummary(item: BackendStoreSummary): StoreSummary {
     areaCount: item.area_count,
     status: item.status,
     updatedAt: item.updated_at,
+    canViewMonitor: false,
   };
 }
 
 function mapManagedUser(user: BackendManagedUser): ManagedUser {
+  const scopes = (user.monitor_store_scopes ?? user.monitorStoreScopes ?? []).map(mapMonitorStoreScope);
   return {
     id: user.id,
     email: user.email,
@@ -1910,6 +1956,17 @@ function mapManagedUser(user: BackendManagedUser): ManagedUser {
     role: normalizeManagedRole(user.role),
     enabled: user.enabled ?? false,
     lastLoginAt: user.last_login_at ?? user.lastLoginAt,
+    monitorStoreScopeCount: user.monitor_store_scope_count ?? user.monitorStoreScopeCount ?? scopes.length,
+    monitorStoreScopes: scopes,
+  };
+}
+
+function mapMonitorStoreScope(scope: BackendMonitorStoreScope): MonitorStoreScope {
+  return {
+    storeId: Number(scope.store_id ?? scope.storeId ?? 0),
+    city: scope.city ?? "",
+    name: scope.name ?? "",
+    externalOrgId: scope.external_org_id ?? scope.externalOrgId ?? "",
   };
 }
 
@@ -1927,6 +1984,7 @@ function toManagedUserPayload(payload: ManagedUserPayload) {
     display_name: payload.displayName,
     role: payload.role,
     enabled: payload.enabled,
+    monitor_store_scope_ids: payload.monitorStoreScopeIds,
   };
 }
 
@@ -1950,6 +2008,7 @@ function mapBackendDetail(store: BackendStoreDetail): StoreDetail {
     thumbnailUrl: toDisplayImageUrl(store.thumbnail_url || store.thumbnail_path),
     previewUrl: toDisplayImageUrl(store.preview_url || store.preview_image_path),
     externalOrgId: "",
+    canViewMonitor: false,
     designPlanStatus: store.preview_url || store.preview_image_path ? "completed" : "not_uploaded",
     recorderCount: 0,
     channelCount: 0,
@@ -1990,12 +2049,14 @@ function mapBackendRecognition(result: BackendRecognitionResult): RecognitionRes
 }
 
 function mapStoreSpaceSummary(store: BackendStoreSpaceSummary): StoreSummary {
+  const externalOrgId = store.external_org_id ?? store.externalOrgId ?? "";
   return {
     id: store.id,
     city: store.city ?? store.cityName ?? "",
     name: store.name,
     shortName: store.short_name ?? store.shortName ?? "",
-    externalOrgId: store.external_org_id ?? store.externalOrgId ?? "",
+    externalOrgId,
+    canViewMonitor: store.can_view_monitor ?? store.canViewMonitor ?? Boolean(externalOrgId),
     thumbnailUrl: "",
     designPlanStatus: store.design_plan_status ?? store.designPlanStatus ?? "not_uploaded",
     recorderCount: store.recorder_count ?? store.recorderCount ?? 0,
@@ -2066,12 +2127,14 @@ function mapStoreSpaceDetailSummary(
   store: BackendStoreSpaceSummary,
   inferred: Partial<Pick<StoreSummary, "recorderCount" | "channelCount" | "treatmentCount" | "consultationCount" | "beautyCount" | "areaCount">>,
 ): StoreSummary {
+  const externalOrgId = store.external_org_id ?? store.externalOrgId ?? "";
   return {
     id: store.id,
     city: store.city ?? store.cityName ?? "",
     name: store.name,
     shortName: store.short_name ?? store.shortName ?? "",
-    externalOrgId: store.external_org_id ?? store.externalOrgId ?? "",
+    externalOrgId,
+    canViewMonitor: store.can_view_monitor ?? store.canViewMonitor ?? Boolean(externalOrgId),
     thumbnailUrl: "",
     designPlanStatus: store.design_plan_status ?? store.designPlanStatus ?? "not_uploaded",
     recorderCount: store.recorder_count ?? store.recorderCount ?? inferred.recorderCount,
@@ -2221,6 +2284,7 @@ function duplicateMatchToSummary(match: BackendDuplicateMatch): StoreSummary {
     name: match.name,
     shortName: match.short_name ?? match.shortName ?? "",
     externalOrgId: "",
+    canViewMonitor: false,
     thumbnailUrl: toDisplayImageUrl(match.thumbnail_url),
     designPlanStatus: match.thumbnail_url ? "completed" : "not_uploaded",
     recorderCount: 0,
@@ -2242,6 +2306,7 @@ function duplicateMatchToStoreSpaceSummary(match: BackendDuplicateMatch): StoreS
     name: match.name,
     shortName: match.short_name ?? match.shortName ?? "",
     externalOrgId: "",
+    canViewMonitor: false,
     thumbnailUrl: "",
     designPlanStatus: "not_uploaded",
     recorderCount: 0,
@@ -2419,6 +2484,7 @@ function createMockStore(id: number, name: string, status: StoreStatus, areas: S
     name,
     shortName: "",
     externalOrgId: id <= 3 ? `XY${String(10000 + id)}` : "",
+    canViewMonitor: id <= 3,
     thumbnailUrl: MOCK_PLAN_IMAGE,
     previewUrl: MOCK_PLAN_IMAGE,
     originalPath: MOCK_ORIGINAL_PDF_PATH,
@@ -2454,6 +2520,7 @@ function buildDetailFromPayload(payload: SaveStorePayload, updatedAt: string): S
     name: payload.name.trim(),
     shortName: "",
     externalOrgId: payload.externalOrgId?.trim() ?? "",
+    canViewMonitor: Boolean(payload.externalOrgId?.trim()),
     fileName: payload.fileName,
     originalPath: payload.originalPath || MOCK_ORIGINAL_PDF_PATH,
     previewPath: payload.previewPath || MOCK_PREVIEW_IMAGE_PATH,
@@ -2596,6 +2663,13 @@ function countAreas(areas: StoreArea[]) {
 function toSummary(store: StoreDetail): StoreSummary {
   const { areas: _areas, fileName: _fileName, previewUrl: _previewUrl, ...summary } = store;
   return { ...summary };
+}
+
+function mockMonitorScopesByIds(ids: number[]): MonitorStoreScope[] {
+  const idSet = new Set(ids);
+  return mockStores
+    .filter((store) => idSet.has(store.id))
+    .map((store) => ({ storeId: store.id, city: store.city, name: store.name, externalOrgId: store.externalOrgId }));
 }
 
 function storeCityName(city: string) {

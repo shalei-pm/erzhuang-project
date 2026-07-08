@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -86,6 +87,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("POST /api/auth/logout", handler.authLogoutHandler)
 	mux.HandleFunc("GET /_/auth/callback", handler.authCallbackHandler)
 	mux.HandleFunc("GET /logout", handler.authLogoutHandler)
+	mux.HandleFunc("GET /api/users/monitor-store-scope-candidates", handler.listMonitorStoreScopeCandidatesHandler)
 	mux.HandleFunc("GET /api/users", handler.listUsersHandler)
 	mux.HandleFunc("POST /api/users", handler.createUserHandler)
 	mux.HandleFunc("PUT /api/users/{id}", handler.updateUserHandler)
@@ -101,9 +103,9 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("GET /api/admin/ops/mysql-canary-validate", handler.mysqlCanaryValidateHandler)
 	mux.HandleFunc("GET /api/admin/ops/mysql-asset-inventory", handler.mysqlAssetInventoryHandler)
 	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
-	storespace.RegisterRoutesWithWriteGuard(mux, storeSpaceService, handler.storeWriteGuard)
+	storespace.RegisterRoutesWithGuards(mux, storeSpaceService, handler.monitorVisibilityMiddleware, handler.storeWriteGuard)
 	if h5MonitorService != nil {
-		h5monitor.RegisterRoutes(mux, h5MonitorService)
+		h5monitor.RegisterRoutesWithAuthorizer(mux, h5MonitorService, h5MonitorAuthorizer{handler: handler})
 	}
 	registerFrontendRoutes(mux)
 	return withBasePathAPIPrefixes(mux)
@@ -121,6 +123,22 @@ type mysqlAssetInventoryRunner func(ctx context.Context, request mysqlAssetInven
 
 func (h *Handler) storeWriteGuard(next http.HandlerFunc) http.HandlerFunc {
 	return h.requirePermissionHandler(PermissionStoreWrite, next)
+}
+
+func (h *Handler) monitorVisibilityMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		resolver := storespace.MonitorVisibilityResolver(func(ctx context.Context, externalOrgID string) (bool, error) {
+			user, err := h.currentAuthUser(r)
+			if errors.Is(err, errUnauthorizedAuth) || errors.Is(err, errForbiddenAuth) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			return h.store.CanUserViewMonitorStore(ctx, user, externalOrgID)
+		})
+		next(w, r.WithContext(storespace.WithMonitorVisibilityResolver(r.Context(), resolver)))
+	}
 }
 
 func withBasePathAPIPrefixes(next http.Handler) http.Handler {

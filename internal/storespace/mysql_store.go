@@ -147,8 +147,10 @@ func (s *MySQLStore) ListStores(ctx context.Context, filters StoreFilters) (Stor
 			items[index].ChannelsFullyConfirmed = false
 		}
 	}
-	summary := summarizeStoreListItems(items)
-	summary.StoreCount = total
+	summary, err := s.storeListSummary(ctx, rawLike, rawLike, filters.City)
+	if err != nil {
+		return StoreListResult{}, fmt.Errorf("mysql list stores summary: %w", err)
+	}
 	return StoreListResult{Items: items, Page: filters.Page, PageSize: filters.PageSize, Total: total, Summary: summary, Cities: cities}, nil
 }
 

@@ -110,6 +110,21 @@ create table if not exists tb_user_store_scopes (
     check (scope_type in ('all', 'store', 'external_org', 'city', 'region'))
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
 
+create table if not exists tb_user_resource_scopes (
+  id bigint primary key auto_increment,
+  user_id bigint not null,
+  resource_type varchar(32) not null,
+  resource_id bigint not null,
+  external_key varchar(128) not null,
+  scope varchar(64) not null,
+  created_at datetime(3) not null default current_timestamp(3),
+  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
+  constraint fk_user_resource_scopes_user foreign key (user_id) references tb_users(id) on delete cascade,
+  unique key uk_user_resource_scope (user_id, resource_type, resource_id, scope),
+  key idx_user_scope (user_id, resource_type, scope),
+  key idx_resource_external_scope (resource_type, external_key, scope)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_general_ci;
+
 create table if not exists tb_auth_sessions (
   id bigint not null auto_increment,
   session_token_hash char(64) not null,

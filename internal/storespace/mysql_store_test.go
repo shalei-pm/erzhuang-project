@@ -136,6 +136,20 @@ func TestMySQLStoreWriteMethodsAreImplemented(t *testing.T) {
 	}
 }
 
+func TestMySQLListStoresSummaryUsesFilteredDataset(t *testing.T) {
+	source := readMySQLStoreSourceForTest(t)
+	body := mysqlStoreMethodSourceForTest(source, "ListStores")
+	if body == "" {
+		t.Fatal("MySQLStore.ListStores source not found")
+	}
+	if !strings.Contains(body, "storeListSummary(ctx, rawLike, rawLike, filters.City)") {
+		t.Fatalf("MySQLStore.ListStores must summarize the full filtered dataset, body=%s", body)
+	}
+	if strings.Contains(body, "summarizeStoreListItems(items)") {
+		t.Fatalf("MySQLStore.ListStores still summarizes only current page items, body=%s", body)
+	}
+}
+
 func TestMySQLStoreAvoidsStringNullifCollationMismatch(t *testing.T) {
 	source := readMySQLStoreSourceForTest(t)
 	if strings.Contains(source, "nullif(?, '')") {

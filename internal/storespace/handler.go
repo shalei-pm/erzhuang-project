@@ -1,6 +1,7 @@
 package storespace
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,6 +20,18 @@ type Handler struct {
 }
 
 type RouteMiddleware func(http.HandlerFunc) http.HandlerFunc
+type MonitorVisibilityResolver func(ctx context.Context, externalOrgID string) (bool, error)
+
+type monitorVisibilityResolverContextKey struct{}
+
+func WithMonitorVisibilityResolver(ctx context.Context, resolver MonitorVisibilityResolver) context.Context {
+	return context.WithValue(ctx, monitorVisibilityResolverContextKey{}, resolver)
+}
+
+func monitorVisibilityResolverFromContext(ctx context.Context) MonitorVisibilityResolver {
+	resolver, _ := ctx.Value(monitorVisibilityResolverContextKey{}).(MonitorVisibilityResolver)
+	return resolver
+}
 
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
@@ -29,24 +42,34 @@ func RegisterRoutes(mux *http.ServeMux, service *Service) {
 }
 
 func RegisterRoutesWithWriteGuard(mux *http.ServeMux, service *Service, writeGuard RouteMiddleware) {
+	RegisterRoutesWithGuards(mux, service, nil, writeGuard)
+}
+
+func RegisterRoutesWithGuards(mux *http.ServeMux, service *Service, readGuard RouteMiddleware, writeGuard RouteMiddleware) {
 	handler := NewHandler(service)
-	write := func(next http.HandlerFunc) http.HandlerFunc {
-		if writeGuard == nil {
+	read := func(next http.HandlerFunc) http.HandlerFunc {
+		if readGuard == nil {
 			return next
 		}
-		return writeGuard(next)
+		return readGuard(next)
 	}
-	mux.HandleFunc("GET /api/store-space/ezviz-accounts", handler.listEzvizAccounts)
+	write := func(next http.HandlerFunc) http.HandlerFunc {
+		if writeGuard == nil {
+			return read(next)
+		}
+		return read(writeGuard(next))
+	}
+	mux.HandleFunc("GET /api/store-space/ezviz-accounts", read(handler.listEzvizAccounts))
 	mux.HandleFunc("POST /api/store-space/ezviz-accounts", write(handler.createEzvizAccount))
 	mux.HandleFunc("POST /api/store-space/diagnostics/ezviz/live-address", write(handler.getEzvizLiveAddress))
-	mux.HandleFunc("GET /api/store-space/stores", handler.listStores)
+	mux.HandleFunc("GET /api/store-space/stores", read(handler.listStores))
 	mux.HandleFunc("POST /api/store-space/stores", write(handler.createStore))
-	mux.HandleFunc("POST /api/store-space/stores/check-duplicate", handler.checkDuplicate)
-	mux.HandleFunc("GET /api/store-space/stores/{id}", handler.getStore)
+	mux.HandleFunc("POST /api/store-space/stores/check-duplicate", read(handler.checkDuplicate))
+	mux.HandleFunc("GET /api/store-space/stores/{id}", read(handler.getStore))
 	mux.HandleFunc("PATCH /api/store-space/stores/{id}", write(handler.updateStoreBasicInfo))
-	mux.HandleFunc("GET /api/store-space/stores/{id}/design-plan-data", handler.getStoreDesignPlanData)
-	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-data", handler.getStoreChannelData)
-	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-mappings/export.xlsx", handler.exportChannelMappings)
+	mux.HandleFunc("GET /api/store-space/stores/{id}/design-plan-data", read(handler.getStoreDesignPlanData))
+	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-data", read(handler.getStoreChannelData))
+	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-mappings/export.xlsx", read(handler.exportChannelMappings))
 	mux.HandleFunc("PUT /api/store-space/stores/{id}/design-plan", write(handler.saveDesignPlan))
 	mux.HandleFunc("POST /api/store-space/stores/{id}/recorders", write(handler.addRecorder))
 	mux.HandleFunc("DELETE /api/store-space/stores/{id}", write(handler.deleteStore))
@@ -54,8 +77,8 @@ func RegisterRoutesWithWriteGuard(mux *http.ServeMux, service *Service, writeGua
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/scan-channels", write(handler.scanRecorderChannels))
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/probe-recognize-channel", write(handler.probeRecognizeChannel))
 	mux.HandleFunc("POST /api/store-space/recorders/{recorder_id}/recognize-channels", write(handler.recognizeRecorderChannels))
-	mux.HandleFunc("GET /api/store-space/channel-snapshots/{name}", handler.getChannelSnapshot)
-	mux.HandleFunc("GET /api/store-space/channel-snapshots/{name}/diagnostics", handler.getChannelSnapshotDiagnostics)
+	mux.HandleFunc("GET /api/store-space/channel-snapshots/{name}", read(handler.getChannelSnapshot))
+	mux.HandleFunc("GET /api/store-space/channel-snapshots/{name}/diagnostics", read(handler.getChannelSnapshotDiagnostics))
 	mux.HandleFunc("DELETE /api/store-space/channels/{channel_id}", write(handler.deleteChannel))
 	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/recognize", write(handler.recognizeChannel))
 	mux.HandleFunc("POST /api/store-space/channels/{channel_id}/snapshot", write(handler.refreshChannelSnapshot))
@@ -110,6 +133,10 @@ func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {
 		writeDiagnosticError(w, http.StatusInternalServerError, "list stores failed", "list_stores_failed", "storespace_list", err.Error(), nil)
 		return
 	}
+	if err := h.applyListMonitorVisibility(r.Context(), &result); err != nil {
+		writeDiagnosticError(w, http.StatusInternalServerError, "resolve monitor visibility failed", "monitor_visibility_failed", "storespace_authz", err.Error(), nil)
+		return
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -121,6 +148,10 @@ func (h *Handler) getStore(w http.ResponseWriter, r *http.Request) {
 	store, err := h.service.GetStore(r.Context(), id)
 	if err != nil {
 		handleServiceError(w, err)
+		return
+	}
+	if err := h.applyMonitorVisibility(r.Context(), store); err != nil {
+		writeDiagnosticError(w, http.StatusInternalServerError, "resolve monitor visibility failed", "monitor_visibility_failed", "storespace_authz", err.Error(), nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, store)
@@ -136,6 +167,10 @@ func (h *Handler) getStoreDesignPlanData(w http.ResponseWriter, r *http.Request)
 		handleServiceError(w, err)
 		return
 	}
+	if err := h.applyMonitorVisibility(r.Context(), store); err != nil {
+		writeDiagnosticError(w, http.StatusInternalServerError, "resolve monitor visibility failed", "monitor_visibility_failed", "storespace_authz", err.Error(), nil)
+		return
+	}
 	writeJSON(w, http.StatusOK, store)
 }
 
@@ -149,7 +184,54 @@ func (h *Handler) getStoreChannelData(w http.ResponseWriter, r *http.Request) {
 		handleServiceError(w, err)
 		return
 	}
+	if err := h.applyMonitorVisibility(r.Context(), store); err != nil {
+		writeDiagnosticError(w, http.StatusInternalServerError, "resolve monitor visibility failed", "monitor_visibility_failed", "storespace_authz", err.Error(), nil)
+		return
+	}
 	writeJSON(w, http.StatusOK, store)
+}
+
+func (h *Handler) applyMonitorVisibility(ctx context.Context, store *Store) error {
+	if store == nil {
+		return nil
+	}
+	resolver := monitorVisibilityResolverFromContext(ctx)
+	externalOrgID := strings.TrimSpace(store.ExternalOrgID)
+	if externalOrgID == "" {
+		store.CanViewMonitor = false
+		return nil
+	}
+	if resolver == nil {
+		store.CanViewMonitor = true
+		return nil
+	}
+	ok, err := resolver(ctx, externalOrgID)
+	if err != nil {
+		return err
+	}
+	store.CanViewMonitor = ok
+	return nil
+}
+
+func (h *Handler) applyListMonitorVisibility(ctx context.Context, result *StoreListResult) error {
+	resolver := monitorVisibilityResolverFromContext(ctx)
+	for index := range result.Items {
+		externalOrgID := strings.TrimSpace(result.Items[index].ExternalOrgID)
+		if externalOrgID == "" {
+			result.Items[index].CanViewMonitor = false
+			continue
+		}
+		if resolver == nil {
+			result.Items[index].CanViewMonitor = true
+			continue
+		}
+		ok, err := resolver(ctx, externalOrgID)
+		if err != nil {
+			return err
+		}
+		result.Items[index].CanViewMonitor = ok
+	}
+	return nil
 }
 
 func (h *Handler) createStore(w http.ResponseWriter, r *http.Request) {

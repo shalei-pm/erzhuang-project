@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -513,6 +514,27 @@ func TestSetMySQLUserRoleSeedsKnownRolesBeforeAssignment(t *testing.T) {
 	}
 }
 
+func TestMySQLGovernanceSchemaDefinesUserResourceScopes(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "db", "mysql_governance_schema_tb.sql"))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{
+		"create table if not exists tb_user_resource_scopes",
+		"resource_type varchar(32) not null",
+		"external_key varchar(128) not null",
+		"scope varchar(64) not null",
+		"unique key uk_user_resource_scope",
+		"key idx_user_scope",
+		"key idx_resource_external_scope",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("schema missing %q", want)
+		}
+	}
+}
+
 func TestListAuthUsersRequiresAdmin(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("SSO_ENABLED", "true")
@@ -597,6 +619,40 @@ func TestListAuthUsersReturnsSeededUsersForAdmin(t *testing.T) {
 	}
 	if !authUsersContain(response.Users, "changwenxia@soyoung.com", RoleEditor) {
 		t.Fatalf("expected changwenxia editor in %#v", response.Users)
+	}
+}
+
+func TestUserMutationReturnsMonitorStoreScopes(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+
+	store := NewMemoryStore()
+	handler := NewHandlerWithServices(store, nil, nil)
+	body := strings.NewReader(`{"email":"viewer@example.com","username":"viewer","display_name":"Viewer","role":"viewer","enabled":true,"monitor_store_scope_ids":[30]}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/users", body)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{
+			"display":  "沙磊",
+			"mail":     "shalei@soyoung.com",
+			"username": "shalei",
+		},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"sub": "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response authUserItemResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.MonitorStoreScopeCount != 1 || len(response.MonitorStoreScopes) != 1 || response.MonitorStoreScopes[0].ExternalOrgID != "10030" {
+		t.Fatalf("unexpected scopes: %+v", response)
 	}
 }
 
@@ -1791,6 +1847,18 @@ func (failingStore) CreateAuthUser(ctx context.Context, input AuthUserMutation) 
 
 func (failingStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error) {
 	return AuthUserRecord{}, errors.New("auth user failed")
+}
+
+func (failingStore) ListMonitorStoreScopeCandidates(ctx context.Context) ([]AuthUserResourceScope, error) {
+	return nil, errors.New("auth user failed")
+}
+
+func (failingStore) GetUserMonitorStoreScopes(ctx context.Context, userID int64) ([]AuthUserResourceScope, error) {
+	return nil, errors.New("auth user failed")
+}
+
+func (failingStore) CanUserViewMonitorStore(ctx context.Context, user AuthUserRecord, externalOrgID string) (bool, error) {
+	return false, errors.New("auth user failed")
 }
 
 func newTestRSAKey(t *testing.T) *rsa.PrivateKey {

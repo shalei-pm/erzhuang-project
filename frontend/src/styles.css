@@ -613,9 +613,16 @@ h1 {
 .user-table td:nth-child(3),
 .user-table th:nth-child(4),
 .user-table td:nth-child(4),
+.user-table th:nth-child(5),
+.user-table td:nth-child(5),
+.user-table th:nth-child(7),
+.user-table td:nth-child(7) {
+  width: 110px;
+}
+
 .user-table th:nth-child(6),
 .user-table td:nth-child(6) {
-  width: 110px;
+  width: 180px;
 }
 
 .role-pill {
@@ -650,8 +657,8 @@ h1 {
   color: var(--text-muted);
 }
 
-.user-modal {
-  width: min(560px, calc(100vw - 32px));
+.create-modal.user-modal {
+  width: min(1040px, calc(100vw - 32px));
 }
 
 .user-form-grid {
@@ -680,8 +687,8 @@ h1 {
   justify-content: space-between;
   align-items: center;
   gap: 16px !important;
-  min-height: 54px;
-  padding: 10px 12px;
+  min-height: 44px;
+  padding: 8px 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--surface-subtle);
@@ -689,8 +696,10 @@ h1 {
 }
 
 .user-switch-copy {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -713,8 +722,8 @@ h1 {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  width: 66px;
-  min-width: 66px;
+  width: 78px;
+  min-width: 78px;
   height: 30px;
   padding: 0 10px 0 31px;
   border: 1px solid var(--border-strong);
@@ -756,7 +765,118 @@ h1 {
 
 .switch-control.is-on::after {
   background: #2563eb;
-  transform: translateX(36px);
+  transform: translateX(48px);
+}
+
+.user-scope-panel {
+  margin: 16px 24px 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.user-scope-panel.muted {
+  padding: 14px 16px;
+  color: var(--text-muted);
+}
+
+.user-scope-head,
+.user-scope-tools,
+.user-scope-summary {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.user-scope-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--surface-subtle);
+}
+
+.user-scope-head p,
+.user-scope-panel.muted p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.user-scope-head span {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.user-scope-city-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.user-scope-city-tabs button {
+  padding: 7px 10px;
+  border-radius: 999px;
+}
+
+.user-scope-city-tabs button.active {
+  border-color: var(--brand);
+  background: #eff6ff;
+  color: var(--brand);
+  font-weight: 700;
+}
+
+.user-scope-tools {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 10px;
+}
+
+.user-scope-tools input {
+  width: 100%;
+}
+
+.user-scope-summary {
+  border-bottom: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.user-scope-list {
+  max-height: 336px;
+  overflow: auto;
+  padding: 0 16px 12px;
+}
+
+.user-scope-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 96px;
+  gap: 8px;
+  align-items: center;
+  min-height: 38px;
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.user-scope-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-scope-row em {
+  color: var(--text-muted);
+  font-style: normal;
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .switch-control:focus-visible {

@@ -240,6 +240,7 @@ type Store struct {
 	ShortName        string           `json:"short_name"`
 	NormalizedName   string           `json:"normalized_name,omitempty"`
 	ExternalOrgID    string           `json:"external_org_id"`
+	CanViewMonitor   bool             `json:"can_view_monitor"`
 	DesignPlanStatus DesignPlanStatus `json:"design_plan_status"`
 	OverallStatus    OverallStatus    `json:"overall_status"`
 	Areas            []Area           `json:"areas,omitempty"`
@@ -255,6 +256,7 @@ type StoreListItem struct {
 	Name                   string           `json:"name"`
 	ShortName              string           `json:"short_name"`
 	ExternalOrgID          string           `json:"external_org_id"`
+	CanViewMonitor         bool             `json:"can_view_monitor"`
 	DesignPlanStatus       DesignPlanStatus `json:"design_plan_status"`
 	OverallStatus          OverallStatus    `json:"overall_status"`
 	RecorderCount          int              `json:"recorder_count"`

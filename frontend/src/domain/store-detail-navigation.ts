@@ -36,8 +36,8 @@ export function storeDetailTabFromDetail(store: StoreDetail): StoreDetailNavigat
   return "channels";
 }
 
-export function canOpenH5Monitor(store: Pick<StoreSummary, "externalOrgId">): boolean {
-  return store.externalOrgId.trim() !== "";
+export function canOpenH5Monitor(store: Pick<StoreSummary, "externalOrgId"> & Partial<Pick<StoreSummary, "canViewMonitor">>): boolean {
+  return store.externalOrgId.trim() !== "" && store.canViewMonitor !== false;
 }
 
 export function h5MonitorPath(externalOrgId: string, configuredBase = import.meta.env.BASE_URL || "/erzhuang-project/"): string {
@@ -125,12 +125,13 @@ export function mergeStoreDetailTab(current: StoreDetail, incoming: StoreDetail,
   };
 }
 
-function sharedSummaryFields(store: StoreDetail): Pick<StoreSummary, "id" | "city" | "name" | "externalOrgId" | "status" | "updatedAt"> {
+function sharedSummaryFields(store: StoreDetail): Pick<StoreSummary, "id" | "city" | "name" | "externalOrgId" | "canViewMonitor" | "status" | "updatedAt"> {
   return {
     id: store.id,
     city: store.city,
     name: store.name,
     externalOrgId: store.externalOrgId,
+    canViewMonitor: store.canViewMonitor,
     status: store.status,
     updatedAt: store.updatedAt,
   };

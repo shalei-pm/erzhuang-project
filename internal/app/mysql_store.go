@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -158,7 +159,13 @@ func (s *MySQLStore) ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error
 		}
 		users = append(users, user)
 	}
-	return users, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.attachMonitorScopeCounts(ctx, users); err != nil {
+		return nil, err
+	}
+	return users, nil
 }
 
 func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation) (AuthUserRecord, error) {
@@ -185,6 +192,9 @@ func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation)
 		return AuthUserRecord{}, err
 	}
 	if err := setMySQLUserRole(ctx, tx, id, normalizeRole(input.Role)); err != nil {
+		return AuthUserRecord{}, err
+	}
+	if err := setMySQLUserMonitorScopes(ctx, tx, id, input.Role, input.MonitorStoreScopeIDs); err != nil {
 		return AuthUserRecord{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -221,6 +231,9 @@ func (s *MySQLStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUse
 	if err := setMySQLUserRole(ctx, tx, id, normalizeRole(input.Role)); err != nil {
 		return AuthUserRecord{}, err
 	}
+	if err := setMySQLUserMonitorScopes(ctx, tx, id, input.Role, input.MonitorStoreScopeIDs); err != nil {
+		return AuthUserRecord{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return AuthUserRecord{}, err
 	}
@@ -250,7 +263,15 @@ func (s *MySQLStore) getAuthUserByID(ctx context.Context, id int64) (AuthUserRec
 	if errors.Is(err, sql.ErrNoRows) {
 		return AuthUserRecord{}, errAuthUserNotFound
 	}
-	return record, err
+	if err != nil {
+		return AuthUserRecord{}, err
+	}
+	record.MonitorStoreScopes, err = s.GetUserMonitorStoreScopes(ctx, record.ID)
+	if err != nil {
+		return AuthUserRecord{}, err
+	}
+	record.MonitorStoreScopeCount = len(record.MonitorStoreScopes)
+	return record, nil
 }
 
 func setMySQLUserRole(ctx context.Context, tx *sql.Tx, userID int64, role string) error {
@@ -273,4 +294,151 @@ func setMySQLUserRole(ctx context.Context, tx *sql.Tx, userID int64, role string
 		where r.code = ?
 	`, userID, normalizeRole(role))
 	return err
+}
+
+func setMySQLUserMonitorScopes(ctx context.Context, tx *sql.Tx, userID int64, role string, storeIDs []int64) error {
+	if normalizeRole(role) != RoleViewer {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		delete from tb_user_resource_scopes
+		where user_id = ? and resource_type = ? and scope = ?
+	`, userID, ResourceTypeStore, ScopeMonitorView); err != nil {
+		return err
+	}
+	if len(storeIDs) == 0 {
+		return nil
+	}
+	for _, storeID := range uniquePositiveInt64s(storeIDs) {
+		result, err := tx.ExecContext(ctx, `
+			insert into tb_user_resource_scopes (user_id, resource_type, resource_id, external_key, scope)
+			select ?, ?, s.id, s.external_org_id, ?
+			from tb_stores s
+			where s.id = ? and nullif(trim(s.external_org_id), '') is not null
+		`, userID, ResourceTypeStore, ScopeMonitorView, storeID)
+		if err != nil {
+			return err
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			return fmt.Errorf("invalid monitor store scope id: %d", storeID)
+		}
+	}
+	return nil
+}
+
+func uniquePositiveInt64s(values []int64) []int64 {
+	seen := map[int64]bool{}
+	result := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value <= 0 || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
+func (s *MySQLStore) ListMonitorStoreScopeCandidates(ctx context.Context) ([]AuthUserResourceScope, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select id, city, name, external_org_id
+		from tb_stores
+		where nullif(trim(external_org_id), '') is not null
+		order by city, name, id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAuthUserResourceScopes(rows)
+}
+
+func (s *MySQLStore) GetUserMonitorStoreScopes(ctx context.Context, userID int64) ([]AuthUserResourceScope, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select s.id, s.city, s.name, s.external_org_id
+		from tb_user_resource_scopes urs
+		join tb_stores s on s.id = urs.resource_id
+		where urs.user_id = ?
+			and urs.resource_type = ?
+			and urs.scope = ?
+			and nullif(trim(s.external_org_id), '') is not null
+		order by s.city, s.name, s.id
+	`, userID, ResourceTypeStore, ScopeMonitorView)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAuthUserResourceScopes(rows)
+}
+
+func (s *MySQLStore) CanUserViewMonitorStore(ctx context.Context, user AuthUserRecord, externalOrgID string) (bool, error) {
+	if normalizeRole(user.Role) != RoleViewer {
+		return true, nil
+	}
+	orgID := strings.TrimSpace(externalOrgID)
+	if orgID == "" {
+		return false, nil
+	}
+	var exists int
+	err := s.db.QueryRowContext(ctx, `
+		select 1
+		from tb_user_resource_scopes
+		where user_id = ?
+			and resource_type = ?
+			and external_key = ?
+			and scope = ?
+		limit 1
+	`, user.ID, ResourceTypeStore, orgID, ScopeMonitorView).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (s *MySQLStore) attachMonitorScopeCounts(ctx context.Context, users []AuthUserRecord) error {
+	if len(users) == 0 {
+		return nil
+	}
+	counts := map[int64]int{}
+	rows, err := s.db.QueryContext(ctx, `
+		select user_id, count(*)
+		from tb_user_resource_scopes
+		where resource_type = ? and scope = ?
+		group by user_id
+	`, ResourceTypeStore, ScopeMonitorView)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var userID int64
+		var count int
+		if err := rows.Scan(&userID, &count); err != nil {
+			return err
+		}
+		counts[userID] = count
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for index := range users {
+		users[index].MonitorStoreScopeCount = counts[users[index].ID]
+	}
+	return nil
+}
+
+func scanAuthUserResourceScopes(rows *sql.Rows) ([]AuthUserResourceScope, error) {
+	scopes := []AuthUserResourceScope{}
+	for rows.Next() {
+		var scope AuthUserResourceScope
+		if err := rows.Scan(&scope.StoreID, &scope.City, &scope.Name, &scope.ExternalOrgID); err != nil {
+			return nil, err
+		}
+		scopes = append(scopes, scope)
+	}
+	return scopes, rows.Err()
 }

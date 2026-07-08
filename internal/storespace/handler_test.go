@@ -669,6 +669,60 @@ func TestListStoresFiltersCityBeforePagination(t *testing.T) {
 	}
 }
 
+func TestListStoresAppliesMonitorVisibilityResolver(t *testing.T) {
+	repo := NewMemoryStore()
+	service := NewService(repo)
+	for _, input := range []CreateStoreInput{
+		{City: "北京", Name: "北京保利实验室门店", ExternalOrgID: "10030", DesignPlanUploadID: "upload_123"},
+		{City: "上海", Name: "上海测试门店", ExternalOrgID: "10031", DesignPlanUploadID: "upload_456"},
+	} {
+		if _, err := service.CreateStore(context.Background(), input); err != nil {
+			t.Fatalf("create store %s: %v", input.Name, err)
+		}
+	}
+	mux := http.NewServeMux()
+	readGuard := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			resolver := MonitorVisibilityResolver(func(ctx context.Context, externalOrgID string) (bool, error) {
+				return externalOrgID != "10030", nil
+			})
+			next(w, r.WithContext(WithMonitorVisibilityResolver(r.Context(), resolver)))
+		}
+	}
+	RegisterRoutesWithGuards(mux, service, readGuard, nil)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores?page=1&page_size=100", nil)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var result StoreListResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	seenRestricted := false
+	seenAllowed := false
+	for _, item := range result.Items {
+		if item.ExternalOrgID == "10030" {
+			seenRestricted = true
+			if item.CanViewMonitor {
+				t.Fatalf("expected 10030 to be hidden from monitor")
+			}
+		}
+		if item.ExternalOrgID == "10031" {
+			seenAllowed = true
+			if !item.CanViewMonitor {
+				t.Fatalf("expected 10031 to be visible for monitor")
+			}
+		}
+	}
+	if !seenRestricted || !seenAllowed {
+		t.Fatalf("expected both test stores in response: %#v", result.Items)
+	}
+}
+
 func listStoresForTest(t *testing.T, handler http.Handler) StoreListResult {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores?page=1&page_size=20", nil)

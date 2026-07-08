@@ -18,20 +18,32 @@ const (
 	PermissionStoreRead  = "store:read"
 	PermissionStoreWrite = "store:write"
 	PermissionUserManage = "user:manage"
+
+	ResourceTypeStore = "store"
+	ScopeMonitorView  = "monitor:view"
 )
 
 var errAuthUserNotFound = errors.New("auth user not found")
 
 type AuthUserRecord struct {
-	ID           int64
-	Email        string
-	Username     string
-	DisplayName  string
-	FeishuUserID string
-	Phone        string
-	Role         string
-	Enabled      bool
-	LastLoginAt  *time.Time
+	ID                     int64
+	Email                  string
+	Username               string
+	DisplayName            string
+	FeishuUserID           string
+	Phone                  string
+	Role                   string
+	Enabled                bool
+	LastLoginAt            *time.Time
+	MonitorStoreScopeCount int
+	MonitorStoreScopes     []AuthUserResourceScope
+}
+
+type AuthUserResourceScope struct {
+	StoreID       int64  `json:"store_id"`
+	City          string `json:"city"`
+	Name          string `json:"name"`
+	ExternalOrgID string `json:"external_org_id"`
 }
 
 type AuthUserPatch struct {
@@ -43,11 +55,12 @@ type AuthUserPatch struct {
 }
 
 type AuthUserMutation struct {
-	Email       string `json:"email"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	Role        string `json:"role"`
-	Enabled     bool   `json:"enabled"`
+	Email                string  `json:"email"`
+	Username             string  `json:"username"`
+	DisplayName          string  `json:"display_name"`
+	Role                 string  `json:"role"`
+	Enabled              bool    `json:"enabled"`
+	MonitorStoreScopeIDs []int64 `json:"monitor_store_scope_ids"`
 }
 
 type AuthUserStore interface {
@@ -56,6 +69,9 @@ type AuthUserStore interface {
 	ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error)
 	CreateAuthUser(ctx context.Context, input AuthUserMutation) (AuthUserRecord, error)
 	UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error)
+	ListMonitorStoreScopeCandidates(ctx context.Context) ([]AuthUserResourceScope, error)
+	GetUserMonitorStoreScopes(ctx context.Context, userID int64) ([]AuthUserResourceScope, error)
+	CanUserViewMonitorStore(ctx context.Context, user AuthUserRecord, externalOrgID string) (bool, error)
 }
 
 func (record AuthUserRecord) permissions() []string {

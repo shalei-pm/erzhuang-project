@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 )
 
 var (
@@ -75,4 +77,61 @@ func hasPermission(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+type h5MonitorAuthorizer struct {
+	handler *Handler
+}
+
+func (a h5MonitorAuthorizer) CurrentUser(r *http.Request) (h5monitor.AuthContext, error) {
+	user, err := a.handler.currentAuthUser(r)
+	if err != nil {
+		return h5monitor.AuthContext{}, h5MonitorAuthError(err)
+	}
+	return h5monitor.AuthContext{UserID: user.ID, Role: normalizeRole(user.Role)}, nil
+}
+
+func (a h5MonitorAuthorizer) CanViewMonitorStore(r *http.Request, externalOrgID string) (bool, error) {
+	user, err := a.handler.currentAuthUser(r)
+	if err != nil {
+		return false, h5MonitorAuthError(err)
+	}
+	return a.handler.store.CanUserViewMonitorStore(r.Context(), user, externalOrgID)
+}
+
+func (a h5MonitorAuthorizer) FilterMonitorStores(r *http.Request, response h5monitor.MonitorStoresResponse) (h5monitor.MonitorStoresResponse, error) {
+	user, err := a.handler.currentAuthUser(r)
+	if err != nil {
+		return h5monitor.MonitorStoresResponse{}, h5MonitorAuthError(err)
+	}
+	if normalizeRole(user.Role) != RoleViewer {
+		return response, nil
+	}
+	filtered := h5monitor.MonitorStoresResponse{}
+	for _, group := range response.Cities {
+		nextGroup := h5monitor.MonitorStoreCityGroup{City: group.City}
+		for _, store := range group.Stores {
+			ok, err := a.handler.store.CanUserViewMonitorStore(r.Context(), user, store.ExternalOrgID)
+			if err != nil {
+				return h5monitor.MonitorStoresResponse{}, err
+			}
+			if ok {
+				nextGroup.Stores = append(nextGroup.Stores, store)
+			}
+		}
+		if len(nextGroup.Stores) > 0 {
+			filtered.Cities = append(filtered.Cities, nextGroup)
+		}
+	}
+	return filtered, nil
+}
+
+func h5MonitorAuthError(err error) error {
+	if errors.Is(err, errUnauthorizedAuth) {
+		return h5monitor.ErrUnauthorized
+	}
+	if errors.Is(err, errForbiddenAuth) {
+		return h5monitor.ErrForbidden
+	}
+	return err
 }

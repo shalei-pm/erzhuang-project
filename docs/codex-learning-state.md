@@ -1,6 +1,252 @@
 # Codex Learning State
 
-最后更新：2026-07-04
+最后更新：2026-07-08
+
+## 当前项目记忆快照（主会话优先读取）
+
+本节是主负责人会话的“当前事实”摘要。后续新会话、压缩恢复、发布、回滚或专项开发前，先读本节，再按需读取后面的历史记录和专项文档。
+
+### 项目定位与目标
+
+- 项目从个人练习项目演进为新氧青春门店空间资源管理系统。
+- 业务目标：以门店为主体，统一维护设计图、业务区域、录像机、通道截图、AI 识别和 H5 监控查看能力，替代原多维表格维护门店/录像机/通道/区域关系的核心流程。
+- 工程目标：保持一条可重复的 Codex 开发、Git 管理、公司 GitLab/K8s 发布、线上验证、回滚和文档沉淀流程。
+- 主会话职责：项目负责人/架构中枢，负责需求澄清、方案拆分、代码验收、发布、回滚、文件化记忆和跨会话交接。
+
+### 当前阶段
+
+- 当前线上公司环境已切换为 MySQL + OSS。
+- 最新确认健康检查：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v2","database":"mysql","asset_store":"oss"}
+```
+
+- 最新版本文件：`VERSION=2.31.0`。
+- 最新公司 GitLab 发布提交：`02a6623 fix: clear local auth before sso logout`，已推送到 `gitlab/codex/containerize-single-image`，等待公司 K8s 自动发布后做退出登录回归。
+- 当前产品实现推进中：普通查看用户增加“查看监控门店范围权限”。已确认只限制 `viewer` 的监控入口和 H5 Monitor，不限制普通页面浏览；候选门店为所有有 `external_org_id` 的门店；默认空范围；已完成后端 scope 模型、H5 后端强校验、用户管理门店勾选交互、`can_view_monitor` 前端入口提示和本地浏览器验收，待发布到公司并做线上回归。
+- 旧 PostgreSQL runtime、pgx 依赖、pg-mysql 迁移入口和旧库回滚连接已从运行时代码中删除。后续不要再以“可切回 Postgres”作为安全阀。
+- 韩国 Lighthouse 发布链路已终止；该服务器上关于二壮项目的所有库表已经完全删除。后续二壮项目发布、回滚、验收和排查只走公司 GitLab/K8s + MySQL/OSS，不再使用韩国服务器。
+
+### 已完成内容
+
+- 门店空间资源后台：门店列表、城市/名称筛选、门店详情、设计图标注、通道映射、门店/录像机/通道写接口。
+- 设计图能力：PDF 上传、预览图、标注区域、AI 识别、人工修正、设计图保存。
+- 录像机与通道能力：萤石账号同步、录像机扫描有效通道、刷新截图、AI 识别通道画面、人工确认业务/非业务区域、床位拆分。
+- H5 Monitor：按机构/门店查看监控通道，直播、回放、播放器交互、门店切换、通道分组和移动端播放体验已完成多轮线上修复。
+- SSO 与权限：公司 APISIX SSO cookie/JWT 接入，`tb_users` 授权用户表，角色/权限基础逻辑，写接口按权限守卫。
+- MySQL/OSS 迁移：54 家有 `external_org_id` 的门店已迁入 MySQL；通道截图等资产已迁入 OSS 并通过台账/代理路径验证。第 55 家 Postgres 空 `external_org_id` 门店“新氧青春诊所(长沙北辰荟店)”确认不迁移。
+- 运行时安全清理：`cmd/server` 只接受 `APP_DB_DRIVER=mysql`，只读取 `MYSQL_DSN` / `K8S_SECRET_MYSQL_DSN`；删除旧 PostgreSQL repository、schema 初始化、导出 CLI、pg-mysql ops 入口和 pgx 依赖。
+- 线上只读回归：2026-07-04 已由用户在已登录浏览器执行，只读检查全部 200，门店总数 54，H5 Monitor 样本门店 `10030`、`10019`、`10081` 均返回正常分组。
+- 线上写接口回归：2026-07-04 已由用户在已登录浏览器执行，临时门店创建、编辑、保存设计图、添加录像机、删除录像机、删除临时门店全部通过。
+- 线上资产/识别抽验：2026-07-04 门店 `56`、录像机 `64/GQ2603587`、通道 `900065`，门店详情读取和单通道截图刷新接口均 200；单通道识别接口 200 但业务结果为 `recognition_failed`，需要继续查看 `recognition_result` 失败原因。
+- 通道 `900065` 识别失败根因已定位：`capture_ms=578`，抓图成功；`recognition_ms=30407` 后 AI provider 返回 upstream 502，请求 ID `5704b803-f192-4f86-a3a7-be7a3df7a53d`。这不是 MySQL/OSS 主链路失败。
+- 同门店另一个通道 `900076` 单通道识别成功：接口 200，业务结果 `recognized`。结论：AI/识别链路整体可用，`900065` 属于单次上游 502 波动。
+- 用户管理角色保存修复：`2.30.24 / f732228` 修复 MySQL `tb_roles` 漏种 `editor` 导致保存“编辑运维”后回退普通查看的问题。
+- 退出登录修复：`2.30.25 / 02a6623` 修复公司域名下前端直接跳 APISIX 退出、未先清理本系统 `sy_sso_token` 的问题；后端退出接口同时清理 host-only、当前 host 域和父域 cookie。
+- 普通查看用户监控门店范围权限：`2.31.0` 新增 `tb_user_resource_scopes` 通用 scope 表，用户管理创建/编辑 `viewer` 时可按城市/搜索勾选可查看监控门店；H5 Monitor 列表和直接门店 URL 均由后端强校验，门店列表/详情返回 `can_view_monitor` 供前端隐藏入口。
+- 门店列表统计口径修复：`2.31.0` MySQL `ListStores` 的右上角 summary 改为按当前搜索/城市筛选条件汇总全量 filtered dataset，不再用当前页 `items` 汇总，保证分页切换不改变统计。
+
+### 当前进行中
+
+- 建立文件化项目记忆机制：
+  - `docs/codex-learning-state.md`：长期状态、发布记录、关键上下文。
+  - `docs/decisions.md`：产品/技术决策台账。
+  - `work/current-plan.md`：当前轮工作目标、拆分、进度和下一步。
+- 项目控制文档已补齐：
+  - `README.md`：已追平当前 MySQL + OSS 运行时口径。
+  - `docs/technical-architecture-index.md`：已改为当前 store-space 主路径代码地图。
+  - `docs/post-cutover-regression-checklist.md`：MySQL/OSS 切换后线上回归清单。
+  - `docs/legacy-postgres-supabase-shutdown-checklist.md`：旧 PostgreSQL/Supabase 下线确认清单。
+- MySQL/OSS 切换后的稳定期：后续每次重要讨论、开发、验证、发布、回滚都要主动回写上述文件。
+- 普通查看用户监控门店范围权限：
+  - 原型文件：`work/prototypes/viewer-store-scope-demo.html`。
+  - 设计文档：`docs/superpowers/specs/2026-07-07-viewer-monitor-store-scope-design.md`。
+  - 实现计划：`docs/superpowers/plans/2026-07-08-viewer-monitor-store-scope-implementation.md`。
+  - 当前阶段：代码已实现并完成本地浏览器验收，待线上发布和用户管理/H5 Monitor 回归。
+  - 关键口径：仅 `viewer` 受限；`admin/editor` 全量；普通后台页面可浏览但无写能力；H5 Monitor 和相关 API 已做后端强校验。
+
+### 待决策问题
+
+- 旧 PostgreSQL/Supabase 数据和资源的正式保留、归档、删除时间表，需要产品负责人、公司安全/运维/相关研发确认后执行；主会话不能独自推动删除外部数据源。
+- 是否彻底下线旧 `designplan` 独立路由和旧 `tb_design_plan_*` 兼容表，需要先确认当前前端/用户流程是否仍依赖。
+- 是否从当前全局角色权限升级到更通用的机构/门店/资源范围授权。当前已决定先做普通查看用户的监控门店范围权限，并提前按 scope 模型考虑未来扩展。
+- 门店删除当前仍沿用硬删除/外键级联语义；正式环境是否改成软删除和审计，需要 DBA/产品确认。
+- 资产访问审计、长期安全审计、截图/PDF 访问日志的正式落地方案仍待治理。
+- 历史迁移文档仍包含 PostgreSQL/Supabase 阶段事实，需要新会话按日期和当前快照判断是否仍有效；`README.md` 和 `docs/technical-architecture-index.md` 已追平当前架构。
+
+### 技术栈与运行方式
+
+- 后端：Go 1.22，`net/http`，入口 `cmd/server/main.go`。
+- 数据库：公司 MySQL，核心表为 `tb_` 前缀，连接变量 `MYSQL_DSN` 或 `K8S_SECRET_MYSQL_DSN`。
+- 资产：公司 OSS，运行时 `ASSET_STORE=oss`；前端访问路径保持后端代理稳定。
+- 前端：Vite + React + TypeScript + Ant Design，入口 `frontend/src/App.tsx`。
+- H5 播放：萤石云 OpenAPI + `ezuikit-flv`，前端 decoder 静态资源位于 `frontend/public/assets/ezuikit-flv/`。
+- AI：通道截图识别和设计图识别支持 OpenAI/GPT 与 MiniMax，运行时 provider 可通过后端配置读取；当前线上曾验证 MiniMax / MiniMax-M3。
+- 登录：公司 APISIX SSO，`sy_sso_token` cookie，后端验签并用企业邮箱匹配 `tb_users`。
+- 公司发布：推送 `gitlab/codex/containerize-single-image`，公司 GitLab/K8s 自动构建发布，入口 `https://lite.sy.soyoung.com/erzhuang-project/`。
+- GitHub 代码备份：GitHub 仍保留为主代码备份和历史留存；除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，已确认准备发布的代码仍应同步 GitHub。GitHub 不再代表线上发布完成。
+- GitLab 推送认证：本机 token 文件为 `/Users/sylar/.codex/secrets/gitlab-erzhuang-project.token`。发布到公司时默认用临时 `GIT_ASKPASS` 读取该文件，用户名 `oauth2`；禁止打印 token、写入命令、写入仓库、写入文档或保留长期 askpass，用完删除临时脚本。
+- 历史个人练习发布：GitHub `main` + 韩国 Lighthouse + `scripts/deploy.sh` + systemd/nginx。该链路已终止，且韩国服务器上的二壮项目库表已删除；只保留为历史学习记录。
+
+### 验证与发布规则
+
+- 公司发布前默认验证：
+  - Go：本机直接 `go test` 可能触发 macOS `missing LC_UUID`，当前可靠门禁是 `go test -c` 编译关键包和 `go build ./cmd/server`。
+  - 前端：涉及 UI 时必须读 `docs/ui-standards.md`、`docs/frontend-review-checklist.md`，并做浏览器实际验收，不只跑 build。
+  - GitLab hook：推公司分支前，对本次改动文件运行 `rg -n -i "join" <changed-files>`，避免 hook 拦截。
+- 公司发布后验证：
+  - 线上已登录浏览器验证 `/erzhuang-project/health` 返回 `database=mysql`、`asset_store=oss`。
+  - 关键页面：门店列表、门店详情、H5 Monitor、写接口、通道识别/确认按本次改动范围抽验。
+- 韩国 Lighthouse 发布/回滚已废止，不得再用于二壮项目；历史文档中的 TAT、`scripts/deploy.sh`、`scripts/rollback.sh` 只作为早期练习记录。
+
+### 已知风险
+
+- 历史迁移文档仍存在阶段性表述；入口文档 `README.md` 和 `docs/technical-architecture-index.md` 已更新为 MySQL/OSS 当前事实。
+- 旧 PostgreSQL 回滚连接已删除，MySQL/OSS 正式成为唯一运行时路径；后续回滚只能回滚到仍兼容 MySQL/OSS 的提交，不能依赖旧库兜底。
+- 韩国服务器上的二壮项目库表已经完全删除，因此韩国 Lighthouse 不再具备二壮项目运行、回滚或对照验证能力。
+- 萤石抓图和播放接口可能触发限流/风控，批量识别必须节流；老批量识别接口已降为单次推进 1 路。
+- MiniMax/GPT 都可能返回非 JSON 或 `<think>` 解释文本，已做兜底，但仍建议保留单通道人工重试。
+- 公司公网 health 从无登录态环境可能被 SSO 重定向，线上验证优先由用户已登录浏览器执行。
+- MySQL 8.0.13 对 CHECK 约束不可靠，应用层和迁移脚本必须继续做枚举/数据校验。
+
+### 下一步建议
+
+1. 基于 `docs/legacy-postgres-supabase-shutdown-checklist.md` 和安全/运维/研发确认旧 PostgreSQL/Supabase 的只读保留期、归档、删除责任人和验证清单。
+2. 标记或整理历史迁移文档，避免新会话把阶段性旧事实当成当前事实。
+3. 评估是否下线旧 `designplan` 路由和旧兼容表，减少未来维护面。
+4. 后续 AI 识别若出现个别 upstream 502，优先低频单通道重试，不批量压测。
+
+## 2026-07-08 普通查看用户监控门店范围权限本地验收
+
+- 范围：
+  - 普通查看用户按门店授权查看监控。
+  - 用户管理弹窗的门店范围选择交互。
+- 本地浏览器验收：
+  - 启动本地 mock 前端：`http://127.0.0.1:5173/erzhuang-project/`。
+  - 进入“系统设置 -> 用户管理 -> 添加用户”，确认普通查看角色默认展示“查看监控门店范围”。
+  - 城市筛选生效：切换到“上海”后只展示上海门店。
+  - 在城市筛选下勾选门店后，切回“全部”时已选门店前置。
+  - `全选` / `清空` 文案已按用户反馈保留简洁形式。
+  - 弹窗宽度已加宽到适合真实门店范围选择的尺寸，减少城市和门店列表拥挤。
+  - 登录状态行已改为横向阅读结构，开关宽度放宽，避免中文被压缩。
+- 构建验证：
+  - `cd frontend && npm run build` 通过。
+  - Vite 仍提示既有 chunk size warning，非本次回归。
+- 门店统计 bug 修复：
+  - 根因：MySQL `ListStores` 先分页取 `items`，再用 `summarizeStoreListItems(items)` 生成 summary，导致右上角统计随翻页变化。
+  - 修复：改用 `storeListSummary(ctx, rawLike, rawLike, filters.City)` 按当前 tab/搜索条件汇总全量 filtered dataset。
+  - 防回归：新增 `TestMySQLListStoresSummaryUsesFilteredDataset` 源码守卫测试。
+- 下一步：
+  - 复查改动范围，避免混入 OpenClaw 并行改动。
+  - 发布前重新跑 Go 编译门禁和前端构建。
+  - 发布后线上验证 viewer 空范围/部分范围、H5 Monitor 门店切换过滤、直接访问未授权机构返回 403。
+
+## 2026-07-04 MySQL/OSS 资产与单通道识别抽验
+
+- 执行人：用户在已登录公司浏览器控制台执行。
+- 范围：真实门店单通道截图刷新和识别，不批量请求。
+- 样本：
+  - 门店：`56`，新氧青春诊所(佛山岭南天地店)
+  - 录像机：`64`，`GQ2603587`
+  - 通道：`900065`，通道号 `1`
+- 验证结果：
+  - `GET /erzhuang-project/api/store-space/stores/56/channel-data`：200。
+  - `POST /erzhuang-project/api/store-space/channels/900065/snapshot`：200。
+  - `POST /erzhuang-project/api/store-space/channels/900065/recognize`：200。
+  - 识别响应业务状态：`status=recognition_failed`。
+  - `recognition_result.status=recognition_failed`。
+  - 控制台输出 `ASSET_AND_RECOGNITION_CHECK_DONE`。
+- 失败详情：
+  - `recognition_result.status=recognition_failed`。
+  - `message=vision recognition failed: status 502 ... upstream_error`。
+  - `request ID=5704b803-f192-4f86-a3a7-be7a3df7a53d`。
+  - `capture_ms=578`，说明萤石抓图阶段成功。
+  - `recognition_ms=30407`，说明 AI provider 请求耗时约 30.4s 后由上游返回 502。
+- 当前判断：
+  - 门店详情、通道读取、萤石截图刷新、识别接口路由、认证、OSS/MySQL 写回链路均可达。
+  - 本次失败根因在 AI provider 上游 502，不是 MySQL/OSS 主链路失败。
+- 下一步：
+  - 低频抽验另一个通道，确认 AI provider 是否只是单次波动。
+  - 如果持续 502，暂停批量识别，检查当前 provider 或稍后重试。
+
+### 追加样本
+
+- 通道：`900076`，通道号 `2`。
+- `POST /erzhuang-project/api/store-space/channels/900076/recognize`：200。
+- 识别响应业务状态：`status=pending_confirmation`。
+- `recognition_result.status=recognized`。
+- 结论：
+  - 识别链路整体可用。
+  - 通道 `900065` 的 upstream 502 更符合单次 AI provider 波动，而不是系统性故障。
+  - 后续遇到个别识别失败，优先按单通道低频重试处理。
+
+## 2026-07-04 MySQL/OSS 线上写接口回归
+
+- 执行人：用户在已登录公司浏览器控制台执行。
+- 范围：临时门店写接口验收，脚本最终清理临时数据。
+- 临时数据：
+  - 临时门店 ID：`900006`
+  - 临时门店名：`Codex MySQL 写接口回归 1783154376454 已编辑`
+  - 临时新增录像机 ID：`900058`
+  - 临时新增录像机设备号：`CODB4376454`
+- 验证结果：
+  - `GET /erzhuang-project/health`：200，返回 `database=mysql`、`asset_store=oss`。
+  - `POST /api/store-space/stores`：201，临时门店创建成功。
+  - `PATCH /api/store-space/stores/900006`：200，门店基础信息编辑成功。
+  - `PUT /api/store-space/stores/900006/design-plan`：200，设计图标注保存成功，未复现 collation 错误。
+  - `POST /api/store-space/stores/900006/recorders`：201，录像机添加成功。
+  - `DELETE /api/store-space/recorders/900058`：204，新增录像机删除成功。
+  - `GET /api/store-space/stores/900006/channel-data`：200，确认新增录像机已不存在，`recorder deleted=true`。
+  - `DELETE /api/store-space/stores/900006`：204，临时门店清理成功。
+  - 控制台输出 `WRITE REGRESSION OK store_id=900006`。
+- 结论：
+  - MySQL 门店空间核心写接口当前线上可用。
+  - 临时数据已清理。
+  - 设计图保存 collation 修复在线上有效。
+- 下一步：
+  - 抽验真实门店资产链路和单通道识别链路。
+
+## 2026-07-04 MySQL/OSS 线上只读回归
+
+- 执行人：用户在已登录公司浏览器控制台执行。
+- 范围：只读接口，不改数据。
+- 验证结果：
+  - `GET /erzhuang-project/health`：200，返回 `database=mysql`、`asset_store=oss`。
+  - `GET /erzhuang-project/api/auth/me`：200，返回真实登录用户“凯撒（沙磊）”和权限数组。
+  - `GET /erzhuang-project/api/store-space/stores?page=1&page_size=100`：200，`total=54`，`items.length=54`。
+  - `GET /erzhuang-project/api/h5/orgs/10030/monitor`：200，北京保利实验室门店，`groups.length=1`。
+  - `GET /erzhuang-project/api/h5/orgs/10019/monitor`：200，上海陆家嘴店，`groups.length=5`。
+  - `GET /erzhuang-project/api/h5/orgs/10081/monitor`：200，杭州城北万象城店，`groups.length=5`。
+  - `failed=[]`。
+- 结论：
+  - MySQL/OSS 当前线上只读主链路健康。
+  - 54 家有效门店口径再次确认。
+  - H5 Monitor 样本门店只读接口正常。
+- 下一步：
+  - 执行临时门店写接口验收，并自动清理临时数据。
+  - 再抽验资产链路和单通道识别链路。
+
+## 2026-07-04 项目文件化记忆与控制文档整理
+
+- 背景：
+  - 主会话将长期担任项目负责人，用户要求建立文件化项目记忆，避免长期上下文压缩后丢失关键状态。
+  - MySQL/OSS 切换完成后，README 和技术架构索引仍保留早期 PostgreSQL/Supabase 主路径表述，可能误导后续会话。
+- 本次整理：
+  - `docs/codex-learning-state.md` 顶部新增当前项目记忆快照。
+  - 新建 `docs/decisions.md`，记录关键产品/技术决策。
+  - 新建 `work/current-plan.md`，记录当前轮目标、进度、验证方式和下一步。
+  - 更新 `README.md`，改为当前 MySQL + OSS、公司 GitLab/K8s、54 家有效门店口径。
+  - 重写 `docs/technical-architecture-index.md`，以 `store-space`、MySQL、OSS、APISIX SSO、H5 Monitor、萤石/AI 为当前主路径。
+  - 新建 `docs/post-cutover-regression-checklist.md`，用于 MySQL/OSS 切换后线上回归。
+  - 新建 `docs/legacy-postgres-supabase-shutdown-checklist.md`，用于旧 PostgreSQL/Supabase 下线确认。
+- 验证：
+  - 本轮只改文档和 `work/current-plan.md`，未改业务代码。
+  - 检查新增文档未写入真实密钥、数据库密码或公司敏感连接串。
+- 后续：
+  - 做一次线上回归并记录结果。
+  - 组织旧 PostgreSQL/Supabase 下线确认。
+  - 对历史迁移文档加状态标记或归档说明。
 
 ## 2026-07-04 MySQL 设计图保存 collation 修复 2.30.22
 
@@ -421,18 +667,20 @@
 
 ## 2026-06-17 发布术语规范
 
-用户已明确两套发布口径，后续跨会话按固定语义执行：
+本节是 2026-06-17 的历史发布术语记录。2026-07-06 已更新当前规则：GitHub 代码备份能力依然保留；韩国 Lighthouse 发布链路已终止，且韩国服务器上的二壮项目库表已完全删除；二壮项目实际发布只走公司 GitLab/K8s。
+
+用户当时明确两套发布口径：
 
 - 默认 GitHub 备份：
   - 除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，所有已确认准备发布的代码都先提交并推送到 GitHub `origin/main`。
-  - GitHub 是主代码备份；是否发布韩国服务器是另一件事，需要用户明确目标或沿用当次发布指令。
+  - GitHub 是主代码备份；后续当前规则仍保留这一点，但不再发布韩国服务器。
 - “发布到公司”：
   - merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
   - 推送 remote `gitlab`。
   - 由公司 GitLab / K8s 自动发布，通常约 5 分钟。
   - 不操作韩国 Lighthouse，不 force push，不覆盖公司 Docker/K8s/运行时环境配置。
   - 验证 `https://lite.sy.soyoung.com/erzhuang-project/health` 和页面版本号。
-- “发布到韩国服务器”：
+- “发布到韩国服务器”（已于 2026-07-06 废止）：
   - 推送 GitHub `origin/main`。
   - 通过腾讯云 TAT 指定韩国 Lighthouse `ap-seoul / lhins-rjfpwj1u`。
   - 以 `lighthouse` 用户执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
@@ -4927,3 +5175,72 @@ git pull --ff-only
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/designplan -o /private/tmp/designplan.test` 通过。
   - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
   - 本机直接运行 `go test ./cmd/server ./internal/app ./internal/storespace ./internal/designplan` 仍触发 macOS 测试二进制 `missing LC_UUID load command`，按项目既定方式以编译验证为准。
+
+## 2026-07-06 Supabase 删除前请求来源排查
+
+- 背景：
+  - 用户准备删除旧境外 Supabase 数据库，但 Supabase Dashboard Last 60 minutes 显示仍有请求：总计 30，Postgres 21，Storage 3，Realtime 3，API Gateway 3。
+- 本地代码复核：
+  - `cmd/server/main.go` 的 `databaseConfigFromEnv` 只接受 MySQL，只读取 `MYSQL_DSN` / `K8S_SECRET_MYSQL_DSN`；旧 `DATABASE_URL` 不再作为运行时数据库连接。
+  - `internal/assets/store.go` 仍保留 Supabase asset provider 兼容代码；但只要 `K8S_SECRET_ASSET_STORE=oss` / `ASSET_STORE=oss` 存在，运行时会选择 OSS，不会自动选择 Supabase。
+  - `internal/app/ops_handler.go` 仍保留历史资产迁移 source store 支持，可在手工设置 `SOURCE_ASSET_STORE=supabase` 或旧 Supabase 环境变量时访问 Supabase Storage；这属于迁移/ops 路径，不是主服务数据库运行时。
+- 当前判断：
+  - 结合线上 `/health` 已返回 `database=mysql`、`asset_store=oss`，公司主服务继续访问旧 Supabase/PostgreSQL 的概率较低。
+  - Supabase 控制台本身可能产生 Postgres / Storage / Realtime / API Gateway 请求；仅凭 Dashboard 首页请求数不能确认业务服务仍在访问。
+- 下一步：
+  - 查看 Supabase Logs 中 Postgres/API Gateway/Storage/Realtime 的来源、user agent、client IP、query 或 path。
+  - 运行一次只读 `pg_stat_activity` 查询定位当前连接；注意该查询本身也会产生一次 Postgres 活动。
+  - 做 60-70 分钟静默窗口观察：关闭 Supabase 控制台，不运行旧脚本/迁移/ops；窗口结束后再查看是否仍有不可解释请求。
+  - 请运维确认 K8s 当前 Pod/Secret 中不存在旧 `DATABASE_URL`、`SUPABASE_*`、`SOURCE_SUPABASE_*` 或 `SOURCE_ASSET_STORE=supabase`。
+- 用户执行 `pg_stat_activity` 后的结果：
+  - 当前活动连接均为 Supabase 平台内部组件或本地 loopback：`postgres_exporter`、`Supabase Storage API`、`pgbouncer`、`PostgREST 14.5`、`pg_net 0.20.3`、`pg_cron scheduler`。
+  - `client_addr` 主要为 `::1` / `127.0.0.1` / `NULL`，未看到公司 Go 服务、K8s Pod、Lighthouse、浏览器前端或外部业务客户端 IP。
+  - 查询内容包括 `pgbouncer.get_auth($1)`、`LISTEN "pgrst"`、`show archive_mode;`、`COMMIT` 等平台内部/控制台相关行为。
+  - 结论：该快照没有发现公司业务运行时继续连接旧 Supabase/PostgreSQL 的证据；仍建议做 60-70 分钟静默窗口和 Supabase Logs 复核后再删除。
+
+## 2026-07-06 旧 Supabase 数据库删除
+
+- 操作：
+  - 用户确认已删除旧 Supabase 数据库。
+- 删除前依据：
+  - 公司线上 `/health` 已返回 `database=mysql`、`asset_store=oss`。
+  - `cmd/server` 运行时只接受 MySQL，不再读取旧 `DATABASE_URL`。
+  - `pg_stat_activity` 快照未发现公司业务服务、K8s Pod、Lighthouse 或外部业务客户端连接旧 Supabase/PostgreSQL；可见连接均为 Supabase 平台内部组件或 loopback。
+- 当前状态：
+  - 旧 Supabase/PostgreSQL 不再作为可用数据源或回滚路径。
+  - 删除后的线上只读核心回归已通过。
+- 删除后线上回归：
+  - 执行人：用户在已登录公司浏览器控制台执行。
+  - `GET /erzhuang-project/health`：200，返回 `database=mysql`、`asset_store=oss`。
+  - `GET /erzhuang-project/api/auth/me`：200，返回当前登录用户“凯撒（沙磊）”。
+  - `GET /erzhuang-project/api/store-space/stores?page=1&page_size=100`：200，`total=54`、`items.length=54`。
+  - `GET /erzhuang-project/api/h5/orgs/10030/monitor`：200，北京保利实验室门店，`groups.length=1`。
+  - `GET /erzhuang-project/api/h5/orgs/10019/monitor`：200，上海陆家嘴店，`groups.length=5`。
+  - `GET /erzhuang-project/api/h5/orgs/10081/monitor`：200，杭州城北万象城店，`groups.length=5`。
+  - `failed=[]`。
+- 结论：
+  - 旧 Supabase 数据库删除后，公司线上 MySQL/OSS 主链路、登录、门店列表和 H5 Monitor 样本门店均正常。
+  - 旧 Supabase/PostgreSQL 不再是运行时依赖或回滚路径。
+
+## 2026-07-06 用户管理编辑角色不生效修复
+
+- 现象：
+  - 管理员在用户管理界面把某用户角色改为“编辑运维”并保存后，列表仍显示“普通查看”。
+  - 再次打开编辑弹窗，角色仍是“普通查看”。
+- 根因：
+  - 前端提交的角色值为 `editor`，后端 handler 也会接收并归一化为 `editor`。
+  - MySQL 读取角色依赖 `tb_user_roles -> tb_roles.code`，如果 `tb_roles` 中没有 `editor` 角色，`setMySQLUserRole` 的 `insert ignore into tb_user_roles ... select ... where r.code='editor'` 会插入 0 行且不报错。
+  - 随后列表查询 `coalesce(..., 'viewer')`，因此回退显示为“普通查看”。
+- 修复：
+  - `setMySQLUserRole` 在写用户角色关系前，先幂等补齐 `admin`、`editor`、`viewer` 三个应用系统角色，修复线上现有库漏种 `editor` 时保存无效的问题。
+  - `db/mysql_governance_schema_tb.sql` 增加 `editor` 角色 seed，并让 `editor` 复用原 `operator` 的运维权限集合，避免新库继续漏种。
+  - 新增 `TestSetMySQLUserRoleSeedsKnownRolesBeforeAssignment`，用 recording SQL driver 验证分配用户角色前会先 seed 已知角色，再删除旧关系并写入新关系。
+- 验证：
+  - 本机直接运行 Go 测试仍触发项目已知 macOS `missing LC_UUID load command`，未能执行测试断言。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 发布后验证建议：
+  - 在用户管理中把一个普通查看用户改为“编辑运维”并保存。
+  - 列表应显示“编辑运维”。
+  - 再次打开编辑弹窗，角色下拉应保持“编辑运维”。
+  - 可再调用 `/api/auth/me` 验证该用户重新登录后权限含 `editor`、`store:read`、`store:write`。
