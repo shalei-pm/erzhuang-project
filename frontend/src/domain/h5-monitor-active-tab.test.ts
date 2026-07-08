@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { h5MonitorActiveTabStorageKey, readH5MonitorActiveTab, storeH5MonitorActiveTab } from "./h5-monitor-active-tab";
+import {
+  h5MonitorActiveTabStorageKey,
+  h5MonitorTabSearch,
+  readH5MonitorActiveTab,
+  readH5MonitorActiveTabFromSearch,
+  storeH5MonitorActiveTab,
+} from "./h5-monitor-active-tab";
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
@@ -45,5 +51,18 @@ describe("H5 monitor active tab persistence", () => {
 
     expect(readH5MonitorActiveTab("10030", failingStorage)).toBe("all");
     expect(() => storeH5MonitorActiveTab("10030", "consultation", failingStorage)).not.toThrow();
+  });
+
+  it("reads valid active tabs from URL search params", () => {
+    expect(readH5MonitorActiveTabFromSearch("?tab=treatment")).toBe("treatment");
+    expect(readH5MonitorActiveTabFromSearch(new URLSearchParams("tab=beauty"))).toBe("beauty");
+    expect(readH5MonitorActiveTabFromSearch("?tab=unknown")).toBeNull();
+    expect(readH5MonitorActiveTabFromSearch("")).toBeNull();
+  });
+
+  it("serializes only non-default tabs into URL search", () => {
+    expect(h5MonitorTabSearch("treatment")).toBe("?tab=treatment");
+    expect(h5MonitorTabSearch("all")).toBe("");
+    expect(h5MonitorTabSearch(null)).toBe("");
   });
 });

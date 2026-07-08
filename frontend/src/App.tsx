@@ -32,6 +32,11 @@ import {
 } from "./domain/auth";
 import { errorMessage } from "./domain/format";
 import {
+  h5MonitorTabSearch,
+  readH5MonitorActiveTabFromSearch,
+  type H5MonitorTabKey,
+} from "./domain/h5-monitor-active-tab";
+import {
   createStoreDetailCache,
   canOpenH5Monitor,
   detailTabFromSummary,
@@ -52,8 +57,8 @@ const H5MonitorChannelPage = lazy(() =>
 );
 
 type H5Route =
-  | { name: "home"; externalOrgId: string }
-  | { name: "channel"; externalOrgId: string; channelId: number }
+  | { name: "home"; externalOrgId: string; tab?: H5MonitorTabKey }
+  | { name: "channel"; externalOrgId: string; channelId: number; tab?: H5MonitorTabKey }
   | null;
 
 function App() {
@@ -783,15 +788,27 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
           auth={showLogoutEntry ? auth : null}
           loggingOut={loggingOut}
           authMessage={authMessage}
+          activeTabFromRoute={route.tab ?? null}
           onLogout={logout}
           onAuthRequired={handleAuthRequired}
-          onOpenChannel={(channelId) => {
-            const url = `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(route.externalOrgId)}/monitor/channels/${channelId}`;
+          onOpenChannel={(channelId, activeTab) => {
+            const url = h5ChannelRoutePath(route.externalOrgId, channelId, activeTab);
             window.history.pushState({}, "", url);
-            setRoute({ name: "channel", externalOrgId: route.externalOrgId, channelId });
+            setRoute({ name: "channel", externalOrgId: route.externalOrgId, channelId, tab: normalizeH5RouteTab(activeTab) });
+          }}
+          onSelectTab={(activeTab) => {
+            const tab = normalizeH5RouteTab(activeTab);
+            const url = h5MonitorRoutePath(route.externalOrgId, tab);
+            window.history.replaceState({}, "", url);
+            setRoute((currentRoute) => {
+              if (!currentRoute || currentRoute.name !== "home" || currentRoute.externalOrgId !== route.externalOrgId) {
+                return currentRoute;
+              }
+              return { ...currentRoute, tab };
+            });
           }}
           onSelectStore={(externalOrgId) => {
-            const url = `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor`;
+            const url = h5MonitorRoutePath(externalOrgId);
             window.history.pushState({}, "", url);
             setRoute({ name: "home", externalOrgId });
           }}
@@ -811,9 +828,9 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
         onLogout={logout}
         onAuthRequired={handleAuthRequired}
         onBack={() => {
-          const url = `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(route.externalOrgId)}/monitor`;
+          const url = h5MonitorRoutePath(route.externalOrgId, route.tab);
           window.history.replaceState({}, "", url);
-          setRoute({ name: "home", externalOrgId: route.externalOrgId });
+          setRoute({ name: "home", externalOrgId: route.externalOrgId, tab: route.tab });
         }}
       />
     </Suspense>
@@ -823,22 +840,35 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
 function parseH5Route(): H5Route {
   const path = window.location.pathname;
   const h5Path = stripKnownBasePrefix(path);
+  const tab = normalizeH5RouteTab(readH5MonitorActiveTabFromSearch(window.location.search));
 
   const channelMatch = h5Path.match(/^\/h5\/orgs\/([^/]+)\/monitor\/channels\/([^/]+)$/);
   if (channelMatch) {
     const channelId = Number.parseInt(channelMatch[2], 10);
     if (Number.isInteger(channelId) && channelId > 0) {
-      return { name: "channel", externalOrgId: decodeURIComponent(channelMatch[1]), channelId };
+      return { name: "channel", externalOrgId: decodeURIComponent(channelMatch[1]), channelId, tab };
     }
     return null;
   }
 
   const homeMatch = h5Path.match(/^\/h5\/orgs\/([^/]+)\/monitor$/);
   if (homeMatch) {
-    return { name: "home", externalOrgId: decodeURIComponent(homeMatch[1]) };
+    return { name: "home", externalOrgId: decodeURIComponent(homeMatch[1]), tab };
   }
 
   return null;
+}
+
+function h5MonitorRoutePath(externalOrgId: string, tab?: H5MonitorTabKey) {
+  return `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor${h5MonitorTabSearch(tab)}`;
+}
+
+function h5ChannelRoutePath(externalOrgId: string, channelId: number, tab?: H5MonitorTabKey) {
+  return `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor/channels/${channelId}${h5MonitorTabSearch(tab)}`;
+}
+
+function normalizeH5RouteTab(tab: H5MonitorTabKey | null | undefined) {
+  return tab && tab !== "all" ? tab : undefined;
 }
 
 function stripKnownBasePrefix(path: string) {

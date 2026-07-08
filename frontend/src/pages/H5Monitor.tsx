@@ -12,7 +12,9 @@ interface H5MonitorProps {
   auth?: AuthState | null;
   loggingOut?: boolean;
   authMessage?: string;
-  onOpenChannel: (channelId: number) => void;
+  activeTabFromRoute?: H5MonitorTabKey | null;
+  onOpenChannel: (channelId: number, activeTab: H5MonitorTabKey) => void;
+  onSelectTab?: (tab: H5MonitorTabKey) => void;
   onSelectStore: (externalOrgId: string) => void;
   onAuthRequired?: () => void;
   onLogout?: () => void | Promise<void>;
@@ -24,14 +26,16 @@ export function H5Monitor({
   auth,
   loggingOut = false,
   authMessage = "",
+  activeTabFromRoute = null,
   onOpenChannel,
+  onSelectTab,
   onSelectStore,
   onAuthRequired,
   onLogout,
   refreshKey = 0,
 }: H5MonitorProps) {
   const [data, setData] = useState<H5MonitorHomeResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<H5MonitorTabKey>(() => readH5MonitorActiveTab(externalOrgId));
+  const [activeTab, setActiveTab] = useState<H5MonitorTabKey>(() => activeTabFromRoute ?? readH5MonitorActiveTab(externalOrgId));
   const [visibleCount, setVisibleCount] = useState(() => h5InitialVisibleCount(0, 0));
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
@@ -44,8 +48,8 @@ export function H5Monitor({
   }, []);
 
   useEffect(() => {
-    setActiveTab(readH5MonitorActiveTab(externalOrgId));
-  }, [externalOrgId]);
+    setActiveTab(activeTabFromRoute ?? readH5MonitorActiveTab(externalOrgId));
+  }, [activeTabFromRoute, externalOrgId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,18 +112,21 @@ export function H5Monitor({
   }, [allChannels]);
 
   useEffect(() => {
+    if (!data) return;
     if (!visibleTabs.some((tab) => tab.key === activeTab)) {
       storeH5MonitorActiveTab(externalOrgId, "all");
+      onSelectTab?.("all");
       setActiveTab("all");
     }
-  }, [activeTab, externalOrgId, visibleTabs]);
+  }, [activeTab, data, externalOrgId, onSelectTab, visibleTabs]);
 
   const selectActiveTab = useCallback(
     (tab: H5MonitorTabKey) => {
       storeH5MonitorActiveTab(externalOrgId, tab);
       setActiveTab(tab);
+      onSelectTab?.(tab);
     },
-    [externalOrgId],
+    [externalOrgId, onSelectTab],
   );
 
   const filteredChannels = useMemo(() => {
@@ -203,7 +210,7 @@ export function H5Monitor({
             channel={channel}
             onClick={() => {
               sessionStorage.setItem("h5-monitor-active-channel-name", h5ChannelDisplayText(channel).title);
-              onOpenChannel(channel.id);
+              onOpenChannel(channel.id, activeTab);
             }}
           />
         ))}
@@ -262,7 +269,7 @@ function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof H5ApiError) {
     if (err.status === 403) return "暂无该门店监控访问权限";
     const fieldMsgs = Object.values(err.fields).filter(Boolean);
-    if (fieldMsgs.length > 0) return fieldMsgs.join("；");
+    if (fieldMsgs.length > 0) return fieldMsgs.reduce((message, fieldMsg) => `${message}；${fieldMsg}`);
     return err.message;
   }
   if (err instanceof Error && err.message.trim()) return err.message;

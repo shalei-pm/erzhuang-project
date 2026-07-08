@@ -2,6 +2,8 @@ import type { MonitorCategory } from "./h5-types";
 
 export type H5MonitorTabKey = "all" | MonitorCategory;
 
+export const H5_MONITOR_TAB_QUERY_PARAM = "tab";
+
 export const h5MonitorTabs: Array<{ key: H5MonitorTabKey; label: string }> = [
   { key: "all", label: "全部" },
   { key: "consultation", label: "面诊室" },
@@ -25,6 +27,19 @@ export function readH5MonitorActiveTab(externalOrgId: string, storage = browserS
   } catch {
     return "all";
   }
+}
+
+export function readH5MonitorActiveTabFromSearch(search: string | URLSearchParams): H5MonitorTabKey | null {
+  const params = typeof search === "string" ? new URLSearchParams(search) : search;
+  const value = params.get(H5_MONITOR_TAB_QUERY_PARAM);
+  return isH5MonitorTabKey(value) ? value : null;
+}
+
+export function h5MonitorTabSearch(tab: H5MonitorTabKey | null | undefined) {
+  if (!tab || tab === "all") return "";
+  const params = new URLSearchParams();
+  params.set(H5_MONITOR_TAB_QUERY_PARAM, tab);
+  return `?${params.toString()}`;
 }
 
 export function storeH5MonitorActiveTab(externalOrgId: string, tab: H5MonitorTabKey, storage = browserSessionStorage()) {
