@@ -12,6 +12,23 @@ type MySQLStore struct {
 	db *sql.DB
 }
 
+const mysqlUserResourceScopesTableDDL = `
+	create table if not exists tb_user_resource_scopes (
+		id bigint primary key auto_increment,
+		user_id bigint not null,
+		resource_type varchar(32) not null,
+		resource_id bigint not null,
+		external_key varchar(128) not null,
+		scope varchar(64) not null,
+		created_at datetime(3) not null default current_timestamp(3),
+		updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
+		constraint fk_user_resource_scopes_user foreign key (user_id) references tb_users(id) on delete cascade,
+		unique key uk_user_resource_scope (user_id, resource_type, resource_id, scope),
+		key idx_user_scope (user_id, resource_type, scope),
+		key idx_resource_external_scope (resource_type, external_key, scope)
+	) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_general_ci
+`
+
 func NewMySQLStore(db *sql.DB) *MySQLStore {
 	return &MySQLStore{db: db}
 }
@@ -22,6 +39,14 @@ func (s *MySQLStore) Name() string {
 
 func (s *MySQLStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
+}
+
+func (s *MySQLStore) ensureUserResourceScopesTable(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, mysqlUserResourceScopesTableDDL)
+	if err != nil {
+		return fmt.Errorf("ensure user resource scopes table: %w", err)
+	}
+	return nil
 }
 
 func (s *MySQLStore) ListTasks(ctx context.Context) ([]Task, error) {
@@ -169,6 +194,11 @@ func (s *MySQLStore) ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error
 }
 
 func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation) (AuthUserRecord, error) {
+	if normalizeRole(input.Role) == RoleViewer {
+		if err := s.ensureUserResourceScopesTable(ctx); err != nil {
+			return AuthUserRecord{}, err
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AuthUserRecord{}, err
@@ -204,6 +234,11 @@ func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation)
 }
 
 func (s *MySQLStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error) {
+	if normalizeRole(input.Role) == RoleViewer {
+		if err := s.ensureUserResourceScopesTable(ctx); err != nil {
+			return AuthUserRecord{}, err
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AuthUserRecord{}, err
@@ -358,6 +393,9 @@ func (s *MySQLStore) ListMonitorStoreScopeCandidates(ctx context.Context) ([]Aut
 }
 
 func (s *MySQLStore) GetUserMonitorStoreScopes(ctx context.Context, userID int64) ([]AuthUserResourceScope, error) {
+	if err := s.ensureUserResourceScopesTable(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		select s.id, s.city, s.name, s.external_org_id
 		from tb_user_resource_scopes urs
@@ -378,6 +416,9 @@ func (s *MySQLStore) GetUserMonitorStoreScopes(ctx context.Context, userID int64
 func (s *MySQLStore) CanUserViewMonitorStore(ctx context.Context, user AuthUserRecord, externalOrgID string) (bool, error) {
 	if normalizeRole(user.Role) != RoleViewer {
 		return true, nil
+	}
+	if err := s.ensureUserResourceScopesTable(ctx); err != nil {
+		return false, err
 	}
 	orgID := strings.TrimSpace(externalOrgID)
 	if orgID == "" {
@@ -402,6 +443,9 @@ func (s *MySQLStore) CanUserViewMonitorStore(ctx context.Context, user AuthUserR
 func (s *MySQLStore) attachMonitorScopeCounts(ctx context.Context, users []AuthUserRecord) error {
 	if len(users) == 0 {
 		return nil
+	}
+	if err := s.ensureUserResourceScopesTable(ctx); err != nil {
+		return err
 	}
 	counts := map[int64]int{}
 	rows, err := s.db.QueryContext(ctx, `

@@ -535,6 +535,37 @@ func TestMySQLGovernanceSchemaDefinesUserResourceScopes(t *testing.T) {
 	}
 }
 
+func TestMySQLStoreEnsuresUserResourceScopesTable(t *testing.T) {
+	recorder := newRecordingSQLDriver(t)
+	db, err := sql.Open(recorder.driverName, "")
+	if err != nil {
+		t.Fatalf("open recording db: %v", err)
+	}
+	defer db.Close()
+
+	store := NewMySQLStore(db)
+	if err := store.ensureUserResourceScopesTable(context.Background()); err != nil {
+		t.Fatalf("ensure table: %v", err)
+	}
+
+	queries := recorder.queries()
+	if len(queries) != 1 {
+		t.Fatalf("expected one ensure query, got %#v", queries)
+	}
+	query := queries[0]
+	for _, want := range []string{
+		"create table if not exists tb_user_resource_scopes",
+		"constraint fk_user_resource_scopes_user",
+		"unique key uk_user_resource_scope",
+		"key idx_user_scope",
+		"key idx_resource_external_scope",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("ensure query missing %q: %s", want, query)
+		}
+	}
+}
+
 func TestListAuthUsersRequiresAdmin(t *testing.T) {
 	privateKey := newTestRSAKey(t)
 	t.Setenv("SSO_ENABLED", "true")
