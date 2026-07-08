@@ -148,10 +148,12 @@ func TestMySQLListStoresSummaryUsesFilteredDataset(t *testing.T) {
 	if strings.Contains(body, "summarizeStoreListItems(items)") {
 		t.Fatalf("MySQLStore.ListStores still summarizes only current page items, body=%s", body)
 	}
+	if !strings.Contains(source, "binary coalesce(nullif(trim(s.city), ''), '未设置') = binary ?") {
+		t.Fatal("MySQL store list filters must use binary city comparison to avoid mixed collation failures")
+	}
 	summaryBody := mysqlStoreMethodSourceForTest(source, "storeListSummary")
 	for _, want := range []string{
 		"mysqlStoreListWhere(filters)",
-		"binary coalesce(nullif(trim(s.city), ''), '未设置') = binary ?",
 		"select count(*) from tb_stores s",
 		"exists (select 1 from tb_stores s",
 		"binary a.area_type",
