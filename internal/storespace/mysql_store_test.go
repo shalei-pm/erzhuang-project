@@ -19,7 +19,7 @@ func TestMySQLStoreListWhereOmitsEmptyFilters(t *testing.T) {
 
 func TestMySQLStoreListWhereAddsRealFiltersOnly(t *testing.T) {
 	whereSQL, args := mysqlStoreListWhere(StoreFilters{Query: " 北京 ", City: "上海"})
-	if !strings.Contains(whereSQL, "where coalesce") {
+	if !strings.Contains(whereSQL, "where binary coalesce") {
 		t.Fatalf("whereSQL = %q, want city condition", whereSQL)
 	}
 	if !strings.Contains(whereSQL, "and (replace") {
