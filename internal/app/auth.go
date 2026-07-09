@@ -11,6 +11,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -206,10 +207,25 @@ func (h *Handler) authCallbackHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
 	h.clearAuthCookie(w, r)
 	if r.Method == http.MethodGet {
-		http.Redirect(w, r, normalizeBasePath(os.Getenv("APP_BASE_PATH"))+"/", http.StatusFound)
+		redirectTo := safeLogoutRedirect(r.URL.Query().Get("redirect"))
+		if redirectTo == "" {
+			redirectTo = normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/"
+		}
+		http.Redirect(w, r, redirectTo, http.StatusFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func safeLogoutRedirect(value string) string {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "security-test.sy.soyoung.com" {
+		return ""
+	}
+	if parsed.Path != "/api/g/sso/logouttogether" {
+		return ""
+	}
+	return parsed.String()
 }
 
 func (h *Handler) clearAuthCookie(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +257,8 @@ func authCookieClearDomains(host string) []string {
 	domains = append(domains, hostname)
 	parts := strings.Split(hostname, ".")
 	if len(parts) >= 3 {
-		domains = append(domains, strings.Join(parts[len(parts)-3:], "."))
+		parentDomain := parts[len(parts)-3] + "." + parts[len(parts)-2] + "." + parts[len(parts)-1]
+		domains = append(domains, parentDomain)
 	}
 	return uniqueStrings(domains)
 }

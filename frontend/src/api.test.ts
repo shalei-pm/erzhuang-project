@@ -103,12 +103,12 @@ describe("auth helpers", () => {
   it("builds the apisix logout path with the project base", () => {
     expect(authLogoutPath()).toBe("/erzhuang-project/logout");
     expect(authLogoutPath("lite.sy.soyoung.com")).toBe(
-      "https://security-test.sy.soyoung.com/api/g/sso/logouttogether?from_host=lite.sy.soyoung.com&from_uri=https%3A%2F%2Flite.sy.soyoung.com%2Ferzhuang-project%2F",
+      "/erzhuang-project/logout?redirect=https%3A%2F%2Fsecurity-test.sy.soyoung.com%2Fapi%2Fg%2Fsso%2Flogouttogether%3Ffrom_host%3Dlite.sy.soyoung.com%26from_uri%3Dhttps%253A%252F%252Flite.sy.soyoung.com%252Ferzhuang-project%252F",
     );
   });
 
-  it("does not skip local session cleanup before gateway logout on the company domain", () => {
-    expect(shouldSkipLocalLogoutBeforeRedirect("lite.sy.soyoung.com")).toBe(false);
+  it("uses a top-level same-origin logout hop on the company domain", () => {
+    expect(shouldSkipLocalLogoutBeforeRedirect("lite.sy.soyoung.com")).toBe(true);
     expect(shouldSkipLocalLogoutBeforeRedirect("127.0.0.1")).toBe(false);
   });
 

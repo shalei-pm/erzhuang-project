@@ -45,17 +45,19 @@ export function authCompanyEntryPath(hostname = currentHostname()) {
 
 export function authLogoutPath(hostname = currentHostname()) {
   if (isCompanySSODomain(hostname)) {
-    const params = new URLSearchParams({
+    const gatewayParams = new URLSearchParams({
       from_host: hostname,
       from_uri: `https://${hostname}${authBasePath()}/`,
     });
-    return `https://security-test.sy.soyoung.com/api/g/sso/logouttogether?${params.toString()}`;
+    const gatewayLogout = `https://security-test.sy.soyoung.com/api/g/sso/logouttogether?${gatewayParams.toString()}`;
+    const localParams = new URLSearchParams({ redirect: gatewayLogout });
+    return `${authBasePath()}/logout?${localParams.toString()}`;
   }
   return `${authBasePath()}/logout`;
 }
 
-export function shouldSkipLocalLogoutBeforeRedirect(_hostname = currentHostname()) {
-  return false;
+export function shouldSkipLocalLogoutBeforeRedirect(hostname = currentHostname()) {
+  return isCompanySSODomain(hostname);
 }
 
 export function shouldShowLogoutEntry(auth: Pick<AuthState, "enabled" | "authenticated"> | null, hostname = window.location.hostname) {
