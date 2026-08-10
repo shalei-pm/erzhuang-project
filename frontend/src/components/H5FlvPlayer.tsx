@@ -10,7 +10,14 @@ import {
   type SetStateAction,
 } from "react";
 import "ezuikit-flv/style.css";
-import { isH5FirstFrameEvent, isH5StreamConnectedEvent, type H5DecodePath } from "../domain/h5-player-diagnostics";
+import {
+  h5DecodePathForEnvironment,
+  isH5FirstFrameEvent,
+  isH5StreamConnectedEvent,
+  shouldFallbackH5MSEToSoftDecode,
+  shouldUseH5SoftDecode,
+  type H5DecodePath,
+} from "../domain/h5-player-diagnostics";
 
 // ezuikit-flv is loaded dynamically to avoid SSR issues and to keep
 // the decoder path configurable.
@@ -177,10 +184,16 @@ export const H5FlvPlayer = forwardRef<H5PlayerHandle, H5FlvPlayerProps>(function
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [diagnostic, setDiagnostic] = useState<PlayerDiagnostic | null>(null);
+  const [forceSoftDecode, setForceSoftDecode] = useState(false);
   const isMock = url.startsWith("mock-");
-  const preferSoftDecode = isMobilePlaybackContext();
-  const decodePath: H5DecodePath = preferSoftDecode ? "mobile-wasm" : "desktop-mse";
+  const environmentDecodePath = h5DecodePathForEnvironment(readUserAgent(), readMaxTouchPoints());
+  const decodePath: H5DecodePath = forceSoftDecode && environmentDecodePath === "desktop-mse" ? "desktop-wasm" : environmentDecodePath;
+  const preferSoftDecode = shouldUseH5SoftDecode(decodePath);
   const isNativeVideo = !isMock && shouldUseNativeVideo(url, protocol) && !preferSoftDecode;
+
+  useEffect(() => {
+    setForceSoftDecode(false);
+  }, [url, protocol, isLive]);
 
   useEffect(() => {
     onPlaybackStateChange?.({ playing, muted, loading, failed: loadFailed });
@@ -234,7 +247,7 @@ export const H5FlvPlayer = forwardRef<H5PlayerHandle, H5FlvPlayerProps>(function
 
       const commonDetails = [
         ...buildCommonDetails(url, protocol, isLive, decodePath, []),
-        `lib=${loaded.diagnostics.join(",")}`,
+        `lib=${combineText(loaded.diagnostics, ",")}`,
       ];
       reportStatus(onStatus, {
         stage: "player-init",
@@ -276,7 +289,7 @@ export const H5FlvPlayer = forwardRef<H5PlayerHandle, H5FlvPlayerProps>(function
           hasVideo: true,
           debug: true,
           hasAudio: true,
-          keepScreenOn: preferSoftDecode,
+          keepScreenOn: decodePath === "mobile-wasm",
           scaleMode: 2,
           videoBuffer: 1,
           themeData: null,
@@ -284,6 +297,19 @@ export const H5FlvPlayer = forwardRef<H5PlayerHandle, H5FlvPlayerProps>(function
         });
         playerRef.current = player;
         attachPlayerDiagnostics(player, (message) => {
+          if (shouldFallbackH5MSEToSoftDecode(message, decodePath)) {
+            setLoading(true);
+            const nextDiagnostic = {
+              stage: "decode-fallback",
+              message: "当前浏览器不支持该 H.265 硬解码流，正在切换软解码重试",
+              details: [...commonDetails, `player=${message}`],
+              severity: "warning" as const,
+            };
+            setDiagnostic(nextDiagnostic);
+            reportDiagnostic(onStatus, nextDiagnostic);
+            setForceSoftDecode(true);
+            return;
+          }
           const severity: PlayerDiagnostic["severity"] = isRecoverablePlayerEvent(message) ? "warning" : "error";
           const nextDiagnostic = {
             stage: "player-event",
@@ -301,7 +327,7 @@ export const H5FlvPlayer = forwardRef<H5PlayerHandle, H5FlvPlayerProps>(function
           }
         }, (eventName, payload) => {
           notePlayerEvent(playerEventsRef, eventName, payload);
-          const currentEvents = `events=${playerEventsRef.current.join(" > ")}`;
+          const currentEvents = `events=${combineText(playerEventsRef.current, " > ")}`;
           reportStatus(onStatus, {
             stage: "player-event",
             message: `播放器事件：${eventName}`,
@@ -341,7 +367,7 @@ export const H5FlvPlayer = forwardRef<H5PlayerHandle, H5FlvPlayerProps>(function
             message: firstFrameTimeoutMessage(playerEventsRef.current),
             details: [
               ...commonDetails,
-              `events=${playerEventsRef.current.length > 0 ? playerEventsRef.current.join(" > ") : "none"}`,
+              `events=${playerEventsRef.current.length > 0 ? combineText(playerEventsRef.current, " > ") : "none"}`,
               `state=${safePlayerState(player)}`,
             ],
             severity: "error" as const,
@@ -648,15 +674,6 @@ function shouldUseNativeVideo(url: string, protocol?: string) {
   return normalized === "hls" || normalized === "m3u8";
 }
 
-function isMobilePlaybackContext() {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent.toLowerCase();
-  return (
-    navigator.maxTouchPoints > 1 &&
-    /android|iphone|ipad|ipod|mobile|micromessenger|lark|feishu|bytedancewebview/.test(ua)
-  );
-}
-
 function inferProtocol(url: string) {
   try {
     const parsed = new URL(url);
@@ -724,7 +741,11 @@ function destroyPlayer(player: EzuikitFlvPlayer, containerId: string) {
 }
 
 function formatDiagnostic(diagnostic: PlayerDiagnostic) {
-  return [diagnostic.message, `stage=${diagnostic.stage}`, ...diagnostic.details].join(" · ");
+  return combineText([diagnostic.message, `stage=${diagnostic.stage}`, ...diagnostic.details], " · ");
+}
+
+function combineText(items: string[], separator: string) {
+  return items.reduce((text, item) => (text ? `${text}${separator}${item}` : item), "");
 }
 
 function firstFrameTimeoutMessage(events: string[]) {
@@ -768,6 +789,14 @@ function reportStatus(onStatus: H5FlvPlayerProps["onStatus"], status: H5PlayerSt
 function summarizeUserAgent() {
   if (typeof navigator === "undefined") return "server";
   return navigator.userAgent.slice(0, 120);
+}
+
+function readUserAgent() {
+  return typeof navigator === "undefined" ? "" : navigator.userAgent;
+}
+
+function readMaxTouchPoints() {
+  return typeof navigator === "undefined" ? 0 : navigator.maxTouchPoints || 0;
 }
 
 function summarizeUrl(value: string) {

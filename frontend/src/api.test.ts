@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { __testing } from "./api";
 import { h5CameraColumnCount, h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from "./domain/h5-channel-display";
-import { isH5FirstFrameEvent } from "./domain/h5-player-diagnostics";
+import {
+  h5DecodePathForEnvironment,
+  isH5FirstFrameEvent,
+  shouldFallbackH5MSEToSoftDecode,
+  shouldUseH5SoftDecode,
+} from "./domain/h5-player-diagnostics";
 import {
   clampSegmentOffset,
   dataUrlToFile,
@@ -215,6 +220,34 @@ describe("H5 player diagnostics", () => {
     expect(isH5FirstFrameEvent("videoInfo", "desktop-mse")).toBe(true);
     expect(isH5FirstFrameEvent("loaded", "desktop-mse")).toBe(true);
     expect(isH5FirstFrameEvent("playing", "desktop-mse")).toBe(true);
+  });
+
+  it("keeps Windows desktop on MSE until the player reports unsupported H265", () => {
+    const edgeWindowsUA =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.";
+    expect(h5DecodePathForEnvironment(edgeWindowsUA, 0)).toBe("desktop-mse");
+    expect(shouldUseH5SoftDecode("desktop-wasm")).toBe(true);
+    expect(isH5FirstFrameEvent("loaded", "desktop-wasm")).toBe(false);
+    expect(isH5FirstFrameEvent("videoFrame", "desktop-wasm")).toBe(true);
+  });
+
+  it("keeps non-Windows desktop on MSE and touch mobile on wasm", () => {
+    const macUA =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
+    const iphoneUA =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Lark";
+    expect(h5DecodePathForEnvironment(macUA, 0)).toBe("desktop-mse");
+    expect(shouldUseH5SoftDecode("desktop-mse")).toBe(false);
+    expect(h5DecodePathForEnvironment(iphoneUA, 5)).toBe("mobile-wasm");
+  });
+
+  it("falls back from desktop MSE only for explicit H265 SourceBuffer unsupported errors", () => {
+    const unsupportedH265 =
+      "error:{\"errorTypes\":\"MediaError\",\"errorDetails\":\"MediaMSEError\",\"info\":{\"code\":9,\"msg\":\"Failed to execute 'addSourceBuffer' on 'MediaSource': The type provided ('video/mp4;codecs=hvc1.1.1.L63.B0') is unsupported.\"}}";
+    expect(shouldFallbackH5MSEToSoftDecode(unsupportedH265, "desktop-mse")).toBe(true);
+    expect(shouldFallbackH5MSEToSoftDecode(unsupportedH265, "desktop-wasm")).toBe(false);
+    expect(shouldFallbackH5MSEToSoftDecode("stats:{\"fps\":0}", "desktop-mse")).toBe(false);
+    expect(shouldFallbackH5MSEToSoftDecode("mseSourceBufferFull", "desktop-mse")).toBe(false);
   });
 });
 
