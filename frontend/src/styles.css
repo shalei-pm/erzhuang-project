@@ -918,6 +918,49 @@ h1 {
   padding-right: 18px;
 }
 
+.resource-store-table th,
+.resource-store-table td {
+  height: 46px;
+  white-space: nowrap;
+}
+
+.resource-store-table th:nth-child(1),
+.resource-store-table td:nth-child(1),
+.resource-store-table th:nth-child(2),
+.resource-store-table td:nth-child(2),
+.resource-store-table th:nth-child(5),
+.resource-store-table td:nth-child(5),
+.resource-store-table th:nth-child(6),
+.resource-store-table td:nth-child(6),
+.resource-store-table th:nth-child(7),
+.resource-store-table td:nth-child(7),
+.resource-store-table th:nth-child(8),
+.resource-store-table td:nth-child(8),
+.resource-store-table th:nth-child(9),
+.resource-store-table td:nth-child(9),
+.resource-store-table th:nth-child(10),
+.resource-store-table td:nth-child(10),
+.resource-store-table th:nth-child(11),
+.resource-store-table td:nth-child(11) {
+  width: 72px;
+}
+
+.resource-store-table th:nth-child(3),
+.resource-store-table td:nth-child(3) {
+  width: auto;
+}
+
+.resource-store-table th:nth-child(4),
+.resource-store-table td:nth-child(4) {
+  width: 98px;
+}
+
+.resource-store-table th:nth-child(12),
+.resource-store-table td:nth-child(12) {
+  width: 168px;
+  padding-right: 18px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -1413,6 +1456,165 @@ td:nth-child(10) {
 .tabs button.is-active {
   border-bottom-color: var(--brand);
   color: var(--brand);
+}
+
+.resource-detail-page .tabs {
+  margin-top: 16px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.resource-tree,
+.resource-issues {
+  display: grid;
+  gap: 8px;
+}
+
+.resource-node,
+.resource-panel,
+.resource-issue,
+.resource-device-card,
+.resource-empty-panel {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.resource-node {
+  padding: 7px 10px;
+}
+
+.resource-node-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resource-node-header div {
+  display: grid;
+  gap: 3px;
+}
+
+.resource-node-header strong,
+.resource-device-card strong,
+.resource-issue strong {
+  color: var(--text-strong);
+  font-weight: 650;
+}
+
+.resource-node-header span,
+.resource-device-card span,
+.resource-issue span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.resource-node-children {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  margin-left: 16px;
+}
+
+.resource-badges,
+.resource-camera-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.resource-badges span,
+.resource-camera-badge,
+.resource-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.resource-camera-badge {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: var(--brand);
+}
+
+.resource-status.is-ok {
+  background: #dcfce7;
+  color: var(--success);
+}
+
+.resource-status.is-warn {
+  background: #fef3c7;
+  color: var(--warning);
+}
+
+.resource-status.is-muted {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.resource-device-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.6fr);
+  gap: 12px;
+}
+
+.resource-panel {
+  padding: 12px;
+}
+
+.resource-panel h2 {
+  margin: 0 0 10px;
+  color: var(--text-strong);
+  font-size: 15px;
+}
+
+.resource-device-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.resource-device-card {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.resource-device-card em {
+  color: var(--brand);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.resource-empty-panel {
+  padding: 18px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.resource-issue {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.resource-issue-error {
+  border-left: 3px solid var(--danger);
+}
+
+.resource-issue-warning {
+  border-left: 3px solid var(--warning);
+}
+
+.resource-issue-info {
+  border-left: 3px solid var(--brand);
 }
 
 .ai-model-switcher {
