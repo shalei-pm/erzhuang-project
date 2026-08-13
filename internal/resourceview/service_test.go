@@ -36,6 +36,13 @@ func TestBuildStoreDetailCreatesThreeLevelSpaceTreeAndDeviceTree(t *testing.T) {
 	if leaf.ID != 12 || leaf.BoundCameraCount != 1 || !reflect.DeepEqual(leaf.BoundCameraIDs, []int64{68}) {
 		t.Fatalf("leaf binding = %#v", leaf)
 	}
+	flatLeaf := findSpace(detail.Spaces, 12)
+	if flatLeaf == nil {
+		t.Fatalf("flat spaces missing leaf 12: %#v", detail.Spaces)
+	}
+	if flatLeaf.BoundCameraCount != leaf.BoundCameraCount || !reflect.DeepEqual(flatLeaf.BoundCameraIDs, leaf.BoundCameraIDs) {
+		t.Fatalf("flat leaf binding = %#v, tree leaf binding = %#v", flatLeaf, leaf.Space)
+	}
 	if len(leaf.BoundCameras) != 1 || leaf.BoundCameras[0].ID != 68 {
 		t.Fatalf("leaf bound cameras = %#v", leaf.BoundCameras)
 	}
@@ -107,6 +114,64 @@ func TestBuildStoreDetailReportsMappingIssues(t *testing.T) {
 	}
 	if detail.Summary.OfflineDeviceCount != 3 {
 		t.Fatalf("offline device count = %d, want 3", detail.Summary.OfflineDeviceCount)
+	}
+}
+
+func TestBuildStoreDetailTreatsMissingSpaceBindingAsUnbound(t *testing.T) {
+	records := StoreRecords{
+		Tenant: BusinessTenant{ID: 10035, Name: "缺空间绑定门店", Status: 1},
+		Devices: []BusinessDevice{
+			{ID: 68, TenantID: 10035, Name: "摄像头1", Category: "camera", Status: 1, OnlineStatus: 1},
+		},
+		Relations: []BusinessAreaDeviceRelation{
+			{ID: 1, AreaID: 999, DeviceID: 68, FunctionType: "camera"},
+		},
+	}
+
+	detail := BuildStoreDetail(records, MonitorAccess{})
+
+	if detail.Summary.BoundCameraCount != 0 || detail.Summary.UnboundCameraCount != 1 {
+		t.Fatalf("summary = %#v, want bound 0 and unbound 1", detail.Summary)
+	}
+	assertIssueCount(t, detail.Issues, IssueMissingSpace, 1)
+	assertIssueCount(t, detail.Issues, IssueUnboundCamera, 1)
+}
+
+func TestBuildStoreDetailDeduplicatesIdenticalRelations(t *testing.T) {
+	records := StoreRecords{
+		Tenant: BusinessTenant{ID: 10036, Name: "重复绑定门店", Status: 1},
+		Devices: []BusinessDevice{
+			{ID: 68, TenantID: 10036, Name: "摄像头1", Category: "camera", Status: 1, OnlineStatus: 1},
+		},
+		Spaces: []BusinessSpace{
+			{ID: 12, TenantID: 10036, Name: "治疗室1", Level: 2, Status: 1},
+		},
+		Relations: []BusinessAreaDeviceRelation{
+			{ID: 3, AreaID: 12, DeviceID: 68, FunctionType: "camera"},
+			{ID: 1, AreaID: 12, DeviceID: 68, FunctionType: "camera"},
+			{ID: 2, AreaID: 12, DeviceID: 68, FunctionType: "camera"},
+		},
+	}
+
+	detail := BuildStoreDetail(records, MonitorAccess{})
+
+	if len(detail.Relations) != 1 || detail.Relations[0].ID != 1 {
+		t.Fatalf("relations = %#v, want one normalized relation with smallest id", detail.Relations)
+	}
+	space := findSpace(detail.Spaces, 12)
+	if space == nil {
+		t.Fatalf("flat spaces missing 12: %#v", detail.Spaces)
+	}
+	if space.BoundCameraCount != 1 || !reflect.DeepEqual(space.BoundCameraIDs, []int64{68}) {
+		t.Fatalf("flat space binding = %#v, want camera 68 once", space)
+	}
+	if len(detail.SpaceTree) != 1 || detail.SpaceTree[0].BoundCameraCount != 1 || len(detail.SpaceTree[0].BoundCameras) != 1 {
+		t.Fatalf("space tree binding = %#v, want camera 68 once", detail.SpaceTree)
+	}
+	assertIssueCount(t, detail.Issues, IssueCameraBoundManySpaces, 0)
+	assertIssueCount(t, detail.Issues, IssueSpaceBoundManyCameras, 0)
+	if detail.Summary.BoundCameraCount != 1 || detail.Summary.UnboundCameraCount != 0 {
+		t.Fatalf("summary = %#v, want bound 1 and unbound 0", detail.Summary)
 	}
 }
 
@@ -218,6 +283,15 @@ func assertIssueCount(t interface{ Fatalf(string, ...any) }, issues []Issue, iss
 	if count != expected {
 		t.Fatalf("issue %s count = %d, want %d in %#v", issueType, count, expected, issues)
 	}
+}
+
+func findSpace(spaces []Space, id int64) *Space {
+	for i := range spaces {
+		if spaces[i].ID == id {
+			return &spaces[i]
+		}
+	}
+	return nil
 }
 
 func intPtr(value int) *int {

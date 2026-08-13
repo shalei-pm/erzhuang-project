@@ -13,8 +13,10 @@ func BuildStoreDetail(records StoreRecords, access MonitorAccess) StoreDetail {
 	devices := normalizedDevices(records.Devices)
 	relations := normalizedRelations(records.Relations)
 	cameras := buildCameras(devices, relations, spaces)
-	issues := buildIssues(devices, spaces, relations, cameras)
-	summary := buildSummary(devices, spaces, relations, issues)
+	bindings := buildValidBindings(spaces, cameras, relations)
+	spaces = enrichSpaces(spaces, bindings)
+	issues := buildIssues(devices, spaces, relations, cameras, bindings)
+	summary := buildSummary(devices, spaces, bindings, issues)
 
 	return StoreDetail{
 		TenantID:       records.Tenant.ID,
@@ -28,7 +30,7 @@ func BuildStoreDetail(records StoreRecords, access MonitorAccess) StoreDetail {
 		Cameras:        cameras,
 		Spaces:         spaces,
 		Relations:      relations,
-		SpaceTree:      buildSpaceTree(spaces, cameras, relations),
+		SpaceTree:      buildSpaceTree(spaces, bindings),
 		DeviceTree:     buildDeviceTree(devices, cameras),
 		Issues:         issues,
 		CanViewMonitor: access.CanViewMonitor,
@@ -102,14 +104,27 @@ func normalizedDevices(input []BusinessDevice) []Device {
 }
 
 func normalizedRelations(input []BusinessAreaDeviceRelation) []AreaDeviceRelation {
-	out := make([]AreaDeviceRelation, 0, len(input))
+	byKey := map[relationKey]AreaDeviceRelation{}
 	for _, relation := range input {
-		out = append(out, AreaDeviceRelation{
+		normalized := AreaDeviceRelation{
 			ID:           relation.ID,
 			DeviceID:     relation.DeviceID,
 			AreaID:       relation.AreaID,
 			FunctionType: strings.TrimSpace(relation.FunctionType),
-		})
+		}
+		key := relationKey{
+			deviceID:     normalized.DeviceID,
+			areaID:       normalized.AreaID,
+			functionType: normalized.FunctionType,
+		}
+		existing, ok := byKey[key]
+		if !ok || normalized.ID < existing.ID {
+			byKey[key] = normalized
+		}
+	}
+	out := make([]AreaDeviceRelation, 0, len(byKey))
+	for _, relation := range byKey {
+		out = append(out, relation)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -124,8 +139,16 @@ func buildCameras(devices []Device, relations []AreaDeviceRelation, spaces []Spa
 	}
 	spaceByID := spacesByID(spaces)
 	pathsByCameraID := map[int64][]string{}
+	seenSpaceByCamera := map[int64]map[int64]struct{}{}
 	for _, relation := range relations {
 		if _, ok := spaceByID[relation.AreaID]; ok {
+			if seenSpaceByCamera[relation.DeviceID] == nil {
+				seenSpaceByCamera[relation.DeviceID] = map[int64]struct{}{}
+			}
+			if _, ok := seenSpaceByCamera[relation.DeviceID][relation.AreaID]; ok {
+				continue
+			}
+			seenSpaceByCamera[relation.DeviceID][relation.AreaID] = struct{}{}
 			pathsByCameraID[relation.DeviceID] = append(pathsByCameraID[relation.DeviceID], spacePath(spaceByID, relation.AreaID))
 		}
 	}
@@ -153,9 +176,83 @@ func buildCameras(devices []Device, relations []AreaDeviceRelation, spaces []Spa
 	return cameras
 }
 
-func buildSummary(devices []Device, spaces []Space, relations []AreaDeviceRelation, issues []Issue) StoreSummary {
+type relationKey struct {
+	deviceID     int64
+	areaID       int64
+	functionType string
+}
+
+type cameraSpaceKey struct {
+	cameraID int64
+	spaceID  int64
+}
+
+type bindingIndex struct {
+	camerasBySpace   map[int64][]Camera
+	cameraIDsBySpace map[int64][]int64
+	spaceIDsByCamera map[int64][]int64
+	boundCameraIDs   map[int64]struct{}
+}
+
+func buildValidBindings(spaces []Space, cameras []Camera, relations []AreaDeviceRelation) bindingIndex {
+	spaceByID := spacesByID(spaces)
+	cameraByID := map[int64]Camera{}
+	for _, camera := range cameras {
+		cameraByID[camera.ID] = camera
+	}
+	bindings := bindingIndex{
+		camerasBySpace:   map[int64][]Camera{},
+		cameraIDsBySpace: map[int64][]int64{},
+		spaceIDsByCamera: map[int64][]int64{},
+		boundCameraIDs:   map[int64]struct{}{},
+	}
+	seen := map[cameraSpaceKey]struct{}{}
+	for _, relation := range relations {
+		camera, hasCamera := cameraByID[relation.DeviceID]
+		if !hasCamera {
+			continue
+		}
+		if _, hasSpace := spaceByID[relation.AreaID]; !hasSpace {
+			continue
+		}
+		key := cameraSpaceKey{cameraID: relation.DeviceID, spaceID: relation.AreaID}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		bindings.camerasBySpace[relation.AreaID] = append(bindings.camerasBySpace[relation.AreaID], camera)
+		bindings.cameraIDsBySpace[relation.AreaID] = append(bindings.cameraIDsBySpace[relation.AreaID], camera.ID)
+		bindings.spaceIDsByCamera[camera.ID] = append(bindings.spaceIDsByCamera[camera.ID], relation.AreaID)
+		bindings.boundCameraIDs[camera.ID] = struct{}{}
+	}
+	for spaceID := range bindings.camerasBySpace {
+		sort.Slice(bindings.camerasBySpace[spaceID], func(i, j int) bool {
+			return bindings.camerasBySpace[spaceID][i].ID < bindings.camerasBySpace[spaceID][j].ID
+		})
+		sort.Slice(bindings.cameraIDsBySpace[spaceID], func(i, j int) bool {
+			return bindings.cameraIDsBySpace[spaceID][i] < bindings.cameraIDsBySpace[spaceID][j]
+		})
+	}
+	for cameraID := range bindings.spaceIDsByCamera {
+		sort.Slice(bindings.spaceIDsByCamera[cameraID], func(i, j int) bool {
+			return bindings.spaceIDsByCamera[cameraID][i] < bindings.spaceIDsByCamera[cameraID][j]
+		})
+	}
+	return bindings
+}
+
+func enrichSpaces(spaces []Space, bindings bindingIndex) []Space {
+	out := make([]Space, len(spaces))
+	for i, space := range spaces {
+		out[i] = space
+		out[i].BoundCameraIDs = append([]int64{}, bindings.cameraIDsBySpace[space.ID]...)
+		out[i].BoundCameraCount = len(out[i].BoundCameraIDs)
+	}
+	return out
+}
+
+func buildSummary(devices []Device, spaces []Space, bindings bindingIndex, issues []Issue) StoreSummary {
 	cameraIDs := map[int64]struct{}{}
-	boundCameraIDs := map[int64]struct{}{}
 	summary := StoreSummary{StoreCount: 1, SpaceCount: len(spaces), WarningCount: len(issues)}
 
 	for _, device := range devices {
@@ -172,22 +269,20 @@ func buildSummary(devices []Device, spaces []Space, relations []AreaDeviceRelati
 			summary.OfflineDeviceCount++
 		}
 	}
-	for _, relation := range relations {
-		if _, ok := cameraIDs[relation.DeviceID]; ok {
-			boundCameraIDs[relation.DeviceID] = struct{}{}
+	for cameraID := range bindings.boundCameraIDs {
+		if _, ok := cameraIDs[cameraID]; ok {
+			summary.BoundCameraCount++
 		}
 	}
-	summary.BoundCameraCount = len(boundCameraIDs)
 	summary.UnboundCameraCount = summary.CameraCount - summary.BoundCameraCount
 	return summary
 }
 
-func buildIssues(devices []Device, spaces []Space, relations []AreaDeviceRelation, cameras []Camera) []Issue {
+func buildIssues(devices []Device, spaces []Space, relations []AreaDeviceRelation, cameras []Camera, bindings bindingIndex) []Issue {
 	issues := []Issue{}
 	deviceByID := devicesByID(devices)
 	spaceByID := spacesByID(spaces)
-	boundsByCamera := map[int64]int{}
-	boundsBySpace := map[int64]int{}
+	inactiveBoundSpaceIDs := map[int64]struct{}{}
 
 	for _, relation := range relations {
 		device, hasDevice := deviceByID[relation.DeviceID]
@@ -212,16 +307,17 @@ func buildIssues(devices []Device, spaces []Space, relations []AreaDeviceRelatio
 			})
 			continue
 		}
-		boundsByCamera[relation.DeviceID]++
-		boundsBySpace[relation.AreaID]++
 		if space.Status != 1 {
-			issues = append(issues, Issue{
-				Severity:   IssueSeverityWarn,
-				Type:       IssueInactiveBoundSpace,
-				Message:    fmt.Sprintf("空间 %s 已停用但仍绑定摄像头", space.Name),
-				EntityType: "space",
-				EntityID:   space.ID,
-			})
+			if _, ok := inactiveBoundSpaceIDs[space.ID]; !ok {
+				inactiveBoundSpaceIDs[space.ID] = struct{}{}
+				issues = append(issues, Issue{
+					Severity:   IssueSeverityWarn,
+					Type:       IssueInactiveBoundSpace,
+					Message:    fmt.Sprintf("空间 %s 已停用但仍绑定摄像头", space.Name),
+					EntityType: "space",
+					EntityID:   space.ID,
+				})
+			}
 		}
 	}
 
@@ -282,8 +378,8 @@ func buildIssues(devices []Device, spaces []Space, relations []AreaDeviceRelatio
 		}
 	}
 
-	for cameraID, count := range boundsByCamera {
-		if count > 1 {
+	for cameraID, spaceIDs := range bindings.spaceIDsByCamera {
+		if len(spaceIDs) > 1 {
 			issues = append(issues, Issue{
 				Severity:   IssueSeverityInfo,
 				Type:       IssueCameraBoundManySpaces,
@@ -293,8 +389,8 @@ func buildIssues(devices []Device, spaces []Space, relations []AreaDeviceRelatio
 			})
 		}
 	}
-	for spaceID, count := range boundsBySpace {
-		if count > 1 {
+	for spaceID, cameraIDs := range bindings.cameraIDsBySpace {
+		if len(cameraIDs) > 1 {
 			issues = append(issues, Issue{
 				Severity:   IssueSeverityInfo,
 				Type:       IssueSpaceBoundManyCameras,
@@ -309,21 +405,7 @@ func buildIssues(devices []Device, spaces []Space, relations []AreaDeviceRelatio
 	return issues
 }
 
-func buildSpaceTree(spaces []Space, cameras []Camera, relations []AreaDeviceRelation) []SpaceNode {
-	cameraByID := map[int64]Camera{}
-	for _, camera := range cameras {
-		cameraByID[camera.ID] = camera
-	}
-	boundBySpace := map[int64][]Camera{}
-	for _, relation := range relations {
-		if camera, ok := cameraByID[relation.DeviceID]; ok {
-			boundBySpace[relation.AreaID] = append(boundBySpace[relation.AreaID], camera)
-		}
-	}
-	for spaceID := range boundBySpace {
-		sort.Slice(boundBySpace[spaceID], func(i, j int) bool { return boundBySpace[spaceID][i].ID < boundBySpace[spaceID][j].ID })
-	}
-
+func buildSpaceTree(spaces []Space, bindings bindingIndex) []SpaceNode {
 	spaceIDs := map[int64]struct{}{}
 	for _, space := range spaces {
 		spaceIDs[space.ID] = struct{}{}
@@ -346,13 +428,7 @@ func buildSpaceTree(spaces []Space, cameras []Camera, relations []AreaDeviceRela
 	build = func(parentID int64) []SpaceNode {
 		nodes := []SpaceNode{}
 		for _, space := range childrenByParent[parentID] {
-			boundCameras := append([]Camera{}, boundBySpace[space.ID]...)
-			cameraIDs := make([]int64, 0, len(boundCameras))
-			for _, camera := range boundCameras {
-				cameraIDs = append(cameraIDs, camera.ID)
-			}
-			space.BoundCameraIDs = cameraIDs
-			space.BoundCameraCount = len(cameraIDs)
+			boundCameras := append([]Camera{}, bindings.camerasBySpace[space.ID]...)
 			nodes = append(nodes, SpaceNode{
 				Space:        space,
 				BoundCameras: boundCameras,
