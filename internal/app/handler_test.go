@@ -25,6 +25,9 @@ import (
 	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/assetmigration"
+	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
+	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
 
 func TestHealth(t *testing.T) {
@@ -475,6 +478,72 @@ func TestAuthUserPermissionsForAdminEditorViewer(t *testing.T) {
 				t.Fatalf("permissions()=%v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestResourceViewRoutesReturnNotConfiguredWhenServiceMissing(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space-resource-view/stores", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "resource_view_not_configured") {
+		t.Fatalf("body = %s, want resource_view_not_configured", recorder.Body.String())
+	}
+}
+
+func TestResourceViewRoutesExposeConfiguredServiceAndMonitorAccess(t *testing.T) {
+	store := NewMemoryStore()
+	if err := store.setAuthUserForTest(AuthUserRecord{
+		ID:      77,
+		Email:   "viewer@soyoung.com",
+		Role:    RoleViewer,
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("set viewer: %v", err)
+	}
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+	handler := NewHandlerWithServicesAndH5MonitorAndResourceView(
+		store,
+		designplan.NewService(designplan.NewMemoryStore()),
+		storespace.NewService(storespace.NewMemoryStore()),
+		nil,
+		resourceview.NewService(fakeAppResourceRepository{records: []resourceview.StoreRecords{
+			{
+				Tenant: resourceview.BusinessTenant{ID: 10019, Name: "上海陆家嘴店", Status: 1, CityID: 9},
+				Devices: []resourceview.BusinessDevice{
+					{ID: 1, TenantID: 10019, Category: "edge", Status: 1, OnlineStatus: 1},
+					{ID: 2, TenantID: 10019, Category: "camera", Status: 1, OnlineStatus: 1},
+				},
+			},
+		}}),
+	)
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space-resource-view/stores?page=1&page_size=20", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{"mail": "viewer@soyoung.com", "username": "viewer"},
+		"exp":  time.Now().Add(time.Hour).Unix(),
+	})})
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response resourceview.StoreListResult
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Items) != 1 || response.Items[0].TenantID != 10019 {
+		t.Fatalf("items = %#v, want resource view item", response.Items)
+	}
+	if response.Items[0].CanViewMonitor || response.Items[0].MonitorURL != "" {
+		t.Fatalf("monitor access = %#v, want hidden monitor entry for viewer without scope", response.Items[0])
 	}
 }
 
@@ -1936,6 +2005,23 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+type fakeAppResourceRepository struct {
+	records []resourceview.StoreRecords
+	byID    map[int64]resourceview.StoreRecords
+}
+
+func (r fakeAppResourceRepository) ListStores(ctx context.Context, filters resourceview.StoreFilters) ([]resourceview.StoreRecords, error) {
+	return r.records, nil
+}
+
+func (r fakeAppResourceRepository) GetStoreRecords(ctx context.Context, tenantID int64) (resourceview.StoreRecords, error) {
+	record, ok := r.byID[tenantID]
+	if !ok {
+		return resourceview.StoreRecords{}, resourceview.ErrNotFound
+	}
+	return record, nil
 }
 
 func authUsersContain(users []AuthUserRecord, email string, role string) bool {

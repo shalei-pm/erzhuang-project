@@ -1,12 +1,74 @@
 package resourceview
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+type Service struct {
+	repo Repository
+}
+
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
+}
+
+func (s *Service) ListStores(ctx context.Context, filters StoreFilters, access func(int64) MonitorAccess) (StoreListResult, error) {
+	if s == nil || s.repo == nil {
+		return StoreListResult{}, errors.New("resource view repository is not configured")
+	}
+	filters = normalizeStoreFilters(filters)
+	records, err := s.repo.ListStores(ctx, filters)
+	if err != nil {
+		return StoreListResult{}, err
+	}
+
+	details := make([]StoreDetail, 0, len(records))
+	for _, record := range records {
+		details = append(details, BuildStoreDetail(record, MonitorAccess{}))
+	}
+
+	result := StoreListResult{
+		Page:     filters.Page,
+		PageSize: filters.PageSize,
+		Total:    len(details),
+		Summary:  summarizeStoreDetails(details),
+		Cities:   cityOptions(details),
+	}
+
+	start := (filters.Page - 1) * filters.PageSize
+	if start >= len(details) {
+		return result, nil
+	}
+	end := start + filters.PageSize
+	if end > len(details) {
+		end = len(details)
+	}
+	for _, detail := range details[start:end] {
+		monitorAccess := MonitorAccess{}
+		if access != nil {
+			monitorAccess = access(detail.TenantID)
+		}
+		result.Items = append(result.Items, storeListItem(detail, monitorAccess))
+	}
+	return result, nil
+}
+
+func (s *Service) GetStore(ctx context.Context, tenantID int64, access MonitorAccess) (StoreDetail, error) {
+	if s == nil || s.repo == nil {
+		return StoreDetail{}, errors.New("resource view repository is not configured")
+	}
+	records, err := s.repo.GetStoreRecords(ctx, tenantID)
+	if err != nil {
+		return StoreDetail{}, err
+	}
+	return BuildStoreDetail(records, access), nil
+}
 
 func BuildStoreDetail(records StoreRecords, access MonitorAccess) StoreDetail {
 	spaces := normalizedSpaces(records.Spaces)
@@ -35,6 +97,74 @@ func BuildStoreDetail(records StoreRecords, access MonitorAccess) StoreDetail {
 		Issues:         issues,
 		CanViewMonitor: access.CanViewMonitor,
 		MonitorURL:     strings.TrimSpace(access.MonitorURL),
+	}
+}
+
+func normalizeStoreFilters(filters StoreFilters) StoreFilters {
+	filters.Query = strings.TrimSpace(filters.Query)
+	if filters.Page <= 0 {
+		filters.Page = 1
+	}
+	if filters.PageSize <= 0 {
+		filters.PageSize = 20
+	}
+	if filters.PageSize > 100 {
+		filters.PageSize = 100
+	}
+	return filters
+}
+
+func summarizeStoreDetails(details []StoreDetail) StoreSummary {
+	summary := StoreSummary{StoreCount: len(details)}
+	for _, detail := range details {
+		summary.EdgeCount += detail.Summary.EdgeCount
+		summary.NVRCount += detail.Summary.NVRCount
+		summary.CameraCount += detail.Summary.CameraCount
+		summary.SpaceCount += detail.Summary.SpaceCount
+		summary.BoundCameraCount += detail.Summary.BoundCameraCount
+		summary.UnboundCameraCount += detail.Summary.UnboundCameraCount
+		summary.OfflineDeviceCount += detail.Summary.OfflineDeviceCount
+		summary.WarningCount += detail.Summary.WarningCount
+	}
+	return summary
+}
+
+func cityOptions(details []StoreDetail) []CityOption {
+	counts := map[int64]int{}
+	for _, detail := range details {
+		if detail.CityID > 0 {
+			counts[detail.CityID]++
+		}
+	}
+	ids := make([]int64, 0, len(counts))
+	for cityID := range counts {
+		ids = append(ids, cityID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	options := make([]CityOption, 0, len(ids))
+	for _, cityID := range ids {
+		options = append(options, CityOption{CityID: cityID, Name: cityName(cityID), Count: counts[cityID]})
+	}
+	return options
+}
+
+func storeListItem(detail StoreDetail, access MonitorAccess) StoreListItem {
+	return StoreListItem{
+		TenantID:           detail.TenantID,
+		StoreName:          detail.StoreName,
+		HospitalName:       detail.HospitalName,
+		CityID:             detail.CityID,
+		CityName:           detail.CityName,
+		EdgeCount:          detail.Summary.EdgeCount,
+		NVRCount:           detail.Summary.NVRCount,
+		CameraCount:        detail.Summary.CameraCount,
+		SpaceCount:         detail.Summary.SpaceCount,
+		BoundCameraCount:   detail.Summary.BoundCameraCount,
+		UnboundCameraCount: detail.Summary.UnboundCameraCount,
+		OfflineDeviceCount: detail.Summary.OfflineDeviceCount,
+		WarningCount:       detail.Summary.WarningCount,
+		CanViewMonitor:     access.CanViewMonitor,
+		MonitorURL:         strings.TrimSpace(access.MonitorURL),
 	}
 }
 

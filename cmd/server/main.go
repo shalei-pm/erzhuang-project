@@ -16,6 +16,7 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
+	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -24,6 +25,16 @@ import (
 func main() {
 	addr := getenv("ADDR", "127.0.0.1:18080")
 	handler := app.NewHandler()
+	var resourceViewService *resourceview.Service
+	if businessConfig := businessDatabaseConfigFromEnv(); businessConfig.DSN != "" {
+		businessDB, err := openDatabase(businessConfig)
+		if err != nil {
+			log.Fatalf("business database setup failed: %v", err)
+		}
+		defer businessDB.Close()
+		resourceViewService = resourceview.NewService(resourceview.NewMySQLRepository(businessDB))
+		log.Print("business resource view enabled")
+	}
 
 	if config, err := databaseConfigFromEnv(); err != nil {
 		log.Fatalf("database config failed: %v", err)
@@ -67,9 +78,10 @@ func main() {
 			h5MonitorService = h5monitor.NewService(h5RepositoryFactory(ezvizAccounts), ezviz.NewClient(ezviz.ClientOptions{}))
 			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
-		handler = app.NewHandlerWithServicesAndH5Monitor(appStore, designPlanService, storeSpaceService, h5MonitorService)
+		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceView(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService)
 		log.Printf("database store enabled: %s", config.Driver)
 	} else {
+		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceView(app.NewMemoryStore(), designplan.NewService(designplan.NewMemoryStore()), storespace.NewService(storespace.NewMemoryStore()), nil, resourceViewService)
 		log.Print("database store disabled: using memory store")
 	}
 
@@ -109,6 +121,14 @@ func databaseConfigFromEnv() (databaseConfig, error) {
 	default:
 		return databaseConfig{}, errors.New("APP_DB_DRIVER must be mysql")
 	}
+}
+
+func businessDatabaseConfigFromEnv() databaseConfig {
+	dsn := envValue("BUSINESS_MYSQL_DSN", "K8S_SECRET_BUSINESS_MYSQL_DSN")
+	if dsn == "" {
+		return databaseConfig{}
+	}
+	return databaseConfig{Driver: "mysql", DSN: mysqlDSNWithParseTime(dsn)}
 }
 
 func mysqlDSNWithParseTime(dsn string) string {

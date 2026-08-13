@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 	"github.com/shalei-pm/erzhuang-project/internal/osssmoke"
+	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
 
@@ -67,18 +70,22 @@ func NewHandlerWithStore(store Store) http.Handler {
 }
 
 func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository, storeSpaceRepo storespace.Repository) http.Handler {
-	return newHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo), nil)
+	return newHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo), nil, nil)
 }
 
 func NewHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, nil)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, nil, nil)
 }
 
 func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, nil)
 }
 
-func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
+func NewHandlerWithServicesAndH5MonitorAndResourceView(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service) http.Handler {
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService)
+}
+
+func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service) http.Handler {
 	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
@@ -104,6 +111,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("GET /api/admin/ops/mysql-asset-inventory", handler.mysqlAssetInventoryHandler)
 	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
 	storespace.RegisterRoutesWithGuards(mux, storeSpaceService, handler.monitorVisibilityMiddleware, handler.storeWriteGuard)
+	resourceview.RegisterRoutesWithReadGuard(mux, resourceViewService, handler.resourceViewMonitorAccess, handler.storeReadGuard)
 	if h5MonitorService != nil {
 		h5monitor.RegisterRoutesWithAuthorizer(mux, h5MonitorService, h5MonitorAuthorizer{handler: handler})
 	}
@@ -125,6 +133,10 @@ func (h *Handler) storeWriteGuard(next http.HandlerFunc) http.HandlerFunc {
 	return h.requirePermissionHandler(PermissionStoreWrite, next)
 }
 
+func (h *Handler) storeReadGuard(next http.HandlerFunc) http.HandlerFunc {
+	return h.requirePermissionHandler(PermissionStoreRead, next)
+}
+
 func (h *Handler) monitorVisibilityMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resolver := storespace.MonitorVisibilityResolver(func(ctx context.Context, externalOrgID string) (bool, error) {
@@ -139,6 +151,25 @@ func (h *Handler) monitorVisibilityMiddleware(next http.HandlerFunc) http.Handle
 		})
 		next(w, r.WithContext(storespace.WithMonitorVisibilityResolver(r.Context(), resolver)))
 	}
+}
+
+func (h *Handler) resourceViewMonitorAccess(r *http.Request, tenantID int64) (resourceview.MonitorAccess, error) {
+	externalOrgID := strconv.FormatInt(tenantID, 10)
+	user, err := h.currentAuthUser(r)
+	if err != nil {
+		return resourceview.MonitorAccess{}, err
+	}
+	ok, err := h.store.CanUserViewMonitorStore(r.Context(), user, externalOrgID)
+	if err != nil {
+		return resourceview.MonitorAccess{}, err
+	}
+	if !ok {
+		return resourceview.MonitorAccess{}, nil
+	}
+	return resourceview.MonitorAccess{
+		CanViewMonitor: true,
+		MonitorURL:     normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/h5/orgs/" + url.PathEscape(externalOrgID) + "/monitor",
+	}, nil
 }
 
 func withBasePathAPIPrefixes(next http.Handler) http.Handler {

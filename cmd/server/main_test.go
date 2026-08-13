@@ -86,6 +86,27 @@ func TestMySQLDSNWithParseTimePreservesExistingQuery(t *testing.T) {
 	}
 }
 
+func TestBusinessDatabaseConfigFromEnvUsesK8SSecret(t *testing.T) {
+	t.Setenv("K8S_SECRET_BUSINESS_MYSQL_DSN", "readonly:pass@tcp(mysql:3306)/db_groupbuy")
+
+	config := businessDatabaseConfigFromEnv()
+
+	if config.Driver != "mysql" {
+		t.Fatalf("driver = %q, want mysql", config.Driver)
+	}
+	if config.DSN != "readonly:pass@tcp(mysql:3306)/db_groupbuy?parseTime=true" {
+		t.Fatalf("dsn = %q, want business dsn with parseTime", config.DSN)
+	}
+}
+
+func TestBusinessDatabaseConfigFromEnvDisabledWhenEmpty(t *testing.T) {
+	config := businessDatabaseConfigFromEnv()
+
+	if config.Driver != "" || config.DSN != "" {
+		t.Fatalf("config = %#v, want empty config", config)
+	}
+}
+
 func TestNewDynamicChannelRecognizerAlwaysReturnsRuntimeRecognizer(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("VISION_API_KEY", "")
