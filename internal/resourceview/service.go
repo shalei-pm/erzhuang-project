@@ -205,7 +205,7 @@ func buildIssues(devices []Device, spaces []Space, relations []AreaDeviceRelatio
 		if !hasSpace {
 			issues = append(issues, Issue{
 				Severity:   IssueSeverityError,
-				Type:       IssueMissingCamera,
+				Type:       IssueMissingSpace,
 				Message:    fmt.Sprintf("绑定关系 %d 指向不存在的空间", relation.ID),
 				EntityType: "relation",
 				EntityID:   relation.ID,

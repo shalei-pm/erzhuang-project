@@ -82,6 +82,7 @@ func TestBuildStoreDetailReportsMappingIssues(t *testing.T) {
 			{ID: 2, AreaID: 999, DeviceID: 404, FunctionType: "camera"},
 			{ID: 3, AreaID: 12, DeviceID: 68, FunctionType: "camera"},
 			{ID: 4, AreaID: 12, DeviceID: 70, FunctionType: "camera"},
+			{ID: 5, AreaID: 999, DeviceID: 68, FunctionType: "camera"},
 		},
 	}
 
@@ -92,12 +93,15 @@ func TestBuildStoreDetailReportsMappingIssues(t *testing.T) {
 		IssueInactiveBoundSpace,
 		IssueMissingCamera,
 		IssueMissingNVR,
+		IssueMissingSpace,
 		IssueOfflineCamera,
 		IssueOfflineEdge,
 		IssueOfflineNVR,
 		IssueSpaceBoundManyCameras,
 		IssueUnboundCamera,
 	})
+	assertIssueCount(t, detail.Issues, IssueMissingCamera, 1)
+	assertIssueCount(t, detail.Issues, IssueMissingSpace, 1)
 	if detail.Summary.WarningCount != len(detail.Issues) {
 		t.Fatalf("warning count = %d, want %d", detail.Summary.WarningCount, len(detail.Issues))
 	}
@@ -201,6 +205,18 @@ func assertIssueTypes(t interface{ Fatalf(string, ...any) }, issues []Issue, exp
 		if counts[issueType] == 0 {
 			t.Fatalf("missing issue %s in %#v", issueType, issues)
 		}
+	}
+}
+
+func assertIssueCount(t interface{ Fatalf(string, ...any) }, issues []Issue, issueType IssueType, expected int) {
+	count := 0
+	for _, issue := range issues {
+		if issue.Type == issueType {
+			count++
+		}
+	}
+	if count != expected {
+		t.Fatalf("issue %s count = %d, want %d in %#v", issueType, count, expected, issues)
 	}
 }
 

@@ -206,6 +206,7 @@ const (
 	IssueUnboundCamera         IssueType = "unbound_camera"
 	IssueInactiveBoundSpace    IssueType = "inactive_bound_space"
 	IssueMissingCamera         IssueType = "missing_camera"
+	IssueMissingSpace          IssueType = "missing_space"
 	IssueMissingNVR            IssueType = "missing_nvr"
 	IssueOfflineEdge           IssueType = "offline_edge"
 	IssueOfflineNVR            IssueType = "offline_nvr"
