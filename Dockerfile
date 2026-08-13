@@ -29,6 +29,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/erzhuang-project ./cm
 FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/minidocks/poppler:latest AS runtime
 WORKDIR /app
 
+ENV APP_BASE_PATH=/erzhuang-project
+ENV FRONTEND_DIR=/app/frontend/dist
+
 RUN command -v pdftoppm
 
 COPY --from=go-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt

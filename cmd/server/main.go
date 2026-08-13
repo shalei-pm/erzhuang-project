@@ -29,11 +29,12 @@ func main() {
 	if businessConfig := businessDatabaseConfigFromEnv(); businessConfig.DSN != "" {
 		businessDB, err := openDatabase(businessConfig)
 		if err != nil {
-			log.Fatalf("business database setup failed: %v", err)
+			log.Printf("business resource view disabled: database setup failed: %v", err)
+		} else {
+			defer businessDB.Close()
+			resourceViewService = resourceview.NewService(resourceview.NewMySQLRepository(businessDB))
+			log.Print("business resource view enabled")
 		}
-		defer businessDB.Close()
-		resourceViewService = resourceview.NewService(resourceview.NewMySQLRepository(businessDB))
-		log.Print("business resource view enabled")
 	}
 
 	if config, err := databaseConfigFromEnv(); err != nil {
