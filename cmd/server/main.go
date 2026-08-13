@@ -138,7 +138,7 @@ func mysqlDSNWithParseTime(dsn string) string {
 		return dsn
 	}
 	separator := "?"
-	if strings.Contains(dsn, "?") {
+	if queryStart := strings.LastIndex(dsn, "?"); queryStart > strings.LastIndex(dsn, "/") {
 		separator = "&"
 	}
 	return dsn + separator + "parseTime=true"

@@ -86,6 +86,14 @@ func TestMySQLDSNWithParseTimePreservesExistingQuery(t *testing.T) {
 	}
 }
 
+func TestMySQLDSNWithParseTimeAllowsQuestionMarkInPassword(t *testing.T) {
+	got := mysqlDSNWithParseTime("u:p?with@mark@tcp(mysql:3306)/erzhuang")
+	want := "u:p?with@mark@tcp(mysql:3306)/erzhuang?parseTime=true"
+	if got != want {
+		t.Fatalf("dsn = %q, want %q", got, want)
+	}
+}
+
 func TestBusinessDatabaseConfigFromEnvUsesK8SSecret(t *testing.T) {
 	t.Setenv("K8S_SECRET_BUSINESS_MYSQL_DSN", "resource-view-user:resource-view-pass@tcp(mysql:3306)/resource_view_fixture")
 
