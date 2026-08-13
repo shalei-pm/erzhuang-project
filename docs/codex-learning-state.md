@@ -24,7 +24,7 @@
 
 - 最新版本文件：`VERSION=2.31.8`。
 - 最新公司 GitLab 发布提交：`7311bda fix: fallback h5 player for unsupported h265 mse`，已推送到 `gitlab/codex/containerize-single-image` 并触发公司 K8s 自动发布；公网无登录态 `curl /health` 当前会被 APISIX 302 到 SSO，线上版本和播放结果需由已登录浏览器验证。
-- 当前产品设计推进中：3.0 主流程从二壮自维护门店/录像机/通道/设计图/AI 识别，转为读取公司业务库的只读资源查看。设计文档已落地：`docs/superpowers/specs/2026-08-13-store-space-resource-view-3-design.md`；实现计划已落地：`docs/superpowers/plans/2026-08-13-store-space-resource-view-3-implementation.md`。尚未改业务代码，下一步应先封版 2.x，再按计划分后端/前端子会话实施。
+- 当前 3.0 开发状态：3.0 主流程从二壮自维护门店/录像机/通道/设计图/AI 识别，转为读取公司业务库的只读资源查看。设计文档已落地：`docs/superpowers/specs/2026-08-13-store-space-resource-view-3-design.md`；实现计划已落地：`docs/superpowers/plans/2026-08-13-store-space-resource-view-3-implementation.md`。本地分支 `codex/store-space-resource-view-3` 已完成后端只读 API 和前端只读列表/详情初版，用户已在镜像/公司环境配置 `K8S_SECRET_BUSINESS_MYSQL_DSN`，尚未发布公司环境。
 - 2.x 稳定备份已完成：tag `v2.31-stable-before-resource-view-3` 指向 `7311bda / VERSION=2.31.8`，说明文档为 `docs/handoffs/2026-08-13-2x-stable-backup-before-resource-view-3.md`。
 - 旧 PostgreSQL runtime、pgx 依赖、pg-mysql 迁移入口和旧库回滚连接已从运行时代码中删除。后续不要再以“可切回 Postgres”作为安全阀。
 - 韩国 Lighthouse 发布链路已终止；该服务器上关于二壮项目的所有库表已经完全删除。后续二壮项目发布、回滚、验收和排查只走公司 GitLab/K8s + MySQL/OSS，不再使用韩国服务器。
@@ -50,6 +50,8 @@
 - 门店列表统计口径修复：`2.31.0` MySQL `ListStores` 的右上角 summary 改为按当前搜索/城市筛选条件汇总全量 filtered dataset，不再用当前页 `items` 汇总，保证分页切换不改变统计。
 - 3.0 方案梳理：已确认模块名为「门店空间资源查看」；只展示有启用工控机的门店；空间类型使用业务库自己的三层结构 `level=1/2/3`；详情展示空间视角、设备视角、异常项；设计图标注、AI 通道识别、人工确认和门店/录像机/通道写入口不进入 3.0 主流程；H5 Monitor 暂不改。
 - 3.0 前 2.x 封版：已创建 `v2.31-stable-before-resource-view-3`，并写入 handoff 文档，后续回滚优先用 `git revert` 而不是 reset/force push。
+- 3.0 后端初版：新增 `internal/resourceview`，提供业务库四表只读聚合、空间树、设备树、异常项和 API `GET /api/store-space-resource-view/stores`、`GET /api/store-space-resource-view/stores/{tenantId}`；`cmd/server` 支持 `BUSINESS_MYSQL_DSN` / `K8S_SECRET_BUSINESS_MYSQL_DSN`，未配置时返回 `resource_view_not_configured`。
+- 3.0 前端初版：新增资源查看 API 类型、domain helper、`ResourceStoreList`、`ResourceStoreDetail`；后台主页面切为「门店空间资源查看」，展示工控机/NVR/摄像头/空间/绑定/异常统计，详情含空间视角、设备视角、异常项；旧新增、编辑、删除、扫描、识别、确认、设计图上传/标注入口已从主页面隐藏。
 
 ### 当前进行中
 
@@ -66,14 +68,14 @@
 - 门店空间资源查看 3.0：
   - 设计文档：`docs/superpowers/specs/2026-08-13-store-space-resource-view-3-design.md`。
   - 实现计划：`docs/superpowers/plans/2026-08-13-store-space-resource-view-3-implementation.md`。
-  - 当前阶段：方案和计划已完成，2.x 稳定备份 tag 与 handoff 已完成，业务代码未改。
-  - 推荐实施方式：后端子会话实施业务库只读 API，前端子会话实施资源查看 UI，主会话最终 review、验收、发布。
+  - 当前阶段：方案和计划已完成，2.x 稳定备份 tag、zip 与 handoff 已完成，后端只读 API 和前端只读资源查看初版已在本地分支完成。
+  - 当前剩余：发布到公司后验证业务库连接、真实数据样本验收、用户体验确认；用户明确要求后才发布公司环境。
 
 ### 待决策问题
 
 - 旧 PostgreSQL/Supabase 数据和资源的正式保留、归档、删除时间表，需要产品负责人、公司安全/运维/相关研发确认后执行；主会话不能独自推动删除外部数据源。
 - 是否彻底下线旧 `designplan` 独立路由和旧 `tb_design_plan_*` 兼容表，需要先确认当前前端/用户流程是否仍依赖。
-- 3.0 业务库待确认：`tb_crm_consulting_room.dict_id` 字典来源、`province_id/city_id` 城市字典来源、`tb_crm_iot_area_device_relation.function_type` 取值口径、设备/空间状态枚举、工控机与 NVR 是否存在显式关系、业务库只读账号在 K8s 中的网络白名单和 Secret 注入。
+- 3.0 业务库待确认：`tb_crm_consulting_room.dict_id` 字典来源、`province_id/city_id` 城市字典来源、`tb_crm_iot_area_device_relation.function_type` 取值口径、设备/空间状态枚举、工控机与 NVR 是否存在显式关系；`K8S_SECRET_BUSINESS_MYSQL_DSN` 已由用户配置到镜像/公司环境，仍需发布后验证网络白名单和只读权限。
 - 是否从当前全局角色权限升级到更通用的机构/门店/资源范围授权。当前已决定先做普通查看用户的监控门店范围权限，并提前按 scope 模型考虑未来扩展。
 - 门店删除当前仍沿用硬删除/外键级联语义；正式环境是否改成软删除和审计，需要 DBA/产品确认。
 - 资产访问审计、长期安全审计、截图/PDF 访问日志的正式落地方案仍待治理。
@@ -84,6 +86,7 @@
 - 后端：Go 1.22，`net/http`，入口 `cmd/server/main.go`。
 - 数据库：公司 MySQL，核心表为 `tb_` 前缀，连接变量 `MYSQL_DSN` 或 `K8S_SECRET_MYSQL_DSN`。
 - 3.0 业务库：计划新增只读业务库连接变量 `BUSINESS_MYSQL_DSN` 或 `K8S_SECRET_BUSINESS_MYSQL_DSN`，仅用于读取 `db_groupbuy` 业务表；不得把连接串、账号或密码写入仓库。
+- 3.0 本地开发分支：`codex/store-space-resource-view-3`。主会话按技术负责人拆分：Backend 只读资源聚合、Frontend 只读资源查看、主会话 Review/发布控制。
 - 资产：公司 OSS，运行时 `ASSET_STORE=oss`；前端访问路径保持后端代理稳定。
 - 前端：Vite + React + TypeScript + Ant Design，入口 `frontend/src/App.tsx`。
 - H5 播放：萤石云 OpenAPI + `ezuikit-flv`，前端 decoder 静态资源位于 `frontend/public/assets/ezuikit-flv/`。
@@ -115,13 +118,16 @@
 - MiniMax/GPT 都可能返回非 JSON 或 `<think>` 解释文本，已做兜底，但仍建议保留单通道人工重试。
 - 公司公网 health 从无登录态环境可能被 SSO 重定向，线上验证优先由用户已登录浏览器执行。
 - MySQL 8.0.13 对 CHECK 约束不可靠，应用层和迁移脚本必须继续做枚举/数据校验。
-- 3.0 会引入第二个 MySQL 只读数据源，必须严格区分“二壮运行库”和“公司业务库”：二壮库继续负责登录、权限、系统设置和 H5 Monitor；业务库只负责资源查看。业务库账号必须只读，API 不提供写入。
+- 3.0 会引入第二个 MySQL 只读数据源，必须严格区分“二壮运行库”和“公司业务库”：二壮库继续负责登录、权限、系统设置和 H5 Monitor；业务库只负责资源查看。业务库账号必须只读，API 不提供写入。真实 DSN、账号、密码不得写入仓库或文档。
+- 3.0 当前城市名第一版按 `city_id` 展示为“城市 N”；如产品要求显示真实城市名，需要业务库提供城市字典或由后端补充稳定映射。
+- 3.0 真实业务库数据量、长门店名、空间树深度、异常数量仍需用公司真实样本做一次 UI 信息密度验收。
 
 ### 下一步建议
 
-1. 先 review `docs/superpowers/specs/2026-08-13-store-space-resource-view-3-design.md` 和 `docs/superpowers/plans/2026-08-13-store-space-resource-view-3-implementation.md`，确认 3.0 边界后再开始写代码。
-2. 推荐按子会话拆分实施：后端只读 API、前端只读资源查看、主会话验收发布。
-3. 向运维/研发确认业务库只读账号的 K8s Secret 注入方式、网络白名单和最小权限。
+1. 完成 3.0 本地最终验证：后端、前端、构建、敏感信息和写 SQL 扫描。
+2. 用户确认后发布到公司 GitLab/K8s，让新镜像读取已配置的 `K8S_SECRET_BUSINESS_MYSQL_DSN`。
+3. 发布后验证启动日志 `business resource view enabled`、3.0 API 真实数据、列表/详情信息密度、异常项口径和 H5 Monitor 入口权限。
+4. 用户确认体验后，进入 3.0 正式使用。
 
 ## 2026-07-08 普通查看用户监控门店范围权限本地验收
 

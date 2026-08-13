@@ -61,6 +61,13 @@ describe("design plan API path helpers", () => {
   });
 });
 
+describe("store space resource view api", () => {
+  it("uses the 3.0 read-only resource view paths", () => {
+    expect(__testing.resourceViewStoresPath()).toBe("/erzhuang-project/api/store-space-resource-view/stores");
+    expect(__testing.resourceViewStorePath(10019)).toBe("/erzhuang-project/api/store-space-resource-view/stores/10019");
+  });
+});
+
 describe("store list summary", () => {
   it("summarizes all filtered stores instead of the current page only", () => {
     const stores = [

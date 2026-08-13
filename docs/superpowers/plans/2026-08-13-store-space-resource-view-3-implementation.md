@@ -1132,9 +1132,9 @@ Modify `cmd/server/main_test.go` with tests that require:
 
 ```go
 func TestBusinessDatabaseConfigFromEnvUsesK8SSecret(t *testing.T) {
-	t.Setenv("K8S_SECRET_BUSINESS_MYSQL_DSN", "readonly:pass@tcp(mysql:3306)/db_groupbuy")
+	t.Setenv("K8S_SECRET_BUSINESS_MYSQL_DSN", "resource-view-user:resource-view-pass@tcp(mysql:3306)/resource_view_fixture")
 	config := businessDatabaseConfigFromEnv()
-	if config.DSN != "readonly:pass@tcp(mysql:3306)/db_groupbuy?parseTime=true" {
+	if config.DSN != "resource-view-user:resource-view-pass@tcp(mysql:3306)/resource_view_fixture?parseTime=true" {
 		t.Fatalf("dsn = %q", config.DSN)
 	}
 }
@@ -2057,6 +2057,24 @@ Do not use Korean Lighthouse and do not depend on PostgreSQL/Supabase for rollba
   - 后端模型使用 snake_case JSON。
   - 前端类型使用 camelCase。
   - API 路径统一为 `/api/store-space-resource-view/*`。
+
+## Execution Status
+
+更新时间：2026-08-13
+
+- Task 0：已完成。2.x 稳定状态已通过 tag `v2.31-stable-before-resource-view-3`、handoff 文档和 zip 归档固定。
+- Task 1-2：已完成。`internal/resourceview` 领域模型、聚合服务、空间树、设备树和异常项测试已落地。
+- Task 3-4：已完成。业务库只读 repository、API handler、`cmd/server` 业务库 DSN 配置和 `internal/app` 路由接线已落地。
+- Task 5-6：已完成初版。前端资源查看 API 类型、mock adapter、只读列表、只读详情和主页面切换已落地。
+- Task 7：进行中。主会话正在做最终 review、验证、敏感信息扫描和项目记忆更新。
+- Task 8-9：未开始。需要用户确认体验和业务库只读配置后，才发布公司环境。
+
+当前关键结论：
+
+- 3.0 主 UI 已隐藏旧新增、编辑、删除、扫描、识别、确认、设计图上传/标注入口。
+- H5 Monitor 路由和播放页未改。
+- 新增资源查看 API 只读，未提供业务库写入能力。
+- 仓库内未保存真实业务库账号、密码、主机或 DSN；测试中只使用明显虚构占位 DSN。
 
 ## Execution Choice
 

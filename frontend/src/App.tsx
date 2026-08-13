@@ -1,27 +1,22 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import {
   ApiError,
+  storeSpaceResourceViewApi,
   storeSpaceApi,
-  type AISettings,
-  type CreateStoreSpacePayload,
-  type EzvizAccount,
-  type StoreDetail as StoreDetailType,
-  type StoreListSummary,
-  type StoreSummary,
-  type UpdateStoreBasicInfoPayload,
+  type ResourceCityOption,
+  type ResourceStoreDetail as ResourceStoreDetailType,
+  type ResourceStoreListSummary,
+  type ResourceStoreSummary,
 } from "./api";
-import { CreateStoreModal } from "./components/CreateStoreModal";
-import { EditStoreModal } from "./components/EditStoreModal";
 import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
-import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
-import { StoreList } from "./components/StoreList";
+import { ResourceStoreDetail } from "./components/ResourceStoreDetail";
+import { ResourceStoreList } from "./components/ResourceStoreList";
 import { SystemTopBar } from "./components/SystemTopBar";
 import { UserManagement } from "./components/UserManagement";
 import {
   authCompanyEntryPath,
   authLoginPath,
   authLogoutPath,
-  canEditStores,
   canManageUsers,
   shouldBlockBusinessData,
   shouldShowForbiddenAccess,
@@ -36,20 +31,20 @@ import {
   readH5MonitorActiveTabFromSearch,
   type H5MonitorTabKey,
 } from "./domain/h5-monitor-active-tab";
-import {
-  createStoreDetailCache,
-  canOpenH5Monitor,
-  detailTabFromSummary,
-  h5MonitorPath,
-  makePendingStoreDetail,
-  mergeStoreDetailTab,
-  type StoreDetailNavigationTab,
-  storeDetailTabFromDetail,
-} from "./domain/store-detail-navigation";
 
 const PAGE_SIZE = 20;
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "local-dev";
-const EMPTY_STORE_LIST_SUMMARY: StoreListSummary = { storeCount: 0, consultationCount: 0, treatmentCount: 0, beautyCount: 0 };
+const EMPTY_RESOURCE_LIST_SUMMARY: ResourceStoreListSummary = {
+  storeCount: 0,
+  edgeCount: 0,
+  nvrCount: 0,
+  cameraCount: 0,
+  spaceCount: 0,
+  boundCameraCount: 0,
+  unboundCameraCount: 0,
+  offlineDeviceCount: 0,
+  warningCount: 0,
+};
 
 const H5MonitorPage = lazy(() => import("./pages/H5Monitor").then((module) => ({ default: module.H5Monitor })));
 const H5MonitorChannelPage = lazy(() =>
@@ -73,34 +68,21 @@ function App() {
 function AdminApp() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [stores, setStores] = useState<StoreSummary[]>([]);
-  const [accounts, setAccounts] = useState<EzvizAccount[]>([]);
+  const [stores, setStores] = useState<ResourceStoreSummary[]>([]);
   const [query, setQuery] = useState("");
-  const [cityFilter, setCityFilter] = useState("all");
-  const [cityOptions, setCityOptions] = useState<string[]>([]);
+  const [cityFilter, setCityFilter] = useState<number | "all">("all");
+  const [cityOptions, setCityOptions] = useState<ResourceCityOption[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [listSummary, setListSummary] = useState<StoreListSummary>(EMPTY_STORE_LIST_SUMMARY);
+  const [listSummary, setListSummary] = useState<ResourceStoreListSummary>(EMPTY_RESOURCE_LIST_SUMMARY);
   const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editingStore, setEditingStore] = useState<StoreSummary | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [toast, setToast] = useState("");
-  const [activeStore, setActiveStore] = useState<StoreDetailType | null>(null);
-  const [loadingDetailTabs, setLoadingDetailTabs] = useState<Set<StoreDetailTab>>(() => new Set());
-  const [loadedDetailTabs, setLoadedDetailTabs] = useState<Set<StoreDetailTab>>(() => new Set());
-  const [activeTab, setActiveTab] = useState<StoreDetailTab>("design-plan");
-  const [aiSettings, setAISettings] = useState<AISettings | null>(null);
-  const [switchingAIModel, setSwitchingAIModel] = useState(false);
-  const [deletingStoreIds, setDeletingStoreIds] = useState<Set<number>>(() => new Set());
+  const [activeStore, setActiveStore] = useState<ResourceStoreDetailType | null>(null);
   const [openingStoreIds, setOpeningStoreIds] = useState<Set<number>>(() => new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const listRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
-  const detailCacheRef = useRef(createStoreDetailCache());
-  const activeStoreRef = useRef<StoreDetailType | null>(null);
 
   if (new URLSearchParams(window.location.search).get("tool") === "ezviz-live-demo") {
     return <EzvizLiveDemo appVersion={APP_VERSION} />;
@@ -113,7 +95,6 @@ function AdminApp() {
   const visibleLastIndex = visibleStores.length === 0 ? 0 : visibleFirstIndex + visibleStores.length - 1;
   const showLogoutEntry = shouldShowLogoutEntry(auth);
   const canManageSystemUsers = canManageUsers(auth);
-  const canEditStoreResources = canEditStores(auth);
   const systemSettingsAction = canManageSystemUsers ? (
     <button type="button" className="topbar-settings-button" onClick={() => setSettingsOpen(true)}>
       系统设置
@@ -145,27 +126,10 @@ function AdminApp() {
   }, [page, query, cityFilter, authLoading, auth, settingsOpen]);
 
   useEffect(() => {
-    activeStoreRef.current = activeStore;
-  }, [activeStore]);
-
-  useEffect(() => {
     if (auth?.authenticated) {
       window.sessionStorage.removeItem("erzhuang:sso-entry-redirected");
     }
   }, [auth]);
-
-  useEffect(() => {
-    if (settingsOpen || authLoading || shouldBlockBusinessData(auth)) return;
-    void storeSpaceApi
-      .listEzvizAccounts()
-      .then(setAccounts)
-      .catch((error) => setToast(errorMessage(error, "萤石云账号加载失败。")));
-  }, [authLoading, auth, settingsOpen]);
-
-  useEffect(() => {
-    if (settingsOpen || authLoading || shouldBlockBusinessData(auth) || !canManageSystemUsers) return;
-    void loadAISettings();
-  }, [authLoading, auth, settingsOpen, canManageSystemUsers]);
 
   useEffect(() => {
     if (!shouldShowLoginWelcome(auth)) return;
@@ -182,7 +146,7 @@ function AdminApp() {
     listRequestIdRef.current = requestId;
     setLoading(true);
     try {
-      const response = await storeSpaceApi.listStores(nextQuery.trim(), nextPage, PAGE_SIZE, nextCityFilter);
+      const response = await storeSpaceResourceViewApi.listStores(nextQuery.trim(), nextPage, PAGE_SIZE, nextCityFilter);
       if (listRequestIdRef.current !== requestId) return;
       setStores(response.items);
       setTotal(response.total);
@@ -192,7 +156,7 @@ function AdminApp() {
       if (listRequestIdRef.current !== requestId) return;
       setStores([]);
       setTotal(0);
-      setListSummary(EMPTY_STORE_LIST_SUMMARY);
+      setListSummary(EMPTY_RESOURCE_LIST_SUMMARY);
       setCityOptions([]);
       setToast(storeListLoadErrorMessage(error));
     } finally {
@@ -208,204 +172,29 @@ function AdminApp() {
     setPage(1);
   }
 
-  function handleCityFilter(value: string) {
+  function handleCityFilter(value: number | "all") {
     setCityFilter(value);
     setPage(1);
   }
 
-  async function openStore(storeId: number, tab?: StoreDetailTab) {
-    if (openingStoreIds.has(storeId)) return;
-    const summary = stores.find((store) => store.id === storeId);
+  async function openStore(tenantId: number) {
+    if (openingStoreIds.has(tenantId)) return;
     const requestId = detailRequestIdRef.current + 1;
     detailRequestIdRef.current = requestId;
-    setOpeningStoreIds((current) => new Set(current).add(storeId));
-    if (summary) {
-      setActiveStore(makePendingStoreDetail(summary));
-      const initialTab = tab ?? detailTabFromSummary(summary);
-      setActiveTab(initialTab);
-      setLoadedDetailTabs(new Set());
-      setLoadingDetailTabs(new Set([initialTab]));
-    }
+    setOpeningStoreIds((current) => new Set(current).add(tenantId));
     try {
-      const initialTab = tab ?? (summary ? detailTabFromSummary(summary) : "channels");
-      const cached = summary ? detailCacheRef.current.get(storeId, summary.updatedAt, initialTab) : null;
-      if (cached) {
-        if (detailRequestIdRef.current !== requestId) return;
-        setActiveStore(cached);
-        setActiveTab(initialTab);
-        setLoadedDetailTabs(detailCacheRef.current.loadedTabs(storeId, cached.updatedAt));
-        setLoadingDetailTabs(new Set());
-        return;
-      }
       const startedAt = performance.now();
-      const detail = await loadStoreDetailTab(storeId, initialTab);
+      const detail = await storeSpaceResourceViewApi.getStore(tenantId);
       if (detailRequestIdRef.current !== requestId) return;
-      const nextDetail = mergeStoreDetailTab(summary ? makePendingStoreDetail(summary) : detail, detail, initialTab);
-      detailCacheRef.current.set(nextDetail, [initialTab]);
-      console.info(`[store-detail] loaded ${storeId}/${initialTab} in ${Math.round(performance.now() - startedAt)}ms`);
-      setActiveStore(nextDetail);
-      setActiveTab(initialTab);
-      setLoadedDetailTabs(new Set([initialTab]));
-      setLoadingDetailTabs(new Set());
+      console.info(`[resource-view] loaded ${tenantId} in ${Math.round(performance.now() - startedAt)}ms`);
+      setActiveStore(detail);
     } catch (error) {
       if (detailRequestIdRef.current !== requestId) return;
       setActiveStore(null);
-      setLoadedDetailTabs(new Set());
-      setLoadingDetailTabs(new Set());
       setToast(errorMessage(error, "门店详情加载失败。"));
     } finally {
-      setOpeningStoreIds((current) => removeIdFromSet(current, storeId));
+      setOpeningStoreIds((current) => removeIdFromSet(current, tenantId));
     }
-  }
-
-  async function ensureDetailTabLoaded(tab: StoreDetailTab) {
-    const currentStore = activeStoreRef.current;
-    if (!currentStore || loadingDetailTabs.has(tab) || loadedDetailTabs.has(tab)) return;
-    const requestId = detailRequestIdRef.current;
-    setActiveTab(tab);
-    const cached = detailCacheRef.current.get(currentStore.id, currentStore.updatedAt, tab);
-    if (cached) {
-      setActiveStore(cached);
-      setLoadedDetailTabs(detailCacheRef.current.loadedTabs(currentStore.id, cached.updatedAt));
-      return;
-    }
-    setLoadingDetailTabs((current) => new Set(current).add(tab));
-    try {
-      const startedAt = performance.now();
-      const detail = await loadStoreDetailTab(currentStore.id, tab);
-      if (detailRequestIdRef.current !== requestId) return;
-      console.info(`[store-detail] loaded ${currentStore.id}/${tab} in ${Math.round(performance.now() - startedAt)}ms`);
-      handleStoreUpdated((store) => mergeStoreDetailTab(store, detail, tab), [tab]);
-      setLoadedDetailTabs((current) => new Set(current).add(tab));
-    } catch (error) {
-      if (detailRequestIdRef.current !== requestId) return;
-      setToast(errorMessage(error, tab === "channels" ? "通道映射加载失败。" : "设计图标注加载失败。"));
-    } finally {
-      if (detailRequestIdRef.current === requestId) {
-        setLoadingDetailTabs((current) => removeFromSet(current, tab));
-      }
-    }
-  }
-
-  function loadStoreDetailTab(storeId: number, tab: StoreDetailNavigationTab) {
-    return tab === "channels" ? storeSpaceApi.getStoreChannelData(storeId) : storeSpaceApi.getStoreDesignPlanData(storeId);
-  }
-
-  async function loadAISettings() {
-    try {
-      const settings = await storeSpaceApi.getAISettings();
-      setAISettings(settings);
-    } catch (error) {
-      setToast(errorMessage(error, "识别模型状态加载失败。"));
-    }
-  }
-
-  async function toggleAIModel() {
-    if (switchingAIModel) return;
-    setSwitchingAIModel(true);
-    try {
-      const settings = await storeSpaceApi.toggleAISettings();
-      setAISettings(settings);
-      setToast(`已切换识别模型：${settings.label}`);
-    } catch (error) {
-      setToast(errorMessage(error, "识别模型切换失败。"));
-    } finally {
-      setSwitchingAIModel(false);
-    }
-  }
-
-  async function createStore(payload: CreateStoreSpacePayload) {
-    setSaving(true);
-    try {
-      const duplicate = await storeSpaceApi.checkDuplicate(payload.name);
-      if (duplicate.exactMatch) {
-        setToast("同名门店已存在，请修改门店名称。");
-        return;
-      }
-      if (duplicate.similarMatches.length > 0) {
-        const ok = window.confirm(`发现 ${duplicate.similarMatches.length} 个疑似同名门店，是否继续创建？`);
-        if (!ok) return;
-      }
-      const detail = await storeSpaceApi.createStore(payload);
-      detailCacheRef.current.set(detail, ["design-plan", "channels"]);
-      setCreateOpen(false);
-      setActiveStore(detail);
-      setLoadedDetailTabs(new Set(["design-plan", "channels"]));
-      setLoadingDetailTabs(new Set());
-      setActiveTab(storeDetailTabFromDetail(detail));
-      setToast("门店已创建，请继续完善空间资源。");
-      await loadStores();
-    } catch (error) {
-      setToast(errorMessage(error, "创建门店失败。"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function updateStoreBasicInfo(payload: UpdateStoreBasicInfoPayload) {
-    setSaving(true);
-    try {
-      const duplicate = await storeSpaceApi.checkDuplicate(payload.name, payload.id);
-      if (duplicate.exactMatch) {
-        setToast("同名门店已存在，请修改门店名称。");
-        return;
-      }
-      if (duplicate.similarMatches.length > 0) {
-        const ok = window.confirm(`发现 ${duplicate.similarMatches.length} 个疑似同名门店，是否继续保存？`);
-        if (!ok) return;
-      }
-      const detail = await storeSpaceApi.updateStoreBasicInfo(payload);
-      detailCacheRef.current.set(detail, ["design-plan", "channels"]);
-      setEditingStore(null);
-      setStores((items) => items.map((item) => (item.id === detail.id ? detail : item)));
-      if (activeStore?.id === detail.id) {
-        setActiveStore(detail);
-      }
-      setToast("机构信息已更新。");
-      await loadStores();
-    } catch (error) {
-      setToast(errorMessage(error, "更新机构信息失败。"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function uploadPdf(file: File) {
-    setUploading(true);
-    try {
-      return await storeSpaceApi.uploadPdf(file);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function deleteStore(store: StoreSummary) {
-    const ok = window.confirm("删除后将清除该门店的设计图、区域、录像机、通道、截图和识别结果，且无法恢复。是否确认删除？");
-    if (!ok) return;
-    setDeletingStoreIds((current) => new Set(current).add(store.id));
-    try {
-      await storeSpaceApi.deleteStore(store.id);
-      detailCacheRef.current.delete(store.id);
-      setToast(`已删除：${store.name}`);
-      if (activeStore?.id === store.id) {
-        setActiveStore(null);
-      }
-      await loadStores();
-    } catch (error) {
-      setToast(errorMessage(error, "删除门店失败。"));
-    } finally {
-      setDeletingStoreIds((current) => removeIdFromSet(current, store.id));
-    }
-  }
-
-  function handleStoreUpdated(update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType), loadedTabs: StoreDetailTab[] = ["design-plan", "channels"]) {
-    const currentStore = activeStoreRef.current;
-    if (!currentStore && typeof update === "function") return;
-    const nextStore = typeof update === "function" ? update(currentStore as StoreDetailType) : update;
-    activeStoreRef.current = nextStore;
-    detailCacheRef.current.set(nextStore, loadedTabs);
-    setActiveStore(nextStore);
-    setStores((items) => items.map((item) => (item.id === nextStore.id ? nextStore : item)));
   }
 
   async function logout() {
@@ -431,8 +220,6 @@ function AdminApp() {
     detailRequestIdRef.current += 1;
     setActiveStore(null);
     setSettingsOpen(false);
-    setLoadedDetailTabs(new Set());
-    setLoadingDetailTabs(new Set());
     void loadStores();
   }
 
@@ -447,22 +234,9 @@ function AdminApp() {
           rightExtra={systemSettingsAction}
         />
         {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
-        <StoreDetail
+        <ResourceStoreDetail
           store={activeStore}
-          initialTab={activeTab}
-          loadingTabs={loadingDetailTabs}
-          loadedTabs={loadedDetailTabs}
-          saving={saving}
-          accounts={accounts}
-          aiSettings={aiSettings}
-          switchingAIModel={switchingAIModel}
-          canEdit={canEditStoreResources}
-          canManageSettings={canManageSystemUsers}
-          h5MonitorUrl={canOpenH5Monitor(activeStore) ? h5MonitorPath(activeStore.externalOrgId) : undefined}
-          onTabChange={(tab) => void ensureDetailTabLoaded(tab)}
-          onToggleAIModel={toggleAIModel}
-          onStoreUpdated={handleStoreUpdated}
-          onToast={setToast}
+          onOpenMonitor={(url) => window.location.assign(url)}
         />
         <footer className="app-version" aria-label="当前版本">
           版本 {APP_VERSION}
@@ -518,16 +292,8 @@ function AdminApp() {
       <SystemTopBar auth={showLogoutEntry ? auth : null} loggingOut={loggingOut} onLogout={logout} rightExtra={systemSettingsAction} />
       <header className="page-header">
         <div>
-          <p className="eyebrow">空间资源管理</p>
-          <h1>门店空间资源管理系统</h1>
-        </div>
-        <div className="page-header-actions">
-          {canEditStoreResources ? (
-            <button className="primary-button" onClick={() => setCreateOpen(true)}>
-              <span aria-hidden="true">+</span>
-              添加门店
-            </button>
-          ) : null}
+          <p className="eyebrow">门店空间资源查看</p>
+          <h1>门店空间资源查看</h1>
         </div>
       </header>
 
@@ -542,9 +308,11 @@ function AdminApp() {
               共 {visibleSummary.storeCount} 家门店
               {visibleSummary.storeCount > 0 ? `，当前 ${visibleFirstIndex}-${visibleLastIndex}` : ""}
             </span>
-            <span>面诊室 {visibleSummary.consultationCount}</span>
-            <span>治疗室 {visibleSummary.treatmentCount}</span>
-            <span>美容室 {visibleSummary.beautyCount}</span>
+            <span>工控机 {visibleSummary.edgeCount}</span>
+            <span>录像机 {visibleSummary.nvrCount}</span>
+            <span>摄像头 {visibleSummary.cameraCount}</span>
+            <span>已绑定 {visibleSummary.boundCameraCount}</span>
+            <span>异常 {visibleSummary.warningCount}</span>
           </div>
         </div>
         <div className="city-filter" role="radiogroup" aria-label="城市筛选">
@@ -555,12 +323,12 @@ function AdminApp() {
             <button
               type="button"
               role="radio"
-              aria-checked={cityFilter === city}
-              className={cityFilter === city ? "is-active" : ""}
-              key={city}
-              onClick={() => handleCityFilter(city)}
+              aria-checked={cityFilter === city.cityId}
+              className={cityFilter === city.cityId ? "is-active" : ""}
+              key={city.cityId}
+              onClick={() => handleCityFilter(city.cityId)}
             >
-              {city}
+              {city.name || `城市 ${city.cityId}`}
             </button>
           ))}
         </div>
@@ -568,17 +336,16 @@ function AdminApp() {
 
       {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
 
-      <StoreList
+      <ResourceStoreList
         stores={visibleStores}
         loading={loading}
         page={page}
         pageSize={PAGE_SIZE}
-        deletingStoreIds={deletingStoreIds}
         openingStoreIds={openingStoreIds}
-        canEdit={canEditStoreResources}
         onOpenStore={openStore}
-        onEditStore={setEditingStore}
-        onDeleteStore={deleteStore}
+        onOpenMonitor={(store) => {
+          if (store.monitorUrl) window.location.assign(store.monitorUrl);
+        }}
       />
 
       <nav className="pagination" aria-label="分页">
@@ -597,24 +364,6 @@ function AdminApp() {
         版本 {APP_VERSION}
       </footer>
 
-      {createOpen ? (
-        <CreateStoreModal
-          accounts={accounts}
-          uploading={uploading}
-          saving={saving}
-          onUploadPdf={uploadPdf}
-          onClose={() => setCreateOpen(false)}
-          onSubmit={createStore}
-        />
-      ) : null}
-      {editingStore ? (
-        <EditStoreModal
-          store={editingStore}
-          saving={saving}
-          onClose={() => setEditingStore(null)}
-          onSubmit={updateStoreBasicInfo}
-        />
-      ) : null}
     </main>
   );
 }

@@ -87,14 +87,14 @@ func TestMySQLDSNWithParseTimePreservesExistingQuery(t *testing.T) {
 }
 
 func TestBusinessDatabaseConfigFromEnvUsesK8SSecret(t *testing.T) {
-	t.Setenv("K8S_SECRET_BUSINESS_MYSQL_DSN", "readonly:pass@tcp(mysql:3306)/db_groupbuy")
+	t.Setenv("K8S_SECRET_BUSINESS_MYSQL_DSN", "resource-view-user:resource-view-pass@tcp(mysql:3306)/resource_view_fixture")
 
 	config := businessDatabaseConfigFromEnv()
 
 	if config.Driver != "mysql" {
 		t.Fatalf("driver = %q, want mysql", config.Driver)
 	}
-	if config.DSN != "readonly:pass@tcp(mysql:3306)/db_groupbuy?parseTime=true" {
+	if config.DSN != "resource-view-user:resource-view-pass@tcp(mysql:3306)/resource_view_fixture?parseTime=true" {
 		t.Fatalf("dsn = %q, want business dsn with parseTime", config.DSN)
 	}
 }
