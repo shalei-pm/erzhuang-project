@@ -6,6 +6,7 @@ type AreaType string
 
 const (
 	AreaTypeTreatment    AreaType = "treatment"
+	AreaTypeVIPTreatment AreaType = "vip_treatment"
 	AreaTypeConsultation AreaType = "consultation"
 	AreaTypeBeauty       AreaType = "beauty"
 )
@@ -75,6 +76,7 @@ type SceneType string
 
 const (
 	SceneTypeTreatment    SceneType = "treatment"
+	SceneTypeVIPTreatment SceneType = "vip_treatment"
 	SceneTypeConsultation SceneType = "consultation"
 	SceneTypeBeauty       SceneType = "beauty"
 	SceneTypeFrontDesk    SceneType = "front_desk"
@@ -91,6 +93,7 @@ const (
 
 type StoreFilters struct {
 	Query    string
+	City     string
 	Page     int
 	PageSize int
 }
@@ -98,9 +101,17 @@ type StoreFilters struct {
 type CreateStoreInput struct {
 	City               string          `json:"city"`
 	Name               string          `json:"name"`
+	ShortName          string          `json:"short_name,omitempty"`
 	ExternalOrgID      string          `json:"external_org_id,omitempty"`
 	DesignPlanUploadID string          `json:"design_plan_upload_id,omitempty"`
 	Recorders          []RecorderInput `json:"recorders,omitempty"`
+}
+
+type UpdateStoreBasicInfoInput struct {
+	City          string `json:"city"`
+	Name          string `json:"name"`
+	ShortName     string `json:"short_name,omitempty"`
+	ExternalOrgID string `json:"external_org_id,omitempty"`
 }
 
 type CreateEzvizAccountInput struct {
@@ -142,6 +153,16 @@ type ChannelSnapshotInput struct {
 	CountAttempt       bool
 }
 
+type SnapshotDiagnostics struct {
+	Code         string `json:"code"`
+	Stage        string `json:"stage"`
+	AssetStore   string `json:"asset_store"`
+	SnapshotName string `json:"snapshot_name"`
+	SnapshotKey  string `json:"snapshot_key"`
+	Exists       bool   `json:"exists"`
+	Detail       string `json:"detail,omitempty"`
+}
+
 type ChannelRecognitionResult struct {
 	SceneType      string
 	AreaType       string
@@ -159,6 +180,7 @@ type ChannelConfirmationInput struct {
 	Kind       string    `json:"kind,omitempty"`
 	AreaType   AreaType  `json:"area_type,omitempty"`
 	AreaNumber string    `json:"area_number,omitempty"`
+	BedLabel   string    `json:"bed_label,omitempty"`
 	AreaNote   string    `json:"area_note,omitempty"`
 	SceneType  SceneType `json:"scene_type,omitempty"`
 }
@@ -192,6 +214,7 @@ type DuplicateCheckRequest struct {
 type DuplicateMatch struct {
 	ID             int64         `json:"id"`
 	Name           string        `json:"name"`
+	ShortName      string        `json:"short_name"`
 	NormalizedName string        `json:"normalized_name,omitempty"`
 	Reason         string        `json:"reason"`
 	OverallStatus  OverallStatus `json:"overall_status"`
@@ -214,8 +237,10 @@ type Store struct {
 	ID               int64            `json:"id"`
 	City             string           `json:"city"`
 	Name             string           `json:"name"`
+	ShortName        string           `json:"short_name"`
 	NormalizedName   string           `json:"normalized_name,omitempty"`
 	ExternalOrgID    string           `json:"external_org_id"`
+	CanViewMonitor   bool             `json:"can_view_monitor"`
 	DesignPlanStatus DesignPlanStatus `json:"design_plan_status"`
 	OverallStatus    OverallStatus    `json:"overall_status"`
 	Areas            []Area           `json:"areas,omitempty"`
@@ -226,25 +251,38 @@ type Store struct {
 }
 
 type StoreListItem struct {
-	ID                int64            `json:"id"`
-	City              string           `json:"city"`
-	Name              string           `json:"name"`
-	ExternalOrgID     string           `json:"external_org_id"`
-	DesignPlanStatus  DesignPlanStatus `json:"design_plan_status"`
-	OverallStatus     OverallStatus    `json:"overall_status"`
-	RecorderCount     int              `json:"recorder_count"`
-	ChannelCount      int              `json:"channel_count"`
-	TreatmentCount    int              `json:"treatment_count"`
-	ConsultationCount int              `json:"consultation_count"`
-	BeautyCount       int              `json:"beauty_count"`
-	UpdatedAt         time.Time        `json:"updated_at"`
+	ID                     int64            `json:"id"`
+	City                   string           `json:"city"`
+	Name                   string           `json:"name"`
+	ShortName              string           `json:"short_name"`
+	ExternalOrgID          string           `json:"external_org_id"`
+	CanViewMonitor         bool             `json:"can_view_monitor"`
+	DesignPlanStatus       DesignPlanStatus `json:"design_plan_status"`
+	OverallStatus          OverallStatus    `json:"overall_status"`
+	RecorderCount          int              `json:"recorder_count"`
+	ChannelCount           int              `json:"channel_count"`
+	ChannelsFullyConfirmed bool             `json:"channels_fully_confirmed"`
+	TreatmentCount         int              `json:"treatment_count"`
+	ConsultationCount      int              `json:"consultation_count"`
+	BeautyCount            int              `json:"beauty_count"`
+	AreaCount              int              `json:"area_count"`
+	UpdatedAt              time.Time        `json:"updated_at"`
 }
 
 type StoreListResult struct {
-	Items    []StoreListItem `json:"items"`
-	Page     int             `json:"page"`
-	PageSize int             `json:"page_size"`
-	Total    int             `json:"total"`
+	Items    []StoreListItem  `json:"items"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+	Total    int              `json:"total"`
+	Summary  StoreListSummary `json:"summary"`
+	Cities   []string         `json:"cities"`
+}
+
+type StoreListSummary struct {
+	StoreCount        int `json:"store_count"`
+	TreatmentCount    int `json:"treatment_count"`
+	ConsultationCount int `json:"consultation_count"`
+	BeautyCount       int `json:"beauty_count"`
 }
 
 type Area struct {
@@ -304,6 +342,7 @@ type Channel struct {
 	SceneType           SceneType     `json:"scene_type"`
 	AreaType            AreaType      `json:"area_type,omitempty"`
 	AreaNumber          int           `json:"area_number,omitempty"`
+	BedLabel            string        `json:"bed_label,omitempty"`
 	AreaNote            string        `json:"area_note,omitempty"`
 	AreaID              int64         `json:"area_id,omitempty"`
 	RecognitionAttempts int           `json:"recognition_attempts"`
@@ -314,6 +353,34 @@ type Channel struct {
 	ConfirmedAt         *time.Time    `json:"confirmed_at,omitempty"`
 	CreatedAt           time.Time     `json:"created_at"`
 	UpdatedAt           time.Time     `json:"updated_at"`
+}
+
+type ProbeRecognizeChannelInput struct {
+	ChannelNo int `json:"channel_no"`
+}
+
+type ProbeRecognizeChannelResult struct {
+	Channel *Channel `json:"channel,omitempty"`
+	Active  bool     `json:"active"`
+	Message string   `json:"message,omitempty"`
+}
+
+type ChannelMappingExport struct {
+	FileName    string
+	Content     []byte
+	ContentType string
+}
+
+type ChannelMappingExportRow struct {
+	Index         int
+	City          string
+	StoreName     string
+	ExternalOrgID string
+	RecorderCode  string
+	ChannelNo     int
+	SnapshotPath  string
+	AreaTypeLabel string
+	NumberOrNote  string
 }
 
 type EzvizAccount struct {

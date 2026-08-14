@@ -1,68 +1,164 @@
-import { useEffect, useRef, useState } from "react";
-import { storeSpaceApi, type CreateStoreSpacePayload, type EzvizAccount, type StoreDetail as StoreDetailType, type StoreSummary } from "./api";
-import { CreateStoreModal } from "./components/CreateStoreModal";
-import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
-import { StoreList } from "./components/StoreList";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import {
+  ApiError,
+  storeSpaceResourceViewApi,
+  storeSpaceApi,
+  type ResourceCityOption,
+  type ResourceStoreDetail as ResourceStoreDetailType,
+  type ResourceStoreListSummary,
+  type ResourceStoreSummary,
+} from "./api";
+import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
+import { ResourceStoreDetail } from "./components/ResourceStoreDetail";
+import { ResourceStoreList } from "./components/ResourceStoreList";
+import { SystemTopBar } from "./components/SystemTopBar";
+import { UserManagement } from "./components/UserManagement";
+import {
+  authCompanyEntryPath,
+  authLoginPath,
+  authLogoutPath,
+  canManageUsers,
+  shouldBlockBusinessData,
+  shouldShowForbiddenAccess,
+  shouldShowLoginWelcome,
+  shouldShowLogoutEntry,
+  shouldSkipLocalLogoutBeforeRedirect,
+  type AuthState,
+} from "./domain/auth";
 import { errorMessage } from "./domain/format";
+import {
+  h5MonitorTabSearch,
+  readH5MonitorActiveTabFromSearch,
+  type H5MonitorTabKey,
+} from "./domain/h5-monitor-active-tab";
 
 const PAGE_SIZE = 20;
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "local-dev";
+const EMPTY_RESOURCE_LIST_SUMMARY: ResourceStoreListSummary = {
+  storeCount: 0,
+  edgeCount: 0,
+  nvrCount: 0,
+  cameraCount: 0,
+  spaceCount: 0,
+  boundCameraCount: 0,
+  unboundCameraCount: 0,
+  offlineDeviceCount: 0,
+  warningCount: 0,
+};
+
+const H5MonitorPage = lazy(() => import("./pages/H5Monitor").then((module) => ({ default: module.H5Monitor })));
+const H5MonitorChannelPage = lazy(() =>
+  import("./pages/H5MonitorChannel").then((module) => ({ default: module.H5MonitorChannel })),
+);
+
+type H5Route =
+  | { name: "home"; externalOrgId: string; tab?: H5MonitorTabKey }
+  | { name: "channel"; externalOrgId: string; channelId: number; tab?: H5MonitorTabKey }
+  | null;
 
 function App() {
-  const [stores, setStores] = useState<StoreSummary[]>([]);
-  const [accounts, setAccounts] = useState<EzvizAccount[]>([]);
+  const h5Route = parseH5Route();
+  if (h5Route) {
+    return <H5RouteShell initialRoute={h5Route} />;
+  }
+
+  return <AdminApp />;
+}
+
+function AdminApp() {
+  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [stores, setStores] = useState<ResourceStoreSummary[]>([]);
   const [query, setQuery] = useState("");
-  const [cityFilter, setCityFilter] = useState("all");
+  const [cityFilter, setCityFilter] = useState<number | "all">("all");
+  const [cityOptions, setCityOptions] = useState<ResourceCityOption[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [listSummary, setListSummary] = useState<ResourceStoreListSummary>(EMPTY_RESOURCE_LIST_SUMMARY);
   const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [toast, setToast] = useState("");
-  const [activeStore, setActiveStore] = useState<StoreDetailType | null>(null);
-  const [activeTab, setActiveTab] = useState<StoreDetailTab>("design-plan");
-  const [deletingStoreIds, setDeletingStoreIds] = useState<Set<number>>(() => new Set());
+  const [activeStore, setActiveStore] = useState<ResourceStoreDetailType | null>(null);
   const [openingStoreIds, setOpeningStoreIds] = useState<Set<number>>(() => new Set());
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const listRequestIdRef = useRef(0);
-  const activeStoreRef = useRef<StoreDetailType | null>(null);
+  const detailRequestIdRef = useRef(0);
+
+  if (new URLSearchParams(window.location.search).get("tool") === "ezviz-live-demo") {
+    return <EzvizLiveDemo appVersion={APP_VERSION} />;
+  }
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const cityOptions = uniqueCities(stores);
-  const visibleStores = cityFilter === "all" ? stores : stores.filter((store) => storeCity(store) === cityFilter);
-  const visibleSummary = summarizeStores(visibleStores);
-  const visibleFirstIndex = visibleStores.length === 0 ? 0 : 1;
-  const visibleLastIndex = visibleStores.length;
-
-  useEffect(() => {
-    void loadStores(query, page);
-  }, [page, query]);
-
-  useEffect(() => {
-    activeStoreRef.current = activeStore;
-  }, [activeStore]);
+  const visibleStores = stores;
+  const visibleSummary = listSummary;
+  const visibleFirstIndex = visibleStores.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const visibleLastIndex = visibleStores.length === 0 ? 0 : visibleFirstIndex + visibleStores.length - 1;
+  const showLogoutEntry = shouldShowLogoutEntry(auth);
+  const canManageSystemUsers = canManageUsers(auth);
+  const systemSettingsAction = canManageSystemUsers ? (
+    <button type="button" className="topbar-settings-button" onClick={() => setSettingsOpen(true)}>
+      系统设置
+    </button>
+  ) : null;
 
   useEffect(() => {
     void storeSpaceApi
-      .listEzvizAccounts()
-      .then(setAccounts)
-      .catch((error) => setToast(errorMessage(error, "萤石云账号加载失败。")));
+      .getAuthMe()
+      .then(setAuth)
+      .catch((error) => {
+        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 401) {
+          setAuth({ enabled: true, authenticated: false, login_url: "/erzhuang-project/_/auth/callback" });
+          return;
+        }
+        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 403) {
+          setAuth({ enabled: true, authenticated: false, forbidden: true });
+          return;
+        }
+        setToast(errorMessage(error, "登录状态加载失败。"));
+        setAuth({ enabled: false, authenticated: true });
+      })
+      .finally(() => setAuthLoading(false));
   }, []);
 
-  async function loadStores(nextQuery = query, nextPage = page) {
+  useEffect(() => {
+    if (settingsOpen || authLoading || shouldBlockBusinessData(auth)) return;
+    void loadStores(query, cityFilter, page);
+  }, [page, query, cityFilter, authLoading, auth, settingsOpen]);
+
+  useEffect(() => {
+    if (auth?.authenticated) {
+      window.sessionStorage.removeItem("erzhuang:sso-entry-redirected");
+    }
+  }, [auth]);
+
+  useEffect(() => {
+    if (!shouldShowLoginWelcome(auth)) return;
+    const companyEntryPath = authCompanyEntryPath();
+    if (!companyEntryPath) return;
+    const redirectKey = "erzhuang:sso-entry-redirected";
+    if (window.sessionStorage.getItem(redirectKey) === "1") return;
+    window.sessionStorage.setItem(redirectKey, "1");
+    window.location.replace(companyEntryPath);
+  }, [auth]);
+
+  async function loadStores(nextQuery = query, nextCityFilter = cityFilter, nextPage = page) {
     const requestId = listRequestIdRef.current + 1;
     listRequestIdRef.current = requestId;
     setLoading(true);
     try {
-      const response = await storeSpaceApi.listStores(nextQuery.trim(), nextPage, PAGE_SIZE);
+      const response = await storeSpaceResourceViewApi.listStores(nextQuery.trim(), nextPage, PAGE_SIZE, nextCityFilter);
       if (listRequestIdRef.current !== requestId) return;
       setStores(response.items);
       setTotal(response.total);
+      setListSummary(response.summary);
+      setCityOptions(response.cities);
     } catch (error) {
       if (listRequestIdRef.current !== requestId) return;
       setStores([]);
       setTotal(0);
-      setToast(errorMessage(error, "门店列表加载失败，请稍后重试。"));
+      setListSummary(EMPTY_RESOURCE_LIST_SUMMARY);
+      setCityOptions([]);
+      setToast(storeListLoadErrorMessage(error));
     } finally {
       if (listRequestIdRef.current === requestId) {
         setLoading(false);
@@ -76,103 +172,114 @@ function App() {
     setPage(1);
   }
 
-  async function openStore(storeId: number, tab?: StoreDetailTab) {
-    if (openingStoreIds.has(storeId)) return;
-    setOpeningStoreIds((current) => new Set(current).add(storeId));
+  function handleCityFilter(value: number | "all") {
+    setCityFilter(value);
+    setPage(1);
+  }
+
+  async function openStore(tenantId: number) {
+    if (openingStoreIds.has(tenantId)) return;
+    const requestId = detailRequestIdRef.current + 1;
+    detailRequestIdRef.current = requestId;
+    setOpeningStoreIds((current) => new Set(current).add(tenantId));
     try {
-      const detail = await storeSpaceApi.getStore(storeId);
+      const startedAt = performance.now();
+      const detail = await storeSpaceResourceViewApi.getStore(tenantId);
+      if (detailRequestIdRef.current !== requestId) return;
+      console.info(`[resource-view] loaded ${tenantId} in ${Math.round(performance.now() - startedAt)}ms`);
       setActiveStore(detail);
-      setActiveTab(tab ?? defaultStoreDetailTab(detail));
     } catch (error) {
+      if (detailRequestIdRef.current !== requestId) return;
+      setActiveStore(null);
       setToast(errorMessage(error, "门店详情加载失败。"));
     } finally {
-      setOpeningStoreIds((current) => removeIdFromSet(current, storeId));
+      setOpeningStoreIds((current) => removeIdFromSet(current, tenantId));
     }
   }
 
-  async function createStore(payload: CreateStoreSpacePayload) {
-    setSaving(true);
+  async function logout() {
+    const logoutPath = authLogoutPath();
+    setLoggingOut(true);
+    if (shouldSkipLocalLogoutBeforeRedirect()) {
+      window.location.assign(logoutPath);
+      return;
+    }
     try {
-      const duplicate = await storeSpaceApi.checkDuplicate(payload.name);
-      if (duplicate.exactMatch) {
-        setToast("同名门店已存在，请修改门店名称。");
-        return;
-      }
-      if (duplicate.similarMatches.length > 0) {
-        const ok = window.confirm(`发现 ${duplicate.similarMatches.length} 个疑似同名门店，是否继续创建？`);
-        if (!ok) return;
-      }
-      const detail = await storeSpaceApi.createStore(payload);
-      setCreateOpen(false);
-      setActiveStore(detail);
-      setActiveTab(defaultStoreDetailTab(detail));
-      setToast("门店已创建，请继续完善空间资源。");
-      await loadStores();
+      await storeSpaceApi.logout();
+      setAuth({ enabled: true, authenticated: false, login_url: logoutPath });
+      window.location.assign(logoutPath);
     } catch (error) {
-      setToast(errorMessage(error, "创建门店失败。"));
+      setToast(errorMessage(error, "本地退出状态清理失败，正在尝试退出 SSO。"));
+      window.location.assign(logoutPath);
     } finally {
-      setSaving(false);
+      setLoggingOut(false);
     }
   }
 
-  function defaultStoreDetailTab(store: StoreDetailType): StoreDetailTab {
-    if (store.recorderCount > 0 || store.recorders.length > 0) return "channels";
-    if (store.designPlanStatus !== "not_uploaded" || Boolean(store.previewUrl || store.thumbnailUrl)) return "design-plan";
-    return "channels";
-  }
-
-  async function uploadPdf(file: File) {
-    setUploading(true);
-    try {
-      return await storeSpaceApi.uploadPdf(file);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function deleteStore(store: StoreSummary) {
-    const ok = window.confirm("删除后将清除该门店的设计图、区域、录像机、通道、截图和识别结果，且无法恢复。是否确认删除？");
-    if (!ok) return;
-    setDeletingStoreIds((current) => new Set(current).add(store.id));
-    try {
-      await storeSpaceApi.deleteStore(store.id);
-      setToast(`已删除：${store.name}`);
-      if (activeStore?.id === store.id) {
-        setActiveStore(null);
-      }
-      await loadStores();
-    } catch (error) {
-      setToast(errorMessage(error, "删除门店失败。"));
-    } finally {
-      setDeletingStoreIds((current) => removeIdFromSet(current, store.id));
-    }
-  }
-
-  function handleStoreUpdated(update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType)) {
-    const currentStore = activeStoreRef.current;
-    if (!currentStore && typeof update === "function") return;
-    const nextStore = typeof update === "function" ? update(currentStore as StoreDetailType) : update;
-    activeStoreRef.current = nextStore;
-    setActiveStore(nextStore);
-    setStores((items) => items.map((item) => (item.id === nextStore.id ? nextStore : item)));
+  function returnToStoreList() {
+    detailRequestIdRef.current += 1;
+    setActiveStore(null);
+    setSettingsOpen(false);
+    void loadStores();
   }
 
   if (activeStore) {
     return (
       <main className="app-shell">
-        {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
-        <StoreDetail
-          store={activeStore}
-          initialTab={activeTab}
-          saving={saving}
-          accounts={accounts}
-          onBack={() => {
-            setActiveStore(null);
-            void loadStores();
-          }}
-          onStoreUpdated={handleStoreUpdated}
-          onToast={setToast}
+        <SystemTopBar
+          backAction={{ label: "返回列表", onClick: returnToStoreList }}
+          auth={showLogoutEntry ? auth : null}
+          loggingOut={loggingOut}
+          onLogout={logout}
+          rightExtra={systemSettingsAction}
         />
+        {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
+        <ResourceStoreDetail
+          store={activeStore}
+          onOpenMonitor={(url) => window.location.assign(url)}
+        />
+        <footer className="app-version" aria-label="当前版本">
+          版本 {APP_VERSION}
+        </footer>
+      </main>
+    );
+  }
+
+  if (authLoading) {
+    return (
+      <main className="app-shell">
+        <div className="auth-loading">正在确认登录状态...</div>
+      </main>
+    );
+  }
+
+  if (shouldShowLoginWelcome(auth) && authCompanyEntryPath()) {
+    return (
+      <main className="app-shell">
+        <div className="auth-loading">正在进入公司 SSO 登录...</div>
+      </main>
+    );
+  }
+
+  if (shouldShowLoginWelcome(auth)) {
+    return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
+  }
+
+  if (shouldShowForbiddenAccess(auth)) {
+    return <ForbiddenAccess appVersion={APP_VERSION} />;
+  }
+
+  if (settingsOpen && canManageSystemUsers) {
+    return (
+      <main className="app-shell">
+        <SystemTopBar
+          backAction={{ label: "返回列表", onClick: returnToStoreList }}
+          auth={showLogoutEntry ? auth : null}
+          loggingOut={loggingOut}
+          onLogout={logout}
+        />
+        {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
+        <UserManagement onToast={setToast} />
         <footer className="app-version" aria-label="当前版本">
           版本 {APP_VERSION}
         </footer>
@@ -182,15 +289,12 @@ function App() {
 
   return (
     <main className="app-shell">
+      <SystemTopBar auth={showLogoutEntry ? auth : null} loggingOut={loggingOut} onLogout={logout} rightExtra={systemSettingsAction} />
       <header className="page-header">
         <div>
-          <p className="eyebrow">空间资源管理</p>
-          <h1>门店空间资源管理系统</h1>
+          <p className="eyebrow">门店空间资源查看</p>
+          <h1>门店空间资源查看</h1>
         </div>
-        <button className="primary-button" onClick={() => setCreateOpen(true)}>
-          <span aria-hidden="true">+</span>
-          添加门店
-        </button>
       </header>
 
       <section className="toolbar" aria-label="门店筛选">
@@ -204,25 +308,27 @@ function App() {
               共 {visibleSummary.storeCount} 家门店
               {visibleSummary.storeCount > 0 ? `，当前 ${visibleFirstIndex}-${visibleLastIndex}` : ""}
             </span>
-            <span>面诊室 {visibleSummary.consultationCount}</span>
-            <span>治疗室 {visibleSummary.treatmentCount}</span>
-            <span>生美 {visibleSummary.beautyCount}</span>
+            <span>工控机 {visibleSummary.edgeCount}</span>
+            <span>录像机 {visibleSummary.nvrCount}</span>
+            <span>摄像头 {visibleSummary.cameraCount}</span>
+            <span>已绑定 {visibleSummary.boundCameraCount}</span>
+            <span>异常 {visibleSummary.warningCount}</span>
           </div>
         </div>
         <div className="city-filter" role="radiogroup" aria-label="城市筛选">
-          <button type="button" role="radio" aria-checked={cityFilter === "all"} className={cityFilter === "all" ? "is-active" : ""} onClick={() => setCityFilter("all")}>
+          <button type="button" role="radio" aria-checked={cityFilter === "all"} className={cityFilter === "all" ? "is-active" : ""} onClick={() => handleCityFilter("all")}>
             全部
           </button>
           {cityOptions.map((city) => (
             <button
               type="button"
               role="radio"
-              aria-checked={cityFilter === city}
-              className={cityFilter === city ? "is-active" : ""}
-              key={city}
-              onClick={() => setCityFilter(city)}
+              aria-checked={cityFilter === city.cityId}
+              className={cityFilter === city.cityId ? "is-active" : ""}
+              key={city.cityId}
+              onClick={() => handleCityFilter(city.cityId)}
             >
-              {city}
+              {city.name || `城市 ${city.cityId}`}
             </button>
           ))}
         </div>
@@ -230,15 +336,16 @@ function App() {
 
       {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
 
-      <StoreList
+      <ResourceStoreList
         stores={visibleStores}
         loading={loading}
-        page={cityFilter === "all" ? page : 1}
+        page={page}
         pageSize={PAGE_SIZE}
-        deletingStoreIds={deletingStoreIds}
         openingStoreIds={openingStoreIds}
         onOpenStore={openStore}
-        onDeleteStore={deleteStore}
+        onOpenMonitor={(store) => {
+          if (store.monitorUrl) window.location.assign(store.monitorUrl);
+        }}
       />
 
       <nav className="pagination" aria-label="分页">
@@ -257,43 +364,294 @@ function App() {
         版本 {APP_VERSION}
       </footer>
 
-      {createOpen ? (
-        <CreateStoreModal
-          accounts={accounts}
-          uploading={uploading}
-          saving={saving}
-          onUploadPdf={uploadPdf}
-          onClose={() => setCreateOpen(false)}
-          onSubmit={createStore}
-        />
-      ) : null}
     </main>
   );
 }
 
-function storeCity(store: StoreSummary) {
-  return store.city || "未设置";
+function storeListLoadErrorMessage(error: unknown) {
+  const message = errorMessage(error, "门店列表加载失败，请稍后重试。");
+  if (error instanceof ApiError && (error.code || error.stage || error.detail)) {
+    let diagnostics = "";
+    if (error.code) diagnostics += ` code=${error.code}`;
+    if (error.stage) diagnostics += ` stage=${error.stage}`;
+    if (error.detail) diagnostics += ` detail=${error.detail}`;
+    return `${message} ·${diagnostics}`;
+  }
+  return message;
 }
 
-function uniqueCities(stores: StoreSummary[]) {
-  return Array.from(new Set(stores.map(storeCity))).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
-}
+function LoginWelcome({ auth, appVersion }: { auth: AuthState | null; appVersion: string }) {
+  const companyEntryPath = authCompanyEntryPath();
+  const loginPath = companyEntryPath || authLoginPath(auth?.login_url);
 
-function summarizeStores(stores: StoreSummary[]) {
-  return stores.reduce(
-    (summary, store) => ({
-      storeCount: summary.storeCount + 1,
-      consultationCount: summary.consultationCount + store.consultationCount,
-      treatmentCount: summary.treatmentCount + store.treatmentCount,
-      beautyCount: summary.beautyCount + store.beautyCount,
-    }),
-    { storeCount: 0, consultationCount: 0, treatmentCount: 0, beautyCount: 0 },
+  return (
+    <main className="auth-page">
+      <section className="auth-panel" aria-label="登录">
+        <p className="eyebrow">新氧青春</p>
+        <h1>门店空间资源管理系统</h1>
+        <p className="auth-copy">请通过公司 APISIX-SSO 网关登录后继续访问后台。</p>
+        <button className="primary-button auth-login-button" onClick={() => window.location.assign(loginPath)}>
+          使用公司 SSO 登录
+        </button>
+        <p className="auth-note">登录由公司网关统一处理；权限范围由项目用户表控制。</p>
+      </section>
+      <footer className="app-version" aria-label="当前版本">
+        版本 {appVersion}
+      </footer>
+    </main>
   );
 }
 
+function ForbiddenAccess({ appVersion }: { appVersion: string }) {
+  return (
+    <main className="auth-page">
+      <section className="auth-panel" aria-label="暂无访问权限">
+        <p className="eyebrow">访问受限</p>
+        <h1>暂无访问权限</h1>
+        <p className="auth-copy">当前公司账号尚未被授权访问二壮系统，请联系项目负责人开通权限，或更换账号登录。</p>
+        <button className="primary-button auth-login-button" onClick={() => window.location.assign(authLogoutPath())}>
+          重新登录
+        </button>
+        <p className="auth-note">点击后会先退出公司 SSO，再通过项目首页重新唤起登录。</p>
+      </section>
+      <footer className="app-version" aria-label="当前版本">
+        版本 {appVersion}
+      </footer>
+    </main>
+  );
+}
+
+function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
+  const [route, setRoute] = useState<H5Route>(initialRoute);
+  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
+  const showLogoutEntry = shouldShowLogoutEntry(auth);
+
+  useEffect(() => {
+    const onPopState = () => setRoute(parseH5Route());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    void storeSpaceApi
+      .getAuthMe()
+      .then((nextAuth) => {
+        setAuth(nextAuth);
+        setAuthMessage("");
+      })
+      .catch((error) => {
+        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 401) {
+          setAuth({ enabled: true, authenticated: false, login_url: authLoginPath() });
+          return;
+        }
+        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 403) {
+          setAuth({ enabled: true, authenticated: false, forbidden: true });
+          return;
+        }
+        setAuth({ enabled: false, authenticated: false });
+        setAuthMessage(errorMessage(error, "登录状态加载失败，请稍后重试。"));
+      })
+      .finally(() => setAuthLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (auth?.authenticated) {
+      window.sessionStorage.removeItem("erzhuang:h5-sso-entry-redirected");
+    }
+  }, [auth]);
+
+  useEffect(() => {
+    if (!shouldShowLoginWelcome(auth)) return;
+    const companyEntryPath = authCompanyEntryPath();
+    if (!companyEntryPath) return;
+    const redirectKey = "erzhuang:h5-sso-entry-redirected";
+    if (window.sessionStorage.getItem(redirectKey) === "1") return;
+    window.sessionStorage.setItem(redirectKey, "1");
+    window.location.replace(companyEntryPath);
+  }, [auth]);
+
+  async function logout() {
+    const logoutPath = authLogoutPath();
+    setLoggingOut(true);
+    if (shouldSkipLocalLogoutBeforeRedirect()) {
+      window.location.assign(logoutPath);
+      return;
+    }
+    try {
+      await storeSpaceApi.logout();
+      setAuth({ enabled: true, authenticated: false, login_url: logoutPath });
+      window.location.assign(logoutPath);
+    } catch (error) {
+      setAuthMessage(errorMessage(error, "本地退出状态清理失败，正在尝试退出 SSO。"));
+      window.location.assign(logoutPath);
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
+  function handleAuthRequired() {
+    setAuth({ enabled: true, authenticated: false, login_url: authLoginPath() });
+    setAuthMessage("");
+  }
+
+  if (!route) {
+    return (
+      <div className="h5-not-found">
+        <p>页面不存在。请通过门店监控二维码进入。</p>
+      </div>
+    );
+  }
+
+  if (authLoading) {
+    return (
+      <main className="app-shell">
+        <div className="auth-loading">正在确认登录状态...</div>
+      </main>
+    );
+  }
+
+  if (shouldShowForbiddenAccess(auth)) {
+    return <ForbiddenAccess appVersion={APP_VERSION} />;
+  }
+
+  if (shouldShowLoginWelcome(auth) && authCompanyEntryPath()) {
+    return (
+      <main className="app-shell">
+        <div className="auth-loading">正在进入公司 SSO 登录...</div>
+      </main>
+    );
+  }
+
+  if (shouldShowLoginWelcome(auth)) {
+    return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
+  }
+
+  if (route.name === "home") {
+    return (
+      <Suspense fallback={<div className="h5-loading">加载中...</div>}>
+        <H5MonitorPage
+          externalOrgId={route.externalOrgId}
+          auth={showLogoutEntry ? auth : null}
+          loggingOut={loggingOut}
+          authMessage={authMessage}
+          activeTabFromRoute={route.tab ?? null}
+          onLogout={logout}
+          onAuthRequired={handleAuthRequired}
+          onOpenChannel={(channelId, activeTab) => {
+            const url = h5ChannelRoutePath(route.externalOrgId, channelId, activeTab);
+            window.history.pushState({}, "", url);
+            setRoute({ name: "channel", externalOrgId: route.externalOrgId, channelId, tab: normalizeH5RouteTab(activeTab) });
+          }}
+          onSelectTab={(activeTab) => {
+            const tab = normalizeH5RouteTab(activeTab);
+            const url = h5MonitorRoutePath(route.externalOrgId, tab);
+            window.history.replaceState({}, "", url);
+            setRoute((currentRoute) => {
+              if (!currentRoute || currentRoute.name !== "home" || currentRoute.externalOrgId !== route.externalOrgId) {
+                return currentRoute;
+              }
+              return { ...currentRoute, tab };
+            });
+          }}
+          onSelectStore={(externalOrgId) => {
+            const url = h5MonitorRoutePath(externalOrgId);
+            window.history.pushState({}, "", url);
+            setRoute({ name: "home", externalOrgId });
+          }}
+        />
+      </Suspense>
+    );
+  }
+
+  return (
+    <Suspense fallback={<div className="h5-loading">加载中...</div>}>
+      <H5MonitorChannelPage
+        externalOrgId={route.externalOrgId}
+        channelId={route.channelId}
+        auth={showLogoutEntry ? auth : null}
+        loggingOut={loggingOut}
+        authMessage={authMessage}
+        onLogout={logout}
+        onAuthRequired={handleAuthRequired}
+        onBack={() => {
+          const url = h5MonitorRoutePath(route.externalOrgId, route.tab);
+          window.history.replaceState({}, "", url);
+          setRoute({ name: "home", externalOrgId: route.externalOrgId, tab: route.tab });
+        }}
+      />
+    </Suspense>
+  );
+}
+
+function parseH5Route(): H5Route {
+  const path = window.location.pathname;
+  const h5Path = stripKnownBasePrefix(path);
+  const tab = normalizeH5RouteTab(readH5MonitorActiveTabFromSearch(window.location.search));
+
+  const channelMatch = h5Path.match(/^\/h5\/orgs\/([^/]+)\/monitor\/channels\/([^/]+)$/);
+  if (channelMatch) {
+    const channelId = Number.parseInt(channelMatch[2], 10);
+    if (Number.isInteger(channelId) && channelId > 0) {
+      return { name: "channel", externalOrgId: decodeURIComponent(channelMatch[1]), channelId, tab };
+    }
+    return null;
+  }
+
+  const homeMatch = h5Path.match(/^\/h5\/orgs\/([^/]+)\/monitor$/);
+  if (homeMatch) {
+    return { name: "home", externalOrgId: decodeURIComponent(homeMatch[1]), tab };
+  }
+
+  return null;
+}
+
+function h5MonitorRoutePath(externalOrgId: string, tab?: H5MonitorTabKey) {
+  return `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor${h5MonitorTabSearch(tab)}`;
+}
+
+function h5ChannelRoutePath(externalOrgId: string, channelId: number, tab?: H5MonitorTabKey) {
+  return `${h5RoutePrefix()}/h5/orgs/${encodeURIComponent(externalOrgId)}/monitor/channels/${channelId}${h5MonitorTabSearch(tab)}`;
+}
+
+function normalizeH5RouteTab(tab: H5MonitorTabKey | null | undefined) {
+  return tab && tab !== "all" ? tab : undefined;
+}
+
+function stripKnownBasePrefix(path: string) {
+  for (const prefix of h5BasePrefixes()) {
+    if (prefix && path === prefix) return "/";
+    if (prefix && path.startsWith(`${prefix}/`)) {
+      return path.slice(prefix.length) || "/";
+    }
+  }
+  return path;
+}
+
+function h5RoutePrefix() {
+  const currentPrefix = h5BasePrefixes().find((prefix) => prefix && window.location.pathname.startsWith(`${prefix}/h5/`));
+  return currentPrefix || normalizeBasePrefix(import.meta.env.BASE_URL || "/erzhuang-project/");
+}
+
+function h5BasePrefixes() {
+  return Array.from(new Set([normalizeBasePrefix(import.meta.env.BASE_URL || "/erzhuang-project/"), "/erzhuang-project", "/erzhuang"].filter(Boolean)));
+}
+
+function normalizeBasePrefix(value: string) {
+  const normalized = value.startsWith("/") ? value : `/${value}`;
+  const firstSegment = normalized.split("/").filter(Boolean)[0];
+  return firstSegment ? `/${firstSegment}` : "";
+}
+
 function removeIdFromSet(current: Set<number>, id: number) {
+  return removeFromSet(current, id);
+}
+
+function removeFromSet<T>(current: Set<T>, value: T) {
   const next = new Set(current);
-  next.delete(id);
+  next.delete(value);
   return next;
 }
 

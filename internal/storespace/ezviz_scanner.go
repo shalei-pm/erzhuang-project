@@ -35,7 +35,19 @@ func NewEzvizScanner(client *ezviz.Client, accounts []ezviz.Account) *EzvizScann
 	return &EzvizScanner{client: client, accounts: accountMap}
 }
 
+func NewEzvizScannerFromAccounts(accounts []ezviz.Account) *EzvizScanner {
+	return NewEzvizScanner(ezviz.NewClient(ezviz.ClientOptions{}), accounts)
+}
+
 func NewEzvizScannerFromEnv() (*EzvizScanner, bool, error) {
+	accounts, enabled, err := EzvizAccountsFromEnv()
+	if err != nil || !enabled {
+		return nil, enabled, err
+	}
+	return NewEzvizScannerFromAccounts(accounts), true, nil
+}
+
+func EzvizAccountsFromEnv() ([]ezviz.Account, bool, error) {
 	raw := strings.TrimSpace(os.Getenv("EZVIZ_ACCOUNTS_JSON"))
 	if raw == "" {
 		return nil, false, nil
@@ -57,7 +69,17 @@ func NewEzvizScannerFromEnv() (*EzvizScanner, bool, error) {
 			AccessToken: strings.TrimSpace(credential.AccessToken),
 		})
 	}
-	return NewEzvizScanner(ezviz.NewClient(ezviz.ClientOptions{}), accounts), true, nil
+	return accounts, true, nil
+}
+
+func EzvizAccountNames(accounts []ezviz.Account) []string {
+	names := make([]string, 0, len(accounts))
+	for _, account := range accounts {
+		if name := strings.TrimSpace(account.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func (s *EzvizScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
@@ -115,5 +137,38 @@ func (s *EzvizScanner) CaptureChannel(ctx context.Context, account EzvizAccount,
 		ThumbnailPath:      result.PicURL,
 		FullImagePath:      result.PicURL,
 		FullImageExpiresAt: &expiresAt,
+	}, nil
+}
+
+func (s *EzvizScanner) LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error) {
+	if s == nil || s.client == nil {
+		return LiveAddressResult{}, ErrNotImplemented
+	}
+	credentials, ok := s.accounts[account.AccountName]
+	if !ok {
+		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"ezviz_account_id": "找不到萤石云账号配置"}}
+	}
+	if strings.TrimSpace(credentials.AppKey) == "" {
+		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"app_key": "缺少萤石云 appKey"}}
+	}
+	if strings.TrimSpace(credentials.AppSecret) == "" {
+		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"app_secret": "缺少萤石云 appSecret"}}
+	}
+	result, err := s.client.LiveAddress(ctx, credentials, ezviz.LiveAddressRequest{
+		DeviceSerial: recorder.DeviceCode,
+		ChannelNo:    channelNo,
+		Protocol:     2,
+		Quality:      2,
+		ExpireTime:   600,
+		Code:         code,
+	})
+	if err != nil {
+		return LiveAddressResult{}, err
+	}
+	return LiveAddressResult{
+		URL:        result.URL,
+		URLID:      result.ID,
+		ExpireTime: result.ExpireTime,
+		Protocol:   "hls",
 	}, nil
 }

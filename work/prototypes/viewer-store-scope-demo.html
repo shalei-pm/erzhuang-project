@@ -1,0 +1,1027 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prototype - 普通查看用户门店范围</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --line: #d9dde5;
+      --line-strong: #b8c0cc;
+      --text: #1f2937;
+      --muted: #667085;
+      --primary: #1677ff;
+      --primary-soft: #eaf2ff;
+      --green: #0f8f62;
+      --green-soft: #e9f8f0;
+      --amber: #a86500;
+      --amber-soft: #fff5df;
+      --danger: #b42318;
+      --danger-soft: #fff0ed;
+      --shadow: 0 18px 50px rgba(15, 23, 42, 0.16);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    button, input, select {
+      font: inherit;
+    }
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 6px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: white;
+    }
+    button.ghost {
+      background: transparent;
+    }
+    button.text {
+      border: 0;
+      background: transparent;
+      color: var(--primary);
+      padding: 4px 6px;
+    }
+    input, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #fff;
+      color: var(--text);
+    }
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+    }
+    .sidebar {
+      background: #1f2937;
+      color: white;
+      padding: 22px 18px;
+    }
+    .brand {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 26px;
+    }
+    .nav-item {
+      display: block;
+      color: #d4dae4;
+      padding: 10px 12px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+    }
+    .nav-item.active {
+      color: #fff;
+      background: rgba(255,255,255,0.14);
+    }
+    .main {
+      padding: 26px 32px 110px;
+    }
+    .page-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 20px;
+      margin-bottom: 18px;
+    }
+    .eyebrow {
+      margin: 0 0 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 0; font-size: 26px; }
+    h2 { margin-bottom: 10px; font-size: 18px; }
+    h3 { margin-bottom: 8px; font-size: 15px; }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .table th, .table td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    .table th {
+      background: #f9fafb;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .pill.viewer { background: var(--primary-soft); color: #1455b8; }
+    .pill.editor { background: var(--green-soft); color: var(--green); }
+    .pill.admin { background: var(--amber-soft); color: var(--amber); }
+    .pill.muted { background: #f1f3f7; color: var(--muted); }
+    .note {
+      border: 1px solid var(--line);
+      background: #fbfcfe;
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .toast {
+      position: fixed;
+      top: 18px;
+      right: 24px;
+      z-index: 30;
+      border: 1px solid #bbebd0;
+      background: var(--green-soft);
+      color: var(--green);
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-weight: 600;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+    }
+    .empty-state {
+      margin: 28px auto 0;
+      max-width: 520px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      background: #fff;
+      padding: 28px;
+      text-align: center;
+      color: var(--muted);
+    }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.38);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 28px;
+      z-index: 5;
+    }
+    .modal {
+      background: var(--panel);
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      width: min(1080px, 96vw);
+      max-height: 88vh;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-head, .modal-foot {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--muted);
+      line-height: 1;
+      font-size: 18px;
+    }
+    .modal-foot {
+      border-top: 1px solid var(--line);
+      border-bottom: 0;
+      align-items: center;
+    }
+    .modal-body {
+      overflow: auto;
+      padding: 20px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    label span.label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .scope-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      margin-top: 16px;
+      overflow: hidden;
+    }
+    .scope-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfe;
+    }
+    .scope-tools {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .store-groups {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      padding: 14px 16px;
+    }
+    .city-group {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 120px;
+    }
+    .city-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #f7f8fb;
+      border-bottom: 1px solid var(--line);
+    }
+    .city-title {
+      font-weight: 700;
+    }
+    .store-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid #edf0f4;
+    }
+    .store-row:last-child { border-bottom: 0; }
+    .store-name {
+      font-weight: 600;
+    }
+    .store-meta {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .state-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+    .variant-b .wizard {
+      display: grid;
+      grid-template-columns: 270px 1fr;
+      gap: 20px;
+    }
+    .steps {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfcfe;
+    }
+    .step {
+      display: flex;
+      gap: 10px;
+      padding: 11px 10px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+    .step.active { background: var(--primary-soft); }
+    .step-no {
+      width: 24px;
+      height: 24px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--primary);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .variant-c .split {
+      display: grid;
+      grid-template-columns: 390px 1fr;
+      gap: 18px;
+    }
+    .profile-card, .range-board {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 16px;
+    }
+    .selected-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .selected-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 8px;
+      background: #fff;
+      font-size: 12px;
+    }
+    .variant-d .scope-card {
+      margin-top: 16px;
+    }
+    .city-filter {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    .city-filter button {
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: #fff;
+    }
+    .city-filter button.active {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+      color: #1455b8;
+      font-weight: 700;
+    }
+    .flat-store-list {
+      padding: 6px 16px 14px;
+      max-height: 336px;
+      overflow: auto;
+    }
+    .flat-store-list .store-row {
+      grid-template-columns: 22px minmax(0, 1fr) 96px;
+      gap: 8px;
+      border: 0;
+      border-bottom: 1px solid #edf0f4;
+      border-radius: 0;
+      margin-top: 0;
+      min-height: 38px;
+      padding: 7px 4px;
+      background: #fff;
+    }
+    .flat-store-list .store-row:last-child { border-bottom: 0; }
+    .flat-store-list .store-row:hover {
+      background: #fbfcfe;
+    }
+    .flat-store-list .store-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+    .store-external-id {
+      color: var(--muted);
+      font-size: 12px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .list-summary {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 16px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .floating-switcher {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #111827;
+      color: #fff;
+      border-radius: 999px;
+      padding: 8px 10px;
+      box-shadow: var(--shadow);
+    }
+    .floating-switcher button {
+      border-color: rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.10);
+      color: #fff;
+      min-width: 38px;
+      border-radius: 999px;
+    }
+    .variant-name {
+      min-width: 190px;
+      text-align: center;
+      font-weight: 700;
+    }
+    .hidden { display: none !important; }
+    @media (max-width: 900px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .form-grid, .store-groups, .variant-b .wizard, .variant-c .split { grid-template-columns: 1fr; }
+      .scope-tools { grid-template-columns: 1fr; }
+      .list-summary { align-items: flex-start; flex-direction: column; }
+      .modal-backdrop { padding: 10px; align-items: stretch; }
+      .modal { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- PROTOTYPE: Viewer store monitor scope management, switchable via ?variant=A/B/C/D. Throw away after design decision. -->
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">二壮后台</div>
+      <span class="nav-item">门店空间资源</span>
+      <span class="nav-item active">用户管理</span>
+      <span class="nav-item">AI 设置</span>
+    </aside>
+    <main class="main">
+      <div class="page-head">
+        <div>
+          <p class="eyebrow">系统设置</p>
+          <h1>用户管理</h1>
+        </div>
+        <button class="primary" type="button" data-open-modal>添加用户</button>
+      </div>
+      <table class="table" aria-label="用户列表">
+        <thead>
+          <tr>
+            <th>企业邮箱</th>
+            <th>显示名称</th>
+            <th>角色</th>
+            <th>监控门店范围</th>
+            <th>状态</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>zhangxia@soyoung.com</td>
+            <td>张霞</td>
+            <td><span class="pill viewer">普通查看</span></td>
+            <td><span id="tableSelectedText">已选 4 家</span></td>
+            <td><span class="pill muted">启用</span></td>
+            <td><button type="button" data-open-modal>编辑</button></td>
+          </tr>
+          <tr>
+            <td>changwenxia@soyoung.com</td>
+            <td>常文霞</td>
+            <td><span class="pill editor">编辑运维</span></td>
+            <td>全量，不受范围限制</td>
+            <td><span class="pill muted">启用</span></td>
+            <td><button type="button" data-open-modal>编辑</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div id="prototypeRoot"></div>
+    </main>
+  </div>
+  <div class="floating-switcher" aria-label="原型版本切换">
+    <button type="button" id="prevVariant">←</button>
+    <span class="variant-name" id="variantName">A</span>
+    <button type="button" id="nextVariant">→</button>
+  </div>
+
+  <script>
+    const stores = [
+      { id: 11, city: "上海", name: "新氧青春诊所(上海长宁旗舰店)", externalOrgId: "10018" },
+      { id: 12, city: "上海", name: "新氧青春诊所(上海正大广场店)", externalOrgId: "10020" },
+      { id: 19, city: "上海", name: "新氧青春诊所(上海陆家嘴店)", externalOrgId: "10019" },
+      { id: 22, city: "宁波", name: "新氧青春诊所(宁波印象城店)", externalOrgId: "10045" },
+      { id: 30, city: "北京", name: "北京保利实验室门店", externalOrgId: "10030" },
+      { id: 56, city: "佛山", name: "新氧青春诊所(佛山岭南天地店)", externalOrgId: "10083" },
+      { id: 57, city: "广州", name: "新氧青春诊所(广州ICC内科店)", externalOrgId: "10084" },
+      { id: 51, city: "广州", name: "新氧青春诊所(广州四海城店)", externalOrgId: "10079" },
+      { id: 48, city: "深圳", name: "新氧青春诊所(深圳中洲湾店)", externalOrgId: "10075" },
+      { id: 53, city: "深圳", name: "新氧青春诊所(深圳坂田万科广场店)", externalOrgId: "10081" },
+      { id: 16, city: "合肥", name: "新氧青春诊所(合肥银泰中心店)", externalOrgId: "10032" },
+      { id: 14, city: "苏州", name: "新氧青春诊所(苏州苏悦广场店)", externalOrgId: "10029" }
+    ];
+
+    const state = {
+      role: "viewer",
+      query: "",
+      city: "全部",
+      selected: new Set([19, 30, 56, 53]),
+      modalOpen: true,
+      saved: false
+    };
+
+    const variants = [
+      ["D", "城市筛选列表"],
+      ["A", "弹窗内展开"],
+      ["B", "两步向导"],
+      ["C", "左右分栏"]
+    ];
+
+    function currentVariant() {
+      const params = new URLSearchParams(location.search);
+      const value = (params.get("variant") || "D").toUpperCase();
+      return variants.some(([key]) => key === value) ? value : "D";
+    }
+
+    function setVariant(next) {
+      const params = new URLSearchParams(location.search);
+      params.set("variant", next);
+      history.replaceState(null, "", `${location.pathname}?${params.toString()}`);
+      render();
+    }
+
+    function visibleStores() {
+      const q = state.query.trim().toLowerCase();
+      const filtered = stores.filter((store) =>
+        (state.city === "全部" || store.city === state.city) &&
+        (!q || `${store.city} ${store.name} ${store.externalOrgId}`.toLowerCase().includes(q))
+      );
+      if (state.city !== "全部") return filtered;
+      return filtered.slice().sort((a, b) => {
+        const aSelected = state.selected.has(a.id) ? 0 : 1;
+        const bSelected = state.selected.has(b.id) ? 0 : 1;
+        return aSelected - bSelected;
+      });
+    }
+
+    function cities() {
+      return ["全部", ...new Set(stores.map((store) => store.city))];
+    }
+
+    function groupedStores() {
+      const groups = new Map();
+      for (const store of visibleStores()) {
+        if (!groups.has(store.city)) groups.set(store.city, []);
+        groups.get(store.city).push(store);
+      }
+      return [...groups.entries()];
+    }
+
+    function roleOptions() {
+      return `
+        <label>
+          <span class="label">角色</span>
+          <select id="roleSelect">
+            <option value="admin" ${state.role === "admin" ? "selected" : ""}>管理员</option>
+            <option value="editor" ${state.role === "editor" ? "selected" : ""}>编辑运维</option>
+            <option value="viewer" ${state.role === "viewer" ? "selected" : ""}>普通查看</option>
+          </select>
+        </label>
+      `;
+    }
+
+    function basicFields() {
+      return `
+        <div class="form-grid">
+          <label>
+            <span class="label">企业邮箱</span>
+            <input value="zhangxia@soyoung.com" />
+          </label>
+          <label>
+            <span class="label">显示名称</span>
+            <input value="张霞" />
+          </label>
+          <label>
+            <span class="label">用户名</span>
+            <input value="zhangxia" />
+          </label>
+          ${roleOptions()}
+        </div>
+      `;
+    }
+
+    function scopeSection(compact = false) {
+      const isViewer = state.role === "viewer";
+      return `
+        <section class="scope-card ${isViewer ? "" : "hidden"}">
+          <div class="scope-head">
+            <div>
+              <h2>查看监控门店范围</h2>
+              <p class="eyebrow">只对普通查看用户生效；管理员和编辑运维默认全量。</p>
+            </div>
+            <span class="pill viewer">已选 ${state.selected.size} 家</span>
+          </div>
+          <div class="scope-tools">
+            <input id="scopeSearch" placeholder="搜索门店名 / 城市 / external_org_id" value="${escapeHtml(state.query)}" />
+            <button type="button" id="clearSelection">清空</button>
+            <button type="button" id="selectVisible">全选当前结果</button>
+          </div>
+          <div class="note" style="margin: 12px 16px 0;">
+            空范围允许保存。用户仍可浏览后台资料，但看不到任何门店的“查看监控”入口，也无法通过直链进入 H5 监控页。
+          </div>
+          <div class="store-groups" style="${compact ? "grid-template-columns: 1fr;" : ""}">
+            ${groupedStores().map(([city, items]) => cityGroup(city, items)).join("") || `<div class="note">没有匹配门店</div>`}
+          </div>
+        </section>
+        <section class="scope-card ${isViewer ? "hidden" : ""}">
+          <div class="scope-head">
+            <div>
+              <h2>查看监控门店范围</h2>
+              <p class="eyebrow">当前角色为${state.role === "admin" ? "管理员" : "编辑运维"}，默认全量。已有范围配置会保留，切回普通查看后恢复。</p>
+            </div>
+            <span class="pill muted">当前不生效</span>
+          </div>
+        </section>
+      `;
+    }
+
+    function cityGroup(city, items) {
+      const selectedCount = items.filter((store) => state.selected.has(store.id)).length;
+      const allSelected = selectedCount === items.length && items.length > 0;
+      return `
+        <section class="city-group">
+          <div class="city-head">
+            <span class="city-title">${city} <span class="store-meta">${selectedCount}/${items.length}</span></span>
+            <button type="button" class="text city-toggle" data-city="${city}" data-mode="${allSelected ? "clear" : "select"}">
+              ${allSelected ? "取消本城市" : "全选本城市"}
+            </button>
+          </div>
+          ${items.map(storeRow).join("")}
+        </section>
+      `;
+    }
+
+    function storeRow(store) {
+      return `
+        <label class="store-row">
+          <input type="checkbox" data-store-id="${store.id}" ${state.selected.has(store.id) ? "checked" : ""} />
+          <span>
+            <span class="store-name">${store.name}</span>
+            <span class="store-meta">${store.city} · ${store.externalOrgId}</span>
+          </span>
+          <span class="pill muted">store</span>
+        </label>
+      `;
+    }
+
+    function compactStoreRow(store) {
+      return `
+        <label class="store-row">
+          <input type="checkbox" data-store-id="${store.id}" ${state.selected.has(store.id) ? "checked" : ""} />
+          <span class="store-name">${store.name}</span>
+          <span class="store-external-id">${store.externalOrgId}</span>
+        </label>
+      `;
+    }
+
+    function cityFilter() {
+      return `
+        <div class="city-filter" aria-label="城市筛选">
+          ${cities().map((city) => {
+            return `<button type="button" class="${state.city === city ? "active" : ""}" data-city-filter="${city}">
+              ${city}
+            </button>`;
+          }).join("")}
+        </div>
+      `;
+    }
+
+    function flatStoreListSection() {
+      const visible = visibleStores();
+      const selectedVisible = visible.filter((store) => state.selected.has(store.id)).length;
+      return `
+        <section class="scope-card">
+          <div class="scope-head">
+            <div>
+              <h2>查看监控门店范围</h2>
+              <p class="eyebrow">第一版推荐：城市筛选 + checkbox 门店列表。只对普通查看用户生效。</p>
+            </div>
+            <span class="pill viewer">已选 ${state.selected.size} 家</span>
+          </div>
+          ${cityFilter()}
+          <div class="scope-tools">
+            <input id="scopeSearch" placeholder="搜索门店名 / 城市 / external_org_id" value="${escapeHtml(state.query)}" />
+            <button type="button" id="selectVisible">全选</button>
+            <button type="button" id="clearSelection">清空</button>
+          </div>
+          <div class="list-summary">
+            <span>当前筛选：${state.city}，共 ${visible.length} 家，已选 ${selectedVisible} 家。</span>
+            <span>空范围允许保存；用户不能进入任何门店监控。</span>
+          </div>
+          <div class="flat-store-list">
+            ${visible.map(compactStoreRow).join("") || `<div class="note">没有匹配门店</div>`}
+          </div>
+        </section>
+      `;
+    }
+
+    function selectedSummary() {
+      const selectedStores = stores.filter((store) => state.selected.has(store.id));
+      if (!selectedStores.length) return `<div class="note">未选择门店。保存后该用户不能查看任何门店监控。</div>`;
+      return `<div class="selected-list">${selectedStores.map((store) => `
+        <span class="selected-chip">${store.city} · ${store.name.replace(/^新氧青春诊所/, "")}</span>
+      `).join("")}</div>`;
+    }
+
+    function statePanel() {
+      const selectedExternalOrgIds = stores
+        .filter((store) => state.selected.has(store.id))
+        .map((store) => store.externalOrgId);
+      return `<div class="state-panel">scope preview
+role: ${state.role}
+resource_type: store
+scope: monitor:view
+selected_external_org_ids: [${selectedExternalOrgIds.join(", ")}]
+effective_for_viewer: ${state.role === "viewer"}</div>`;
+    }
+
+    function variantA() {
+      return `
+        <div class="modal-backdrop">
+          <section class="modal">
+            <div class="modal-head">
+              <div>
+                <h2>编辑用户</h2>
+                <p class="eyebrow">A：在当前编辑弹窗中直接展开范围，最贴近现有用户管理。</p>
+              </div>
+              <button class="modal-close" type="button" data-close-modal>×</button>
+            </div>
+            <div class="modal-body">
+              ${basicFields()}
+              ${scopeSection()}
+              <div style="margin-top:16px;">${statePanel()}</div>
+            </div>
+            <div class="modal-foot">
+              <span class="eyebrow">推荐：改动小、上下文集中，适合作为第一版。</span>
+              <div>
+                <button type="button" data-close-modal>取消</button>
+                <button type="button" class="primary" data-save-modal>保存</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      `;
+    }
+
+    function variantB() {
+      return `
+        <div class="modal-backdrop">
+          <section class="modal variant-b">
+            <div class="modal-head">
+              <div>
+                <h2>添加普通查看用户</h2>
+                <p class="eyebrow">B：两步向导，把身份信息和门店范围分开。</p>
+              </div>
+              <button class="modal-close" type="button" data-close-modal>×</button>
+            </div>
+            <div class="modal-body wizard">
+              <aside class="steps">
+                <div class="step active"><span class="step-no">1</span><span><strong>用户身份</strong><br><span class="store-meta">邮箱、角色、启停</span></span></div>
+                <div class="step active"><span class="step-no">2</span><span><strong>监控范围</strong><br><span class="store-meta">城市分组勾选</span></span></div>
+                <div class="note">适合未来角色和 scope 变多，但第一版步骤感略重。</div>
+              </aside>
+              <div>
+                ${basicFields()}
+                ${scopeSection(true)}
+              </div>
+            </div>
+            <div class="modal-foot">
+              <span class="eyebrow">适合多人维护复杂权限，但比 A 更像配置流程。</span>
+              <div>
+                <button type="button">上一步</button>
+                <button type="button" class="primary" data-save-modal>保存用户</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      `;
+    }
+
+    function variantC() {
+      return `
+        <div class="modal-backdrop">
+          <section class="modal variant-c">
+            <div class="modal-head">
+              <div>
+                <h2>用户权限配置</h2>
+                <p class="eyebrow">C：左侧用户资料，右侧专门管理业务负责范围。</p>
+              </div>
+              <button class="modal-close" type="button" data-close-modal>×</button>
+            </div>
+            <div class="modal-body split">
+              <aside class="profile-card">
+                <h3>用户资料</h3>
+                ${basicFields()}
+                <div style="margin-top: 14px;">
+                  <h3>已选范围</h3>
+                  ${selectedSummary()}
+                </div>
+                <div style="margin-top: 14px;">${statePanel()}</div>
+              </aside>
+              <section class="range-board">
+                <h3>查看监控门店范围</h3>
+                <p class="eyebrow">更适合未来扩展到城市、门店、摄像头、资产等多种 scope。</p>
+                ${scopeSection()}
+              </section>
+            </div>
+            <div class="modal-foot">
+              <span class="eyebrow">未来感强，scope 扩展空间好，但第一版弹窗会偏大。</span>
+              <div>
+                <button type="button" data-close-modal>取消</button>
+                <button type="button" class="primary" data-save-modal>保存</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      `;
+    }
+
+    function variantD() {
+      return `
+        <div class="modal-backdrop">
+          <section class="modal variant-d">
+            <div class="modal-head">
+              <div>
+                <h2>编辑用户</h2>
+                <p class="eyebrow">D：城市筛选 + checkbox 门店列表，面向 54 家门店的高效第一版。</p>
+              </div>
+              <button class="modal-close" type="button" data-close-modal>×</button>
+            </div>
+            <div class="modal-body">
+              ${basicFields()}
+              ${state.role === "viewer" ? flatStoreListSection() : `
+                <section class="scope-card">
+                  <div class="scope-head">
+                    <div>
+                      <h2>查看监控门店范围</h2>
+                      <p class="eyebrow">当前角色为${state.role === "admin" ? "管理员" : "编辑运维"}，默认全量。已有范围配置会保留，切回普通查看后恢复。</p>
+                    </div>
+                    <span class="pill muted">当前不生效</span>
+                  </div>
+                </section>
+              `}
+              <div style="margin-top:16px;">${statePanel()}</div>
+            </div>
+            <div class="modal-foot">
+              <span class="eyebrow">适合第一版：少解释、少层级，运营按城市筛选后批量勾选。</span>
+              <div>
+                <button type="button" data-close-modal>取消</button>
+                <button type="button" class="primary" data-save-modal>保存</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      `;
+    }
+
+    function bindEvents() {
+      document.querySelectorAll("[data-open-modal]").forEach((node) => {
+        node.addEventListener("click", () => {
+          state.modalOpen = true;
+          state.saved = false;
+          render();
+        });
+      });
+      document.querySelectorAll("[data-close-modal]").forEach((node) => {
+        node.addEventListener("click", () => {
+          state.modalOpen = false;
+          state.saved = false;
+          render();
+        });
+      });
+      document.querySelectorAll("[data-save-modal]").forEach((node) => {
+        node.addEventListener("click", () => {
+          state.modalOpen = false;
+          state.saved = true;
+          render();
+        });
+      });
+      document.querySelectorAll("#roleSelect").forEach((node) => {
+        node.addEventListener("change", (event) => {
+          state.role = event.target.value;
+          render();
+        });
+      });
+      document.querySelectorAll("#scopeSearch").forEach((node) => {
+        node.addEventListener("input", (event) => {
+          state.query = event.target.value;
+          render();
+        });
+      });
+      document.querySelectorAll("[data-city-filter]").forEach((node) => {
+        node.addEventListener("click", (event) => {
+          state.city = event.currentTarget.dataset.cityFilter;
+          render();
+        });
+      });
+      document.querySelectorAll("[data-store-id]").forEach((node) => {
+        node.addEventListener("change", (event) => {
+          const id = Number(event.target.dataset.storeId);
+          if (event.target.checked) state.selected.add(id);
+          else state.selected.delete(id);
+          render();
+        });
+      });
+      document.querySelectorAll(".city-toggle").forEach((node) => {
+        node.addEventListener("click", (event) => {
+          const city = event.target.dataset.city;
+          const mode = event.target.dataset.mode;
+          for (const store of visibleStores().filter((item) => item.city === city)) {
+            if (mode === "select") state.selected.add(store.id);
+            else state.selected.delete(store.id);
+          }
+          render();
+        });
+      });
+      document.querySelectorAll("#clearSelection").forEach((node) => {
+        node.addEventListener("click", () => {
+          state.selected.clear();
+          render();
+        });
+      });
+      document.querySelectorAll("#selectVisible").forEach((node) => {
+        node.addEventListener("click", () => {
+          for (const store of visibleStores()) state.selected.add(store.id);
+          render();
+        });
+      });
+    }
+
+    function render() {
+      const variant = currentVariant();
+      const root = document.getElementById("prototypeRoot");
+      const modalHtml = variant === "A" ? variantA() : variant === "B" ? variantB() : variant === "C" ? variantC() : variantD();
+      root.innerHTML = `
+        ${state.saved ? `<div class="toast">已保存</div>` : ""}
+        ${state.modalOpen ? modalHtml : `
+          <div class="empty-state">
+            <h2>弹窗已关闭</h2>
+            <p>点击“添加用户”或列表里的“编辑”可以重新打开原型弹窗。</p>
+            <button class="primary" type="button" data-open-modal>重新打开</button>
+          </div>
+        `}
+      `;
+      document.getElementById("variantName").textContent = `${variant} — ${variants.find(([key]) => key === variant)[1]}`;
+      document.getElementById("tableSelectedText").textContent = state.role === "viewer" ? `已选 ${state.selected.size} 家` : "全量，不受范围限制";
+      bindEvents();
+    }
+
+    function cycle(delta) {
+      const current = currentVariant();
+      const index = variants.findIndex(([key]) => key === current);
+      const next = variants[(index + delta + variants.length) % variants.length][0];
+      setVariant(next);
+    }
+
+    function escapeHtml(value) {
+      return value.replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[char]));
+    }
+
+    document.getElementById("prevVariant").addEventListener("click", () => cycle(-1));
+    document.getElementById("nextVariant").addEventListener("click", () => cycle(1));
+    document.addEventListener("keydown", (event) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable) return;
+      if (event.key === "ArrowLeft") cycle(-1);
+      if (event.key === "ArrowRight") cycle(1);
+    });
+    render();
+  </script>
+</body>
+</html>

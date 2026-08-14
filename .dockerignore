@@ -1,0 +1,26 @@
+.git
+.gitignore
+.DS_Store
+
+# Local environment and secrets
+.env
+.env.*
+.ssh/
+
+# Build outputs
+bin/
+dist/
+frontend/dist/
+erzhuang-project
+*.out
+*.test
+
+# Dependencies and caches
+frontend/node_modules/
+.cache/
+.tmp/
+.tools/
+.venv-tccli/
+
+# Runtime uploads should stay outside the image build context
+uploads/

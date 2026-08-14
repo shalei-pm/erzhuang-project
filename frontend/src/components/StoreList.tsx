@@ -15,11 +15,13 @@ type StoreListProps = {
   pageSize: number;
   deletingStoreIds: Set<number>;
   openingStoreIds: Set<number>;
+  canEdit: boolean;
   onOpenStore: (storeId: number) => void;
+  onEditStore: (store: StoreSummary) => void;
   onDeleteStore: (store: StoreSummary) => void;
 };
 
-export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, openingStoreIds, onOpenStore, onDeleteStore }: StoreListProps) {
+export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, openingStoreIds, canEdit, onOpenStore, onEditStore, onDeleteStore }: StoreListProps) {
   return (
     <section className="table-frame" aria-label="门店列表">
       <table className="store-table">
@@ -34,7 +36,7 @@ export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, o
             <th>通道</th>
             <th>面诊室</th>
             <th>治疗室</th>
-            <th>生美</th>
+            <th>美容室</th>
             <th>更新时间</th>
             <th>操作</th>
           </tr>
@@ -65,8 +67,15 @@ export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, o
               const isDeleting = deletingStoreIds.has(store.id);
               const isOpening = openingStoreIds.has(store.id);
               return (
-                <tr key={store.id}>
-                  <td>{(page - 1) * pageSize + index + 1}</td>
+                <tr className={store.channelsFullyConfirmed ? "is-channels-confirmed" : ""} key={store.id}>
+                  <td className="store-index-cell">
+                    <span className="store-index-number">{(page - 1) * pageSize + index + 1}</span>
+                    {store.channelsFullyConfirmed ? (
+                      <span className="store-confirmed-watermark" aria-hidden="true">
+                        已确认
+                      </span>
+                    ) : null}
+                  </td>
                   <td>{store.city || "未设置"}</td>
                   <td className="store-name">{store.name}</td>
                   <td>{store.externalOrgId || "-"}</td>
@@ -90,19 +99,26 @@ export function StoreList({ stores, loading, page, pageSize, deletingStoreIds, o
                             进入中
                           </>
                         ) : (
-                          "进入详情"
+                          "详情"
                         )}
                       </button>
-                      <button className="danger-link" disabled={isDeleting || isOpening} onClick={() => onDeleteStore(store)}>
-                        {isDeleting ? (
-                          <>
-                            <span className="button-spinner" aria-hidden="true" />
-                            删除中
-                          </>
-                        ) : (
-                          "删除"
-                        )}
-                      </button>
+                      {canEdit ? (
+                        <>
+                          <button disabled={isDeleting || isOpening} onClick={() => onEditStore(store)}>
+                            编辑
+                          </button>
+                          <button className="danger-link" disabled={isDeleting || isOpening} onClick={() => onDeleteStore(store)}>
+                            {isDeleting ? (
+                              <>
+                                <span className="button-spinner" aria-hidden="true" />
+                                删除中
+                              </>
+                            ) : (
+                              "删除"
+                            )}
+                          </button>
+                        </>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

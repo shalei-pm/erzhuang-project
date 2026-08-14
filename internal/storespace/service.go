@@ -2,12 +2,21 @@ package storespace
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
+	"mime"
+	"net/url"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/assets"
 )
 
 type Service struct {
@@ -16,6 +25,8 @@ type Service struct {
 	recognizer    ChannelRecognizer
 	snapshotStore SnapshotStore
 }
+
+const maxRecorderRecognitionChannelsPerRequest = 1
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
@@ -33,24 +44,115 @@ func (s *Service) UseSnapshotStore(store SnapshotStore) {
 	s.snapshotStore = store
 }
 
-func (s *Service) ChannelSnapshotPath(name string) (string, error) {
+func (s *Service) OpenChannelSnapshot(ctx context.Context, name string) (io.ReadCloser, string, error) {
 	if s.snapshotStore == nil {
-		return "", ErrNotFound
+		return nil, "", ErrNotFound
 	}
-	return s.snapshotStore.FilePath(name)
+	return s.snapshotStore.Open(ctx, name)
+}
+
+func (s *Service) DiagnoseChannelSnapshot(ctx context.Context, name string) SnapshotDiagnostics {
+	diagnostics := SnapshotDiagnostics{
+		Code:         "snapshot_open_ok",
+		Stage:        "open_snapshot",
+		AssetStore:   assets.ModeFromEnv(),
+		SnapshotName: strings.TrimSpace(name),
+		SnapshotKey:  snapshotKeyForDiagnostics(name),
+		Exists:       true,
+	}
+	if s.snapshotStore == nil {
+		diagnostics.Code = "snapshot_store_not_configured"
+		diagnostics.Exists = false
+		diagnostics.Detail = "snapshot store is not configured"
+		return diagnostics
+	}
+	reader, _, err := s.snapshotStore.Open(ctx, name)
+	if err != nil {
+		diagnostics.Exists = false
+		if errors.Is(err, ErrNotFound) {
+			diagnostics.Code = "snapshot_not_found"
+		} else {
+			diagnostics.Code = "snapshot_open_failed"
+			diagnostics.Detail = sanitizeDiagnosticDetail(err.Error())
+		}
+		return diagnostics
+	}
+	if reader != nil {
+		_ = reader.Close()
+	}
+	return diagnostics
 }
 
 type ChannelScanner interface {
 	ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error)
 	CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error)
+	LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error)
 }
 
 type ChannelRecognizer interface {
 	RecognizeChannel(ctx context.Context, imageURL string) (ChannelRecognitionResult, error)
 }
 
+type LiveAddressInput struct {
+	AccountID    int64  `json:"ezviz_account_id"`
+	AccountName  string `json:"account_name"`
+	DeviceSerial string `json:"device_serial"`
+	ChannelNo    int    `json:"channel_no"`
+	Code         string `json:"code"`
+}
+
+type LiveAddressResult struct {
+	URL        string `json:"url"`
+	URLID      string `json:"url_id"`
+	ExpireTime string `json:"expire_time"`
+	Protocol   string `json:"protocol"`
+}
+
 func (s *Service) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error) {
 	return s.repo.ListEzvizAccounts(ctx)
+}
+
+func (s *Service) GetLiveAddress(ctx context.Context, input LiveAddressInput) (LiveAddressResult, error) {
+	if s.scanner == nil {
+		return LiveAddressResult{}, ErrNotImplemented
+	}
+	deviceSerial := strings.ToUpper(strings.TrimSpace(input.DeviceSerial))
+	if deviceSerial == "" {
+		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"device_serial": "录像机设备编码必填"}}
+	}
+	if input.ChannelNo <= 0 {
+		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"channel_no": "通道号必须大于 0"}}
+	}
+	account := EzvizAccount{ID: input.AccountID, AccountName: strings.TrimSpace(input.AccountName)}
+	if account.ID > 0 {
+		stored, err := s.repo.GetEzvizAccount(ctx, account.ID)
+		if err != nil {
+			return LiveAddressResult{}, err
+		}
+		account = *stored
+	}
+	if strings.TrimSpace(account.AccountName) == "" {
+		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"ezviz_account_id": "请选择萤石云账号区域"}}
+	}
+	return s.scanner.LiveAddress(ctx, account, Recorder{DeviceCode: deviceSerial}, input.ChannelNo, strings.TrimSpace(input.Code))
+}
+
+func (s *Service) SyncEzvizAccountNames(ctx context.Context, accountNames []string) error {
+	seen := map[string]struct{}{}
+	for _, accountName := range accountNames {
+		cleanName := strings.TrimSpace(accountName)
+		if cleanName == "" {
+			continue
+		}
+		if _, ok := seen[cleanName]; ok {
+			continue
+		}
+		seen[cleanName] = struct{}{}
+		if err := s.repo.UpsertEzvizAccountName(ctx, cleanName); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) CreateEzvizAccount(ctx context.Context, input CreateEzvizAccountInput) (*EzvizAccount, error) {
@@ -74,6 +176,34 @@ func (s *Service) ListStores(ctx context.Context, filters StoreFilters) (StoreLi
 
 func (s *Service) GetStore(ctx context.Context, id int64) (*Store, error) {
 	return s.repo.GetStore(ctx, id)
+}
+
+func (s *Service) GetStoreDesignPlanData(ctx context.Context, id int64) (*Store, error) {
+	return s.repo.GetStoreDesignPlanData(ctx, id)
+}
+
+func (s *Service) GetStoreChannelData(ctx context.Context, id int64) (*Store, error) {
+	return s.repo.GetStoreChannelData(ctx, id)
+}
+
+func (s *Service) ExportChannelMappingExcel(ctx context.Context, storeID int64) (*ChannelMappingExport, error) {
+	store, err := s.repo.GetStore(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	rows := channelMappingExportRows(*store)
+	if len(rows) == 0 {
+		return nil, &ValidationError{Fields: map[string]string{"channels": "当前门店暂无可导出的有效通道"}}
+	}
+	content, err := buildChannelMappingExcel(ctx, rows, s.snapshotStore)
+	if err != nil {
+		return nil, err
+	}
+	return &ChannelMappingExport{
+		FileName:    exportFileName(store.Name, time.Now()),
+		Content:     content,
+		ContentType: channelMappingExcelContentType,
+	}, nil
 }
 
 func (s *Service) CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error) {
@@ -105,6 +235,19 @@ func (s *Service) CreateStore(ctx context.Context, input CreateStoreInput) (*Sto
 	}
 
 	return s.repo.CreateStore(ctx, input)
+}
+
+func (s *Service) UpdateStoreBasicInfo(ctx context.Context, id int64, input UpdateStoreBasicInfoInput) (*Store, error) {
+	if err := validateUpdateStoreBasicInfoInput(input); err != nil {
+		return nil, err
+	}
+	input.City = strings.TrimSpace(input.City)
+	input.Name = strings.TrimSpace(input.Name)
+	input.ExternalOrgID = strings.TrimSpace(input.ExternalOrgID)
+	if err := s.ensureNoExactDuplicate(ctx, input.Name, id); err != nil {
+		return nil, err
+	}
+	return s.repo.UpdateStoreBasicInfo(ctx, id, input)
 }
 
 func (s *Service) SaveDesignPlan(ctx context.Context, storeID int64, input SaveDesignPlanInput) (*Store, error) {
@@ -213,6 +356,111 @@ func (s *Service) ScanRecorderChannels(ctx context.Context, recorderID int64) (*
 	return s.repo.ReplaceRecorderChannels(ctx, recorderID, channelInputs)
 }
 
+func (s *Service) ProbeRecognizeChannel(ctx context.Context, recorderID int64, input ProbeRecognizeChannelInput) (ProbeRecognizeChannelResult, error) {
+	startedAt := time.Now()
+	if s.scanner == nil {
+		return ProbeRecognizeChannelResult{}, ErrNotImplemented
+	}
+	if input.ChannelNo <= 0 {
+		return ProbeRecognizeChannelResult{}, &ValidationError{Fields: map[string]string{"channel_no": "通道号必须大于 0"}}
+	}
+	recorder, err := s.repo.GetRecorder(ctx, recorderID)
+	if err != nil {
+		return ProbeRecognizeChannelResult{}, err
+	}
+	if recorder.EzvizAccountID == 0 {
+		return ProbeRecognizeChannelResult{}, &ValidationError{Fields: map[string]string{"ezviz_account_id": "缺少萤石云账号"}}
+	}
+	account, err := s.repo.GetEzvizAccount(ctx, recorder.EzvizAccountID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ProbeRecognizeChannelResult{}, &ValidationError{Fields: map[string]string{"ezviz_account_id": "找不到萤石云账号"}}
+		}
+		return ProbeRecognizeChannelResult{}, err
+	}
+
+	probeChannel := Channel{
+		RecorderID:  recorder.ID,
+		ChannelNo:   input.ChannelNo,
+		ChannelName: fmt.Sprintf("通道%d", input.ChannelNo),
+		Status:      ChannelStatusPendingRecognition,
+		IsActive:    true,
+		SceneType:   SceneTypeUnknown,
+	}
+	channelStarted := time.Now()
+	captureStarted := time.Now()
+	log.Printf("storespace: probe-recognize started recorder_id=%d device=%s channel_no=%d", recorder.ID, safeLogID(recorder.DeviceCode), input.ChannelNo)
+	snapshot, err := s.scanner.CaptureChannel(ctx, *account, *recorder, probeChannel)
+	captureMS := elapsedMilliseconds(captureStarted)
+	if err != nil {
+		log.Printf("storespace: probe-recognize inactive stage=capture recorder_id=%d device=%s channel_no=%d duration_ms=%d error=%q", recorder.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, elapsedMilliseconds(startedAt), safeErrorText(err))
+		return ProbeRecognizeChannelResult{
+			Active:  false,
+			Message: err.Error(),
+		}, nil
+	}
+	channel, err := s.repo.UpsertRecorderChannel(ctx, recorderID, ChannelInput{
+		ChannelNo:   input.ChannelNo,
+		ChannelName: probeChannel.ChannelName,
+		IsActive:    true,
+	})
+	if err != nil {
+		return ProbeRecognizeChannelResult{}, err
+	}
+
+	recognitionImageURL := firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath)
+	if s.snapshotStore != nil && strings.TrimSpace(recognitionImageURL) != "" {
+		remoteImageRef := safeImageRef(recognitionImageURL)
+		localURL, err := s.snapshotStore.SaveRemote(ctx, recognitionImageURL)
+		if err != nil {
+			log.Printf("storespace: probe-recognize failed stage=store-snapshot recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, remoteImageRef, elapsedMilliseconds(startedAt), safeErrorText(err))
+			updated, saveErr := s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
+				RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
+				CountAttempt:      true,
+			})
+			if saveErr != nil {
+				return ProbeRecognizeChannelResult{}, saveErr
+			}
+			return ProbeRecognizeChannelResult{Channel: updated, Active: true, Message: err.Error()}, nil
+		}
+		snapshot.ThumbnailPath = localURL
+		snapshot.FullImagePath = localURL
+		snapshot.FullImageExpiresAt = nil
+		recognitionImageURL = localURL
+		log.Printf("storespace: probe-recognize snapshot-stored recorder_id=%d channel_id=%d device=%s channel_no=%d remote=%s local=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, remoteImageRef, safeImageRef(localURL))
+	}
+	snapshot.CountAttempt = true
+	snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
+	if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
+		recognitionStarted := time.Now()
+		recognizerImageURL, prepareErr := s.prepareRecognitionImageURL(ctx, recognitionImageURL)
+		if prepareErr != nil {
+			snapshot.Status = ChannelStatusRecognitionFailed
+			snapshot.RecognitionResult = channelRecognitionErrorJSON(prepareErr, captureMS, 0, elapsedMilliseconds(channelStarted))
+			log.Printf("storespace: probe-recognize failed stage=prepare-ai-image recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, safeImageRef(recognitionImageURL), elapsedMilliseconds(startedAt), safeErrorText(prepareErr))
+		} else {
+			log.Printf("storespace: probe-recognize ai-request recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, safeImageRef(recognizerImageURL))
+			result, err := s.recognizer.RecognizeChannel(ctx, recognizerImageURL)
+			recognitionMS := elapsedMilliseconds(recognitionStarted)
+			if err != nil {
+				snapshot.Status = ChannelStatusRecognitionFailed
+				snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+				log.Printf("storespace: probe-recognize ai-failed recorder_id=%d channel_id=%d device=%s channel_no=%d capture_ms=%d recognition_ms=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, captureMS, recognitionMS, elapsedMilliseconds(startedAt), safeErrorText(err))
+			} else {
+				applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+				log.Printf("storespace: probe-recognize ai-completed recorder_id=%d channel_id=%d device=%s channel_no=%d area_type=%s scene_type=%s capture_ms=%d recognition_ms=%d duration_ms=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, result.AreaType, result.SceneType, captureMS, recognitionMS, elapsedMilliseconds(startedAt))
+			}
+		}
+	}
+	updated, err := s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
+	if err != nil {
+		log.Printf("storespace: probe-recognize failed stage=save-channel recorder_id=%d channel_id=%d device=%s channel_no=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, elapsedMilliseconds(startedAt), safeErrorText(err))
+		return ProbeRecognizeChannelResult{}, err
+	}
+	log.Printf("storespace: probe-recognize completed recorder_id=%d channel_id=%d device=%s channel_no=%d status=%s duration_ms=%d", recorder.ID, updated.ID, safeLogID(recorder.DeviceCode), input.ChannelNo, updated.Status, elapsedMilliseconds(startedAt))
+	return ProbeRecognizeChannelResult{Channel: updated, Active: true}, nil
+}
+
 func (s *Service) ConfirmChannel(ctx context.Context, channelID int64, input ChannelConfirmationInput) (*Store, error) {
 	input.AreaNumber = strings.TrimSpace(input.AreaNumber)
 	if input.SceneType == "" {
@@ -223,7 +471,11 @@ func (s *Service) ConfirmChannel(ctx context.Context, channelID int64, input Cha
 		return nil, err
 	}
 	if input.AreaType != "" {
-		input.AreaNumber = strconv.Itoa(number)
+		if input.AreaType == AreaTypeVIPTreatment && number == 0 {
+			input.AreaNumber = ""
+		} else {
+			input.AreaNumber = strconv.Itoa(number)
+		}
 		input.SceneType = SceneType(input.AreaType)
 	}
 	return s.repo.ConfirmChannel(ctx, channelID, input)
@@ -258,6 +510,12 @@ func (s *Service) RecognizeRecorderChannels(ctx context.Context, recorderID int6
 		}
 		channels = append(channels, channel)
 	}
+	sort.SliceStable(channels, func(left, right int) bool {
+		return channels[left].ChannelNo < channels[right].ChannelNo
+	})
+	if len(channels) > maxRecorderRecognitionChannelsPerRequest {
+		channels = channels[:maxRecorderRecognitionChannelsPerRequest]
+	}
 	for index, channel := range channels {
 		if _, err := s.recognizeChannel(ctx, *account, *recorder, channel); err != nil {
 			return nil, err
@@ -290,11 +548,19 @@ func (s *Service) RecognizeChannel(ctx context.Context, channelID int64) (*Chann
 }
 
 func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (*Channel, error) {
+	startedAt := time.Now()
 	channelStarted := time.Now()
 	captureStarted := time.Now()
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			log.Printf("storespace: channel-recognize interrupted recorder_id=%d channel_id=%d device=%s channel_no=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, elapsedMilliseconds(startedAt), safeErrorText(err))
+		}
+	}()
+	log.Printf("storespace: channel-recognize started recorder_id=%d channel_id=%d device=%s channel_no=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo)
 	snapshot, err := s.scanner.CaptureChannel(ctx, account, recorder, channel)
 	captureMS := elapsedMilliseconds(captureStarted)
 	if err != nil {
+		log.Printf("storespace: channel-recognize failed stage=capture recorder_id=%d channel_id=%d device=%s channel_no=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, elapsedMilliseconds(startedAt), safeErrorText(err))
 		return s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
 			RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
 			CountAttempt:      true,
@@ -302,8 +568,10 @@ func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, re
 	}
 	recognitionImageURL := firstNonEmpty(snapshot.FullImagePath, snapshot.ThumbnailPath)
 	if s.snapshotStore != nil && strings.TrimSpace(recognitionImageURL) != "" {
+		remoteImageRef := safeImageRef(recognitionImageURL)
 		localURL, err := s.snapshotStore.SaveRemote(ctx, recognitionImageURL)
 		if err != nil {
+			log.Printf("storespace: channel-recognize failed stage=store-snapshot recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, remoteImageRef, elapsedMilliseconds(startedAt), safeErrorText(err))
 			return s.repo.SaveChannelSnapshot(ctx, channel.ID, ChannelSnapshotInput{
 				RecognitionResult: channelRecognitionErrorJSON(err, captureMS, 0, elapsedMilliseconds(channelStarted)),
 				CountAttempt:      true,
@@ -312,21 +580,39 @@ func (s *Service) recognizeChannel(ctx context.Context, account EzvizAccount, re
 		snapshot.ThumbnailPath = localURL
 		snapshot.FullImagePath = localURL
 		snapshot.FullImageExpiresAt = nil
+		recognitionImageURL = localURL
+		log.Printf("storespace: channel-recognize snapshot-stored recorder_id=%d channel_id=%d device=%s channel_no=%d remote=%s local=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, remoteImageRef, safeImageRef(localURL))
 	}
 	snapshot.CountAttempt = true
 	snapshot.RecognitionResult = channelRecognitionStatusJSON("captured", "", captureMS, 0, elapsedMilliseconds(channelStarted))
 	if s.recognizer != nil && !isConfirmedChannelStatus(channel.Status) {
 		recognitionStarted := time.Now()
-		result, err := s.recognizer.RecognizeChannel(ctx, recognitionImageURL)
-		recognitionMS := elapsedMilliseconds(recognitionStarted)
-		if err != nil {
+		recognizerImageURL, prepareErr := s.prepareRecognitionImageURL(ctx, recognitionImageURL)
+		if prepareErr != nil {
 			snapshot.Status = ChannelStatusRecognitionFailed
-			snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+			snapshot.RecognitionResult = channelRecognitionErrorJSON(prepareErr, captureMS, 0, elapsedMilliseconds(channelStarted))
+			log.Printf("storespace: channel-recognize failed stage=prepare-ai-image recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, safeImageRef(recognitionImageURL), elapsedMilliseconds(startedAt), safeErrorText(prepareErr))
 		} else {
-			applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+			log.Printf("storespace: channel-recognize ai-request recorder_id=%d channel_id=%d device=%s channel_no=%d image=%s", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, safeImageRef(recognizerImageURL))
+			result, err := s.recognizer.RecognizeChannel(ctx, recognizerImageURL)
+			recognitionMS := elapsedMilliseconds(recognitionStarted)
+			if err != nil {
+				snapshot.Status = ChannelStatusRecognitionFailed
+				snapshot.RecognitionResult = channelRecognitionErrorJSON(err, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+				log.Printf("storespace: channel-recognize ai-failed recorder_id=%d channel_id=%d device=%s channel_no=%d capture_ms=%d recognition_ms=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, captureMS, recognitionMS, elapsedMilliseconds(startedAt), safeErrorText(err))
+			} else {
+				applyChannelRecognition(&snapshot, result, captureMS, recognitionMS, elapsedMilliseconds(channelStarted))
+				log.Printf("storespace: channel-recognize ai-completed recorder_id=%d channel_id=%d device=%s channel_no=%d area_type=%s scene_type=%s capture_ms=%d recognition_ms=%d duration_ms=%d", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, result.AreaType, result.SceneType, captureMS, recognitionMS, elapsedMilliseconds(startedAt))
+			}
 		}
 	}
-	return s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
+	updated, err := s.repo.SaveChannelSnapshot(ctx, channel.ID, snapshot)
+	if err != nil {
+		log.Printf("storespace: channel-recognize failed stage=save-channel recorder_id=%d channel_id=%d device=%s channel_no=%d duration_ms=%d error=%q", recorder.ID, channel.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, elapsedMilliseconds(startedAt), safeErrorText(err))
+		return nil, err
+	}
+	log.Printf("storespace: channel-recognize completed recorder_id=%d channel_id=%d device=%s channel_no=%d status=%s duration_ms=%d", recorder.ID, updated.ID, safeLogID(recorder.DeviceCode), channel.ChannelNo, updated.Status, elapsedMilliseconds(startedAt))
+	return updated, nil
 }
 
 func (s *Service) RefreshChannelSnapshot(ctx context.Context, channelID int64) (*Channel, error) {
@@ -472,6 +758,8 @@ func normalizeRecognitionAreaType(value string) AreaType {
 	switch AreaType(strings.ToLower(strings.TrimSpace(value))) {
 	case AreaTypeTreatment:
 		return AreaTypeTreatment
+	case AreaTypeVIPTreatment:
+		return AreaTypeVIPTreatment
 	case AreaTypeConsultation:
 		return AreaTypeConsultation
 	case AreaTypeBeauty:
@@ -518,6 +806,74 @@ func elapsedMilliseconds(started time.Time) int64 {
 	return elapsed
 }
 
+func (s *Service) prepareRecognitionImageURL(ctx context.Context, imageURL string) (string, error) {
+	imageURL = strings.TrimSpace(imageURL)
+	if imageURL == "" {
+		return "", errors.New("missing channel snapshot image url")
+	}
+	lower := strings.ToLower(imageURL)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "data:") {
+		return imageURL, nil
+	}
+	name := snapshotNameFromAPIPath(imageURL)
+	if name == "" || s.snapshotStore == nil {
+		return imageURL, nil
+	}
+	reader, contentType, err := s.snapshotStore.Open(ctx, name)
+	if err != nil {
+		return "", fmt.Errorf("open stored snapshot for recognition: %w", err)
+	}
+	defer reader.Close()
+	payload, err := io.ReadAll(io.LimitReader(reader, maxSnapshotBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read stored snapshot for recognition: %w", err)
+	}
+	if len(payload) > maxSnapshotBytes {
+		return "", fmt.Errorf("stored snapshot exceeds %d bytes", maxSnapshotBytes)
+	}
+	contentType = normalizeImageContentType(contentType, name)
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(payload), nil
+}
+
+func snapshotNameFromAPIPath(value string) string {
+	value = strings.TrimSpace(value)
+	const marker = "/api/store-space/channel-snapshots/"
+	index := strings.Index(value, marker)
+	if index < 0 {
+		return ""
+	}
+	name := value[index+len(marker):]
+	if separator := strings.IndexAny(name, "?#"); separator >= 0 {
+		name = name[:separator]
+	}
+	if !validSnapshotName(name) {
+		return ""
+	}
+	return name
+}
+
+func normalizeImageContentType(contentType string, name string) string {
+	contentType = strings.TrimSpace(strings.ToLower(contentType))
+	if mediaType, _, err := mime.ParseMediaType(contentType); err == nil {
+		switch mediaType {
+		case "image/jpeg", "image/png", "image/webp":
+			return mediaType
+		}
+	}
+	extensionStart := strings.LastIndex(name, ".")
+	if extensionStart < 0 {
+		return "image/jpeg"
+	}
+	switch strings.ToLower(strings.TrimSpace(name[extensionStart:])) {
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -527,8 +883,182 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func safeLogID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	if len(value) <= 8 {
+		return value
+	}
+	return value[:4] + "..." + value[len(value)-4:]
+}
+
+func safeImageRef(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "-"
+	}
+	lower := strings.ToLower(raw)
+	if strings.HasPrefix(lower, "data:") {
+		mediaType := "data"
+		if comma := strings.Index(raw, ","); comma > 0 {
+			header := raw[:comma]
+			if semicolon := strings.Index(header, ";"); semicolon > 0 {
+				mediaType = header[:semicolon]
+			} else {
+				mediaType = header
+			}
+		}
+		return mediaType + ";base64,[redacted]"
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		if len(raw) > 96 {
+			return raw[:96] + "..."
+		}
+		return raw
+	}
+	path := parsed.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	return parsed.Scheme + "://" + parsed.Host + path
+}
+
+func safeErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return sanitizeDiagnosticDetail(err.Error())
+}
+
 func isConfirmedChannelStatus(status ChannelStatus) bool {
 	return status == ChannelStatusConfirmedBusiness || status == ChannelStatusConfirmedNonBusiness
+}
+
+func channelMappingExportRows(store Store) []ChannelMappingExportRow {
+	rows := []ChannelMappingExportRow{}
+	for _, recorder := range store.Recorders {
+		if recorder.Status == RecorderStatusOffline {
+			continue
+		}
+		for _, channel := range recorder.Channels {
+			if !channel.IsActive || channel.Status == ChannelStatusInactive {
+				continue
+			}
+			rows = append(rows, ChannelMappingExportRow{
+				City:          store.City,
+				StoreName:     store.Name,
+				ExternalOrgID: store.ExternalOrgID,
+				RecorderCode:  recorder.DeviceCode,
+				ChannelNo:     channel.ChannelNo,
+				SnapshotPath:  firstNonEmpty(channel.FullImageURL, channel.ThumbnailURL),
+				AreaTypeLabel: channelAreaTypeLabel(channel),
+				NumberOrNote:  channelNumberOrNote(channel),
+			})
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		left, right := rows[i], rows[j]
+		if channelExportTypeRank(left.AreaTypeLabel) != channelExportTypeRank(right.AreaTypeLabel) {
+			return channelExportTypeRank(left.AreaTypeLabel) < channelExportTypeRank(right.AreaTypeLabel)
+		}
+		if compareNumberOrText(left.NumberOrNote, right.NumberOrNote) != 0 {
+			return compareNumberOrText(left.NumberOrNote, right.NumberOrNote) < 0
+		}
+		if left.RecorderCode != right.RecorderCode {
+			return left.RecorderCode < right.RecorderCode
+		}
+		return left.ChannelNo < right.ChannelNo
+	})
+	for index := range rows {
+		rows[index].Index = index + 1
+	}
+	return rows
+}
+
+func channelAreaTypeLabel(channel Channel) string {
+	switch channel.AreaType {
+	case AreaTypeConsultation:
+		return "面诊室"
+	case AreaTypeTreatment:
+		return "治疗室"
+	case AreaTypeVIPTreatment:
+		return "VIP治疗室"
+	case AreaTypeBeauty:
+		return "美容室"
+	default:
+		return "其他区域"
+	}
+}
+
+func channelNumberOrNote(channel Channel) string {
+	if channel.AreaType != "" && channel.AreaNumber > 0 {
+		number := strconv.Itoa(channel.AreaNumber)
+		if strings.TrimSpace(channel.BedLabel) != "" {
+			return number + "-" + strings.TrimSpace(channel.BedLabel)
+		}
+		return number
+	}
+	if strings.TrimSpace(channel.AreaNote) != "" {
+		return strings.TrimSpace(channel.AreaNote)
+	}
+	return "-"
+}
+
+func channelExportTypeRank(label string) int {
+	switch label {
+	case "面诊室":
+		return 0
+	case "治疗室", "VIP治疗室":
+		return 1
+	case "美容室":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func compareNumberOrText(left string, right string) int {
+	leftNumber, leftOK := parseLeadingInt(left)
+	rightNumber, rightOK := parseLeadingInt(right)
+	if leftOK && rightOK && leftNumber != rightNumber {
+		if leftNumber < rightNumber {
+			return -1
+		}
+		return 1
+	}
+	if left < right {
+		return -1
+	}
+	if left > right {
+		return 1
+	}
+	return 0
+}
+
+func parseLeadingInt(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	match := regexp.MustCompile(`^\d+`).FindString(value)
+	if match == "" {
+		return 0, false
+	}
+	number, err := strconv.Atoi(match)
+	return number, err == nil
+}
+
+func exportFileName(storeName string, now time.Time) string {
+	name := strings.TrimSpace(storeName)
+	if name == "" {
+		name = "门店"
+	}
+	replacer := strings.NewReplacer("/", "-", `\`, "-", ":", "-", "*", "-", "?", "-", `"`, "'", "<", "-", ">", "-", "|", "-")
+	name = replacer.Replace(name)
+	return fmt.Sprintf("%s-通道映射确认表-%s.xlsx", name, now.Format("20060102-1504"))
 }
 
 func (s *Service) ensureNoExactDuplicate(ctx context.Context, name string, excludeStoreID int64) error {

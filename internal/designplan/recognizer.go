@@ -21,15 +21,22 @@ type Recognizer interface {
 	Recognize(ctx context.Context, upload *UploadResult) (*RecognitionResult, error)
 }
 
+type AssetReader func(value string) (io.ReadCloser, string, error)
+
 type OpenAIRecognizer struct {
 	apiKey     string
 	baseURL    string
 	apiStyle   string
 	model      string
 	httpClient *http.Client
+	readAsset  AssetReader
 }
 
 func NewOpenAIRecognizerFromEnv() Recognizer {
+	return NewOpenAIRecognizerFromEnvWithAssetReader(nil)
+}
+
+func NewOpenAIRecognizerFromEnvWithAssetReader(readAsset AssetReader) Recognizer {
 	return &OpenAIRecognizer{
 		apiKey: strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
 		baseURL: strings.TrimRight(
@@ -41,6 +48,7 @@ func NewOpenAIRecognizerFromEnv() Recognizer {
 		httpClient: &http.Client{
 			Timeout: 75 * time.Second,
 		},
+		readAsset: readAsset,
 	}
 }
 
@@ -52,7 +60,7 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, upload *UploadResult) 
 		return nil, &ValidationError{Fields: map[string]string{"upload_id": "上传文件不存在"}}
 	}
 
-	imageBytes, err := os.ReadFile(filepathFromStoredUpload(upload.PreviewPath))
+	imageBytes, err := r.readImageBytes(upload.PreviewPath)
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +79,18 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, upload *UploadResult) 
 	result := output.toRecognitionResult()
 	result.RawResult = raw
 	return result, nil
+}
+
+func (r *OpenAIRecognizer) readImageBytes(value string) ([]byte, error) {
+	if r.readAsset != nil {
+		reader, _, err := r.readAsset(value)
+		if err != nil {
+			return nil, err
+		}
+		defer reader.Close()
+		return io.ReadAll(reader)
+	}
+	return os.ReadFile(filepathFromStoredUpload(value))
 }
 
 func (r *OpenAIRecognizer) callResponsesAPI(ctx context.Context, imageBytes []byte) (recognizerOutput, json.RawMessage, error) {
@@ -127,7 +147,7 @@ func (r *OpenAIRecognizer) callResponsesAPI(ctx context.Context, imageBytes []by
 		return recognizerOutput{}, nil, errors.New("openai recognition returned empty output")
 	}
 	var output recognizerOutput
-	if err := json.Unmarshal([]byte(text), &output); err != nil {
+	if err := json.Unmarshal([]byte(extractRecognitionJSONText(text)), &output); err != nil {
 		return recognizerOutput{}, nil, fmt.Errorf("parse recognition json: %w", err)
 	}
 	return output, json.RawMessage(responseBody), nil
@@ -187,7 +207,7 @@ func (r *OpenAIRecognizer) callChatCompletionsAPI(ctx context.Context, imageByte
 		return recognizerOutput{}, nil, errors.New("openai chat recognition returned empty output")
 	}
 	var output recognizerOutput
-	if err := json.Unmarshal([]byte(text), &output); err != nil {
+	if err := json.Unmarshal([]byte(extractRecognitionJSONText(text)), &output); err != nil {
 		return recognizerOutput{}, nil, fmt.Errorf("parse chat recognition json: %w", err)
 	}
 	return output, json.RawMessage(responseBody), nil
@@ -290,6 +310,28 @@ func (r responsesResponse) firstOutputText() string {
 	return ""
 }
 
+func extractRecognitionJSONText(value string) string {
+	text := strings.TrimSpace(value)
+	if !strings.HasPrefix(text, "```") {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) < 3 || !strings.HasPrefix(strings.TrimSpace(lines[0]), "```") {
+		return text
+	}
+	end := len(lines)
+	for index := len(lines) - 1; index > 0; index-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[index]), "```") {
+			end = index
+			break
+		}
+	}
+	if end <= 1 {
+		return text
+	}
+	return strings.TrimSpace(strings.Join(lines[1:end], "\n"))
+}
+
 type recognizerOutput struct {
 	StoreName           string                 `json:"store_name"`
 	StoreNameConfidence Confidence             `json:"store_name_confidence"`
@@ -344,18 +386,19 @@ func (o recognizerOutput) toRecognitionResult() *RecognitionResult {
 func recognitionPrompt() string {
 	return strings.TrimSpace(`你是医疗门店装修图纸识别助手。请从这张门店设计图中识别门店名称和目标空间区域。
 
-只识别三类区域：
+只识别四类业务区域：
 1. treatment：治疗室，指医美治疗室。
-2. consultation：面诊室。
-3. beauty：生美、生美区、生美治疗室、美容区、美容治疗室。
+2. vip_treatment：VIP治疗室，仅当图纸文字明确出现“VIP治疗室”或“VIP”时使用。
+3. consultation：面诊室。
+4. beauty：生美、生美区、生美治疗室、美容区、美容治疗室。
 
 要求：
 - 门店名称优先来自图纸标题或图签。
 - 区域名称尽量保留图纸原文。
 - 如果区域文字里有明显数字编号，可以填入 number；没有编号则填空字符串。
-- treatment 和 consultation 的 number 很重要；beauty 可为空。
+- treatment 和 consultation 的 number 很重要；vip_treatment 和 beauty 可为空。
 - box 使用相对坐标，基于整张拼接图片，x/y/width/height 都是 0 到 1 的小数。
-- 只输出目标三类区域，忽略前台、走廊、仓库、卫生间等非目标区域。
+- 只输出目标业务区域，忽略前台、走廊、仓库、卫生间等非目标区域。
 - 按图纸位置从上到下、从左到右排序。
 - 如果不确定，confidence 用 low，并设置 needs_review 为 true。
 - raw_notes 用中文简短说明识别依据或问题。`)
@@ -368,7 +411,7 @@ func recognitionJSONSchema() map[string]any {
 		"required":             []string{"name", "type", "number", "confidence", "needs_review", "box"},
 		"properties": map[string]any{
 			"name":         map[string]any{"type": "string"},
-			"type":         map[string]any{"type": "string", "enum": []string{"treatment", "consultation", "beauty"}},
+			"type":         map[string]any{"type": "string", "enum": []string{"treatment", "vip_treatment", "consultation", "beauty"}},
 			"number":       map[string]any{"type": "string"},
 			"confidence":   map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}},
 			"needs_review": map[string]any{"type": "boolean"},
@@ -405,6 +448,11 @@ func generatedAreaName(areaType AreaType, number string) string {
 			return "治疗室 " + number
 		}
 		return "治疗室"
+	case AreaTypeVIPTreatment:
+		if number != "" {
+			return "VIP治疗室 " + number
+		}
+		return "VIP治疗室"
 	case AreaTypeConsultation:
 		if number != "" {
 			return "面诊室 " + number
@@ -433,7 +481,16 @@ func filepathFromStoredUpload(value string) string {
 }
 
 func (r *OpenAIRecognizer) endpoint(path string) string {
-	return strings.TrimRight(r.baseURL, "/") + path
+	return apiEndpoint(r.baseURL, path)
+}
+
+func apiEndpoint(baseURL string, path string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	path = "/" + strings.TrimLeft(path, "/")
+	if strings.HasSuffix(baseURL, "/v1") && strings.HasPrefix(path, "/v1/") {
+		path = strings.TrimPrefix(path, "/v1")
+	}
+	return baseURL + path
 }
 
 func normalizeOpenAIAPIStyle(value string) string {
