@@ -1,5 +1,72 @@
 # Deploy Runbook
 
+## 公司 GitLab 自动发布
+
+公司环境已经接入 GitLab + K8s 自动发布。后续涉及公司线上环境时，以本节为默认发布流程；个人 Lighthouse 流程只作为练习、排查或备用验证路径。
+
+固定信息：
+
+- GitLab remote：`gitlab`
+- GitLab 仓库：`https://gitlab.sy.soyoung.com/pm/shalei-pm/erzhuang-project.git`
+- 发布分支：`codex/containerize-single-image`
+- 自动发布：GitLab 分支推送后约每 5 分钟自动构建和发布
+- 公司公网入口：`https://lite.sy.soyoung.com/erzhuang-project/`
+- 公司健康检查：`https://lite.sy.soyoung.com/erzhuang-project/health`
+
+标准流程：
+
+```sh
+git fetch gitlab
+git switch codex/containerize-single-image
+git merge main
+go test ./...
+cd frontend && npm run build && npm test
+git push gitlab codex/containerize-single-image
+```
+
+注意：
+
+- `codex/containerize-single-image` 是公司受保护分支，不要 force push。
+- 合并时保留公司分支上的 Dockerfile、数据库、K8s 运行配置和路径前缀设置；不要用个人 Lighthouse 配置覆盖公司配置。
+- 公司运行时密钥必须通过 K8s Secret 或运行时环境变量注入，不要提交到仓库、Dockerfile、文档或前端 `VITE_*`。
+- 公司数据库当前应保持为运维配置的 MySQL，资产存储应保持为 OSS。发布后 `/health` 应返回 `database:"mysql"`、`asset_store:"oss"`。
+- 公司容器构建需要注入前端版本号。Dockerfile 应从 `VERSION` 和 `GIT_VERSION` 生成 `VITE_APP_VERSION`；线上页面不应显示 `local-dev`。
+- 推送后等待自动发布，再检查页面底部版本号。若构建系统传入 commit，预期为 `2.x.x (<short-sha>)`；若未传入，至少应显示 `2.x.x (container)`。
+
+公司发布失败或版本未更新时，优先排查：
+
+1. GitLab 分支是否已经是最新 commit。
+2. 公司流水线是否从 `codex/containerize-single-image` 构建。
+3. 流水线是否使用仓库 Dockerfile，而不是另一个外部构建脚本。
+4. 构建缓存或镜像缓存是否导致旧静态资源未更新。
+5. 页面静态资源和 API 请求路径是否仍使用 `/erzhuang-project/` 前缀。
+
+## 发布术语速查
+
+默认规则：除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，所有已确认准备发布的代码都先提交并推送到 GitHub `origin/main` 作为主代码备份，再按目标环境执行公司或韩国服务器发布。
+
+用户说“发布到公司”时，固定执行公司 GitLab 自动发布链路：
+
+1. 将当前已确认代码 merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
+2. 推送到 remote `gitlab`。
+3. 等待公司 GitLab / K8s 自动发布，通常约 5 分钟。
+4. 验证 `https://lite.sy.soyoung.com/erzhuang-project/health` 和页面版本号。
+
+注意：
+
+- 不操作韩国 Lighthouse。
+- 不 force push 公司受保护分支。
+- 公司分支如包含 Dockerfile、K8s 环境变量、数据库连接等运维调整，应保留公司配置，只合入业务代码和必要文档。
+
+用户说“发布到韩国服务器”时，固定执行 GitHub + 韩国 Lighthouse 链路：
+
+1. 将当前已确认代码推送到 GitHub `origin/main`。
+2. 通过腾讯云 TAT 触发韩国 Lighthouse 服务器执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
+3. 服务器从 GitHub 拉取最新 `main`，执行测试、构建、重启服务。
+4. 验证 `http://127.0.0.1:18081/health` 和公网 `/erzhuang/` 入口。
+
+如果用户同时要求“公司”和“韩国服务器”，需要记录两个环境最终 commit，避免用户用页面版本号反馈问题时对不上。
+
 本项目的服务器发布目标是个人腾讯云 Lighthouse：
 
 - 部署目录：`/opt/apps/erzhuang-project`
@@ -7,7 +74,8 @@
 - 健康检查：`http://127.0.0.1:18081/health`
 - 公网入口：`https://43.155.237.46/erzhuang/`
 - GitHub 访问方式：服务器 read-only Deploy Key
-- Deploy Key 路径：`~/.ssh/erzhuang_project_deploy_key`
+- 本机 SSH 登录服务器 key：`~/.ssh/erzhuang_lighthouse`
+- 服务器内部拉取 GitHub deploy key：`~/.ssh/erzhuang_project_deploy_key`
 
 ## 发布当前 main
 
@@ -92,6 +160,7 @@ sudo apt-get install -y poppler-utils
 systemd 环境文件 `/etc/erzhuang-project.env` 需要包含：
 
 ```text
+ASSET_STORE=local
 UPLOAD_DIR=/opt/apps/erzhuang-project/uploads
 OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-4o
@@ -99,10 +168,43 @@ OPENAI_BASE_URL=https://api.openai.com
 OPENAI_API_STYLE=responses
 ```
 
+萤石云录像机扫描需要配置：
+
+```text
+EZVIZ_ACCOUNTS_JSON=[{"name":"华北","app_key":"...","app_secret":"...","access_token":"..."},{"name":"华东","app_key":"...","app_secret":"..."},{"name":"华南","app_key":"...","app_secret":"..."},{"name":"华中","app_key":"...","app_secret":"..."}]
+```
+
+运行规则：
+
+- `name` 必须使用前端需要展示的区域名，例如 `华北`、`华东`、`华南`、`华中`。
+- 服务启动时会读取 `EZVIZ_ACCOUNTS_JSON`，自动把这些 `name` 同步到数据库 `ezviz_accounts`，状态设为 `available`。
+- 数据库只保存区域账号展示记录；扫描、抓图仍使用运行时环境变量里的 `app_key` / `app_secret` / `access_token`。
+- 公司内网环境当前允许把该变量临时写入内网 GitLab Dockerfile 做验证；长期建议迁移到 K8s Secret 或受保护 CI/CD Variables。
+
 注意：
 
 - `OPENAI_API_KEY` 只放服务器环境文件，不提交到 GitHub。
-- `uploads` 目录需要允许运行服务的 `lighthouse` 用户写入。
+- 本地文件模式下，`uploads` 目录需要允许运行服务的 `lighthouse` 用户写入，并建议做持久化备份。
+- 本地模式会兼容历史数据库路径：数据库里保存 `uploads/tmp_xxx/preview.png`，实际磁盘路径是 `UPLOAD_DIR/tmp_xxx/preview.png`。
+
+公司 K8s 环境建议使用 Supabase Storage 存放设计图和通道截图：
+
+```text
+ASSET_STORE=supabase
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_STORAGE_BUCKET=design-plan-assets
+UPLOAD_DIR=/tmp/erzhuang-work
+```
+
+注意：
+
+- `SUPABASE_SERVICE_ROLE_KEY` 只能放后端 K8s Secret，不允许进入仓库、镜像或前端 `VITE_*` 变量。
+- `UPLOAD_DIR` 在 Supabase Storage 模式下只作为 PDF 渲染临时工作目录，最终 `original.pdf`、`preview.png`、`thumbnail.png` 和通道截图会通过后端写入 Supabase Storage。
+- Supabase bucket 推荐设为 private，由 Go 后端统一读取和转发，不让前端直连 Storage。
+- Supabase Storage 对象 key 约定：
+  - 设计图：`uploads/{upload_id}/original.pdf`、`uploads/{upload_id}/preview.png`、`uploads/{upload_id}/thumbnail.png`。
+  - 通道截图：`channel-snapshots/{snapshot_name}.jpg`。
 
 ## 前端发布方向
 

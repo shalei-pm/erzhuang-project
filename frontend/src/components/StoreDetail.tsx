@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { EzvizAccount, StoreDetail as StoreDetailType, VideoRecorder } from "../api";
+import type { AISettings, EzvizAccount, StoreDetail as StoreDetailType, VideoRecorder } from "../api";
 import { DesignPlanTab } from "./DesignPlanTab";
 import { VideoChannelTab } from "./VideoChannelTab";
 
@@ -8,14 +8,38 @@ export type StoreDetailTab = "design-plan" | "channels";
 type StoreDetailProps = {
   store: StoreDetailType;
   initialTab: StoreDetailTab;
+  loadingTabs: Set<StoreDetailTab>;
+  loadedTabs: Set<StoreDetailTab>;
   saving: boolean;
   accounts: EzvizAccount[];
-  onBack: () => void;
+  aiSettings: AISettings | null;
+  switchingAIModel: boolean;
+  canEdit: boolean;
+  canManageSettings: boolean;
+  h5MonitorUrl?: string;
+  onTabChange: (tab: StoreDetailTab) => void;
+  onToggleAIModel: () => void;
   onStoreUpdated: (update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType)) => void;
   onToast: (message: string) => void;
 };
 
-export function StoreDetail({ store, initialTab, saving, accounts, onBack, onStoreUpdated, onToast }: StoreDetailProps) {
+export function StoreDetail({
+  store,
+  initialTab,
+  loadingTabs,
+  loadedTabs,
+  saving,
+  accounts,
+  aiSettings,
+  switchingAIModel,
+  canEdit,
+  canManageSettings,
+  h5MonitorUrl,
+  onTabChange,
+  onToggleAIModel,
+  onStoreUpdated,
+  onToast,
+}: StoreDetailProps) {
   const [activeTab, setActiveTab] = useState<StoreDetailTab>(initialTab);
 
   useEffect(() => {
@@ -35,16 +59,23 @@ export function StoreDetail({ store, initialTab, saving, accounts, onBack, onSto
     }));
   }
 
+  function selectTab(tab: StoreDetailTab) {
+    setActiveTab(tab);
+    onTabChange(tab);
+  }
+
+  const isActiveTabLoading = loadingTabs.has(activeTab) || !loadedTabs.has(activeTab);
+
   return (
     <section className="detail-page">
       <header className="detail-header">
-        <div>
-          <button className="detail-back-button" onClick={onBack} aria-label="返回机构列表">
-            <span aria-hidden="true">←</span>
-            <span>返回列表</span>
-          </button>
+        <div className="detail-header-main">
           <h1>{store.name}</h1>
           <div className="detail-metrics" aria-label="门店资源概览">
+            <div>
+              <span>机构简称</span>
+              <strong>{store.shortName || "-"}</strong>
+            </div>
             <div>
               <span>新氧机构 ID</span>
               <strong>{store.externalOrgId || "-"}</strong>
@@ -63,29 +94,57 @@ export function StoreDetail({ store, initialTab, saving, accounts, onBack, onSto
             </div>
           </div>
         </div>
+        {h5MonitorUrl ? (
+          <div className="detail-header-side">
+            <button className="secondary-action-button" onClick={() => window.location.assign(h5MonitorUrl)}>
+              查看监控
+            </button>
+          </div>
+        ) : null}
       </header>
 
-      <nav className="tabs" aria-label="门店详情 Tab">
-        <button className={activeTab === "design-plan" ? "is-active" : ""} onClick={() => setActiveTab("design-plan")}>
-          设计图标注
-        </button>
-        <button className={activeTab === "channels" ? "is-active" : ""} onClick={() => setActiveTab("channels")}>
-          通道映射
-        </button>
-      </nav>
+      <div className="detail-tabs-row">
+        <nav className="tabs" aria-label="门店详情 Tab">
+          <button className={activeTab === "design-plan" ? "is-active" : ""} onClick={() => selectTab("design-plan")}>
+            设计图标注
+          </button>
+          <button className={activeTab === "channels" ? "is-active" : ""} onClick={() => selectTab("channels")}>
+            通道映射
+          </button>
+        </nav>
+        {canManageSettings ? (
+          <div className="ai-model-switcher" aria-label="识别模型设置">
+            <span>当前识别模型：{aiSettings?.label ?? "加载中"}</span>
+            <button type="button" className="secondary-action-button" disabled={switchingAIModel || !aiSettings} onClick={onToggleAIModel}>
+              {switchingAIModel ? "切换中" : "切换识别模型"}
+            </button>
+          </div>
+        ) : null}
+      </div>
 
-      <div hidden={activeTab !== "design-plan"}>
-        <DesignPlanTab store={store} saving={saving} onStoreUpdated={onStoreUpdated} onToast={onToast} />
-      </div>
-      <div hidden={activeTab !== "channels"}>
-        <VideoChannelTab
-          store={store}
-          accounts={accounts}
-          onStoreUpdated={onStoreUpdated}
-          onRecorderUpdated={updateRecorder}
-          onToast={onToast}
-        />
-      </div>
+      {isActiveTabLoading ? (
+        <div className="detail-loading-panel" role="status" aria-live="polite">
+          <span aria-hidden="true" />
+          <strong>{activeTab === "channels" ? "正在加载通道映射" : "正在加载设计图标注"}</strong>
+          <p>已进入详情页，当前 Tab 数据加载完成后会自动展示。</p>
+        </div>
+      ) : (
+        <>
+          <div hidden={activeTab !== "design-plan"}>
+            <DesignPlanTab store={store} saving={saving} canEdit={canEdit} onStoreUpdated={onStoreUpdated} onToast={onToast} />
+          </div>
+          <div hidden={activeTab !== "channels"}>
+            <VideoChannelTab
+              store={store}
+              accounts={accounts}
+              canEdit={canEdit}
+              onStoreUpdated={onStoreUpdated}
+              onRecorderUpdated={updateRecorder}
+              onToast={onToast}
+            />
+          </div>
+        </>
+      )}
     </section>
   );
 }

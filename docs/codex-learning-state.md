@@ -1,10 +1,910 @@
 # Codex Learning State
 
-最后更新：2026-06-15
+最后更新：2026-08-13
+
+## 当前项目记忆快照（主会话优先读取）
+
+本节是主负责人会话的“当前事实”摘要。后续新会话、压缩恢复、发布、回滚或专项开发前，先读本节，再按需读取后面的历史记录和专项文档。
+
+### 项目定位与目标
+
+- 项目从个人练习项目演进为新氧青春门店空间资源管理系统。
+- 业务目标：二壮 3.0「门店空间资源查看」基于公司业务库只读展示已部署工控机门店的业务空间、工控机、NVR、摄像头和空间-设备绑定完整性；现有 H5 Monitor 监控查看方式保持不变。
+- 工程目标：保持一条可重复的 Codex 开发、Git 管理、公司 GitLab/K8s 发布、线上验证、回滚和文档沉淀流程。
+- 主会话职责：项目负责人/架构中枢，负责需求澄清、方案拆分、代码验收、发布、回滚、文件化记忆和跨会话交接。
+
+### 当前阶段
+
+- 当前线上公司环境已切换为 MySQL + OSS。
+- 最新确认健康检查：
+
+```json
+{"app":"erzhuang-project","status":"ok","version":"v2","database":"mysql","asset_store":"oss"}
+```
+
+- 最新版本文件：`VERSION=2.31.8`。
+- 最新公司 GitLab 发布提交：`7311bda fix: fallback h5 player for unsupported h265 mse`，已推送到 `gitlab/codex/containerize-single-image` 并触发公司 K8s 自动发布；公网无登录态 `curl /health` 当前会被 APISIX 302 到 SSO，线上版本和播放结果需由已登录浏览器验证。
+- 当前 3.0 开发状态：3.0 主流程从二壮自维护门店/录像机/通道/设计图/AI 识别，转为读取公司业务库的只读资源查看。设计文档已落地：`docs/superpowers/specs/2026-08-13-store-space-resource-view-3-design.md`；实现计划已落地：`docs/superpowers/plans/2026-08-13-store-space-resource-view-3-implementation.md`。本地分支 `codex/store-space-resource-view-3` 已完成后端只读 API 和前端只读列表/详情初版，用户已在镜像/公司环境配置 `K8S_SECRET_BUSINESS_MYSQL_DSN`，尚未发布公司环境。
+- 2.x 稳定备份已完成：tag `v2.31-stable-before-resource-view-3` 指向 `7311bda / VERSION=2.31.8`，说明文档为 `docs/handoffs/2026-08-13-2x-stable-backup-before-resource-view-3.md`。
+- 旧 PostgreSQL runtime、pgx 依赖、pg-mysql 迁移入口和旧库回滚连接已从运行时代码中删除。后续不要再以“可切回 Postgres”作为安全阀。
+- 韩国 Lighthouse 发布链路已终止；该服务器上关于二壮项目的所有库表已经完全删除。后续二壮项目发布、回滚、验收和排查只走公司 GitLab/K8s + MySQL/OSS，不再使用韩国服务器。
+
+### 已完成内容
+
+- 门店空间资源后台：门店列表、城市/名称筛选、门店详情、设计图标注、通道映射、门店/录像机/通道写接口。
+- 设计图能力：PDF 上传、预览图、标注区域、AI 识别、人工修正、设计图保存。
+- 录像机与通道能力：萤石账号同步、录像机扫描有效通道、刷新截图、AI 识别通道画面、人工确认业务/非业务区域、床位拆分。
+- H5 Monitor：按机构/门店查看监控通道，直播、回放、播放器交互、门店切换、通道分组和移动端播放体验已完成多轮线上修复。
+- SSO 与权限：公司 APISIX SSO cookie/JWT 接入，`tb_users` 授权用户表，角色/权限基础逻辑，写接口按权限守卫。
+- MySQL/OSS 迁移：54 家有 `external_org_id` 的门店已迁入 MySQL；通道截图等资产已迁入 OSS 并通过台账/代理路径验证。第 55 家 Postgres 空 `external_org_id` 门店“新氧青春诊所(长沙北辰荟店)”确认不迁移。
+- 运行时安全清理：`cmd/server` 只接受 `APP_DB_DRIVER=mysql`，只读取 `MYSQL_DSN` / `K8S_SECRET_MYSQL_DSN`；删除旧 PostgreSQL repository、schema 初始化、导出 CLI、pg-mysql ops 入口和 pgx 依赖。
+- 线上只读回归：2026-07-04 已由用户在已登录浏览器执行，只读检查全部 200，门店总数 54，H5 Monitor 样本门店 `10030`、`10019`、`10081` 均返回正常分组。
+- 线上写接口回归：2026-07-04 已由用户在已登录浏览器执行，临时门店创建、编辑、保存设计图、添加录像机、删除录像机、删除临时门店全部通过。
+- 线上资产/识别抽验：2026-07-04 门店 `56`、录像机 `64/GQ2603587`、通道 `900065`，门店详情读取和单通道截图刷新接口均 200；单通道识别接口 200 但业务结果为 `recognition_failed`，需要继续查看 `recognition_result` 失败原因。
+- 通道 `900065` 识别失败根因已定位：`capture_ms=578`，抓图成功；`recognition_ms=30407` 后 AI provider 返回 upstream 502，请求 ID `5704b803-f192-4f86-a3a7-be7a3df7a53d`。这不是 MySQL/OSS 主链路失败。
+- 同门店另一个通道 `900076` 单通道识别成功：接口 200，业务结果 `recognized`。结论：AI/识别链路整体可用，`900065` 属于单次上游 502 波动。
+- 用户管理角色保存修复：`2.30.24 / f732228` 修复 MySQL `tb_roles` 漏种 `editor` 导致保存“编辑运维”后回退普通查看的问题。
+- 退出登录修复：`2.31.7` 将公司域名退出改为顶层同源 `/erzhuang-project/logout?redirect=<SSO统一退出地址>`；后端先清理 host-only、当前 host 域和父域 `sy_sso_token`，再安全跳转到公司 `logouttogether`，避免 fetch 清 cookie 与网关退出互相影响。
+- Windows 监控播放兼容修复：`2.31.8` 针对部分 Windows Edge/Chrome 访问 H5 Monitor 时 `MediaSource addSourceBuffer hvc1 unsupported` 的问题，默认仍保留桌面 MSE；仅当播放器实际报出 H.265/HEVC SourceBuffer unsupported 时自动切到 `desktop-wasm` 软解重试，避免影响可正常播放的 Windows 电脑。
+- 普通查看用户监控门店范围权限：`2.31.0` 新增 `tb_user_resource_scopes` 通用 scope 表，用户管理创建/编辑 `viewer` 时可按城市/搜索勾选可查看监控门店；H5 Monitor 列表和直接门店 URL 均由后端强校验，门店列表/详情返回 `can_view_monitor` 供前端隐藏入口。
+- 门店列表统计口径修复：`2.31.0` MySQL `ListStores` 的右上角 summary 改为按当前搜索/城市筛选条件汇总全量 filtered dataset，不再用当前页 `items` 汇总，保证分页切换不改变统计。
+- 3.0 方案梳理：已确认模块名为「门店空间资源查看」；只展示有启用工控机的门店；空间类型使用业务库自己的三层结构 `level=1/2/3`；详情展示空间视角、设备视角、异常项；设计图标注、AI 通道识别、人工确认和门店/录像机/通道写入口不进入 3.0 主流程；H5 Monitor 暂不改。
+- 3.0 前 2.x 封版：已创建 `v2.31-stable-before-resource-view-3`，并写入 handoff 文档，后续回滚优先用 `git revert` 而不是 reset/force push。
+- 3.0 后端初版：新增 `internal/resourceview`，提供业务库四表只读聚合、空间树、设备树、异常项和 API `GET /api/store-space-resource-view/stores`、`GET /api/store-space-resource-view/stores/{tenantId}`；`cmd/server` 支持 `BUSINESS_MYSQL_DSN` / `K8S_SECRET_BUSINESS_MYSQL_DSN`，未配置时返回 `resource_view_not_configured`。
+- 3.0 前端初版：新增资源查看 API 类型、domain helper、`ResourceStoreList`、`ResourceStoreDetail`；后台主页面切为「门店空间资源查看」，展示工控机/NVR/摄像头/空间/绑定/异常统计，详情含空间视角、设备视角、异常项；旧新增、编辑、删除、扫描、识别、确认、设计图上传/标注入口已从主页面隐藏。
+
+### 当前进行中
+
+- 建立文件化项目记忆机制：
+  - `docs/codex-learning-state.md`：长期状态、发布记录、关键上下文。
+  - `docs/decisions.md`：产品/技术决策台账。
+  - `work/current-plan.md`：当前轮工作目标、拆分、进度和下一步。
+- 项目控制文档已补齐：
+  - `README.md`：已追平当前 MySQL + OSS 运行时口径。
+  - `docs/technical-architecture-index.md`：已改为当前 store-space 主路径代码地图。
+  - `docs/post-cutover-regression-checklist.md`：MySQL/OSS 切换后线上回归清单。
+  - `docs/legacy-postgres-supabase-shutdown-checklist.md`：旧 PostgreSQL/Supabase 下线确认清单。
+- MySQL/OSS 切换后的稳定期：后续每次重要讨论、开发、验证、发布、回滚都要主动回写上述文件。
+- 门店空间资源查看 3.0：
+  - 设计文档：`docs/superpowers/specs/2026-08-13-store-space-resource-view-3-design.md`。
+  - 实现计划：`docs/superpowers/plans/2026-08-13-store-space-resource-view-3-implementation.md`。
+  - 当前阶段：方案和计划已完成，2.x 稳定备份 tag、zip 与 handoff 已完成，后端只读 API 和前端只读资源查看初版已在本地分支完成。
+  - 当前剩余：发布到公司后验证业务库连接、真实数据样本验收、用户体验确认；用户明确要求后才发布公司环境。
+
+### 待决策问题
+
+- 旧 PostgreSQL/Supabase 数据和资源的正式保留、归档、删除时间表，需要产品负责人、公司安全/运维/相关研发确认后执行；主会话不能独自推动删除外部数据源。
+- 是否彻底下线旧 `designplan` 独立路由和旧 `tb_design_plan_*` 兼容表，需要先确认当前前端/用户流程是否仍依赖。
+- 3.0 业务库待确认：`tb_crm_consulting_room.dict_id` 字典来源、`province_id/city_id` 城市字典来源、`tb_crm_iot_area_device_relation.function_type` 取值口径、设备/空间状态枚举、工控机与 NVR 是否存在显式关系；`K8S_SECRET_BUSINESS_MYSQL_DSN` 已由用户配置到镜像/公司环境，仍需发布后验证网络白名单和只读权限。
+- 是否从当前全局角色权限升级到更通用的机构/门店/资源范围授权。当前已决定先做普通查看用户的监控门店范围权限，并提前按 scope 模型考虑未来扩展。
+- 门店删除当前仍沿用硬删除/外键级联语义；正式环境是否改成软删除和审计，需要 DBA/产品确认。
+- 资产访问审计、长期安全审计、截图/PDF 访问日志的正式落地方案仍待治理。
+- 历史迁移文档仍包含 PostgreSQL/Supabase 阶段事实，需要新会话按日期和当前快照判断是否仍有效；`README.md` 和 `docs/technical-architecture-index.md` 已追平当前架构。
+
+### 技术栈与运行方式
+
+- 后端：Go 1.22，`net/http`，入口 `cmd/server/main.go`。
+- 数据库：公司 MySQL，核心表为 `tb_` 前缀，连接变量 `MYSQL_DSN` 或 `K8S_SECRET_MYSQL_DSN`。
+- 3.0 业务库：计划新增只读业务库连接变量 `BUSINESS_MYSQL_DSN` 或 `K8S_SECRET_BUSINESS_MYSQL_DSN`，仅用于读取 `db_groupbuy` 业务表；不得把连接串、账号或密码写入仓库。
+- 3.0 本地开发分支：`codex/store-space-resource-view-3`。主会话按技术负责人拆分：Backend 只读资源聚合、Frontend 只读资源查看、主会话 Review/发布控制。
+- 资产：公司 OSS，运行时 `ASSET_STORE=oss`；前端访问路径保持后端代理稳定。
+- 前端：Vite + React + TypeScript + Ant Design，入口 `frontend/src/App.tsx`。
+- H5 播放：萤石云 OpenAPI + `ezuikit-flv`，前端 decoder 静态资源位于 `frontend/public/assets/ezuikit-flv/`。
+- AI：通道截图识别和设计图识别支持 OpenAI/GPT 与 MiniMax，运行时 provider 可通过后端配置读取；当前线上曾验证 MiniMax / MiniMax-M3。
+- 登录：公司 APISIX SSO，`sy_sso_token` cookie，后端验签并用企业邮箱匹配 `tb_users`。
+- 公司发布：推送 `gitlab/codex/containerize-single-image`，公司 GitLab/K8s 自动构建发布，入口 `https://lite.sy.soyoung.com/erzhuang-project/`。
+- GitHub 代码备份：GitHub 仍保留为主代码备份和历史留存；除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，已确认准备发布的代码仍应同步 GitHub。GitHub 不再代表线上发布完成。
+- GitLab 推送认证：本机 token 文件为 `/Users/sylar/.codex/secrets/gitlab-erzhuang-project.token`。发布到公司时默认用临时 `GIT_ASKPASS` 读取该文件，用户名 `oauth2`；禁止打印 token、写入命令、写入仓库、写入文档或保留长期 askpass，用完删除临时脚本。
+- 历史个人练习发布：GitHub `main` + 韩国 Lighthouse + `scripts/deploy.sh` + systemd/nginx。该链路已终止，且韩国服务器上的二壮项目库表已删除；只保留为历史学习记录。
+
+### 验证与发布规则
+
+- 公司发布前默认验证：
+  - Go：本机直接 `go test` 可能触发 macOS `missing LC_UUID`，当前可靠门禁是 `go test -c` 编译关键包和 `go build ./cmd/server`。
+  - 前端：涉及 UI 时必须读 `docs/ui-standards.md`、`docs/frontend-review-checklist.md`，并做浏览器实际验收，不只跑 build。
+  - 浏览器调试：优先检查 Chrome 插件能力，必要时让用户用 `[@chrome](plugin://chrome@openai-bundled)` 唤起；可用时优先用 Chrome 插件或 `node_repl` 配合 Chrome Plugin。只有插件未暴露或不可用时，才降级到 Computer Use，并在最终说明中标注原因。
+  - GitLab hook：推公司分支前，对本次改动文件运行 `rg -n -i "join" <changed-files>`，避免 hook 拦截。
+- 公司发布后验证：
+  - 线上已登录浏览器验证 `/erzhuang-project/health` 返回 `database=mysql`、`asset_store=oss`。
+  - 关键页面：门店列表、门店详情、H5 Monitor、写接口、通道识别/确认按本次改动范围抽验。
+- 韩国 Lighthouse 发布/回滚已废止，不得再用于二壮项目；历史文档中的 TAT、`scripts/deploy.sh`、`scripts/rollback.sh` 只作为早期练习记录。
+
+### 已知风险
+
+- 历史迁移文档仍存在阶段性表述；入口文档 `README.md` 和 `docs/technical-architecture-index.md` 已更新为 MySQL/OSS 当前事实。
+- 旧 PostgreSQL 回滚连接已删除，MySQL/OSS 正式成为唯一运行时路径；后续回滚只能回滚到仍兼容 MySQL/OSS 的提交，不能依赖旧库兜底。
+- 韩国服务器上的二壮项目库表已经完全删除，因此韩国 Lighthouse 不再具备二壮项目运行、回滚或对照验证能力。
+- 萤石抓图和播放接口可能触发限流/风控，批量识别必须节流；老批量识别接口已降为单次推进 1 路。
+- MiniMax/GPT 都可能返回非 JSON 或 `<think>` 解释文本，已做兜底，但仍建议保留单通道人工重试。
+- 公司公网 health 从无登录态环境可能被 SSO 重定向，线上验证优先由用户已登录浏览器执行。
+- MySQL 8.0.13 对 CHECK 约束不可靠，应用层和迁移脚本必须继续做枚举/数据校验。
+- 3.0 会引入第二个 MySQL 只读数据源，必须严格区分“二壮运行库”和“公司业务库”：二壮库继续负责登录、权限、系统设置和 H5 Monitor；业务库只负责资源查看。业务库账号必须只读，API 不提供写入。真实 DSN、账号、密码不得写入仓库或文档。
+- 3.0 当前城市名第一版按 `city_id` 展示为“城市 N”；如产品要求显示真实城市名，需要业务库提供城市字典或由后端补充稳定映射。
+- 3.0 真实业务库数据量、长门店名、空间树深度、异常数量仍需用公司真实样本做一次 UI 信息密度验收。
+
+### 下一步建议
+
+1. 完成 3.0 本地最终验证：后端、前端、构建、敏感信息和写 SQL 扫描。
+2. 用户确认后发布到公司 GitLab/K8s，让新镜像读取已配置的 `K8S_SECRET_BUSINESS_MYSQL_DSN`。
+3. 发布后验证启动日志 `business resource view enabled`、3.0 API 真实数据、列表/详情信息密度、异常项口径和 H5 Monitor 入口权限。
+4. 用户确认体验后，进入 3.0 正式使用。
+
+## 2026-07-08 普通查看用户监控门店范围权限本地验收
+
+- 范围：
+  - 普通查看用户按门店授权查看监控。
+  - 用户管理弹窗的门店范围选择交互。
+- 本地浏览器验收：
+  - 启动本地 mock 前端：`http://127.0.0.1:5173/erzhuang-project/`。
+  - 进入“系统设置 -> 用户管理 -> 添加用户”，确认普通查看角色默认展示“查看监控门店范围”。
+  - 城市筛选生效：切换到“上海”后只展示上海门店。
+  - 在城市筛选下勾选门店后，切回“全部”时已选门店前置。
+  - `全选` / `清空` 文案已按用户反馈保留简洁形式。
+  - 弹窗宽度已加宽到适合真实门店范围选择的尺寸，减少城市和门店列表拥挤。
+  - 登录状态行已改为横向阅读结构，开关宽度放宽，避免中文被压缩。
+- 构建验证：
+  - `cd frontend && npm run build` 通过。
+  - Vite 仍提示既有 chunk size warning，非本次回归。
+- 门店统计 bug 修复：
+  - 根因：MySQL `ListStores` 先分页取 `items`，再用 `summarizeStoreListItems(items)` 生成 summary，导致右上角统计随翻页变化。
+  - 修复：改用 `storeListSummary(ctx, rawLike, rawLike, filters.City)` 按当前 tab/搜索条件汇总全量 filtered dataset。
+  - 防回归：新增 `TestMySQLListStoresSummaryUsesFilteredDataset` 源码守卫测试。
+- 下一步：
+  - 复查改动范围，避免混入 OpenClaw 并行改动。
+  - 发布前重新跑 Go 编译门禁和前端构建。
+  - 发布后线上验证 viewer 空范围/部分范围、H5 Monitor 门店切换过滤、直接访问未授权机构返回 403。
+
+## 2026-07-08 2.31.0 公司发布记录
+
+- 发布提交：`068ccc8 feat: restrict viewer monitor stores`。
+- 发布分支：`gitlab/codex/containerize-single-image`。
+- GitHub 备份分支：`origin/codex/containerize-single-image`。
+- 推送结果：
+  - 公司 GitLab 从 `02a6623` 更新到 `068ccc8`，远端 hook 输出 `Processed push`。
+  - GitHub 备份分支从 `02a6623` 更新到 `068ccc8`。
+- 发布内容：
+  - 普通查看用户监控门店范围权限。
+  - H5 Monitor 后端门店授权强校验。
+  - 门店列表/详情 `can_view_monitor` 入口提示字段。
+  - 用户管理门店范围选择交互。
+  - 门店列表 summary 改为按当前 tab/筛选条件汇总全量 filtered dataset，修复翻页后右上角统计变化问题。
+- 发布前验证：
+  - `go test -c ./internal/app` 通过。
+  - `go test -c ./internal/h5monitor` 通过。
+  - `go test -c ./internal/storespace` 通过。
+  - `go build ./cmd/server` 通过。
+  - `cd frontend && npm run build` 通过，仍有既有 Vite chunk size warning。
+- 发布后验证状态：
+  - 无登录态公网 `curl https://lite.sy.soyoung.com/erzhuang-project/health` 返回 APISIX 302 到 SSO，说明需由用户在已登录公司浏览器完成线上验证。
+  - 待验证项：`/health`、页面底部版本、用户管理新增/编辑 viewer 门店范围、viewer 授权/未授权门店监控入口、H5 Monitor 直接访问未授权机构 403、门店列表统计翻页不变。
+
+## 2026-07-08 2.31.1 系统设置用户管理修复发布记录
+
+- 问题：2.31.0 发布后进入系统设置/用户管理时报 `list auth users failed`，页面用户列表为空。
+- 根因：2.31.0 新增 `tb_user_resource_scopes` 后，用户列表会统计普通查看用户的监控门店范围；公司线上 MySQL 运行库尚未自动创建这张新表，导致 `/api/users` 在 scope count 查询阶段 500。
+- 修复提交：`10011b9 fix: ensure viewer scope table`。
+- 版本：`2.31.1`。
+- 修复内容：
+  - `internal/app/mysql_store.go` 增加 `ensureUserResourceScopesTable`，在用户列表 scope count、viewer 范围读写、H5 Monitor scope 判断前幂等确保 `tb_user_resource_scopes` 存在。
+  - 新增 `TestMySQLStoreEnsuresUserResourceScopesTable`，保护建表 SQL。
+- 发布：
+  - 公司 GitLab `codex/containerize-single-image` 从 `068ccc8` 更新到 `10011b9`。
+  - GitHub 备份分支已同步到 `10011b9`。
+- 发布前验证：
+  - `go test -c ./internal/app` 通过。
+  - `go build ./cmd/server` 通过。
+  - `cd frontend && npm run build` 通过，仍有既有 Vite chunk size warning。
+  - 直接运行新增单测仍触发本机已知 `missing LC_UUID load command`，因此以编译门禁为准。
+- 线上待验证：
+  - 已登录浏览器访问 `/erzhuang-project/health`，版本应更新到 `2.31.1`。
+  - 进入系统设置，用户管理不再显示 `list auth users failed`。
+  - 新增/编辑普通查看用户时，监控门店范围候选列表可加载并保存。
+
+## 2026-07-08 2.31.2 门店列表统计修复发布记录
+
+- 问题：
+  - 门店列表右上角统计显示 `共 0 家门店 / 面诊室 0 / 治疗室 0 / 美容室 0`。
+  - 偶发报错：`mysql list stores summary: Error 1267 (HY000): Illegal mix of collations ... for operation '='`。
+- 根因：
+  - 2.31.0 为修复“统计随翻页变化”，把 summary 改为 MySQL 全量汇总，但调用参数错误，把 normalized search like 传成 raw like。
+  - summary SQL 单独维护了一套筛选条件，和列表条件漂移。
+  - summary 聚合中的 `area_type = 'consultation'`、城市 `city = ?` 等字符串比较在公司 MySQL 混合 collation 下会触发 1267。
+- 修复提交：`9277d50 fix: stabilize store list summary`。
+- 版本：`2.31.2`。
+- 修复内容：
+  - `ListStores` summary 改为 `storeListSummary(ctx, filters)`，统一传 filters。
+  - `storeListSummary` 复用 `mysqlStoreListWhere(filters)`，保证列表和统计使用同一套搜索/城市条件。
+  - 门店数和区域数分开聚合，区域数用 `exists` 关联门店筛选，避免公司 GitLab hook 拦截 SQL join 语法。
+  - 城市比较使用 `binary ... = binary ?`，区域类型比较使用 `binary a.area_type ...`，规避 MySQL collation 混算。
+- 发布：
+  - 公司 GitLab `codex/containerize-single-image` 从 `10011b9` 更新到 `9277d50`。
+  - GitHub 备份分支已同步到 `9277d50`。
+- 发布前验证：
+  - `go test -c ./internal/storespace` 通过。
+  - `go build ./cmd/server` 通过。
+  - `cd frontend && npm run build` 通过，仍有既有 Vite chunk size warning。
+- 线上待验证：
+  - 已登录浏览器访问 `/erzhuang-project/health`，版本应更新到 `2.31.2`。
+  - 门店列表右上角统计不为 0，翻页不变化。
+  - 切到城市 Tab 后，统计为该城市全部门店口径，翻页不变化。
+
+## 2026-07-08 2.31.4 Wharf 镜像构建修复发布记录
+
+- 背景：
+  - `9277d50 / 2.31.2` 推送后，Wharf 镜像构建失败，通知显示 child build failed。
+  - Wharf 详情确认失败发生在 Dockerfile 的 `RUN go test ./...`，包为 `internal/storespace`。
+- 根因：
+  - 本机 macOS 直接运行 Go 测试二进制仍会触发已知 `missing LC_UUID load command`，发布前只执行了 `go test -c` 编译门禁。
+  - 公司 Linux 镜像会真实运行 `go test ./...`，暴露了新增源码守卫测试的错误假设。
+  - 第一轮修复 `30f5491 / 2.31.3` 只修正了 `where binary coalesce` 断言，但完整 Wharf 日志显示仍失败在 `TestMySQLListStoresSummaryUsesFilteredDataset`：测试要求 `storeListSummary` 函数体直接包含 city binary 条件；实际实现是 `storeListSummary` 调用 `mysqlStoreListWhere(filters)` 间接复用筛选条件。
+- 修复：
+  - `61b5511 fix: relax store summary source guard`。
+  - 版本：`2.31.4`。
+  - 将 binary city comparison 的断言放到全文件/source 层面，`storeListSummary` 函数体只校验调用 `mysqlStoreListWhere(filters)`、全量 count、`exists` 和 `binary a.area_type`。
+- 发布：
+  - 公司 GitLab `codex/containerize-single-image` 从 `30f5491` 更新到 `61b5511`。
+  - GitHub 备份分支已同步到 `61b5511`。
+  - 用户收到实例部署成功通知，说明 `2.31.4` 已完成公司自动部署。
+- 发布前验证：
+  - `go test -c ./internal/storespace` 通过。
+  - `go build ./cmd/server` 通过。
+  - 对本次改动文件执行 `rg -n -i "join" VERSION internal/storespace/mysql_store_test.go`，无匹配，避免公司 GitLab hook 再次拦截。
+- 后续改进：
+  - 有条件时补一个 Linux 容器内测试门禁，至少覆盖 Dockerfile 中的 `go test ./...`，避免本机 macOS 环境只能编译测试而漏掉运行期测试失败。
+  - 线上继续验证门店列表右上角统计、翻页稳定性和城市 Tab 统计口径。
+
+## 2026-07-08 H5 Monitor 区域 Tab 返回状态修复
+
+- 问题：
+  - 在 H5 Monitor 页面筛选区域 Tab 后，点击摄像头进入监控详情；返回门店监控列表时，区域 Tab 回到“全部”，没有回到进入详情前的列表。
+- 根因：
+  - 第一轮只用 `sessionStorage` 保存区域 Tab，本地部分返回路径可恢复，但 URL/history 本身没有携带区域状态。
+  - 线上或不同入口返回时仍可能按默认路由重新进入“全部”，说明需要把“从哪个区域列表进入详情”变成显式路由状态，而不是只依赖隐藏存储。
+- 修复提交：
+  - `37cadd4 fix: persist h5 monitor tab in url`。
+  - 版本：`2.31.6`。
+- 修复内容：
+  - `H5Route` 增加可选 `tab` 状态，`parseH5Route` 从 `?tab=` 读取合法区域 Tab。
+  - H5 Monitor 主页点击区域 Tab 时同步更新 URL：默认“全部”无参数，其他区域使用 `?tab=treatment` 等参数。
+  - 从区域列表进入摄像头详情时，详情 URL 也携带 `?tab=`；页面返回时回到同一个 `?tab=` 的监控列表。
+  - 继续保留按 `externalOrgId` 的 `sessionStorage` 兜底，URL 参数优先生效；如果当前门店不存在该分类，自动回到“全部”并同步路由。
+  - 新增/扩展 `frontend/src/domain/h5-monitor-active-tab.test.ts`，覆盖按门店保存/恢复、非法值回退、storage 不可用兜底、URL 参数读取和查询串生成。
+  - 更新 `frontend/vite.config.ts`，把新单测加入默认 `npm test` include。
+- 验证：
+  - `cd frontend && npm test`：5 files / 37 tests 通过。
+  - `cd frontend && npm run build`：通过，仍有既有 Vite chunk size warning。
+  - Chrome 插件真实浏览器验收：`http://127.0.0.1:5174/erzhuang-project/h5/orgs/demo/monitor` 点击“治疗室”后 URL 变为 `?tab=treatment`；进入通道详情 URL 为 `/channels/2?tab=treatment`；点击页面“返回”后 URL 回到 `/monitor?tab=treatment`，active tab 和列表均保持“治疗室”。
+- 发布状态：
+  - 已推送公司 GitLab 固定分支 `codex/containerize-single-image`，远端从 `61b5511` 更新到 `37cadd4`，触发公司 K8s 自动发布。
+  - 已同步 GitHub 备份分支 `origin/codex/containerize-single-image`。
+  - 公网无登录态 `curl https://lite.sy.soyoung.com/erzhuang-project/health` 返回 APISIX 302 到 SSO；Chrome 打开公司 health 被浏览器侧拦截为 `ERR_BLOCKED_BY_CLIENT`，仍需用户在已登录公司浏览器里确认版本和 H5 Monitor 返回体验。
+
+## 2026-08-10 Windows H5 Monitor H.265 播放兼容修复发布
+
+- 问题：
+  - 部分 Windows Edge/Chrome 用户打开 H5 Monitor 实时视频时报首帧超时。
+  - 诊断里显示 `decode=desktop-mse`，播放器内部报 `MediaSource addSourceBuffer` 对 `video/mp4;codecs=hvc1...` unsupported。
+  - 用户补充另一台 Windows 电脑可正常播放，因此不能按 Windows UA 一刀切改成软解。
+- 修复提交：
+  - `7311bda fix: fallback h5 player for unsupported h265 mse`。
+  - 版本：`2.31.8`。
+- 修复内容：
+  - 桌面环境默认继续使用 `desktop-mse`，避免影响可正常硬解或 MSE 播放的机器。
+  - 仅当播放器明确返回 H.265/HEVC + MSE/SourceBuffer + unsupported/not support 错误时，前端自动切到 `desktop-wasm` 软解重试。
+  - 移动端仍保持 `mobile-wasm`；软解路径只把真实视频帧事件作为首帧成功，避免 `loaded` 误判。
+  - 页面会先提示“当前浏览器不支持该 H.265 硬解码流，正在切换软解码重试”。
+- 发布：
+  - GitHub 备份分支已同步：`8467e93 -> 7311bda`。
+  - 公司 GitLab 固定分支已推送：`8467e93 -> 7311bda`，触发公司 K8s 自动发布。
+- 发布前验证：
+  - `cd frontend && npm run test`：5 files / 40 tests 通过。
+  - `cd frontend && npm run build`：通过，仍有既有 `ezuikit-flv` large chunk warning。
+  - `git diff --check` 通过。
+  - `go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - 对本次改动文件执行 `rg -n -i "join" VERSION frontend/src/components/H5FlvPlayer.tsx frontend/src/domain/h5-player-diagnostics.ts frontend/src/api.test.ts`，无匹配，避免公司 GitLab hook 拦截。
+- 发布后待验证：
+  - 等公司实例更新后，页面底部版本应为 `2.31.8 (...)`。
+  - 原失败 Windows 机器重试同一通道：应自动切到 `desktop-wasm` 后播放，或诊断里至少显示 fallback 后的软解路径。
+  - 原可正常播放 Windows 机器不应被强制切软解，除非播放器实际报 H.265 MSE unsupported。
+
+## 2026-07-04 MySQL/OSS 资产与单通道识别抽验
+
+- 执行人：用户在已登录公司浏览器控制台执行。
+- 范围：真实门店单通道截图刷新和识别，不批量请求。
+- 样本：
+  - 门店：`56`，新氧青春诊所(佛山岭南天地店)
+  - 录像机：`64`，`GQ2603587`
+  - 通道：`900065`，通道号 `1`
+- 验证结果：
+  - `GET /erzhuang-project/api/store-space/stores/56/channel-data`：200。
+  - `POST /erzhuang-project/api/store-space/channels/900065/snapshot`：200。
+  - `POST /erzhuang-project/api/store-space/channels/900065/recognize`：200。
+  - 识别响应业务状态：`status=recognition_failed`。
+  - `recognition_result.status=recognition_failed`。
+  - 控制台输出 `ASSET_AND_RECOGNITION_CHECK_DONE`。
+- 失败详情：
+  - `recognition_result.status=recognition_failed`。
+  - `message=vision recognition failed: status 502 ... upstream_error`。
+  - `request ID=5704b803-f192-4f86-a3a7-be7a3df7a53d`。
+  - `capture_ms=578`，说明萤石抓图阶段成功。
+  - `recognition_ms=30407`，说明 AI provider 请求耗时约 30.4s 后由上游返回 502。
+- 当前判断：
+  - 门店详情、通道读取、萤石截图刷新、识别接口路由、认证、OSS/MySQL 写回链路均可达。
+  - 本次失败根因在 AI provider 上游 502，不是 MySQL/OSS 主链路失败。
+- 下一步：
+  - 低频抽验另一个通道，确认 AI provider 是否只是单次波动。
+  - 如果持续 502，暂停批量识别，检查当前 provider 或稍后重试。
+
+### 追加样本
+
+- 通道：`900076`，通道号 `2`。
+- `POST /erzhuang-project/api/store-space/channels/900076/recognize`：200。
+- 识别响应业务状态：`status=pending_confirmation`。
+- `recognition_result.status=recognized`。
+- 结论：
+  - 识别链路整体可用。
+  - 通道 `900065` 的 upstream 502 更符合单次 AI provider 波动，而不是系统性故障。
+  - 后续遇到个别识别失败，优先按单通道低频重试处理。
+
+## 2026-07-04 MySQL/OSS 线上写接口回归
+
+- 执行人：用户在已登录公司浏览器控制台执行。
+- 范围：临时门店写接口验收，脚本最终清理临时数据。
+- 临时数据：
+  - 临时门店 ID：`900006`
+  - 临时门店名：`Codex MySQL 写接口回归 1783154376454 已编辑`
+  - 临时新增录像机 ID：`900058`
+  - 临时新增录像机设备号：`CODB4376454`
+- 验证结果：
+  - `GET /erzhuang-project/health`：200，返回 `database=mysql`、`asset_store=oss`。
+  - `POST /api/store-space/stores`：201，临时门店创建成功。
+  - `PATCH /api/store-space/stores/900006`：200，门店基础信息编辑成功。
+  - `PUT /api/store-space/stores/900006/design-plan`：200，设计图标注保存成功，未复现 collation 错误。
+  - `POST /api/store-space/stores/900006/recorders`：201，录像机添加成功。
+  - `DELETE /api/store-space/recorders/900058`：204，新增录像机删除成功。
+  - `GET /api/store-space/stores/900006/channel-data`：200，确认新增录像机已不存在，`recorder deleted=true`。
+  - `DELETE /api/store-space/stores/900006`：204，临时门店清理成功。
+  - 控制台输出 `WRITE REGRESSION OK store_id=900006`。
+- 结论：
+  - MySQL 门店空间核心写接口当前线上可用。
+  - 临时数据已清理。
+  - 设计图保存 collation 修复在线上有效。
+- 下一步：
+  - 抽验真实门店资产链路和单通道识别链路。
+
+## 2026-07-04 MySQL/OSS 线上只读回归
+
+- 执行人：用户在已登录公司浏览器控制台执行。
+- 范围：只读接口，不改数据。
+- 验证结果：
+  - `GET /erzhuang-project/health`：200，返回 `database=mysql`、`asset_store=oss`。
+  - `GET /erzhuang-project/api/auth/me`：200，返回真实登录用户“凯撒（沙磊）”和权限数组。
+  - `GET /erzhuang-project/api/store-space/stores?page=1&page_size=100`：200，`total=54`，`items.length=54`。
+  - `GET /erzhuang-project/api/h5/orgs/10030/monitor`：200，北京保利实验室门店，`groups.length=1`。
+  - `GET /erzhuang-project/api/h5/orgs/10019/monitor`：200，上海陆家嘴店，`groups.length=5`。
+  - `GET /erzhuang-project/api/h5/orgs/10081/monitor`：200，杭州城北万象城店，`groups.length=5`。
+  - `failed=[]`。
+- 结论：
+  - MySQL/OSS 当前线上只读主链路健康。
+  - 54 家有效门店口径再次确认。
+  - H5 Monitor 样本门店只读接口正常。
+- 下一步：
+  - 执行临时门店写接口验收，并自动清理临时数据。
+  - 再抽验资产链路和单通道识别链路。
+
+## 2026-07-04 项目文件化记忆与控制文档整理
+
+- 背景：
+  - 主会话将长期担任项目负责人，用户要求建立文件化项目记忆，避免长期上下文压缩后丢失关键状态。
+  - MySQL/OSS 切换完成后，README 和技术架构索引仍保留早期 PostgreSQL/Supabase 主路径表述，可能误导后续会话。
+- 本次整理：
+  - `docs/codex-learning-state.md` 顶部新增当前项目记忆快照。
+  - 新建 `docs/decisions.md`，记录关键产品/技术决策。
+  - 新建 `work/current-plan.md`，记录当前轮目标、进度、验证方式和下一步。
+  - 更新 `README.md`，改为当前 MySQL + OSS、公司 GitLab/K8s、54 家有效门店口径。
+  - 重写 `docs/technical-architecture-index.md`，以 `store-space`、MySQL、OSS、APISIX SSO、H5 Monitor、萤石/AI 为当前主路径。
+  - 新建 `docs/post-cutover-regression-checklist.md`，用于 MySQL/OSS 切换后线上回归。
+  - 新建 `docs/legacy-postgres-supabase-shutdown-checklist.md`，用于旧 PostgreSQL/Supabase 下线确认。
+- 验证：
+  - 本轮只改文档和 `work/current-plan.md`，未改业务代码。
+  - 检查新增文档未写入真实密钥、数据库密码或公司敏感连接串。
+- 后续：
+  - 做一次线上回归并记录结果。
+  - 组织旧 PostgreSQL/Supabase 下线确认。
+  - 对历史迁移文档加状态标记或归档说明。
+
+## 2026-07-04 MySQL 设计图保存 collation 修复 2.30.22
+
+- 现象：
+  - 线上临时门店写接口验收中，新增门店和编辑门店成功，保存设计图返回 500。
+  - 详细错误：`Error 1267 (HY000): Illegal mix of collations ... for operation 'nullif'`。
+- 根因：
+  - MySQL 设计图保存 SQL 使用 `nullif(?, '')` 写入 `recognition_result`。
+  - 参数 collation 与空字符串 literal collation 在公司 MySQL 环境不一致，触发字符串比较 collation 冲突。
+- 修复：
+  - 将设计图保存的 `recognition_result` 写法改为 `case when length(?) = 0 then null else ? end`，用长度判断代替字符串比较。
+  - 新增 MySQL Store 源码门禁测试，禁止重新引入字符串参数上的 `nullif(?, '')`。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+
+## 2026-07-04 MySQL 门店空间写接口补齐 2.30.21
+
+- 现象：
+  - MySQL/OSS 切换后，读链路、扫描、识别、通道确认已经恢复，但仍需要继续排查创建、编辑、删除等前端可触达写接口。
+  - MySQL 仓储层仍有若干方法直接返回 `ErrNotImplemented`，会导致对应 API 在公司环境下返回 501/500。
+- 根因：
+  - PostgreSQL 到 MySQL 迁移期间优先补了读链路、迁移链路和通道识别链路，门店空间的常规运营写接口没有全部补齐到 `tb_` 表。
+- 修复：
+  - 实现 MySQL 新增萤石账号、新增门店、编辑门店基础信息、保存设计图标注、新增录像机。
+  - 实现 MySQL 删除门店、删除录像机、删除通道，沿用当前硬删除语义和外键级联约束。
+  - 新增 MySQL 写接口源码门禁测试，避免这些前端可触达写方法再次退回未实现状态。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - 本机直接执行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`，本次继续使用 `go test -c` 做编译门禁。
+
+## 2026-07-02 Postgres -> MySQL 真实数据迁移方向纠正
+
+- 用户纠正：
+  - 公司 MySQL 测试库不是只跑 Stage A 样本验证，而是需要承接当前 Supabase/PostgreSQL 的真实业务数据，并作为后续公司测试环境数据基座。
+  - OSS Stage A 只验证了样本对象从 Supabase Storage 复制到 OSS 的链路，没有完成真实历史数据迁移。
+- 当前判断：
+  - 迁移顺序应改为：Postgres 真实业务数据 -> MySQL 测试库 -> 基于 MySQL 真实资产清单迁 OSS。
+  - OSS 对象迁移不能早于业务行迁移，否则缺少真实 `store_id`、`external_org_id`、`recorder_id`、`channel_id` 和资产归属。
+  - 当前 Go runtime 仍是 `DATABASE_URL` + pgx/PostgreSQL 实现，不能只替换连接串切 MySQL；MySQL repository 是后续单独工作流。
+- 新增迁移工具：
+  - `cmd/pg-to-mysql-export`：只读 Postgres，生成 MySQL 导入 SQL、auto increment SQL 和 `report.json`。
+  - `internal/mysqlmigration`：保存表映射、字段转换和 SQL 生成逻辑。
+  - 迁移工具支持 `--external-org-id 10030` 小样本导出，也支持后续全量导出。
+  - Postgres `tb_users.phone` 会迁为 MySQL `tb_users.mobile`，Postgres 当前 `role` 单字段会转成 MySQL `tb_user_roles` 关系。
+- 新增文档：
+  - `docs/postgres-to-mysql-data-migration-runbook.md`。
+- 已发起 DBA 专项复核：
+  - 复核点包括表顺序、DDL 缺口、只读校验、OSS 迁移顺序和必须双向确认的高风险项。
+- MySQL 测试库 Stage A 样本清理：
+  - 用户确认 MySQL 测试库里的 Stage A 样本/假数据需要清除。
+  - 使用 `db/mysql_stage_a_cleanup_sample_tb.sql` 的受控清理口径，只清理 `900001-900199` ID 段和 `stage-a` 标记数据。
+  - 执行前统计：`tb_stores`、`tb_store_areas`、`tb_store_design_plans`、`tb_design_plan_annotations`、`tb_ezviz_accounts`、`tb_video_recorders`、`tb_video_channels`、`tb_channel_snapshots`、`tb_users`、`tb_asset_objects`、`tb_audit_logs`、`tb_asset_access_logs` 合计 28 行。
+  - 执行后统计：上述 12 张表 Stage A ID 段合计 0 行。
+  - 清理事务已提交，MySQL 版本 `8.0.13`，目标库 `db_pm_erzhuang`，库时区 `+08:00`。
 
 ## 当前主题
 
 学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证、回滚流程。
+
+## 2026-06-24 通道缩略图队列加载 2.14.7 修复记录
+
+- 版本号：`2.14.7`。
+- 用户反馈：
+  - 公司环境 `新氧青春诊所(上海新淮海坊店)` 通道最近截图加载非常慢，转一段时间后失败。
+- 排查结论：
+  - 门店 ID：`9`，录像机 `L18975312`，通道数 `30`。
+  - 截图更新时间为 `2026-06-24 12:35` 之后，说明不是旧截图对象缺失的单一问题。
+  - 只读请求测试显示：
+    - 串行加载前 8 张时，单张也会出现 2s 到 20s 以上不等的耗时，部分请求 20s 内读不完响应体。
+    - 并发加载 30 张时，21 个请求拿到 HTTP 200 但 20s 内未读完 body，9 个请求 AbortError，平均耗时接近 20s。
+    - 并发 4 或 6 时，12 张测试样本基本全部 25s 超时。
+  - 结论：前端一次性加载缩略图会放大失败，必须先做队列/限并发；但单张读取也偏慢，后续仍需要后端生成真正小缩略图或优化 Supabase 图片代理链路。
+- 修复：
+  - 新增 `frontend/src/domain/image-load-queue.ts`，提供通用前端图片加载队列，当前缩略图并发限制为 `2`。
+  - 通道表格缩略图不再直接一次性设置全部 `<img src>`，而是进入队列并等待图片真实 `load/error` 后才释放下一个名额，避免浏览器仍然同时拉取几十张图。
+  - 队列等待期间展示稳定尺寸的小 loading 占位，避免表格抖动。
+  - 离开页面、筛选或切换数据时取消仍在排队的加载任务。
+- 后续建议：
+  - 继续做后端真实缩略图生成：表格加载几十 KB 小图，点击预览再加载大图。
+  - 评估后端缓存或 signed URL，减少 Go 后端代理 Supabase 大图造成的慢请求。
+- 验证：
+  - 新增 `frontend/src/domain/image-load-queue.test.ts`，覆盖并发限制、任务完成后释放下一个名额、取消排队任务。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-image-queue-test src/domain/image-load-queue.ts src/domain/image-load-queue.test.ts && node /tmp/erzhuang-image-queue-test/image-load-queue.test.js` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-channel-test src/domain/channel-recognition.ts src/domain/channel-recognition.test.ts && node /tmp/erzhuang-channel-test/channel-recognition.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - 本地浏览器打开 `http://127.0.0.1:5177/erzhuang/`，页面能正常渲染，控制台无 error；因本地 dev server 未连接完整后端数据，本轮未在本地复现真实公司门店缩略图瀑布。
+
+## 2026-06-23 录像机识别失败提示修正 2.14.6 修复记录
+
+- 版本号：`2.14.6`。
+- 用户反馈：
+  - 公司线上环境 `新氧青春诊所(合肥银泰中心店)` 中，录像机 `GG9803685` 点击“识别区域”后速度很快。
+  - 页面提示“已完成 GG9803685 的通道识别”，但最近截图没有刷新，也没有重新截图识别。
+- 排查结论：
+  - 门店 ID：`16`，录像机 ID：`19`。
+  - 公司线上详情接口显示 `GG9803685` 的 21 个通道都执行了识别尝试，`updated_at` 更新到了 `2026-06-23 18:53` 左右。
+  - 这些通道的 `recognition_result` 均为 `status=recognition_failed`，并且抓图耗时只有几十毫秒。
+  - 具体错误为：`ezviz api error code=10028 msg=抓图接口调用次数超限`。
+  - 所以真实根因不是前端没有调用“识别区域”，也不是没有进入后端；而是萤石抓图接口触发次数限制，后端逐通道保存失败结果后继续队列，前端最终 toast 没有统计失败数，误导成“已完成”。
+- 修复：
+  - 新增 `frontend/src/domain/channel-recognition.ts`，统一生成通道识别行内提示和录像机级完成提示。
+  - 单通道行内提示现在会展示失败 message，例如“抓图接口调用次数超限”，而不是只显示“失败 · 总 47ms”。
+  - 录像机级识别完成后会统计失败通道：
+    - 全部失败：`GG9803685 识别完成，但 21 个通道抓图/识别失败：...`
+    - 部分失败：`GG9803685 识别完成，x/y 个通道抓图/识别失败：...`
+    - 全部成功时保留原成功文案。
+- 验证：
+  - 新增 `frontend/src/domain/channel-recognition.test.ts`，覆盖萤石 `10028` 全失败、部分失败和全部成功三种提示。
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-channel-test src/domain/channel-recognition.ts src/domain/channel-recognition.test.ts && node /tmp/erzhuang-channel-test/channel-recognition.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+- 发布：
+  - GitHub `main` commit：`991033b`。
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已合入并推送，merge commit：`38158d8`，等待公司 K8s 自动发布。
+  - 韩国服务器已通过 SSH 执行 `/opt/apps/erzhuang-project/scripts/deploy.sh` 发布，服务器当前 commit：`991033b`。
+  - 韩国公网入口 `https://43.155.237.46/erzhuang/health` 验证通过。
+
+## 2026-06-23 Supabase Storage Bucket 自愈 2.14.5 修复记录
+
+- 版本号：`2.14.5`。
+- 用户反馈：
+  - 公司环境仍出现 `store space request failed`。
+  - 最近截图显示“加载失败”，希望页面能展示更详细的抓图、识别、存储反馈，便于共同定位。
+- 排查结论：
+  - 公司环境 `/health` 返回 `database=postgres`、`asset_store=supabase`，说明后端已切到 Supabase Storage。
+  - 公司环境前端 bundle 已是 `2.14.4 (container)`，包含截图诊断逻辑。
+  - 抽样调用 `GET /api/store-space/channel-snapshots/9509d32aed822d963233de786e9a8ecd.jpg/diagnostics` 返回：
+    - `code=snapshot_open_failed`
+    - `stage=open_snapshot`
+    - `asset_store=supabase`
+    - `snapshot_key=channel-snapshots/9509d32aed822d963233de786e9a8ecd.jpg`
+    - `exists=false`
+    - `detail=open asset failed: http 400 {"statusCode":"404","error":"Bucket not found","message":"Bucket not found"}`
+  - 根因不是前端，也不是萤石临时 URL 过期；而是公司 Supabase Storage 中缺少代码使用的 bucket，或 `SUPABASE_STORAGE_BUCKET` 与实际 bucket 名不一致。
+- 修复：
+  - Supabase Storage 保存资产时，如果首次写入返回 `Bucket not found`，后端会用 service role 自动创建私有 bucket，并重试一次保存。
+  - 如果创建 bucket 失败或权限不足，仍返回明确错误，不做无限重试。
+- 注意：
+  - 已经因为 bucket 不存在而写入失败的历史截图对象不会自动恢复；需要对对应通道执行“刷新截图”或“重新识别”，生成新截图后才会写入 Supabase Storage。
+- 验证：
+  - 新增 `TestSupabaseStorageStoreCreatesBucketAndRetriesSaveWhenMissing`，覆盖 bucket 缺失时自动创建并重试保存。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+- 发布：
+  - GitHub `main` commit：`8a73c95`。
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已合入并推送，merge commit：`1c59220`，等待公司 K8s 自动发布。
+  - 韩国服务器已通过 SSH 执行 `/opt/apps/erzhuang-project/scripts/deploy.sh` 发布，服务器当前 commit：`8a73c95`。
+  - 韩国服务器本机健康检查返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"local"}`。
+  - 韩国公网入口 `https://43.155.237.46/erzhuang/health` 验证通过。
+
+## 2026-06-23 通道截图与抓图识别诊断增强 2.14.4 修复记录
+
+- 版本号：`2.14.4`。
+- 用户反馈：
+  - 公司环境再次出现 `store space request failed`。
+  - 通道映射页所有“最近截图”显示加载失败，前端缺少足够信息判断是抓图、保存 Supabase、读取 Supabase，还是历史本地文件缺失。
+- 产品/排障决策：
+  - 页面需要展示脱敏后的诊断信息，便于用户直接把错误贴回给 Codex 定位。
+  - 不能展示 accessToken、apiKey、service role key 或完整签名 URL。
+- 修复：
+  - store-space 错误响应保留旧 `error` 字段，同时新增 `code`、`stage`、`detail`。
+  - 后端新增 `GET /api/store-space/channel-snapshots/{name}/diagnostics`，返回 `asset_store`、`snapshot_key`、`exists`、`code/stage/detail`。
+  - 前端 `ApiError` 保留 `code/stage/detail`，通道映射页错误提示会展示这些字段。
+  - 最近截图 `<img>` 加载失败时，前端自动请求截图诊断接口，并在缩略图下方用小字展示脱敏诊断信息。
+- 验证：
+  - 新增 `TestScanRecorderEndpointReturnsDiagnosticForUnexpectedError`，覆盖普通内部错误不再只返回一句 `store space request failed`。
+  - 新增 `TestChannelSnapshotDiagnosticsReportsOpenFailure`，覆盖截图读取失败时返回脱敏诊断信息。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-06-23 兜底抓图队列不中途停止 2.14.3 修复记录
+
+- 版本号：`2.14.3`。
+- 用户反馈：
+  - 公司环境华东录像机 `K96112775` 已能进入逐通道抓图识别队列，但只抓到约 9、10 张图后停止。
+  - 用户判断实际通道不可能只有 9、10 个，怀疑与此前 70 秒、每 6 秒的测算有关。
+- 排查结论：
+  - 当前逐通道队列是前端逐个调用 `probe-recognize-channel`，不再是单个后端请求卡满 70 秒。
+  - 真正导致 9、10 张后停止的是前端保留了“连续 5 个通道失败就停止”的旧兜底策略。
+  - 如果 1-10 有效，11-15 为空通道或抓图失败，队列会直接停止，导致 16 之后的有效通道被漏掉。
+- 修复：
+  - 新增 `fallbackProbeChannelNumbers()` 和 `shouldStopFallbackProbe()`，集中管理兜底通道探测策略。
+  - 兜底识别最多检测到 64 路；30 路之前不允许因连续失败停止；30 路之后连续 8 个通道失败才停止。
+  - 移除前端兜底队列里的“连续 5 次失败即停止”旧逻辑，避免中间空通道造成后续漏扫，同时避免每次无脑扫满 64 路。
+- 验证：
+  - 新增 `frontend/src/domain/fallback-probe.test.ts`，覆盖兜底检测计划为 1-64，且停止条件为 30 路后连续 8 次失败。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-06-23 萤石错误透传 2.14.2 修复记录
+
+- 版本号：`2.14.2`。
+- 用户反馈：
+  - 公司环境华东录像机 `K96112775` 扫描不再表现为 504，但页面提示“录像机 K96112775 扫描失败：store space request failed”，仍没有进入逐通道抓图识别。
+- 排查结论：
+  - `2.14.1` 后端扫描接口已不再同步抓图兜底，能把萤石 `10026` 错误返回到 service 层。
+  - 但 store-space handler 没有识别 `ezviz.Error`，统一把未知错误转成 `store space request failed`。
+  - 前端只能看到泛化文案，无法命中 `10026` 或“设备数量超出个人版限制”的兜底判断。
+- 修复：
+  - store-space handler 对 `ezviz.Error` 返回 HTTP 502，并保留错误 code/msg，例如 `ezviz api error code=10026 msg=...`。
+  - 前端现有 `shouldUseFallbackProbe` 可直接根据返回文案进入逐通道抓图识别队列。
+- 验证：
+  - 新增 `TestScanRecorderEndpointReturnsEzvizErrorCodeForFallback`，覆盖 `10026` 不再被吞成 `store space request failed`。
+
+## 2026-06-23 扫描接口 10026 同步兜底下线 2.14.1 修复记录
+
+- 版本号：`2.14.1`。
+- 用户反馈：
+  - 公司环境华东录像机 `K96112775`（上海静安）扫描仍然出现 HTTP 504。
+  - 用户观察到系统仍像是在先跑完整通道扫描，而不是进入新的逐通道抓图识别流程。
+- 排查结论：
+  - `2.14.0` 前端已经在扫描接口返回 `10026` 时接管抓图识别队列。
+  - 但后端 `EzvizScanner.ScanRecorderChannels` 在 `camera/list` 返回 `10026` 时仍会同步调用旧的 `probeChannelsByCapture`，最多串行探测 32 个通道、连续 5 次失败后才停止。
+  - 在失败通道耗时较长时，公司网关容易先返回 504，前端无法收到 `10026`，也就无法进入新的逐通道抓图识别队列。
+- 修复：
+  - 下线扫描接口内的旧同步抓图兜底路径。
+  - `camera/list` 返回 `10026` 时，后端原样返回萤石错误，由前端触发 `probe-recognize-channel` 队列逐通道抓图、识别和写入。
+  - 保留非 `10026` 错误的原有返回逻辑。
+  - 资产存储模式增加防守性识别：如果运行时已经提供完整 Supabase Storage 配置，但漏配 `ASSET_STORE=supabase`，后端会自动使用 Supabase Storage，避免公司 K8s 环境误写容器本地目录。
+  - `/health` 增加非敏感字段 `asset_store`，用于确认线上当前使用 `local` 还是 `supabase`，方便排查“最近截图/设计图加载不出来”。
+- 验证：
+  - 更新 `TestEzvizScannerReturnsPlanLimitWithoutCaptureProbe`，覆盖 `10026` 时不发送任何 `/device/capture` 请求，并把错误返回给上层。
+  - 保留 `TestEzvizScannerDoesNotFallbackForUnauthorizedDevice`，覆盖非授权错误不触发抓图探测。
+  - 新增 `TestNewStoreFromEnvAutoSelectsSupabaseWhenStorageConfigExists` 覆盖 Supabase Storage 配置完整时自动选用 Supabase。
+  - 更新 `/health` 测试覆盖 `asset_store` 字段。
+
+## 2026-06-23 抓图兜底扫描识别 2.14.0 开发记录
+
+- 版本号：`2.14.0`。
+- 用户反馈与产品调整：
+  - 华东录像机 `K92940413` 扫描上报 HTTP 504。
+  - 实测 `camera/list` 返回 `10026 设备数量超出个人版限制`，通道 1-10 可抓图，通道 11-15 返回 `60012` 且每个失败耗时约 10-15 秒，完整同步兜底扫描约 70 秒。
+  - 产品流程调整为：当无法直接获取通道列表时，不再等待完整扫描结果，而是逐通道抓图；抓图成功即创建有效通道、保存最近截图，并同步完成 AI 区域识别。
+  - 页面只展示“已检测 X 个，有效 Y 个”，连续失败数只作为内部停止条件，不展示给用户。
+- 实现：
+  - 新增 `ProbeRecognizeChannel` 服务能力和 `POST /api/store-space/recorders/{recorder_id}/probe-recognize-channel`。
+  - 新增仓库方法 `UpsertRecorderChannel`，单通道成功时创建/更新通道，不清空其他通道，也不覆盖已确认映射。
+  - 前端扫描遇到 `10026` 或“设备数量超出个人版限制”时，自动进入抓图识别队列，从通道 1 开始逐个调用单通道接口。
+  - 成功通道立即写入页面通道列表，截图和 AI 识别结果同步展示；连续 5 个失败或达到通道 32 后停止。
+- 验证：
+  - 新增 `TestProbeRecognizeChannelCreatesChannelAndStoresRecognition` 覆盖抓图成功后创建通道、保存稳定截图、写入 AI 识别结果。
+  - 新增 `TestProbeRecognizeChannelReturnsInactiveWhenCaptureFails` 覆盖抓图失败不创建通道。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+- 发布状态：
+  - GitHub `main` commit：`4d2860d`。
+  - 韩国服务器已通过 SSH 执行 `/opt/apps/erzhuang-project/scripts/deploy.sh` 发布，服务器当前 `COMMIT=4d2860d`，`VERSION=2.14.0`。
+  - 韩国服务器本机验证：`/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`，`erzhuang-project.service` 为 active。
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已合入并推送，merge commit：`caff710`。
+  - 公司环境由 GitLab/K8s 自动发布；本机当前无法直接验证公司内网页面版本，需要用户在公司网络侧确认。
+
+## 2026-06-23 通道最近截图过期展示 2.13.1 修复记录
+
+- 版本号：`2.13.1`。
+- 用户反馈：
+  - 有效通道里的“最近截图”过几天后仍然出现加载失败，怀疑图片没有妥善保存。
+- 排查结论：
+  - 当前新识别/刷新链路会把萤石云 `device/capture` 返回的临时图片先下载，再通过 `AssetStore` 保存为 `/api/store-space/channel-snapshots/{name}`，这是稳定托管路径。
+  - 韩国服务器抽样检查：
+    - 新测试门店 `萤石华北测试门店` 的截图均为 `/api/store-space/channel-snapshots/...`，后端接口返回 200。
+    - 老门店 `新氧青春诊所 深圳龙岗坂田万科项目` 的 38 个通道仍保存为 `https://opencapture.ys7.com/...` 临时 URL，并带 `full_image_expires_at`，属于历史数据未迁移。
+  - 因此本次现象主要来自历史临时截图 URL 过期；新截图保存逻辑本身可用。
+- 修复：
+  - 后端读取通道时，如果截图是带过期时间的远程临时图，且已过期，则不再把 `thumbnail_url/full_image_url` 暴露给前端。
+  - 已保存到系统截图库的 `/api/store-space/channel-snapshots/...` 不受过期时间影响。
+  - 前端对已过期截图显示“已过期”，保留“刷新截图/重新识别”入口，让用户重新生成稳定截图。
+- 验证：
+  - 新增 `TestExpiredRemoteChannelSnapshotIsNotExposed` 覆盖过期远程截图不再暴露给前端。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-23 萤石云扫描通道抓图兜底 2.13.0 开发记录
+
+- 版本号：`2.13.0`。
+- 用户反馈：
+  - 部分录像机超过萤石云个人版设备限制时，`device/camera/list` 直接返回错误，导致系统扫描通道失败。
+  - 实测 `GF8132547` 在华东账号下 `device/camera/list` 返回 `10026`，但 `device/capture` 抓取通道 1 成功。
+- 产品决策：
+  - 默认仍优先使用萤石官方 `device/camera/list` 扫描通道。
+  - 当 `camera/list` 返回 `10026` 时，降级使用 `device/capture` 从通道 1 开始串行探测。
+  - 抓图成功即认为该通道有效；连续 5 个通道抓图失败后停止；最大探测到通道 32。
+- 修复：
+  - `internal/ezviz/client.go` 新增 `ErrorCode`，供上层识别萤石错误码。
+  - `internal/storespace/ezviz_scanner.go` 在 `10026` 时启用抓图兜底探测。
+  - 其他萤石错误码，例如 `20018 该用户不拥有该设备`，仍保持原错误，不误触发兜底扫描。
+- 验证：
+  - 新增 `internal/storespace/ezviz_scanner_test.go` 覆盖 `10026` 兜底抓图、连续 5 个失败停止、非权限错误不兜底。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go build ./cmd/server` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-22 城市列表补充济南并按音序排列 2.12.2 开发记录
+
+- 版本号：`2.12.2`。
+- 用户反馈：
+  - 添加机构时城市列表需要增加“济南”。
+  - 整个城市列表需要按首字母音序排列。
+- 修复：
+  - 新增 `frontend/src/domain/cities.ts`，集中维护城市下拉配置。
+  - 城市列表新增“济南”，并按拼音首字母顺序排列。
+  - 添加机构弹窗和编辑机构弹窗统一引用 `CITY_OPTIONS`，避免两个入口城市列表不一致。
+- 验证：
+  - 新增 `frontend/src/domain/cities.test.ts` 覆盖“包含济南”和完整城市顺序。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-22 其他区域确认后显示未知 2.12.1 修复记录
+
+- 版本号：`2.12.1`。
+- 用户反馈：
+  - 通道识别为“其他区域”后，手动填写“护士站”等编号/备注，点击确认正常。
+  - 再点击编辑修改并重新确认后，业务区域类型显示成“未知”。
+- 根因：
+  - 非业务区域自定义备注不属于固定场景枚举，前端二次确认时会发送 `sceneType = unknown`。
+  - 页面展示层把内部兜底枚举 `unknown` 直接翻译成“未知”，导致用户看到错误业务类型；实际备注仍保存在 `areaNote`。
+- 修复：
+  - 新增 `frontend/src/domain/channel-labels.ts`，集中维护通道场景展示名。
+  - `unknown` 在通道映射业务展示中统一显示为“其他区域”。
+  - `frontend/src/components/VideoChannelTab.tsx` 改为复用领域 helper，避免组件内重复维护场景文案。
+- 验证：
+  - 新增 `frontend/src/domain/channel-labels.test.ts` 覆盖 `unknown -> 其他区域`、`machine_room -> 机房`、`front_desk -> 前台`、`treatment -> 治疗室`。
+  - 已用临时 TypeScript 编译链路验证新增领域测试通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 发布状态：
+  - 修复代码 commit：`d0d0d8d`。
+  - GitHub `main` 已推送修复代码。
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已合入并推送，merge commit：`de514e6`。
+  - 公司环境由 GitLab/K8s 自动发布；当前本机无法解析 `lite.sy.soyoung.com`，需要用户在公司内网侧确认页面版本。
+  - 韩国服务器已执行 `/opt/apps/erzhuang-project/scripts/deploy.sh`，服务器测试、Go build、前端 build、服务重启均通过。
+  - 韩国服务器本机验证：`VERSION=2.12.1`，`/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`，`erzhuang-project.service` 与 `nginx` 均为 active。
+  - 本机直连 `https://43.155.237.46/erzhuang/health` 仍连接失败，和既有网络现象一致；服务器本机服务状态正常。
+
+## 2026-06-17 机构基础信息编辑 2.12.0 开发记录
+
+- 版本号：`2.12.0`。
+- 用户反馈：
+  - 添加门店后，城市和新氧机构 ID 无法再修改。
+  - 机构列表操作区希望改为 `详情 / 编辑 / 删除`。
+- 产品决策：
+  - 列表页新增“编辑”只维护基础信息：城市、门店名称、新氧机构 ID。
+  - 设计图、录像机、通道映射仍在详情页对应 Tab 维护，不放进基础信息编辑弹窗，避免入口重复和校验混乱。
+- 后端代码索引：
+  - `PATCH /api/store-space/stores/{id}`：更新机构基础信息。
+  - `internal/storespace/models.go`：`UpdateStoreBasicInfoInput`。
+  - `internal/storespace/service.go`：`UpdateStoreBasicInfo`，复用同名门店校验并排除当前门店。
+  - `internal/storespace/store.go`：Memory/Postgres 更新 `city/name/normalized_name/external_org_id/updated_at`。
+  - `internal/storespace/handler.go`：`updateStoreBasicInfo`。
+- 前端代码索引：
+  - `frontend/src/components/StoreList.tsx`：操作区改为 `详情 / 编辑 / 删除`。
+  - `frontend/src/components/EditStoreModal.tsx`：基础信息编辑弹窗。
+  - `frontend/src/App.tsx`：编辑弹窗状态、保存、重复门店确认和列表刷新。
+  - `frontend/src/api.ts`：`UpdateStoreBasicInfoPayload`、`storeSpaceApi.updateStoreBasicInfo`。
+  - `frontend/src/components/CreateStoreModal.tsx`：导出 `CITY_OPTIONS` 供编辑弹窗复用。
+- 验证状态：
+  - 已补 service 与 handler 测试。
+  - `cd frontend && npm run build` 通过。
+  - 本机 Go 测试仍受 `.tools/go` / macOS 动态加载 `missing LC_UUID load command` 影响，待在服务器或可用 Go 环境验证。
+
+## 2026-06-17 图片访问前缀修复 2.11.1 开发记录
+
+- 版本号：`2.11.1`。
+- 用户反馈：
+  - 公司 GitLab 环境识别区域后，通道列表“最近截图”显示“已过期”。
+  - 设计图图纸也无法加载图片。
+- 根因判断：
+  - 后端已把萤石云临时截图下载并保存到系统资产存储，通道截图路径保存在 `channel_snapshots.thumbnail_path/full_image_path`。
+  - 设计图路径保存在门店设计图记录的 `preview_image_path/thumbnail_path`。
+  - 前端旧逻辑把所有后端返回的 `/api/...` 图片地址硬编码补成 `/erzhuang/api/...`。
+  - 公司环境实际前缀是 `/erzhuang-project/`，所以图片请求被改到错误路径，浏览器加载失败后被前端误显示为“已过期”。
+- 修复：
+  - 新增 `frontend/src/url-utils.ts`，集中处理 API base、图片展示 URL、存储路径反解。
+  - 默认 API base 改为根据当前页面路径和 Vite `BASE_URL` 推导，兼容个人 `/erzhuang/` 与公司 `/erzhuang-project/`。
+  - 设计图、门店缩略图、通道截图统一按对应 API base 转换，不再写死 `/erzhuang`。
+  - 图片加载失败文案由“已过期”改为“加载失败”；截图预览说明改为“已保存到系统截图库”。
+- 验证：
+  - `frontend/src/url-utils.test.ts` 覆盖 `/erzhuang-project/api/...`、`/erzhuang/api/...`、历史 `uploads/...` 路径转换。
+  - `cd frontend && npm run build` 通过。
+  - `go test ./...` 本机未完成：系统 PATH 无 `go`，改用项目 `.tools/go` 后 macOS 动态加载报 `missing LC_UUID load command`，本次未改后端代码。
+- 发布状态：
+  - GitHub `main` 已推送：`2a443c2 Fix image URL base path handling`。
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已推送：`c5b0d22 Merge branch 'main' into codex/containerize-single-image`。
+  - 公司环境由 GitLab/K8s 自动发布；当前本机无法解析 `lite.sy.soyoung.com`，需要用户在公司内网侧确认页面版本和图片加载。
+  - 韩国服务器已通过 SSH 执行 `/opt/apps/erzhuang-project/scripts/deploy.sh`，服务器当前 commit：`2a443c2`，版本：`2.11.1`。
+  - 韩国服务器 `go test ./...`、Go build、前端 build、服务重启均成功。
+  - 韩国服务器本机 `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 韩国服务器 nginx 与 `erzhuang-project.service` 均为 active，监听 `0.0.0.0:443` 与 `127.0.0.1:18081`。
+  - 本机直连 `https://43.155.237.46/erzhuang/health` 暂时连接失败，但 SSH 到服务器本机检查服务和端口均正常。
+  - 本次发现本机 SSH 登录韩国服务器的 key 是 `~/.ssh/erzhuang_lighthouse`，不是文档里原先容易混淆的服务器内部 GitHub deploy key。
+
+## 2026-06-17 通道映射 Excel 导出 2.11.0 开发记录
+
+- 版本号：`2.11.0`。
+- 目标：
+  - 在机构详情页的通道映射 Tab 增加“导出 Excel”能力。
+  - 按用户要求，按钮放在“通道列表”模块标题行，位于业务区域筛选条件左侧。
+- 后端：
+  - 新增 `GET /api/store-space/stores/{id}/channel-mappings/export.xlsx`。
+  - 使用 Go 标准库生成 `.xlsx`，不引入第三方 Excel 依赖。
+  - 导出列：序号、城市、门店名称、新氧机构 ID、录像机编号、通道号、最近截图、业务区域类型、编号/备注。
+  - 过滤离线录像机、失效通道和已删除通道。
+  - 排序顺序：面诊室、治疗室、生美、其他区域；同类型再按编号/备注、录像机编号、通道号排序。
+  - 可读取的通道截图会作为 Excel 图片对象嵌入，读取不到则保留文字占位。
+- 前端：
+  - `VideoChannelTab` 通道筛选行新增 `导出 Excel` 按钮。
+  - 支持导出中 loading 态和错误 toast。
+  - 浏览器按后端 `Content-Disposition` 文件名下载 `.xlsx`。
+- 验证：
+  - `go test ./...` 通过。
+  - `frontend npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地浏览器验收：按钮已出现在“通道列表”标题行，位于 `全部/面诊室/治疗室/生美` 筛选左侧。
+
+## 2026-06-17 发布术语规范
+
+本节是 2026-06-17 的历史发布术语记录。2026-07-06 已更新当前规则：GitHub 代码备份能力依然保留；韩国 Lighthouse 发布链路已终止，且韩国服务器上的二壮项目库表已完全删除；二壮项目实际发布只走公司 GitLab/K8s。
+
+用户当时明确两套发布口径：
+
+- 默认 GitHub 备份：
+  - 除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，所有已确认准备发布的代码都先提交并推送到 GitHub `origin/main`。
+  - GitHub 是主代码备份；后续当前规则仍保留这一点，但不再发布韩国服务器。
+- “发布到公司”：
+  - merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
+  - 推送 remote `gitlab`。
+  - 由公司 GitLab / K8s 自动发布，通常约 5 分钟。
+  - 不操作韩国 Lighthouse，不 force push，不覆盖公司 Docker/K8s/运行时环境配置。
+  - 验证 `https://lite.sy.soyoung.com/erzhuang-project/health` 和页面版本号。
+- “发布到韩国服务器”（已于 2026-07-06 废止）：
+  - 推送 GitHub `origin/main`。
+  - 通过腾讯云 TAT 指定韩国 Lighthouse `ap-seoul / lhins-rjfpwj1u`。
+  - 以 `lighthouse` 用户执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
+  - 服务器从 GitHub 拉取最新 `main`，自动执行测试、构建、重启和健康检查。
+  - 验证 `http://127.0.0.1:18081/health` 和公网 `/erzhuang/`。
+- 如果用户同时要求两个环境，需要记录两个环境最终 commit，避免页面版本号和问题反馈对不齐。
+
+同步文档：
+
+- `AGENTS.md`
+- `docs/deploy-runbook.md`
+
+## 2026-06-17 萤石云账号区域自动同步
+
+- 版本号：`2.10.1`。
+- 公司环境添加录像机时“选择区域”为空，根因是公司新数据库 `ezviz_accounts` 没有 `华北/华东/华南/华中` 等展示记录。
+- 当前决策：
+  - 公司内网环境可临时把完整 `EZVIZ_ACCOUNTS_JSON` 写入内网 GitLab Dockerfile 或容器环境变量，后续再迁移到 K8s Secret。
+  - 代码不把 `app_key/app_secret/access_token` 写入数据库。
+  - 服务启动时从 `EZVIZ_ACCOUNTS_JSON` 读取账号 `name/account_name`，自动 upsert 到 `ezviz_accounts`，状态设为 `available`。
+  - 前端继续从 `GET /api/store-space/ezviz-accounts` 获取可选区域。
+  - 扫描、抓图时后端仍使用运行时 env 中的完整密钥。
+- 验证重点：
+  - 公司环境启动日志应出现 `ezviz scanner enabled, synced N account(s)`。
+  - `GET /api/store-space/ezviz-accounts` 应返回 `华北/华东/华南/华中`。
+  - 添加门店/添加录像机时“选择区域”下拉应出现对应大区。
+
+## 2026-06-16 资产存储抽象 2.10.0 开发记录
+
+- 版本号：`2.10.0`。
+- 背景：
+  - 公司研发反馈：如果设计图、预览图、缩略图和监控截图只存在容器本地目录，K8s 容器重启或重新调度后可能丢失。
+  - 建议把这些文件放到 Supabase Storage，并保留数据库字段记录对象路径。
+- 本次改进：
+  - 新增 `internal/assets` 统一资产存储层。
+  - 支持 `ASSET_STORE=local` 和 `ASSET_STORE=supabase` 两种实现。
+  - 设计图上传仍在本地临时目录完成 PDF 转 PNG，然后把 `original.pdf`、`preview.png`、`thumbnail.png` 保存到 AssetStore。
+  - 通道截图从萤石云临时 URL 下载后，也改为保存到 AssetStore。
+  - 图片接口继续由 Go 后端读取并转发，前端不直连 Supabase Storage。
+  - 兼容旧本地路径：数据库仍保存 `uploads/{upload_id}/preview.png`，Supabase 使用该逻辑 key；本地模式会映射回 `UPLOAD_DIR/{upload_id}/preview.png`，避免个人服务器旧图打不开。
+- 环境变量约定：
+  - 本地/个人服务器：`ASSET_STORE=local`，`UPLOAD_DIR=/opt/apps/erzhuang-project/uploads`。
+  - 公司 K8s：`ASSET_STORE=supabase`，`SUPABASE_URL=...`，`SUPABASE_SERVICE_ROLE_KEY=...`，`SUPABASE_STORAGE_BUCKET=design-plan-assets`，`UPLOAD_DIR=/tmp/erzhuang-work`。
+  - `SUPABASE_SERVICE_ROLE_KEY` 只允许放服务端环境变量或 K8s Secret，不进入仓库、镜像和前端 `VITE_*` 配置。
+- 文档同步：
+  - `docs/deploy-runbook.md` 补充 Supabase Storage 部署配置。
+  - `docs/technical-architecture-index.md` 补充 `internal/assets`、设计图上传、通道截图的代码索引。
+  - `docs/superpowers/plans/2026-06-16-asset-store-storage.md` 记录本次实施计划和后续维护要点。
+- 发布状态：
+  - 代码 commit：`dfc4845`。
+  - GitHub `main` 已推送到 `dfc4845`。
+  - TAT InvocationId：`inv-p4x3r8g8ad`。
+  - 服务器发布脚本执行成功，服务器已拉取 `dfc4845`。
+  - 服务器 `go test ./...` 通过。
+  - 服务器 Go build 通过。
+  - 服务器前端 build 通过，产物包含 `/erzhuang/assets/index-CPQG6Jsb.js`。
+  - `erzhuang-project.service` 重启成功。
+  - 服务器本机 `/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres"}`。
+  - 服务器 `npm install` 仍提示 2 个 high severity vulnerabilities，未在本次存储改造中处理，后续可单独做前端依赖安全升级评估。
 
 ## 2026-06-15 通道截图持久化 2.9.10 发布记录
 
@@ -2066,3 +2966,2446 @@ git pull --ff-only
 - v1：`/health` 返回 version `v1`
 - v2：已练习发布
 - rollback：已从 v2 回滚到 v1
+
+## 2026-06-26 AI 模型 provider 切换开发记录
+
+- 目标：
+  - 解决 OpenAI 接口限流时项目识别能力不稳定的问题。
+  - 通道截图识别和设计图识别都支持通过环境变量切换 OpenAI / MiniMax。
+  - MiniMax HTTP 调用内置到 Go 代码中，避免正式服务依赖 OpenClaw 外部脚本。
+- 关键改动：
+  - `CHANNEL_AI_PROVIDER=openai|minimax|minimax-script` 控制通道截图识别。
+  - `DESIGN_PLAN_AI_PROVIDER=openai|minimax` 控制设计图识别；不设置时跟随 `CHANNEL_AI_PROVIDER`。
+  - `MINIMAX_API_KEY` 是 MiniMax 唯一 key 来源，不复用 `OPENAI_API_KEY` 或 `VISION_API_KEY`。
+  - 设计图识别增加 markdown 代码块包裹 JSON 的解析兼容。
+  - MiniMax/OpenAI base URL 带 `/v1` 时避免重复拼接 `/v1/v1/...`。
+  - 新增 `cmd/ai-smoke`，用于 provider/key/model 切换后的真实冒烟验证。
+  - 新增 `docs/model-provider-switching.md`，记录换 provider、换 key、换模型和冒烟步骤。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/channelai/... ./internal/designplan/... ./cmd/ai-smoke` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+- 真实 MiniMax 冒烟：
+  - `https://api.minimaxi.com/v1/models` 可用，当前 key 返回模型列表：`MiniMax-M3`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed`、`MiniMax-M2.5`、`MiniMax-M2.5-highspeed`、`MiniMax-M2.1`、`MiniMax-M2.1-highspeed`、`MiniMax-M2`。
+  - `MiniMax-01-vision` 返回 `unknown model`；`MiniMax-M1` 返回 `not support img`。
+  - `MiniMax-M3` 设计图 smoke 成功，耗时约 `4557ms`。
+  - `MiniMax-M3` 通道截图 smoke 成功，耗时约 `3027ms`。
+- 后续：
+  - `minimax-script` 仍作为短期兜底保留；MiniMax HTTP 在线上环境验证稳定后再删除，彻底解耦 OpenClaw。
+
+## 2026-06-26 详情页识别模型切换按钮开发记录
+
+- 目标：
+  - 在机构详情页「设计图标注 / 通道映射」Tab 行最右侧增加「切换识别模型」按钮。
+  - 按钮后展示当前识别模型，例如 `当前识别模型：OpenAI / gpt-5.5` 或 `MiniMax / MiniMax-M3`。
+  - 点击按钮在 OpenAI 和 MiniMax 之间切换，同时影响设计图识别和通道截图识别。
+- 实现：
+  - 新增后端 `GET /api/ai-settings` 和 `POST /api/ai-settings/toggle`。
+  - 新增 `app_settings` 表保存 `ai_provider`，并开启 RLS + 拒绝前端直连策略。
+  - 识别服务改为运行时读取当前 provider，不需要重启服务。
+  - API key 仍只来自运行时环境变量，不进入数据库、前端或仓库。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+- 未完成：
+  - 当前沙箱无法用 Playwright/Computer Use 完成页面截图验收；本地 dev server 已启动在 `http://127.0.0.1:5177/erzhuang/`，需要浏览器人工确认按钮位置。
+
+## 2026-06-26 识别模型切换 2.16.0 发布记录
+
+- 版本号：`2.16.0`。
+- GitHub `main` commit：`d783014 Add runtime AI model switching`。
+- 公司 GitLab 发布分支：`codex/containerize-single-image`。
+- 公司 GitLab merge commit：`0ebed48 Merge branch 'main' into codex/containerize-single-image`。
+- 发布范围：
+  - 机构详情页 Tab 行最右侧新增“切换识别模型”按钮和当前模型显示。
+  - 后端新增 AI settings API，运行时在 OpenAI / MiniMax 之间切换。
+  - 通道截图识别和设计图识别支持动态 provider。
+  - MiniMax HTTP recognizer 内置到 Go 服务，保留 `minimax-script` 作为短期兜底。
+  - 同步 H5 monitor 技术调研文档和隐藏 Ezviz live demo 支撑代码。
+- 本地验证：
+  - `git diff --check --cached` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - staged diff 敏感信息扫描未发现真实 key。
+- 公司环境验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 公司线上 JS 已确认包含 `2.16.0`、“当前识别模型”、“切换识别模型”、`OpenAI`、`MiniMax`。
+- 韩国服务器发布：
+  - 通过 SSH 执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
+  - 服务器拉取 GitHub `main` 到 `d783014`。
+  - 服务器 `go test ./...`、Go build、frontend build 通过。
+  - 重启 `erzhuang-project.service` 后健康检查最终通过。
+  - 公网 `https://43.155.237.46/erzhuang/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"local"}`。
+  - 韩国线上 JS 已确认包含 `2.16.0`、`d783014`、“当前识别模型”、“切换识别模型”、`OpenAI`、`MiniMax`。
+- 注意：
+  - TAT 发布因本机无 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` 环境变量而未继续输入密钥，改用已记录的 SSH key 执行同一部署脚本。
+  - 韩国部署时服务重启后前 13 次本机 health 连接失败，第 14 次成功，判断为服务启动/依赖初始化短暂延迟；本次无需回滚。
+
+## 2026-06-26 VIP治疗室与通道筛选 2.17.0 开发记录
+
+- 目标：
+  - 新增业务区域类型 `VIP治疗室`，归入治疗室大类。
+  - 通道映射筛选扩展为：全部、面诊室、治疗室、生美、前台/候诊区、通道/其他。
+  - 筛选和排序规则沉淀为可复用前端领域模块，供后续 H5 monitor 首页复用。
+- 关键规则：
+  - `VIP治疗室` 对应 `area_type=vip_treatment`，治疗室筛选和治疗室数量统计都包含它。
+  - `VIP治疗室` 编号/备注非必填，空编号在后端以 `area_number=0` 表示；同一门店最多一个未编号 VIP 治疗室。
+  - 普通治疗室、面诊室、生美仍要求数字编号。
+  - `前台/候诊区` 只按可见/可维护文本包含 `前台`、`候诊`、`等候` 判断。
+  - `通道/其他` 作为非业务且非前台候诊的兜底组。
+- 实现：
+  - 新增 `frontend/src/domain/channel-filters.ts`，以最小字段接口 `ChannelFilterable` 承载通道筛选、归类、排序规则。
+  - 新增 `frontend/src/domain/channel-filters.test.ts` 覆盖全部排序、治疗室包含 VIP、前台候诊匹配、通道/其他兜底。
+  - 通道映射 Tab 改用共享筛选模块，新增 VIP 治疗室选项。
+  - 设计图标注区域卡片新增 VIP 治疗室选项，并与通道映射一致支持空编号。
+  - `internal/storespace` 与旧 `internal/designplan` 模块同步支持 `vip_treatment`，避免旧路由/schema 保留三类约束。
+  - `docs/h5-monitor-dev-task.md` 增加复用实现方案，要求 H5 monitor 不复制分组排序逻辑。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && ./node_modules/.bin/vitest run src/domain/channel-filters.test.ts` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 未完成：
+  - Vite dev server 需要提升权限后可启动；Playwright 自带浏览器未安装，系统 Chrome headless 被本机权限限制关闭，因此本轮未完成自动化截图验收。
+
+## 2026-06-26 通道截图缓存 2.17.1 开发记录
+
+- 目标：
+  - 降低机构详情页通道映射 Tab 每次进入时最近截图重新排队加载的等待感。
+  - 保持刷新截图/重新识别后能显示新图，不让用户看到过期图片。
+- 实现：
+  - 前端 `ImageLoadQueue` 增加已成功加载 URL 的内存记录。
+  - `QueuedSnapshotImage` 仅在同一 URL 已成功加载过时直接显示；未命中仍走原来的队列预加载和错误兜底。
+  - 后端通道截图接口增加 `Cache-Control: private, max-age=604800, immutable` 与 `ETag`，命中 `If-None-Match` 时返回 `304`。
+  - 前端验收清单新增规则：版本化图片 URL 应支持浏览器缓存或前端内存缓存，刷新图片时通过新 URL 失效旧缓存。
+- 风险控制：
+  - 不修改截图 URL 生成逻辑。
+  - 不修改图片加载失败兜底逻辑。
+  - 当前截图刷新会生成新文件名，因此新 URL 会自然绕过旧缓存。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/storespace -run 'TestChannelSnapshotResponseUsesBrowserCacheHeaders|TestChannelSnapshotDiagnosticsReportsOpenFailure'` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-image-queue-test src/domain/image-load-queue.ts src/domain/image-load-queue.test.ts && node /tmp/erzhuang-image-queue-test/image-load-queue.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+
+## 2026-06-26 门店详情即时进入 2.17.2 开发记录
+
+- 背景：
+  - 机构列表点击“详情”时，前端原逻辑会等待 `GET /api/store-space/stores/{id}` 全量详情接口返回后才切换页面。
+  - 该接口会加载门店基础信息、区域、设计图、录像机、通道和最近截图路径；大门店或网络波动时，用户会感觉点击后“转很久才进入”。
+- 实现：
+  - 新增 `frontend/src/domain/store-detail-navigation.ts`，沉淀列表摘要到详情占位对象、默认 Tab 判断、短期详情缓存逻辑。
+  - 点击详情后立即用列表摘要生成详情壳，先展示门店标题、统计、Tab 和“正在加载门店详情”面板。
+  - 完整详情接口返回后再替换真实数据；请求失败则回到列表并展示错误提示。
+  - 同一门店 60 秒内二次进入且列表 `updatedAt` 未变化时使用前端内存详情缓存。
+  - 用户返回列表会递增详情请求版本号，避免旧请求返回后把页面重新拉回详情。
+- 未做：
+  - 暂未拆分后端详情接口。下一步如仍有明显慢接口，可把门店详情拆成轻量 shell、通道数据、设计图数据三个加载单元。
+- 验证：
+  - `cd frontend && ./node_modules/.bin/tsc --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck --jsx react-jsx --types vite/client --outDir /tmp/erzhuang-store-detail-nav-test src/vite-env.d.ts src/domain/store-detail-navigation.ts src/domain/store-detail-navigation.test.ts && node /tmp/erzhuang-store-detail-nav-test/domain/store-detail-navigation.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - 本地 dev server 需提升权限启动，已启动在 `http://127.0.0.1:5176/erzhuang/`；Playwright 浏览器二进制未安装，本轮未完成自动化截图验收。
+
+## 2026-06-26 门店详情 Tab 接口轻拆 2.18.0 开发记录
+
+- 目标：
+  - 在不废弃全量详情接口的前提下，把机构详情页数据按 Tab 轻量拆分，减少进入默认 Tab 时等待非当前业务块数据。
+  - 避免把接口拆得过细，保持后续维护和 H5 monitor 复用简单。
+- 后端实现：
+  - 保留 `GET /api/store-space/stores/{id}` 全量详情接口，继续作为兼容和 mutation 兜底。
+  - 新增 `GET /api/store-space/stores/{id}/design-plan-data`，只返回门店基础信息、设计图、区域标注。
+  - 新增 `GET /api/store-space/stores/{id}/channel-data`，只返回门店基础信息、录像机和通道。
+  - `PostgresStore` 抽出基础门店查询 helper，两个 Tab 接口分别只调用对应列表查询。
+- 前端实现：
+  - 详情页仍先用列表摘要立即进入详情壳。
+  - 默认 Tab 只请求对应 Tab 数据；切换到另一个 Tab 时再懒加载。
+  - 详情缓存升级为按 Tab 记录已加载状态，合并数据时不会清空另一个 Tab 已有内容。
+  - 创建、编辑、保存、删除、确认等已有 mutation 仍保留现有全量返回处理，不在本轮扩大改造。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/storespace -run 'TestGetStoreDesignPlanDataEndpointReturnsOnlyDesignPlanTabData|TestGetStoreChannelDataEndpointReturnsOnlyChannelTabData'` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck --jsx react-jsx --types vite/client --outDir /tmp/erzhuang-store-detail-nav-test src/vite-env.d.ts src/domain/store-detail-navigation.ts src/domain/store-detail-navigation.test.ts && node /tmp/erzhuang-store-detail-nav-test/domain/store-detail-navigation.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+- 风险：
+  - 如果某个 mutation 返回全量详情后，缓存会标记两个 Tab 均已加载；这符合当前兼容策略，但后续若 mutation 也拆分，需要一起调整缓存标记。
+
+## 2026-06-26 通道最近截图视口懒加载 2.18.1 开发记录
+
+- 目标：
+  - 降低机构详情页通道映射 Tab 首次进入时最近截图的并发加载压力。
+  - 保留已有图片队列和缓存能力，避免改动后出现截图裂图或刷新截图不更新。
+- 实现：
+  - `QueuedSnapshotImage` 增加 `IntersectionObserver` 视口触发逻辑。
+  - 未进入视野附近的截图只显示原加载占位，不立即进入预加载队列。
+  - 截图进入视野附近约 `160px` 后才进入既有 `ImageLoadQueue(2)`，继续限制同时预加载 2 张。
+  - 已成功加载过的同 URL 继续直接显示，保持 2.17.1 的内存缓存效果。
+  - 不支持 `IntersectionObserver` 的浏览器自动回退到原队列加载逻辑。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - 本地 Vite 预览页面可打开，首页渲染正常，控制台未发现运行时错误。
+  - `cd frontend && npm test -- --run` 未通过，失败为既有测试文件未使用 Vitest `test/it` 套件结构，以及 `api.test` 在当前测试环境下 base path 断言不一致；本次改动未触及对应逻辑。
+- 风险：
+  - 本地 mock 环境没有门店通道数据，未完成真实通道表格的浏览器截图验收；公司环境发布后需重点观察通道映射 Tab 首屏截图加载速度和滚动加载表现。
+- 发布：
+  - GitHub `main` commit：`463c32c Lazy load channel snapshots`。
+  - 公司 GitLab 发布分支 merge commit：`6c71f07 Merge branch 'main' into codex/containerize-single-image`。
+  - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 公司线上 JS 已更新为 `assets/index-BJXO-7_s.js`，确认包含 `2.18.1`、`IntersectionObserver` 和 `160px 0px` 懒加载触发配置。
+
+## 2026-06-26 详情页 Tab 统计修复 2.18.2 开发记录
+
+- 背景：
+  - 2.18.0 将详情数据拆成设计图 Tab 和通道映射 Tab 后，顶部统计被当前 Tab 的局部接口摘要字段覆盖。
+  - 进入通道映射时，通道接口没有区域数据，导致业务区域数显示 0。
+  - 切换到设计图标注时，设计图接口没有录像机和通道数据，导致录像机数、有效通道数显示 0。
+- 实现：
+  - `mergeStoreDetailTab` 不再使用局部接口的摘要字段整包覆盖当前详情。
+  - 通道 Tab 只更新录像机、有效通道、确认状态和业务类型计数。
+  - 设计图 Tab 只更新设计图状态、缩略图、业务区域数和区域标注数据。
+  - 保留门店基础信息、状态和更新时间等共享字段更新。
+- 验证：
+  - 新增 `store-detail-navigation` 复现测试，覆盖“先加载通道 Tab、再加载设计图 Tab”后顶部统计不被互相清零。
+  - `cd frontend && ./node_modules/.bin/tsc --module ESNext --moduleResolution bundler --target ES2022 --skipLibCheck --jsx react-jsx --types vite/client --outDir /tmp/erzhuang-store-detail-nav-test src/vite-env.d.ts src/domain/store-detail-navigation.ts src/domain/store-detail-navigation.test.ts && node /tmp/erzhuang-store-detail-nav-test/domain/store-detail-navigation.test.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+- 发布：
+  - GitHub `main` commit：`92593fa Fix split detail tab metrics`。
+  - 公司 GitLab 发布分支 merge commit：`01493f2 Merge branch 'main' into codex/containerize-single-image`。
+  - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 公司线上 JS 已更新为 `assets/index-BHsDPUSA.js`，确认包含 `2.18.2`。
+
+## 2026-06-26 详情页局部统计未知值修复 2.18.3 开发记录
+
+- 背景：
+  - 2.18.2 修复了 Tab 切换时统计互相清零，但通道映射 Tab 首次进入仍可能显示业务区域数 0。
+  - 根因是 `channel-data` 局部接口不返回 `areas` 字段，前端映射层把“未返回区域数据”推导成 `areaCount=0`。
+- 实现：
+  - `mapStoreSpaceDetail` 区分“后端返回空数组”和“后端未返回字段”。
+  - 当 `areas` 字段缺失时，不再推导区域相关计数为 0，而是保留为未知值，交给详情合并逻辑沿用列表摘要或已加载设计图数据。
+  - 当 `recorders` 字段缺失时，同理不推导录像机/通道计数为 0。
+  - `mergeStoreDetailTab` 遇到局部详情统计为未知值时保留当前统计。
+- 验证：
+  - `store-detail-navigation` 定向测试通过。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
+- 发布：
+  - GitHub `main` commit：`b2bca42 Preserve split detail unknown metrics`。
+  - 公司 GitLab 发布分支 merge commit：`22f53be Merge branch 'main' into codex/containerize-single-image`。
+  - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 公司线上 JS 已更新为 `assets/index-BE0jYwKG.js`，确认包含 `2.18.3`。
+
+## 2026-06-26 门店列表业务区域总数修复 2.18.4 开发记录
+
+- 背景：
+  - 2.18.3 保证局部 Tab 接口缺失统计字段时不覆盖已有值，但详情页首次进入仍依赖门店列表摘要生成顶部壳。
+  - 后端 `ListStores` 只返回治疗室、面诊室、生美分项计数，没有返回业务区域总数 `area_count`。
+  - 因此前端列表摘要中的 `areaCount` 仍为 0，首次进入通道映射时顶部业务区域显示 0，切到设计图后才显示真实区域数。
+- 实现：
+  - `StoreListItem` 新增 `area_count` 字段。
+  - Postgres `ListStores` SQL 增加 `count(distinct a.id) as area_count` 并扫描到返回结构。
+  - MemoryStore `storeListItem` 同步累计 `AreaCount`。
+- 验证：
+  - 新增/补充 storespace 测试，覆盖设计图保存区域后列表摘要 `AreaCount` 返回真实数量。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/storespace -run 'TestSaveDesignPlanAllowsVIPTreatmentWithoutNumber|TestConfirmVIPTreatmentAllowsBlankNumberAndCountsAsTreatment'` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+- 发布：
+  - GitHub `main` commit：`e974ee3 Return store list area counts`。
+  - 公司 GitLab 发布分支 merge commit：`5700181 Merge branch 'main' into codex/containerize-single-image`。
+  - 公司环境 health：`{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 公司线上 JS 已更新为 `assets/index-BoEHEZrM.js`，确认包含 `2.18.4`。
+
+## 2026-06-26 H5 Monitor 试点集成 2.19.0 开发记录
+
+- 目标：
+  - 将独立 `h5-monitor` 原型集成进主项目，先作为受控试点能力给单门店验证。
+  - 试点范围只开放“北京保利实验室门店”，新氧机构 ID `10030`，录像机 `GN0941203`。
+- 后端实现：
+  - 新增 `internal/h5monitor` 模块，提供 H5 首页、直播地址、录像片段、回放地址、播放地址失效接口。
+  - 复用现有 `storespace` 门店、通道、录像机、萤石账号数据；播放凭证仍来自运行时 `EZVIZ_ACCOUNTS_JSON`，不写入前端或文档。
+  - 新增萤石能力：FLV 直播地址、FLV 回放地址、录像片段查询、地址失效、AAC 转码 best-effort。
+  - H5 API 响应不暴露 `device_serial`、app key、app secret、access token、萤石账号名。
+  - 服务端门禁集中在 `h5monitor.Service`：默认只允许 `externalOrgId=10030` 和 `deviceSerial=GN0941203`。
+  - 并发限制本轮仍为进程内内存计数：普通用户 15 路，管理员 20 路；多 Pod 场景后续需落库或接入统一会话。
+- 前端实现：
+  - 新增 H5 路由：
+    - `/h5/orgs/{externalOrgId}/monitor`
+    - `/h5/orgs/{externalOrgId}/monitor/channels/{channelId}`
+  - 后台详情页右上角新增“查看监控”按钮，且仅 `externalOrgId=10030` 的门店展示。
+  - H5 首页按区域筛选展示监控通道，默认每批 24 路，支持加载更多。
+  - H5 详情页默认直播，支持切换录像、查询片段、点击片段播放。
+  - 播放器使用 `ezuikit-flv`，静态 decoder 文件放在 `frontend/public/assets/ezuikit-flv/`。
+  - 播放器默认静音以满足浏览器自动播放限制，用户点击后调用官方 `openSound/closeSound`。
+  - H5 页面使用 route-level lazy import，后台页面不主动加载 H5 播放页面。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过；提示播放器 chunk 较大，属于 `ezuikit-flv` 依赖体积预期。
+  - `cd frontend && npm run test` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite 浏览器验收通过：
+    - `/erzhuang-project/h5/orgs/demo/monitor` 可渲染 H5 首页 mock 数据。
+    - 点击通道可进入 H5 详情页，默认实时视频，声音按钮可见。
+    - 切换录像可显示日期选择和录像片段。
+    - `/erzhuang-project/` 后台首页未误进入 H5 路由。
+- 风险：
+  - 公司真实播放依赖 `EZVIZ_ACCOUNTS_JSON` 中包含华北账号，且账号名与数据库录像机绑定账号一致。
+  - 本地没有公司数据库，未在本机验证 `10030/GN0941203` 的真实 H5 API 数据。
+  - `ezuikit-flv` 打包后会生成约 1.8MB 未压缩播放器 chunk；已通过详情页 lazy import 控制影响范围。
+  - 前端 `vitest` 当前只运行 `src/api.test.ts`，因为仓库内其他 `.test.ts` 仍是脚本式断言文件，后续可统一整理测试入口。
+
+## 2026-06-26 H5 Monitor 播放与回放诊断修复 2.19.1 开发记录
+
+- 背景：
+  - 公司线上 H5 视频详情页进入后播放器黑屏，页面显示“播放器加载失败”，错误为 `v is not a constructor`。
+  - 回放 Tab 看不到录像片段。
+  - 用户希望错误信息继续外显，并增加可一起定位排查的详细上下文。
+- 排查结论：
+  - 直播黑屏主因是前端动态加载 `ezuikit-flv` 后优先把模块对象当构造函数使用；该包实际导出为 default class，打包后触发 `v is not a constructor`。
+  - 公司线上回放片段接口返回 500，原因是萤石 `localIndex` 字段在线上返回为数字，后端原结构体按 string 解码导致 JSON unmarshal 失败。
+  - 播放地址失效接口原来只提交 `id`，萤石新接口要求 `deviceSerial`、`channelNo`、`urlId`，线上曾返回 `deviceSerial不能为空`。
+- 实现：
+  - `H5FlvPlayer` 动态加载播放器时按 `default`、`EzuikitFlv`、`module` 顺序选择真正的函数构造器。
+  - 播放器错误面板增加 stage、简化 URL、decoder 路径、直播/回放模式、库导出类型；事件 payload 中的签名 URL 会缩写，避免完整临时签名外露。
+  - H5 API 错误对象增加后端 `code` 字段，页面 toast 展示 `HTTP` 状态、萤石错误码和字段错误。
+  - 回放片段 `localIndex` 改为兼容 string/number 的 `FlexibleString`。
+  - 播放地址失效接口改为携带 `deviceSerial`、`channelNo`、`urlId`，并补测试防止参数退化。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `cd frontend && npm run build` 通过；仍有播放器 chunk 体积提示，属于 `ezuikit-flv` 依赖体积预期。
+  - `git diff --check` 通过。
+- 发布：
+  - 待推送公司 GitLab 固定分支 `codex/containerize-single-image` 后，由公司 K8s 自动发布。
+- 线上追加验证：
+  - 公司线上第一次发布后，回放片段接口从 `localIndex` 解码错误推进到新的真实返回差异：`meta.code` 有时是字符串。
+  - 已补充 `FlexibleInt` 兼容 string/number，并用 `meta.code:"200"` 的测试复现覆盖。
+
+## 2026-06-26 H5 Monitor 播放画面适配与 MSE 告警修复 2.19.2 开发记录
+
+- 背景：
+  - 公司线上部分实时视频已经能出画面，但页面出现 `MediaSource.addSourceBuffer` / `SourceBuffer` 告警。
+  - 播放画面顶部有明显黑条，整体画面显示不完整，诊断条也会遮挡主要画面。
+- 排查结论：
+  - 报错来自 `ezuikit-flv` 的 MSE 硬解码路径，属于播放器内部 SourceBuffer 资源/上限问题；单画面 H5 场景稳定性优先于硬解码收益。
+  - 画面黑条与播放器默认渲染模式、缺少官方样式、内部 video/canvas 未被外层容器稳定约束有关。
+- 实现：
+  - 引入 `ezuikit-flv/style.css`。
+  - 播放器配置关闭 `useMSE`，保留 `useWCS` 和 `autoWasm`，规避 MSE SourceBuffer 路径。
+  - 设置 `scaleMode`、`videoBuffer`、`themeData:null`、`mutedShowAutoReload:false`，减少播放器内置控件和自动重载干扰。
+  - 切换/卸载播放器时先 pause 再 destroy，并清空容器 DOM，减少旧实例残留。
+  - 将 MSE/SourceBuffer 类事件降级为可恢复 warning，6 秒后自动收起，不再用错误 toast 和大红层长期遮挡画面。
+  - CSS 强制播放器内部 `video/canvas` 填满容器，诊断条移到顶部并区分 warning/error 视觉层级。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite 服务可启动；自动浏览器截图验收因本项目未安装 Playwright、Browser 会话 tab 绑定异常未完成，真实画面仍需公司线上 H5 页面复验。
+
+## 2026-06-26 H5 Monitor 恢复 MSE 播放路径 2.19.3 开发记录
+
+- 背景：
+  - 2.19.2 发布后，公司线上 H5 监控详情页播放器容器和声音按钮可见，但实时画面完全黑屏。
+  - 用户反馈“啥都没显示出来”，相比 2.19.1 已能出画面但有 SourceBuffer 告警，属于播放渲染回归。
+- 排查结论：
+  - 2.19.2 为规避 `MediaSource.addSourceBuffer` 告警关闭了 `useMSE`。
+  - 从现象判断，公司真实 FLV 流在当前浏览器/播放器组合下仍依赖 MSE 路径出画面；关闭 MSE 后播放器初始化成功但无法渲染视频。
+- 实现：
+  - 恢复 `useMSE:true`，保留官方样式、诊断降级、播放器销毁清理、诊断条不遮挡等其他改动。
+  - 本轮只改一个变量，先恢复出画面；黑条和 SourceBuffer warning 后续再基于线上真实表现单独处理。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-26 H5 Monitor 回放时间参数与片段分页修复 2.19.4 开发记录
+
+- 背景：
+  - 公司线上 H5 监控切到“录像”后，点击回放片段获取播放地址失败。
+  - 错误提示为 `回放地址获取失败 · HTTP 500 · code=10001 · ezviz api error code=10001 msg=illegal parameter startTime`。
+  - 用户同时反馈录像回放片段“好像也不太对”。
+- 排查结论：
+  - 录像片段查询接口 `/api/v3/device/local/video/unify/query` 的 `startTime/endTime` 使用 Unix 秒是正确的。
+  - 播放地址接口 `/api/lapp/v2/live/address/get` 在回放模式下要求 `startTime/stopTime` 为 `YYYY-MM-DD HH:mm:ss` 字符串；之前后端错误地传了 Unix 秒。
+  - 公司容器时区不应影响录像片段日期。片段查询应按中国门店业务日期，也就是 `Asia/Shanghai` 自然日查询。
+  - 片段查询返回 `hasMore/nextFileTime` 时，之前只取第一页，会导致一天内录像片段不完整。
+- 实现：
+  - 回放播放地址参数改为北京时间 `YYYY-MM-DD HH:mm:ss`。
+  - 录像片段查询的自然日范围固定按 `Asia/Shanghai` 计算。
+  - 录像片段查询支持跟随 `nextFileTime` 分页合并，避免只展示第一页片段。
+  - 增加 Go 测试覆盖回放时间格式、上海自然日范围、片段分页合并。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-26 H5 Monitor 回放时间选择器样式修复 2.19.5 开发记录
+
+- 背景：
+  - 公司线上 H5 监控“录像”页日期选择弹层出现明显错位。
+  - Ant Design DatePicker 默认弹层风格、英文月份和时间列布局与当前 H5 监控页不匹配。
+- 设计决定：
+  - 不继续修 AntD 弹层尺寸，改为 H5 页面内的轻量时间选择条。
+  - 保留 `今天 / 昨天 / 前天` 快捷日期。
+  - 用原生 `datetime-local` 选择具体时间，并提供“定位回放”按钮。
+  - 保留实时/录像切换、离开详情时释放当前播放地址的逻辑。
+- 实现：
+  - H5 回放页移除 `DatePicker/dayjs` 直接依赖。
+  - 新增 `.h5-date-time-field` 和 `.h5-date-confirm` 样式，使用项目现有边框、圆角、主色和焦点态。
+  - H5 详情 chunk 从约 420KB 降到约 10KB，移动端加载更轻。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite 服务可启动；Playwright CLI 因本机未安装 `chrome-for-testing` 浏览器二进制未完成截图验收。
+
+## 2026-06-26 H5 Monitor 自绘回放时间弹层 2.19.6 开发记录
+
+- 背景：
+  - 2.19.5 使用原生 `datetime-local` 后，虽然避免了 AntD DatePicker 弹层错位和 chunk 过大，但浏览器原生弹层样式无法与项目风格统一。
+  - 用户提供 ahabook 批阅记录日期选择器作为参考，希望日期选择区域整体可点击，弹层风格更接近当前产品。
+- 设计决定：
+  - 不继续依赖浏览器原生日期时间弹层，改为 H5 页面内自绘轻量日期时间选择器。
+  - 保留 `今天 / 昨天 / 前天` 快捷日期和“定位回放”按钮。
+  - 自绘弹层采用白色圆角浮层、圆形月份切换按钮、轻量日期网格、克制选中态，并支持点击外部关闭。
+  - 保持实时/录像切换、关闭详情时释放当前播放地址的逻辑不变。
+- 实现：
+  - `PlaybackDatePicker` 新增自绘日期网格、小时/分钟滚动列、月份切换和完整触发按钮。
+  - 选择器触发区整体可点击，不再只依赖原生日历图标。
+  - 日期选中态改为浅底描边，弱化“蓝色按钮感”，更贴近项目后台浮层风格。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-26 H5 Monitor 移动端实时视频 HLS 适配 2.19.7 开发记录
+
+- 背景：
+  - 用户在手机浏览器和飞书内打开 H5 监控详情页后，实时视频黑屏。
+  - 之前桌面端为恢复画面将 `ezuikit-flv` 的 MSE 路径重新打开，但移动浏览器对 FLV/MSE 兼容性不稳定，不能继续只调 FLV 播放器参数。
+- 排查结论：
+  - H5 详情页当前固定向萤石请求 FLV 地址，并固定使用 `ezuikit-flv` 播放。
+  - 移动端应优先使用 HLS/m3u8 + 原生 `<video playsInline controls>`，桌面端保留 FLV 播放器路径，避免影响已能播放的桌面环境。
+  - 本地录像回放文档对 HLS 支持不明确，当前回放仍保持 FLV 路径，后续需要基于移动端真实表现决定是否切萤石 JSSDK/ezopen 或内部 ISAPI 代理。
+- 实现：
+  - H5 live-url 请求新增 `protocol` 参数，支持 `hls/flv`；服务端按协议向萤石请求 `protocol=2/4`，并在响应里返回协议。
+  - 前端移动端通用判断不限定 iPhone，覆盖 iPhone、Android、飞书/企微类移动 WebView，移动端实时视频请求 HLS，桌面请求 FLV。
+  - 播放器组件根据协议选择播放方式：HLS/m3u8 走原生 `<video>`，FLV 继续走 `ezuikit-flv`。
+  - 原生 video 路径保留加载态，直到 `loadedmetadata/canplay/playing` 后收起；失败时展示协议和简化 URL 诊断。
+- 验证：
+  - 新增后端测试覆盖 HLS/FLV 两种 live-url 协议参数。
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+- 发布：
+  - 公司 GitLab `codex/containerize-single-image` 已推送 commit `48e143c`，触发公司 K8s 自动发布。
+  - GitHub `main` 已同步 commit `4a52b8b`。
+  - 公司线上 `/health` 返回 `database:"postgres"`、`asset_store:"supabase"`。
+  - 公司线上静态资源已更新到 `2.19.7 (container)`，H5 详情 chunk 包含 `native-video`、`playsInline`、`hls/flv` 协议选择逻辑。
+
+## 2026-06-26 H5 Monitor 移动端 H265 播放器适配 2.19.8 开发记录
+
+- 背景：
+  - 2.19.7 将移动端实时视频改为 HLS + 原生 video 后，手机端提示“视频编码类型非 H264”。
+  - 用户判断不应为了手机播放统一关闭 H265，因为会降低录像机编码效率并增大录像体积。
+- 排查结论：
+  - HLS/native video 路径依赖浏览器原生解码，遇到 H265 流时容易失败。
+  - `ezuikit-flv` 本地类型说明显示：MSE 硬解只支持 H264，iOS Safari 不支持；`autoWasm` 支持 H265 时从 MSE 自动降级到 wasm。
+  - 更合理的方向是保留 H265 设备配置，移动端用播放器软解适配，而不是改录像机编码。
+- 实现：
+  - H5 实时视频默认协议改回 FLV，避免移动端进入 HLS/native video 的 H264 限制。
+  - `H5FlvPlayer` 移动端播放上下文关闭 `useMSE`，保留 `autoWasm:true` 和 `useWCS:true`。
+  - 播放器参数增加 `hasAudio:true`、移动端 `keepScreenOn:true`，保留声音和手机屏幕常亮能力。
+  - 诊断信息增加 `protocol` 与 `decode`，便于区分桌面 MSE 与移动端 wasm 路径。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+
+## 2026-06-26 H5 Monitor 移动端黑屏诊断增强 2.19.9 开发记录
+
+- 背景：
+  - 2.19.8 在手机端仍然黑屏，页面只显示“点击开启声音”，没有错误详情。
+  - 截图说明播放器实例已经初始化成功，但没有渲染出首帧；之前代码在初始化成功后立即关闭 loading，导致“初始化成功但无首帧”的状态被误判为正常。
+- 排查结论：
+  - 当前缺少首帧/流成功诊断，无法判断卡在取流、解码、还是渲染阶段。
+  - `ezuikit-flv` 暴露 `streamSuccess`、`videoInfo`、`videoFrame`、`playing`、`loadingTimeout`、`wasmDecodeError` 等事件，可用于收集黑屏证据。
+- 实现：
+  - 播放器初始化后不再立即收起 loading，而是等待 `streamSuccess/videoInfo/videoFrame/playing/loaded` 这类首帧或流成功事件。
+  - 增加 12 秒首帧超时诊断：超时后显示 `first-frame-timeout`、协议、解码路径、最近播放器事件和 `getState()`。
+  - 监听更多错误事件，包括 `wasmDecodeError`、`webcodecsH265NotSupport`、`mediaSourceH265NotSupport`、`unrecoverableEarlyEof` 等。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+
+## 2026-06-29 H5 Monitor 移动端首帧判断修正 2.19.10 开发记录
+
+- 背景：
+  - 用户反馈 2.19.9 手机端仍然黑屏，且没有错误信息显示。
+  - 复查代码发现移动端 wasm 路径下，`loaded/playing` 被当作首帧成功事件，可能导致 12 秒超时诊断被提前清除，但视频尚未真正渲染。
+- 结论：
+  - 对移动端软解路径，`loaded/playing` 只能说明播放器状态推进，不能证明已经有视频帧。
+  - 移动端应该只把 `streamSuccess/videoInfo/videoFrame` 视为首帧或流成功信号。
+- 实现：
+  - 新增 `domain/h5-player-diagnostics.ts`，集中定义首帧事件判断。
+  - 移动端 `mobile-wasm` 路径不再把 `loaded/playing` 视为首帧成功，保留计时器直到真正的视频事件到达。
+  - 桌面 `desktop-mse` 路径保留原兼容判断，避免影响现有桌面播放。
+  - 增加 vitest 覆盖移动端和桌面端首帧事件差异。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 页面级播放诊断 2.19.11 开发记录
+
+- 背景：
+  - 用户反馈 2.19.10 手机端依然全黑屏，截图里只有“点击开启声音”，没有任何错误或超时提示。
+  - 截图说明播放器容器、声音按钮和页面路由均已正常渲染，问题转为“播放器内部诊断没有可靠暴露到手机页面”。
+- 结论：
+  - 下一步不能继续猜播放参数，应先让黑屏状态具备可截图、可复盘的证据。
+  - 诊断信息不能只放在播放器黑框内部，因为第三方播放器的 canvas/video/内部层级可能遮挡自定义提示。
+- 实现：
+  - `H5FlvPlayer` 增加页面级 `onStatus` 回调，结构化上报初始化、播放地址、播放器事件、首帧成功和首帧超时状态。
+  - H5 详情页在播放器下方新增常驻状态卡，展示 stage、message、协议、解码路径、前端版本、UA、最近播放器事件等信息。
+  - 继续保留播放器内部诊断和 toast，但页面级状态卡作为手机端排查的主证据。
+- 验收目标：
+  - 如果移动端继续黑屏，页面必须在黑框下方显示 `player-init`、`player-event` 或 `first-frame-timeout` 等状态，便于继续判断卡在取流、解码还是渲染。
+
+## 2026-06-29 H5 Monitor 流连接与首帧渲染拆分 2.19.12 开发记录
+
+- 背景：
+  - 用户反馈 2.19.11 手机端仍黑屏，但页面级状态卡显示 `streamSuccess`。
+  - 截图确认播放地址、decoder 路径、版本、UA、`decode=mobile-wasm` 均已暴露；萤石 FLV 流已经连接成功，但没有看到画面。
+- 结论：
+  - `streamSuccess` 只能代表流连接成功，不能代表画面已经渲染。
+  - 之前把 `streamSuccess` 归入首帧成功事件是误判，导致黑屏时显示 `first-frame-ready`。
+  - 线上 `decoder.js` 和 `decoder.wasm` 均可访问，`decoder.wasm` 的 Content-Type 为 `application/wasm`，暂不支持“wasm 资源未部署/MIME 错误”这个假设。
+- 实现：
+  - 移动端首帧成功只认 `videoFrame`、`firstFrameDisplay`、`playToRenderTimes` 这类视频渲染事件。
+  - `streamSuccess` 单独显示为 `stream-connected`，继续等待视频帧，不再清除首帧超时计时器。
+  - 移动端播放参数改为 `useWCS:false`、`forceNoOffscreen:true`，明确走 wasm + 普通 canvas 渲染路径。
+  - 增加 `wasmDecodeErrorReplay:true`、`wasmDecodeAudioSyncVideo:true`、`debug:true`，并监听更多播放器事件，便于下一轮截图继续定位。
+- 验收目标：
+  - 如果仍黑屏，状态卡应显示 `stream-connected` 后是否出现 `videoInfo/videoFrame/firstFrameDisplay/playToRenderTimes`，或最终 `first-frame-timeout`。
+
+## 2026-06-29 H5 Monitor 移动端直播调通里程碑 2.19.12 验收记录
+
+- 结果：
+  - 用户在公司线上移动端复测后确认：实时视频终于可以显示。
+  - 这标志着“萤石云 FLV 取流 + iPhone/微信 H5 + H265 视频 + `ezuikit-flv` wasm 软解”链路在试点门店真实环境下跑通。
+- 本次调通的关键经验：
+  - 不能把 `streamSuccess` 当作画面可见。它只代表 FLV 流连接成功，首帧/画面可见必须看 `videoFrame`、`firstFrameDisplay`、`playToRenderTimes` 这类渲染事件。
+  - 黑屏排查要把链路拆层：播放地址获取 -> decoder 资源加载 -> 流连接 -> 视频信息解析 -> wasm 解码 -> canvas 渲染。
+  - 页面级诊断必须放在播放器黑框外。第三方播放器内部 DOM/canvas 可能遮挡自定义提示，导致手机端看起来“没有任何错误”。
+  - iPhone/微信 H5 环境下，移动端播放应明确走 wasm + 普通 canvas 路径：`useMSE:false`、`useWCS:false`、`forceNoOffscreen:true`、`autoWasm:true`。
+  - 线上 `decoder.js` 与 `decoder.wasm` 需要可访问，且 `decoder.wasm` 应返回 `Content-Type: application/wasm`；本次已排除 decoder 部署/MIME 错误。
+- 当前可复用配置：
+  - 直播地址：萤石 `/api/lapp/v2/live/address/get`，`protocol=4` FLV。
+  - 前端播放器：`ezuikit-flv@2.1.1`。
+  - 移动端解码路径：`decode=mobile-wasm`。
+  - 移动端关键参数：`useMSE:false`、`useWCS:false`、`forceNoOffscreen:true`、`wasmDecodeErrorReplay:true`、`wasmDecodeAudioSyncVideo:true`、`keepScreenOn:true`。
+- 后续注意：
+  - 继续保留状态卡或等价诊断能力，至少在试点期不要过早隐藏。
+  - 回放页也应复用同一套“流连接”和“首帧渲染”拆分逻辑，不要只看播放地址是否返回。
+  - 后续扩门店时，如果某通道再次黑屏，优先截图状态卡，根据事件停在哪一层判断，而不是先改播放器参数。
+
+## 2026-06-29 H5 Monitor PC 首帧误报修复 2.19.13 开发记录
+
+- 背景：
+  - 2.19.12 移动端直播跑通后，用户反馈 PC 端画面已经显示，但页面仍覆盖 `first-frame-timeout` 错误层。
+  - 截图显示 PC 端 `decode=desktop-mse`，事件为 `start > videoInfo > streamSuccess`，画面实际可见。
+- 结论：
+  - 2.19.12 为移动端修正首帧判断时，把 `streamSuccess/videoInfo` 从所有路径的首帧成功信号里移除，误伤了 PC。
+  - PC 的 MSE 路径可以继续使用宽松判断；移动端 wasm 路径必须保持严格，避免再次误判黑屏为成功。
+- 实现：
+  - `desktop-mse` 路径恢复接受 `streamSuccess`、`videoInfo`、`loaded`、`playing` 作为首帧/播放就绪信号。
+  - `mobile-wasm` 路径仍只接受 `videoFrame`、`firstFrameDisplay`、`playToRenderTimes`。
+  - 补充前端单测覆盖桌面和移动端差异。
+
+## 2026-06-29 H5 Monitor 播放器控制控件 2.20.0 开发记录
+
+- 背景：
+  - H5 Monitor 直播链路已在试点门店移动端和 PC 端跑通，进入播放器产品化阶段。
+  - 用户确认本轮只做基础单路查看能力，不做刷新流、异常自动重试、多画面、云台、倍速、下载、复杂时间轴。
+- 实现：
+  - `H5FlvPlayer` 改为 `forwardRef`，通过 `H5PlayerHandle` 暴露播放、暂停、声音、截图、全屏等受控方法。
+  - 新增 `H5PlayerControls`，在播放器底部提供播放/暂停、静音/开声音、截图、横屏/竖屏、全屏/退出全屏。
+  - 新增 15 分钟长时间播放保护：到时暂停并提示是否继续，停止时释放当前播放 URL，继续时重新取直播或回放 URL。
+  - 新增 `PlaybackSegmentSlider` 和 `domain/h5-playback.ts`，支持在单个录像片段内拖动定位，拖动过程中只预览，提交后才重新请求回放 URL。
+  - 回放 URL 请求增加序列号保护，旧请求返回时不会覆盖新 URL；旧响应如果已经拿到 URL，会立即释放，降低萤石资源泄漏风险。
+  - 原生 video fallback 不再展示浏览器内建 controls，避免暴露下载、倍速、复杂时间轴等本轮明确不做的能力。
+- 样式原则：
+  - 控制条保持 H5 工具风格：底部轻量暗色半透明浮层、按钮尺寸克制、移动端可横向滚动且触控面积足够。
+  - 诊断状态卡继续常驻显示，等用户明确要求“收起来”后再做折叠入口。
+- 验证：
+  - `cd frontend && npm run test` 通过，9 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - `go test ./...` 未执行：当前本机环境没有 `go` 命令。
+  - Playwright 可视验收未执行：本机缺少 Playwright Chromium 浏览器二进制。
+
+## 2026-06-29 H5 Monitor 播放器体验修复 2.20.1 开发记录
+
+- 背景：
+  - 2.20.0 增加播放器控制控件后，试用中发现 6 个体验问题：控件自动隐藏后移动端不清楚如何唤回、移动端按钮偏大、移动端截图不应只打开新页面、回放暂停后再播放会回到片段起点、横屏按钮在手机上不像横置观看、回放滑块放在播放器下方不符合预期。
+- 实现：
+  - 播放器控制层取消自动隐藏机制，改为点击播放器画面区域隐藏，再点击画面区域显示。
+  - 移动端控制按钮缩小，保留文字按钮便于继续调试，后续可替换为 icon。
+  - 截图优先使用 Web Share API 调起系统分享/保存面板，不支持时 fallback 为下载；用户取消分享不再误报截图失败。
+  - 回放暂停时记录当前片段内估算时间，再次播放时从该时间重新获取回放 URL，避免从片段起点重播。
+  - 移动端横屏改为固定全屏并旋转播放器区域，形成手机横置观看体验。
+  - 回放片段滑块移到播放器画面 overlay 内，跟控制条同层展示，不再放在下方回放面板。
+- 验证：
+  - `cd frontend && npm run test` 通过，11 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地浏览器用 `externalOrgId=demo` mock 页面验证：控件点击显隐、回放滑块 overlay、移动端按钮尺寸、移动端横屏旋转；控制台无 error/warn。
+  - `go test ./...` 未通过本机环境验证：全局 `go` 不存在；使用 `./.tools/go/bin/go` 后测试二进制被 macOS `dyld missing LC_UUID load command` 拦截，未出现业务断言失败。
+
+## 2026-06-29 H5 Monitor 播放器暂停、全屏、截图修复 2.20.2 开发记录
+
+- 背景：
+  - 用户在线上验收 2.20.1 后反馈：回放暂停再恢复会黑屏重建且 PC 端仍可能回到片段起点；手机侧全屏按钮失效；手机侧截图没有进入系统相册保存流程。
+- 根因：
+  - 2.20.1 为解决“回放恢复不回起点”选择了重新请求回放 URL，实际带来播放器重建和黑屏体验，不符合“真暂停/真恢复”的产品预期。
+  - 移动浏览器或飞书 WebView 常不开放普通元素 `requestFullscreen`，原逻辑只提示失败，没有降级体验。
+  - `ezuikit-flv` 截图 API 默认类型可能直接走 `download`，前端拿不到图片数据就无法调起 Web Share API。
+- 实现：
+  - 普通播放/暂停改为只调用播放器实例 `pause()` / `play()`，不再在恢复播放时重新 `playRange()` 取回放 URL。
+  - 手机全屏在原生 Fullscreen API 不可用或失败时，降级为页面内全屏横置模式，并使用简短提示“已切换为页面内全屏”。
+  - 播放器截图调用显式传入 `base64`，前端拿到 data URL 后继续走 Web Share API；H5 仍不能静默写入系统相册，需要用户在系统面板选择保存。
+- 验证：
+  - `cd frontend && npm run test` 通过，12 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地 demo 页面验证：暂停后播放器容器未卸载、未出现回放占位；移动视口点击全屏后进入 `is-inline-fullscreen`，按钮变为“退出全屏”。
+
+## 2026-06-29 H5 Monitor 回放暂停续播体验修复 2.20.3 开发记录
+
+- 背景：
+  - 用户在线上验收 2.20.2 后反馈：PC 和手机端录像回放里暂停后再点播放，仍不是继续播放，而是从当前回放 URL 的起点重新播放。
+- 调研结论：
+  - 当前跑通手机 H265 的 `ezuikit-flv@2.1.1` 更适合 FLV 流播放，不适合把 `pause()` / `play()` 当成原生 video 的精确真暂停/续播。
+  - 该库 API 有 `currentTime`、`pause()`、`play()`，但没有明确 `seek()` / `resume()`；README 也提示因解码资源异步加载，不推荐直接外部调用 `play()`。
+  - 因此短期不声称实现“同一条流原地真暂停”，而是实现“暂停点续看”：暂停时记录播放器 `currentTime`，恢复时从暂停点重新获取回放 URL。
+- 实现：
+  - `H5FlvPlayer` 通过 ref 暴露 `getCurrentTime()`，优先读取播放器 `currentTime`，兼容内部 video/canvas loader 的当前时间。
+  - 回放暂停时记录 `pausedAtUnix`，并尽量截取当前画面作为冻结帧。
+  - 回放恢复时从 `pausedAtUnix` 重新请求回放 URL，不再从原始片段起点播放；状态卡会显示 `reason=resume` 和 `resumeFrom=HH:mm:ss`。
+  - 恢复加载期间保留旧 URL，等新 URL 成功返回后再释放旧 URL；冻结帧持续到新播放器首帧 ready，降低黑屏体感。
+  - 录像片段点击、滑块定位、长时间播放保护继续走原有重新取 URL 流程。
+- 验证：
+  - `cd frontend && npm run test` 通过，13 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地移动视口 demo 验证：H5 详情页、录像 tab、录像片段播放、overlay 滑块和控制条均正常渲染；控制台无 error/warn。
+- 后续建议：
+  - 如果产品要求严格意义的真暂停、seek、resume，应单独验证萤石 `EZUIKit-JavaScript-npm` 或其他官方播放器方案是否能同时满足 H265、手机 WebView、回放控制和自定义 UI。
+
+## 2026-06-29 H5 Monitor 回放恢复遮罩与滑块位置修复 2.20.4 开发记录
+
+- 背景：
+  - 用户验收 2.20.3 后确认回放已经能从暂停点继续，但恢复时仍会黑屏一下；拖动回放滑块能定位成功，但滑块 UI 会回到拖动前位置。
+- 根因：
+  - 恢复遮罩依赖播放器截图返回 `dataUrl`，部分环境下 `ezuikit-flv` 可能返回 Blob/File 或无法通过播放器 API 截图，导致没有冻结帧可显示。
+  - `PlaybackSegmentSlider` 之前只维护内部 offset，外层重新取回放 URL 后没有把新的起播时间回传给滑块，导致 UI 位置不同步。
+- 实现：
+  - 播放器截图归一化支持 base64、data URL、Blob/File；播放器 API 无结果时，尝试从当前 canvas/video 抓取一帧。
+  - 恢复播放时即使没有冻结帧，也显示轻量恢复遮罩，避免用户只看到纯黑屏。
+  - 回放页新增 `playbackCursorUnix`，每次 `playRange(startTime...)` 都同步当前起播点，并把它传给滑块。
+  - `PlaybackSegmentSlider` 改为支持 `currentStartTime`，根据外层起播点更新当前位置，避免拖动后回弹。
+- 验证：
+  - `cd frontend && npm run test` 通过，13 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 回放恢复黑屏遮罩修复 2.20.5 开发记录
+
+- 背景：
+  - 用户验收 2.20.4 后确认滑块位置问题已解决，但暂停后点击播放时仍能看到明显黑屏和“加载中”，像刷新了一下。
+- 根因：
+  - 恢复遮罩之前同时依赖 `resumeCoverVisible && loading`。
+  - `loading` 是回放 URL 接口请求状态，请求完成后会立即变为 false；但播放器重建和首帧渲染还没有完成，导致遮罩提前消失，播放器内部黑色 loading 层暴露。
+- 实现：
+  - 恢复遮罩改为只依赖 `resumeCoverVisible`，生命周期延长到播放器回调 `first-frame-ready` / `mock-ready` 后再关闭。
+  - 恢复遮罩层级提高到播放器控件之上，避免被播放器内部黑底、loading 或 canvas 层覆盖。
+- 验证：
+  - `cd frontend && npm run test` 通过，13 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 回放恢复闪屏抛光 2.20.6 开发记录
+
+- 背景：
+  - 用户验收 2.20.5 后认为当前体验可以忍受，但暂停后继续播放仍能看到很短的黑色闪屏，希望再尝试一次低风险抛光。
+- 判断：
+  - 遮罩已经持续到播放器上报 `first-frame-ready`，仍有闪屏说明黑色暴露点大概率发生在首帧事件和真实画面稳定绘制之间。
+- 实现：
+  - 收到 `first-frame-ready` / `mock-ready` 后不再立刻关闭恢复遮罩，而是延迟 250ms 再移除。
+  - 恢复遮罩增加短过渡，避免硬切换。
+- 验证：
+  - `cd frontend && npm run test` 通过，13 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 回放进度自动推进 2.20.7 开发记录
+
+- 背景：
+  - 用户验收 2.20.6 后确认暂停续播问题基本可接受，继续反馈两个回放体验问题：播放滑块不会随着播放自动往后移动；播放到当前录像片段最后一秒后，应该自动关闭当前片段并进入下一个录像片段。
+- 实现：
+  - 回放播放中新增 1 秒 tick，同步读取播放器 `currentTime`，无法读取时退回到 `PlaybackSession` 的墙钟估算时间，并实时更新 `playbackCursorUnix`，驱动 overlay 滑块自动前进。
+  - 新增 `nextRecordSegmentIndex`，按当前片段对象或时间边界查找下一个录像片段；当前片段到达末尾前 1 秒时自动触发下一段播放。
+  - 自动切片段复用现有“保留当前画面”的恢复遮罩逻辑：切段前尽量截取当前帧，新 URL 首帧稳定后再移除遮罩，减少段间黑屏。
+  - 将片段列表、当前片段、当前回放 URL、loading 状态同步到 ref，避免定时器闭包读到旧状态导致重复切段或释放错误 URL。
+  - 滑块手动拖动时暂停外部自动位置同步，松手或失焦后再提交定位，避免用户拖动过程中被 tick 拉回。
+- 验证：
+  - `cd frontend && npm run test` 通过，14 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite preview 页面 smoke 验证：应用可正常渲染，控制台无 error/warn；本地无后端数据导致列表接口 HTTP 500，属本地预览环境限制，未进行真实萤石播放流验证。
+
+## 2026-06-29 H5 Monitor 播放器控制条样式优化 2.21.0 开发记录
+
+- 背景：
+  - 用户确认 H5 Monitor 播放功能基本满足后，提出纯样式优化：播放/暂停、声音、截图、横竖屏、全屏控件改为 icon，不显示中文；控制按钮与回放滑块进一步整合，降低播放器 overlay 高度。
+- 实现：
+  - `H5PlayerControls` 改为三列控制条：左侧播放/暂停与声音，中央承载回放滑块，右侧截图、横竖屏、全屏。
+  - 控制按钮从中文文字改为无边框 icon，仅保留 `aria-label` 用于可访问性和调试识别。
+  - `PlaybackSegmentSlider` 新增 `compactControls` 形态，嵌入控制条中间时不显示起始/结束时间，也不显示当前时间文案，仅保留滑块本体。
+  - 控制条改为低高度半透明浮层，桌面回放态高度约 50px，移动端约 46px，减少对监控画面的遮挡。
+- 验证：
+  - `cd frontend && npm run test` 通过，14 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite dev demo 验证：桌面和 390px 移动视口下，按钮均无中文文本，滑块居中整合到同一控制条，未出现明显挤压或重叠。
+
+## 2026-06-29 H5 Monitor 横竖屏 icon 微调 2.21.1 开发记录
+
+- 背景：
+  - 用户反馈横屏/竖屏切换 icon 希望更接近“两块横竖屏幕叠放”的识别方式，确认去掉旋转箭头，只保留两个矩形。
+- 实现：
+  - 将横竖屏切换按钮的旋转箭头 icon 替换为双矩形线性 icon：后层竖向矩形、前层横向矩形。
+  - 保持原有按钮行为、active 态、无中文显示和 `aria-label` 不变。
+- 验证：
+  - `cd frontend && npm run test` 通过，14 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 暂停态控制条显隐修复 2.21.2 开发记录
+
+- 背景：
+  - 用户反馈播放中点击画面可隐藏/显示控制条，但暂停后点击画面无法隐藏控制条；暂停截图时控制条会遮挡画面。
+- 根因：
+  - `H5PlayerControls` 将 `!playing` 纳入 `pinned` 强制显示条件，导致暂停态即使外层 `controlsVisible=false`，控制条仍会保持 `is-visible`。
+- 实现：
+  - 控制条强制显示条件改为仅 `loading || failed`；暂停态不再强制显示，点击画面可按同一规则隐藏/显示。
+  - 播放、暂停、截图、取流逻辑不变。
+- 验证：
+  - `cd frontend && npm run test` 通过，14 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite dev demo 验证：暂停后点击画面控制条隐藏，再次点击恢复显示；控制台无 error/warn。
+
+## 2026-06-29 H5 Monitor 返回按钮 icon 尺寸微调 2.21.3 开发记录
+
+- 背景：
+  - 用户反馈 H5 监控详情页左上返回按钮里的左箭头偏小，需要适当放大。
+- 实现：
+  - 保持返回按钮外圈 32px 和点击区域不变，仅将 `.h5-back-icon` 从 16px 调整为 19px，线宽从 2 调整为 2.2。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor icon 视觉尺寸修正 2.21.4 开发记录
+
+- 背景：
+  - 用户线上验收 2.21.3 后反馈返回按钮仍然显小，并指出播放器右侧截图、横竖屏、全屏三个 icon 视觉大小和高度不一致。
+- 根因：
+  - 返回按钮继承了全局 `button` 的左右 padding，导致 32px 按钮内 SVG 被 flex 压缩，虽然 CSS 设置了 21px，但实际渲染宽度只有约 6px。
+  - 播放器右侧三个 SVG 虽然外框一致，但图形路径在 24x24 viewBox 中占比和视觉重心不同。
+- 实现：
+  - 返回按钮补充 `padding: 0`、`min-width: 32px`，并让 `.h5-back-icon` 固定 `flex-basis: 21px`；返回箭头路径改为更饱满的 24px viewBox chevron。
+  - 微调相机、横竖屏、全屏/退出全屏 icon 的路径尺寸和坐标，让 30px 按钮内 17px SVG 的视觉高度更一致。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地 Vite dev demo 移动视口验证：返回按钮 SVG 实际渲染为 21x21，按钮 padding 为 0；右侧三个控制按钮均为 30x30，SVG 均为 17x17 且居中。
+
+## 2026-06-29 H5 Monitor 返回按钮 icon 尺寸回调 2.21.5 开发记录
+
+- 背景：
+  - 用户线上验收 2.21.4 后认为返回箭头反而偏大，希望回到最初经验尺寸，只保留 padding 挤压问题的修复。
+- 实现：
+  - 返回箭头恢复为原始 16px chevron 和 2px 线宽。
+  - 保留 `.h5-back-btn { padding: 0; min-width: 32px; }` 与 `.h5-back-icon { flex: 0 0 16px; }`，避免再次被全局 button padding 压缩。
+- 验证：
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 本地移动端 demo 验证：返回按钮 padding 为 0，SVG 实际渲染为 16x16。
+
+## 2026-06-29 H5 Monitor 上海凯德晶萃店入口开放 2.21.6 开发记录
+
+- 背景：
+  - 北京保利实验室门店 H5 Monitor 页面已通过用户线上验收。
+  - 用户要求继续给“新氧青春诊所(上海凯德晶萃店)”开放门店详情右上角“查看监控”入口，新氧机构 ID 为 `10047`。
+- 实现：
+  - 前端 H5 Monitor 入口从单机构 `10030` 改为试点机构白名单：`10030`、`10047`。
+  - 后端 H5 Monitor 服务端门禁同步改为试点机构白名单。
+  - 保留北京 `10030` 仅允许 `GN0941203` 的旧试点限制；上海 `10047` 不硬编码录像机编号，使用该门店自己数据库下的有效通道和萤石账号配置。
+  - 版本号升级到 `2.21.6`。
+- 验证：
+  - 新增前端测试覆盖 `10047` 可打开 H5 Monitor 入口。
+  - 新增后端测试覆盖 `10047` 首页和直播取流使用上海门店自己的通道数据。
+
+## 2026-06-29 H5 Monitor 首页通道标题层级修复 2.21.7 开发记录
+
+- 背景：
+  - 开放真实业务门店“新氧青春诊所(上海凯德晶萃店)”后，H5 Monitor 首页圆形预览图下方主标题显示为 `通道12`，区域编号/备注显示在第二行，信息层级与业务预期相反。
+  - 用户期望主标题显示“区域类型 + 编号/备注”，例如 `治疗室1号`；副标题显示通道号，例如 `通道12`。
+- 根因：
+  - H5 首页 `channelName()` 优先使用后端 `channel_name`，真实扫描数据里的 `channel_name` 往往就是 `通道12`。
+  - 区域编号/备注被单独拼为副标题，导致真实门店里“通道号”抢占了业务主标题位置。
+- 实现：
+  - 新增 `h5ChannelDisplayText` 前端领域 helper，统一生成 H5 通道卡片展示文案。
+  - 业务区域标题优先级改为：业务类型标签 + 备注/编号，其次非业务备注，其次场景标签，最后才退回通道原名。
+  - 卡片副标题固定为 `通道{channel_no}`。
+  - H5 详情页进入时缓存的通道名称同步使用新的业务标题。
+  - H5 `AreaType` 类型补充 `vip_treatment`，避免 VIP 治疗室后续展示退化。
+  - H5 首页“加载更多”从固定 24 个改为按当前网格列数展示完整行：首屏 3 行，每次追加 2 行，避免真实门店桌面宽度下出现最后一行只露出半行的问题。
+- 验证：
+  - 新增前端测试覆盖 `通道12 + treatment + 1号 => 治疗室1号 / 通道12`。
+  - 新增前端测试覆盖备注场景：`治疗室401号`、`护士站 / 通道16`。
+  - 新增前端测试覆盖桌面 7 列和移动 3 列时的完整行加载数量。
+
+## 2026-06-29 H5 Monitor 首页默认展示与缩略图刷新 2.21.8 开发记录
+
+- 背景：
+  - 用户线上验收 2.21.7 后，提出首页默认 3 行略少，建议默认展示 4 行。
+  - 用户同时讨论：点击查看视频后，如果已经取到播放器画面，是否可以顺手刷新该通道首页缩略图，让真实业务门店的缩略图更及时。
+- 方案取舍：
+  - 不采用前端播放器 canvas 截帧上传：移动端、H265、萤石播放器内部跨域和画布污染风险较高，且会增加前端上传链路复杂度。
+  - 采用“播放器第一帧成功 -> 前端低频通知后端 -> 后端复用现有萤石抓图与公司空间保存链路”的方式。
+  - 刷新为 best effort，不阻断播放、不弹 toast；失败只在后台静默吞掉，避免影响查看监控主流程。
+- 实现：
+  - H5 首页默认展示从 3 行调整为 4 行，仍按当前网格列数计算完整行；加载更多仍每次增加 2 行。
+  - 新增 H5 后端接口：`POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/snapshot`，先复用 H5 试点门禁和通道校验，再调用 storespace 现有 `RefreshChannelSnapshot` 抓图保存。
+  - 前端在播放器 `first-frame-ready` 后触发缩略图刷新；跳过 mock 播放；同一 `机构+通道` 前端 10 分钟冷却。
+  - 后端同一通道也增加 10 分钟冷却，防止多个用户同时观看同一路视频时重复打萤石抓图接口。
+  - 缩略图刷新成功后，H5 路由壳更新列表刷新 key；用户返回首页时可重新拉取列表，展示新的缩略图链接。
+- 验证：
+  - `cd frontend && npm run test` 通过，17 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `git diff --check` 通过。
+
+## 2026-06-29 H5 Monitor 2.21.8 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 业务 commit：`a642e4a feat: refresh H5 monitor thumbnails after playback`。
+- 推送结果：
+  - GitLab remote 已从 `2c67c8f` 更新到 `a642e4a`。
+  - 公司线上前端静态资源已探测到 `2.21.8`。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端版本从 `2.21.7 (container)` 更新到 `2.21.8`。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
+
+## 2026-06-29 H5 Monitor 直播中缩略图刷新黑屏修复 2.21.9 开发记录
+
+- 背景：
+  - 线上验收 `2.21.8` 后，用户反馈刚开始看实时视频一段时间后可能突然黑屏，只能返回列表页；列表页预览图也会临时变成黑屏，再次进入后播放恢复，返回后预览图恢复正常。
+- 根因判断：
+  - `2.21.8` 将“第一帧成功”作为刷新缩略图触发点，导致播放过程中调用后端抓图接口。
+  - 该抓图请求可能与当前直播取流竞争录像机/萤石/门店带宽资源，造成当前播放器黑屏或把黑屏保存成缩略图。
+- 实现：
+  - 移除 `first-frame-ready` 阶段的缩略图刷新。
+  - 新增 H5 缩略图刷新时机规则：只允许实时直播流在 `exit`、`switch`、`stop` 释放前刷新；实时流续流/替换 `replace` 不刷新。
+  - 回放模式完全不触发缩略图刷新，回放 URL 释放只关闭播放地址。
+  - 直播释放时先尽力刷新缩略图，再关闭直播地址；刷新失败不阻断关闭直播地址。
+- 验证：
+  - `cd frontend && npm run test` 通过，18 tests passed。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-06-29 H5 Monitor 2.21.9 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`1a702b6 fix: refresh H5 thumbnails only after live close`。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端版本从 `2.21.8 (container)` 更新到 `2.21.9`。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
+
+## 2026-06-29 H5 Monitor 停止自动缩略图刷新 2.21.10 开发记录
+
+- 背景：
+  - 用户反馈 H5 Monitor 关闭直播时仍有一定比例无法稳定更新缩略图，且列表缩略图自动变化会产生黑屏、慢加载和视觉跳变。
+  - 经过讨论，当前阶段 H5 Monitor 的核心目标是稳定查看实时视频，缩略图自动更新不是强需求。
+- 决策：
+  - H5 Monitor 不再自动刷新缩略图。
+  - 实时直播、回放、切换 tab、关闭详情、续流、停止播放都不触发后端抓图。
+  - 现有后台通道列表里的手动“刷新截图”能力保留，不受影响。
+- 实现：
+  - 前端移除 H5 详情页释放直播流前的缩略图刷新逻辑，释放播放地址只调用失效播放地址接口。
+  - 前端移除 H5 首页刷新 key 和 `refreshSnapshot` API。
+  - 后端移除 `POST /api/h5/orgs/{externalOrgId}/monitor/channels/{channelId}/snapshot` 路由、H5 snapshot refresher 注入和 H5 专用截图刷新适配。
+  - 新增后端测试确认 H5 snapshot 路由不再注册，避免后续误恢复。
+- 风险说明：
+  - H5 首页缩略图不会因为用户观看视频而自动更新；如果后续确实需要更新，应作为单独的播放器截图实验重新评估 PC、手机浏览器和飞书 WebView 能力。
+
+## 2026-06-29 H5 Monitor 2.21.10 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`f59be65`，其中包含业务修复 `13a0506 fix: disable automatic H5 thumbnail refresh`，并正常合并远端 MySQL 迁移交接文档提交 `66e8eba`。
+- 推送结果：
+  - GitLab remote 已从 `66e8eba` 更新到 `f59be65`。
+  - 公司线上前端静态资源已探测到 `2.21.10 (container)`。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端版本从 `2.21.9 (container)` 更新到 `2.21.10 (container)`。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
+
+## 2026-06-30 门店列表全量统计修复 2.21.11 开发记录
+
+- 背景：
+  - 用户反馈门店列表右上角统计只统计当前分页页内门店，翻到没有已确认门店的页面时，面诊室、治疗室、生美统计会错误变为 0。
+- 根因：
+  - 前端 `App.tsx` 使用当前页 `stores` 计算右上角统计；`stores` 来自分页接口 `items`，不是全部门店。
+- 实现：
+  - 后端 `GET /api/store-space/stores` 返回新增 `summary` 字段，按当前搜索条件统计全部匹配门店，统计发生在分页前。
+  - MemoryStore 和 PostgresStore 均补齐同一口径：`store_count`、`treatment_count`、`consultation_count`、`beauty_count`。
+  - 前端 `StoreListResponse` 增加 `summary`，门店列表“全部”视图右上角统计改用后端全量 summary，不再受当前页影响。
+  - 城市筛选仍维持当前页前端筛选口径，后续如需要城市维度全量统计，需要另扩城市筛选参数或城市聚合接口。
+- 验证：
+  - 新增后端测试覆盖“分页只返回 1 家门店，但 summary 统计全部 2 家匹配门店”。
+  - 新增前端测试覆盖门店 summary 汇总 helper。
+
+## 2026-06-30 门店列表统计修复 2.21.11 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`362e0a1 fix: count store list summary across pages`。
+- 推送结果：
+  - GitLab remote 已从 `076586e` 更新到 `362e0a1`。
+  - 首次推送被公司 GitLab hook 拒绝，原因是新增 SQL 包含受限关联查询写法；已改为子查询写法后重新验证并推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端版本从 `2.21.10 (container)` 更新到 `2.21.11 (container)`。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
+
+## 2026-06-30 门店正式化字段 2.22.0 开发记录
+
+- 背景：
+  - 公司正规环境后续要求迁移到 MySQL，需要提前规划保留现有数据的迁移方式。
+  - 业务确认时仅有“业务区域类型 + 编号/备注”不够，治疗室、VIP治疗室、美容室需要支持床位拆分。
+  - 机构基础资料需要新增“机构简称”。
+- 实现：
+  - 后端新增 `stores.short_name` / API `short_name`，创建、编辑、列表、详情、重复检查均兼容返回。
+  - 后端新增 `video_channels.bed_label` / API `bed_label`，通道确认、扫描保留、H5 Monitor 查询、Excel 导出均支持。
+  - 前端创建/编辑机构弹窗新增“机构简称”字段，详情页顶部展示机构简称。
+  - 通道映射表新增“床位拆分”列，仅治疗室、VIP治疗室、美容室显示输入；空值兼容单床或旧数据。
+  - 用户可见“生美”统一改为“美容室”，内部枚举仍保留 `beauty`，避免历史数据迁移。
+  - 新增 `frontend/src/domain/channel-mapping-target.ts`，将 `areaType + areaNumber + bedLabel` 作为临时本地映射目标，后续可替换为公司业务系统区域/床位字典。
+  - MySQL DDL 补齐 `tb_stores.short_name`、`tb_video_channels.bed_label`。
+  - `docs/mysql-migration-handoff.md` 补充 MySQL 迁移注意事项、图片存储核查口径和未来业务区域字典边界。
+- 图片存储结论：
+  - 当前数据库保存图片/PDF/截图路径或 logical key，不保存二进制图片内容。
+  - 正式 MySQL 第一阶段只迁路径字段；图片内容仍由 Supabase Storage、local asset store 或后续公司文件服务承载。
+- 待办：
+  - 正式迁 MySQL 仍需单独实现 MySQL repository、样本迁移脚本、测试库验证、全量迁移和回滚方案。
+
+## 2026-06-30 门店正式化字段 2.22.0 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`65e3269 feat: add store short names and channel bed labels`。
+- 推送结果：
+  - GitLab remote 已从 `d824a43` 更新到 `65e3269`。
+  - 本次同时包含前置规划文档 commit：`bba7c71`、`5355f40`、`4b0f110`。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端 JS 静态资源 `index-B-DR2bc0.js` 已包含 `2.22.0 (container)`、`机构简称`、`床位拆分`、`美容室` 文案。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
+
+## 2026-06-30 H5 Monitor 播放清晰度切换 2.22.2 开发记录
+
+- 背景：
+  - 用户确认当前查看监控默认保持流畅级别，同时希望播放器右上角增加“切为高清 / 切为标清”切换按钮。
+  - 按钮需要与播放器控制条同步显示和隐藏：控制条显示时按钮显示，控制条隐藏时按钮隐藏。
+- 实现：
+  - 后端 H5 live-url / playback-url 请求新增 `quality` 参数。
+  - 默认仍为 `sd`，后端映射到萤石 `quality=2`（流畅/子码流）。
+  - 高清 `hd` 映射到萤石 `quality=1`（高清/主码流）。
+  - 前端 H5 播放器新增 `streamQuality` 状态，默认 `sd`；右上角按钮显示下一步动作：
+    - 当前标清：显示 `切为高清`。
+    - 当前高清：显示 `切为标清`。
+  - 直播切换清晰度时重新获取直播播放地址，并在新地址成功后释放旧地址，降低切换时资源泄漏风险。
+  - 回放切换清晰度时尽量记录当前播放点，重新获取对应播放地址，避免退回录像片段开头。
+  - 播放器诊断状态补充 `quality=sd/hd`，方便线上排查实际取流参数。
+- 验证：
+  - 新增后端测试覆盖 live / playback 请求 `quality=hd` 时传给萤石的 `Quality=1`。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `cd frontend && npm run build` 通过。
+  - 本地 H5 mock 页面浏览器验收通过：初始显示 `切为高清`，点击后变为 `切为标清`；点击播放器画面隐藏时，清晰度按钮和控制条一起消失，再次点击一起显示。
+
+## 2026-06-30 H5 Monitor 2.22.2 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`fa899ac feat: add H5 monitor stream quality toggle`。
+- 推送结果：
+  - GitLab remote 已从 `8b20988` 更新到 `fa899ac`。
+  - 首次非交互 HTTPS 推送因本机未配置 GitLab credential helper 失败；随后使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端静态资源已探测到 `2.22.2 (container)`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
+
+## 2026-06-30 H5 Monitor 回放隐藏清晰度切换 2.22.3 开发记录
+
+- 背景：
+  - 用户指出录像回放看起来无法切换标清/高清，如果回放只有一种模式，则不应展示切换按钮。
+  - 萤石文档中清晰度切换主要针对实时预览；录像回放不支持同样的高清/标清切换体验。
+- 实现：
+  - H5 播放器右上角“切为高清 / 切为标清”仅在实时视频模式显示。
+  - 录像回放模式隐藏清晰度切换按钮，避免误导用户。
+  - 前端回放取流请求不再传 `quality`。
+  - 后端回放接口即使收到 `quality=hd` 也固定使用 `quality=2`，保证回放行为稳定。
+- 验证：
+  - 更新后端测试：`TestPlaybackURLIgnoresRequestedQuality` 覆盖回放忽略清晰度参数。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/h5monitor` 通过。
+  - `cd frontend && npm run test` 通过。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-06-30 H5 Monitor 2.22.3 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`f6d8681 fix: hide H5 quality toggle during replay`。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端静态资源已探测到 `2.22.3 (container)`。
+- 备注：
+  - 本次未发布韩国服务器，未同步 GitHub。
+
+## 2026-06-30 H5 Monitor 诊断日志与识别图片 URL 修复 2.22.4 开发记录
+
+- 背景：
+  - H5 播放器下方诊断卡已完成阶段性调试使命，需要默认收起，遇到问题时再由用户点开复制给 Codex 排查。
+  - 运营识别门店时 MiniMax 报错 `disallowed url: https://opencapture.ys7.com/...`；该问题对 GPT/OpenAI 也存在同类风险，因为临时萤石抓图 URL 不适合作为模型识别输入。
+  - 用户确认本次新增日志属于短周期诊断日志，不是安全合规审计日志；后续权限/操作审计日志需要另做长期保存。
+- 实现：
+  - H5 播放详情页右上角新增信息 icon，播放器日志默认收起；点击后展示当前状态、最近状态记录、复制和关闭按钮。
+  - 前端播放器日志保留最近 24 条并做相邻去重，复制内容包含机构 ID、通道 ID、模式、播放状态、清晰度、url_id 和最近诊断状态。
+  - 后端 H5 Monitor 直播取流、回放取流、录像片段查询、播放地址释放补充短周期诊断日志，方便按门店、通道、阶段、耗时定位问题。
+  - 通道识别链路补充抓图、保存快照、调用模型、保存结果等阶段日志，日志中只记录脱敏设备号、图片域名/路径摘要和错误摘要。
+  - 修复模型识别图片 URL：抓图保存到快照存储成功后，MiniMax/GPT 均使用稳定的本地快照 URL 进行识别，不再直接传 `opencapture.ys7.com` 临时 URL。
+- 日志原则：
+  - 本次日志走服务 stdout / K8s 日志系统，作为短周期诊断日志使用。
+  - 不写入业务数据库，不保存完整播放 URL、token、签名 query、service role key 等敏感信息。
+  - 后续权限操作日志应另建结构化审计日志，长期保存，记录“谁在什么时候做了什么变更”。
+- 验证：
+  - 新增测试覆盖 `ProbeRecognizeChannel` 和 `RecognizeRecorderChannels` 均使用已保存快照 URL 调用识别器。
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - 本地浏览器验收 H5 播放详情桌面和移动端：日志默认收起，信息 icon 可展开，复制/关闭按钮可见，控制台无新增错误。
+
+## 2026-06-30 H5 Monitor 2.22.4 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`15320c4 fix: improve H5 diagnostics and recognition image URLs`。
+- 推送结果：
+  - GitLab remote 已从 `f6d8681` 更新到 `15320c4`。
+  - 首次非交互 HTTPS 推送因本机未配置 GitLab credential helper 失败；随后使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端静态资源已探测到 `2.22.4 (container)`。
+  - H5 播放页懒加载资源 `H5MonitorChannel--vszTHZe.js` 已包含 `播放器日志`、`查看播放器日志`、`H5 Monitor 播放器诊断` 等新逻辑。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
+
+## 2026-06-30 MiniMax 相对快照 URL 修复 2.22.5 开发记录
+
+- 背景：
+  - 用户反馈报错门店：`新氧青春诊所(上海正大广场店)`。
+  - 录像机 `FK8984413` 识别完成，但 `43` 个通道抓图/识别失败。
+  - MiniMax 返回：`invalid param: image url must be http(s):// or data:...;base64 (2013)`。
+- 根因：
+  - `2.22.4` 已把萤石 `opencapture.ys7.com` 临时图保存到本地快照存储后再传给模型，但传给模型的仍是前端可访问的相对路径 `/api/store-space/channel-snapshots/{name}.jpg`。
+  - 前端和后台页面可以使用该相对路径，但 MiniMax/GPT 服务端无法解析相对 URL；MiniMax 明确要求 `http(s)://` 或 `data:...;base64`。
+- 实现：
+  - 模型识别前新增 `prepareRecognitionImageURL`。
+  - 如果识别图片已经是 `http(s)` 或 `data:`，保持原样。
+  - 如果识别图片是本地快照 API 路径，则从 `SnapshotStore.Open` 读取图片内容并转换为 `data:image/...;base64,...` 后传给 MiniMax/GPT。
+  - 数据库和前端仍保存、展示原来的 `/api/store-space/channel-snapshots/{name}.jpg`，只改变模型调用入参。
+  - 诊断日志中对 data URL 做摘要显示为 `data:image/...;base64,[redacted]`，避免日志写入整张图片 base64。
+- 验证：
+  - 新增 `TestProbeRecognizeChannelConvertsStoredSnapshotToDataURLForRecognition`，覆盖本次 `FK8984413` 同类报错。
+  - 更新 probe 和批量识别用例，确认识别器最终收到 `data:image/jpeg;base64,...`。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-06-30 通道批量识别抗中断优化 2.22.6 开发记录
+
+- 背景：
+  - 用户反馈 `新氧青春诊所(上海正大广场店)`，业务机构 ID `10011`，录像机 `FK8984413` 页面报 `识别失败：Failed to fetch`。
+  - 线上只读排查确认系统内部 store id 为 `12`，recorder id 为 `14`，该录像机有 `43` 个有效通道。
+  - `2.22.5` 已修复 MiniMax 相对快照 URL 问题；本次线上数据中通道 `1-20` 已在 `2026-06-30 15:29-15:35` 成功识别为 `provider=minimax`，通道 `21-44` 仍停留在旧失败记录。
+- 根因判断：
+  - MiniMax 单通道识别耗时普遍约 `12-27s`，大量通道连续识别时，某一路可能被浏览器/公司网关/Ingress 中断。
+  - 前端原逻辑在任一通道 `fetch` 抛错后直接中断整台录像机识别，导致后续通道不再继续。
+  - 前端还会把已成功识别但待人工确认的通道重新加入批量识别，造成重复消耗模型和额外超时风险。
+- 实现：
+  - 新增 `shouldBatchRecognizeChannel`，批量识别只处理未识别、识别失败或半截状态的未确认通道；已成功识别待确认通道不重复跑。
+  - 录像机级识别队列改为单通道容错：某一路请求失败、网络中断或模型识别失败，只记录该通道结果并继续后续通道。
+  - `TypeError: Failed to fetch` 统一转成中文提示：`识别请求中断，可能是单路识别耗时过长或公司网关超时，已继续识别后续通道。`
+  - 识别完成 toast/页面错误区展示本轮总数、成功数、失败数、中断数和首个失败通道，方便运营和 Codex 对齐问题。
+  - 后端 `recognizeChannel` 增加请求上下文取消日志：`storespace: channel-recognize interrupted ... error="context canceled"`，便于后续让运维按 recorder/channel/time 查 K8s 日志。
+- 验证：
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-channel-test src/domain/channel-recognition.ts src/domain/channel-recognition.test.ts && node /tmp/erzhuang-channel-test/channel-recognition.test.js` 通过。
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - 本地 Vite dev server 可启动；Playwright 浏览器二进制未安装，未做截图式浏览器验收。
+
+## 2026-06-30 通道批量识别抗中断优化 2.22.6 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`b6d114b fix: keep channel recognition running after transient failures`。
+- 推送结果：
+  - GitLab remote 已从 `6c1c2bc` 更新到 `b6d114b`。
+  - 首次非交互 HTTPS 推送因本机未配置 GitLab credential helper 失败；随后使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端首页资源已更新为 `/erzhuang-project/assets/index-DPpJtdbx.js`。
+  - 线上前端 bundle 已包含 `2.22.6`、`识别请求中断`、`已继续识别后续通道`、`不会重复消耗模型` 等本次逻辑。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
+
+## 2026-06-30 机构列表城市筛选分页修复 2.22.7 开发记录
+
+- 背景：
+  - 用户反馈机构列表选择“上海”后，只筛出当前页里的上海机构，而不是全部上海机构；需要往后翻多页才能看到其它上海门店。
+  - 线上只读复现：请求 `GET /api/store-space/stores?page=1&page_size=5&city=上海` 仍返回深圳门店，说明生产后端尚未支持 `city` 参数。
+- 根因：
+  - 前端原逻辑先请求分页后的当前页门店，再用 `stores.filter(city)` 做城市筛选。
+  - 这导致城市筛选只作用于当前页，分页总数、统计、城市按钮都不是“该城市全集”。
+- 实现：
+  - 后端 `StoreFilters` 新增 `City`，`GET /api/store-space/stores?city=上海` 在分页前按 `stores.city` 精确过滤。
+  - 后端列表响应新增 `cities`，按当前搜索关键词返回可选城市全集，避免城市按钮依赖当前页数据。
+  - `MemoryStore` 与 `PostgresStore` 均支持 city 过滤、全量城市选项、分页前 total/summary 计算。
+  - 前端新增 `store-list-query` helper，统一生成列表查询参数；城市筛选会请求服务端并重置到第一页。
+  - 前端移除当前页二次城市过滤，列表、分页、统计全部使用后端过滤结果。
+- 验证：
+  - 新增后端测试 `TestListStoresFiltersCityBeforePagination`，覆盖 city 过滤在分页前发生。
+  - 新增前端 domain 测试 `store-list-query.test.ts`，覆盖 `city=上海` 查询参数。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && ./node_modules/.bin/tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --outDir /tmp/erzhuang-store-query-test src/domain/store-list-query.ts src/domain/store-list-query.test.ts && node /tmp/erzhuang-store-query-test/store-list-query.test.js` 通过。
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-06-30 机构列表城市筛选分页修复 2.22.7 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`4e94903 fix: apply city filter before store pagination`。
+- 推送结果：
+  - GitLab remote 已从 `15fde5c` 更新到 `4e94903`。
+  - 首次非交互 HTTPS 推送因本机未配置 GitLab credential helper 失败；随后使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 前端首页资源已更新为 `/erzhuang-project/assets/index-CH0SPpGz.js`，bundle 已包含 `2.22.7`。
+  - 线上接口 `GET /api/store-space/stores?page=1&page_size=5&city=上海` 返回 `total=8`，当前页 `5` 个 item 的 `city` 均为 `上海`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 本地 `origin/main` 与公司发布分支存在历史分叉，为避免影响 GitHub main，本次未同步 GitHub。
+
+## 2026-06-30 MiniMax 通道识别 JSON 解析容错 2.22.8 开发记录
+
+- 背景：
+  - 用户反馈 `新氧青春诊所(上海正大广场店)` 录像机 `FK8984413` 识别完成 `8/10`，剩余通道 `39` 报错：
+    `parse minimax recognition json: invalid character '<' looking for beginning of value: <think> ... 弱电室 ...`。
+  - 该报错说明抓图和 MiniMax HTTP 请求已经成功，失败点在模型返回内容解析：模型没有严格按 JSON schema 只输出 JSON，而是混入了 `<think>` 分析文字。
+- 根因判断：
+  - MiniMax 偶发返回“思考/解释文本 + JSON”，或极端情况下只返回解释文本。
+  - 旧解析器只处理纯 JSON、Markdown fenced JSON、以及第一个合法 `{...}`；如果分析文本里先出现了非法花括号片段，或完全没有 JSON，就会把全文交给 `json.Unmarshal`，触发 `<think>` 解析失败。
+  - OpenAI/GPT 路径也存在类似风险，之前只暴露在 MiniMax 上。
+- 实现：
+  - 通道识别 JSON 提取器改为扫描整段文本中的每一个 `{` 起点，跳过分析文字里的非法花括号，直到找到第一个可解析 JSON 对象。
+  - OpenAI/GPT 通道识别路径复用同一套模型 JSON 提取器，兼容“解释文本 + JSON”输出。
+  - MiniMax 如果完全没有返回 JSON，但文本明确包含“弱电室 / 弱电间 / 机房 / machine room / weak current room”，则生成低置信度、需人工复核的 `machine_room` 结果，避免该类非业务区域卡住整批识别。
+- 验证：
+  - 新增 `TestExtractModelJSONTextSkipsInvalidBraceBeforeResult`，覆盖分析文本里先出现非法 `{...}` 后再输出合法 JSON。
+  - 新增 `TestMiniMaxRecognizerFallsBackFromWeakCurrentRoomExplanation`，覆盖 MiniMax 只返回弱电室解释文本时的低置信度兜底。
+  - 新增 `TestOpenAIRecognizerParsesThinkWrappedJSON`，覆盖 GPT/OpenAI 兼容“think 文本 + JSON”。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/channelai -count=1` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+
+## 2026-06-30 MiniMax 通道识别 JSON 解析容错 2.22.8 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`5959144 fix: tolerate minimax channel reasoning output`。
+- 推送结果：
+  - GitLab remote 已从 `37e9f94` 更新到 `5959144`。
+  - 使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 无缓存请求首页已更新为 `/erzhuang-project/assets/index-C65y8J1h.js`。
+  - 线上前端 bundle 已包含 `2.22.8`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 入口 HTML 存在短暂缓存，普通请求一度仍显示旧资源 `index-CH0SPpGz.js`，无缓存请求已确认新构建生效。
+
+## 2026-06-30 MiniMax 医生办公室解释文本兜底 2.22.9 开发记录
+
+- 背景：
+  - 用户反馈 `新氧青春诊所(上海长宁旗舰店)` 录像机 `FW4529752` 识别完成 `59/61`，通道 `16` 报错：
+    `parse minimax recognition json: invalid character '<' looking for beginning of value: <think> ... 医生办公室 ...`。
+  - 该错误与 `2.22.8` 的弱电室案例同源：MiniMax HTTP 调用成功，但模型只返回 `<think>` 分析文本，没有返回合法 JSON。
+- 根因判断：
+  - `2.22.8` 已能跳过解释文本中的非法花括号，并对“弱电室/机房”做低置信度兜底。
+  - 新案例中模型明确识别出“医生办公室”，但该文本不在 `2.22.8` 的窄兜底强信号表内，因此仍被判为解析失败。
+- 实现：
+  - 将 MiniMax 无 JSON 兜底改为强信号表形式，保留“弱电室/弱电间/机房”映射。
+  - 新增“医生办公室 / doctor's office / doctor office”强信号，映射为 `scene_type=unknown`、`area_number=医生办公室`、`confidence=low`、`needs_review=true`。
+  - 该兜底只在模型完全未返回合法 JSON 时触发，且结果统一要求人工复核，避免把模型解释文本当高置信度识别。
+- 验证：
+  - 新增 `TestMiniMaxRecognizerFallsBackFromDoctorOfficeExplanation`，覆盖本次 `FW4529752` 通道 `16` 同类返回。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/channelai -run 'TestMiniMaxRecognizerFallsBackFrom(WeakCurrentRoom|DoctorOffice)Explanation' -count=1` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+
+## 2026-06-30 MiniMax 医生办公室解释文本兜底 2.22.9 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`686675b fix: tolerate doctor office minimax reasoning output`。
+- 推送结果：
+  - GitLab remote 已从 `611d29b` 更新到 `686675b`。
+  - 使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 无缓存请求首页已更新为 `/erzhuang-project/assets/index-Bca1GPCX.js`。
+  - 线上前端 bundle 已包含 `2.22.9`。
+- 备注：
+  - 本次未发布韩国服务器。
+
+## 2026-06-30 H5 Monitor 入口默认开放 2.22.10 开发记录
+
+- 背景：
+  - 用户询问机构详情页右上角“查看监控”入口能否默认开放给所有机构。
+  - 代码确认当前仍使用 H5 Monitor 试点白名单，只允许新氧机构 ID `10030`、`10047` 显示入口。
+- 决策：
+  - 机构详情页入口不再使用试点白名单。
+  - 只要门店存在非空新氧机构 ID，就显示“查看监控”入口。
+  - H5 Monitor 页面继续按新氧机构 ID 拉取真实录像机/通道数据；没有数据时由页面展示空态，不在机构详情页做复杂拦截。
+- 实现：
+  - 移除 `h5MonitorPilotExternalOrgIds` 白名单。
+  - `canOpenH5Monitor` 改为判断 `externalOrgId.trim() !== ""`。
+  - 更新前端测试，覆盖 `10031`、`010030`、带空格机构 ID 均允许，空字符串和纯空格不允许。
+- 验证：
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - 本次未改变按钮样式和页面布局，仅改变入口可见性判断。
+
+## 2026-06-30 H5 Monitor 入口默认开放 2.22.10 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`25352b7 feat: open H5 monitor entry for all org stores`。
+- 推送结果：
+  - GitLab remote 已从 `6100917` 更新到 `25352b7`。
+  - 使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 无缓存请求首页已更新为 `/erzhuang-project/assets/index-LEvpVOuF.js`。
+  - 线上前端 bundle 已包含 `2.22.10`。
+  - 线上前端 bundle 已包含 `externalOrgId.trim()!==""`，确认入口判断不再使用试点白名单。
+- 备注：
+  - 本次未发布韩国服务器。
+
+## 2026-06-30 H5 Monitor 后端机构白名单移除 2.22.11 开发记录
+
+- 背景：
+  - `2.22.10` 已将机构详情右上角“查看监控”入口从前端白名单改为“有新氧机构 ID 即显示”。
+  - 用户反馈点击其它门店入口后 H5 页面显示 `not found`。
+- 根因：
+  - 前端入口已放开，但后端 H5 Monitor 服务仍保留试点机构白名单，只允许 `10030`、`10047`。
+  - 非试点机构请求 `/api/h5/orgs/{externalOrgId}/monitor` 时被 `isPilotAllowedOrg` 拦截为 404。
+- 实现：
+  - 移除后端 H5 Monitor 机构级试点白名单。
+  - `GetMonitorHome` 和播放/回放通道校验改为：只要数据库中能按新氧机构 ID 找到门店，即允许访问。
+  - 保留北京实验门店 `10030` 对设备 `GN0941203` 的历史过滤，避免该实验门店误展示其它录像机。
+  - 更新测试：非试点机构 `10031` 有门店和通道数据时，H5 Monitor 首页返回 200 和对应通道。
+- 验证：
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./internal/h5monitor -count=1` 通过。
+  - `CGO_ENABLED=0 GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build ./.tools/go/bin/go test ./...` 通过。
+  - `cd frontend && npm test` 通过，18 tests passed。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-06-30 H5 Monitor 后端机构白名单移除 2.22.11 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`17943ea fix: allow H5 monitor backend for all org stores`。
+- 推送结果：
+  - GitLab remote 已从 `dae5d0b` 更新到 `17943ea`。
+  - 使用交互式 HTTPS 账号/token 推送成功。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 无缓存请求首页已更新为 `/erzhuang-project/assets/index-BUVQ3-CA.js`。
+  - 线上前端 bundle 已包含 `2.22.11`。
+  - 非试点机构 H5 API 已验证：
+    - `GET /api/h5/orgs/10029/monitor` 返回 200，门店为 `新氧青春诊所(上海长宁旗舰店)`。
+    - `GET /api/h5/orgs/10011/monitor` 返回 200，门店为 `新氧青春诊所(上海正大广场店)`。
+- 备注：
+  - 本次未发布韩国服务器。
+
+## 2026-07-01 APISIX-SSO 骨架与 DBA 协作规范 2.23.0 开发记录
+
+- 背景：
+  - 用户提供公司文档《内部系统接入APISIX-SSO使用方式》，确认二壮项目必须使用公司推荐的 APISIX 网关 `security-sso` 插件，不自建 OAuth2 登录流程。
+  - 上一轮曾错误沿用 OAuth2/API SSO 口径，已按文档纠偏。
+- 实现：
+  - 新增 APISIX-SSO 后端骨架：
+    - `GET /api/auth/me`
+    - `POST /api/auth/logout`
+    - `GET /_/auth/callback`
+    - `GET /logout`
+  - 默认 `SSO_ENABLED=false`，不影响现有运营后台。
+  - `SSO_ENABLED=true` 时读取 `sy_sso_token` cookie，并按文档校验 RS256 JWT：
+    - `alg` 必须为 `RS256`。
+    - 使用公司文档公钥或 `SSO_JWT_PUBLIC_KEY` 验签。
+    - 校验 `exp`。
+    - 配置 `SSO_EXPECTED_SUB` 后校验 `sub`。
+    - `data.mail` 必须存在，作为第一版 `tb_users.email` 授权主键。
+  - 前端新增 SSO 登录欢迎页；未登录时不加载门店业务数据。
+  - SSO 文档改为 APISIX 单一路径，并同步纠正 MySQL DBA/迁移验收文档里的旧 `/token` 口径。
+  - 新增 DBA 专项协作规则，后续 MySQL schema、权限模型、资产存储迁移先交 DBA 专项出方案，再由主会话验收。
+  - 脱敏历史计划文档中的 GitLab personal access token 明文示例。
+- 风险与后续：
+  - 当前权限仍是 SSO 骨架阶段兼容态，`role=admin`、`permissions=["admin"]`；正式权限需要继续接入 `tb_users`、角色、机构范围和审计日志。
+  - 公司环境如要启用 SSO，需要运维配置 APISIX `security-sso` 插件、包含 `/_/auth/callback` 与 `/logout` 路由，并由安全配置 SSO 认证域名白名单。
+  - 建议公司环境启用时配置 `SSO_EXPECTED_SUB` 为实际访问域名。
+- 验证：
+  - `cd frontend && npm test` 通过，21 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build ./cmd/server` 通过。
+  - `go test ./internal/app` 在本机执行测试二进制时仍触发 macOS `dyld missing LC_UUID`，属于当前本机 Go 工具链/测试二进制执行限制；编译级验证已通过。
+
+## 2026-07-01 APISIX-SSO 骨架与 DBA 协作规范 2.23.0 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`c9d72e9 feat: add apisix sso auth skeleton`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`。
+  - GitLab remote 已从 `3aeaccb` 更新到 `c9d72e9`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 线上验证：
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 `{"app":"erzhuang-project","status":"ok","version":"v2","database":"postgres","asset_store":"supabase"}`。
+  - 无缓存请求首页已更新为 `/erzhuang-project/assets/index-Dp-AlerQ.js`。
+  - 线上前端 bundle 已包含 `2.23.0`、`APISIX-SSO`、`/_/auth/callback`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - 默认 `SSO_ENABLED=false`，所以发布后不会突然拦截现有运营后台。
+
+## 2026-07-01 APISIX-SSO 退出登录入口 2.23.1 开发记录
+
+- 背景：
+  - 公司 SSO 已配置完成后，用户反馈后台没有可见的 logout 入口。
+  - 代码核查确认后端已支持 `POST /api/auth/logout` 和 APISIX 默认 `GET /logout`，但前端缺少稳定退出入口。
+- 实现：
+  - 前端认证 helper 新增 `authLogoutPath()`，统一生成带项目路径前缀的 `/logout`。
+  - 门店列表页右上角展示当前 SSO 用户与“退出登录”。
+  - 门店详情页右上角也复用同一退出控件，避免用户进入详情后找不到退出入口。
+  - 退出流程调整为先调用项目 `POST /api/auth/logout` 清理本地 cookie，再跳转到 `/erzhuang-project/logout` 触发 APISIX SSO 退出；本地清理失败时也会继续尝试 SSO 退出。
+  - 详情页右侧操作区补充间距和换行，兼容“查看监控”和退出控件并存。
+- 验证：
+  - `cd frontend && npm test` 通过，22 tests passed。
+  - `cd frontend && npm run build` 通过。
+- 待发布验证：
+  - 公司环境自动发布后，检查页面底部版本号包含 `2.23.1`。
+  - SSO 登录后，列表页和门店详情页均应显示退出登录入口。
+  - 点击退出后应进入公司 SSO/APISIX logout 链路，不再跳回 `/_/auth/callback`。
+
+## 2026-07-01 公司域名 SSO 退出入口显示补丁 2.23.2 开发记录
+
+- 背景：
+  - `2.23.1` 已成功发布到公司环境，线上页脚显示 `2.23.1 (container)`。
+  - 浏览器验收发现列表页仍未显示“退出登录”。
+- 根因：
+  - 前端显示退出入口依赖 `auth.enabled=true`。
+  - 当前公司网关已经启用 APISIX SSO，但项目后端环境仍处于兼容态，`/api/auth/me` 可能返回 `enabled=false`，导致退出入口被隐藏。
+- 实现：
+  - 新增 `shouldShowLogoutEntry()`，在已认证且域名为 `lite.sy.soyoung.com` 时也显示退出入口。
+  - 保持本地开发环境兼容态不显示退出入口，避免干扰本地调试。
+  - 补充单测覆盖公司域名兼容态、本地域名兼容态、后端 SSO 启用态。
+- 验证：
+  - `cd frontend && npm test` 通过，23 tests passed。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-07-01 公司域名 SSO 退出入口显示补丁 2.23.2 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`85657e6 fix: show sso logout on company domain`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`。
+  - GitLab remote 已从 `1ad1dd3` 更新到 `85657e6`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 线上验证：
+  - 浏览器打开 `https://lite.sy.soyoung.com/erzhuang-project/?codex_verify=2.23.2`，页面底部显示 `版本 2.23.2 (container)`。
+  - 门店列表页右上角已显示“当前登录用户”和“退出登录”按钮。
+  - 未点击“退出登录”做破坏性验证，避免主动登出用户当前 SSO 会话。
+- 备注：
+  - 当前 `/api/auth/me` 仍显示本地兼容用户信息，说明公司 APISIX SSO 网关已接管访问，但项目后端 `SSO_ENABLED` 可能仍未开启；本次补丁专门兼容该过渡状态。
+  - 本次未发布韩国服务器。
+
+## 2026-07-01 SSO 退出裸 JSON 与未真退出修复 2.23.3 开发记录
+
+- 背景：
+  - 用户点击“退出登录”后进入 `https://lite.sy.soyoung.com/erzhuang-project/logout`，页面直接显示 `{"ok":true}`。
+  - 用户再次访问项目仍是登录状态，说明只是业务后端清理了本地 cookie，没有触发公司/APISIX SSO 真正注销。
+- 根因：
+  - 前端将浏览器跳转到了带项目路径前缀的 `/erzhuang-project/logout`。
+  - 公司 APISIX 未在该带前缀路径优先接管登出，请求落到 Go 后端 `GET /logout` handler。
+  - Go 后端 `GET /logout` 与 `POST /api/auth/logout` 复用 JSON 响应，导致浏览器裸显 `{"ok":true}`，也无法确认 SSO 网关会话已注销。
+- 实现：
+  - 前端在公司域名 `lite.sy.soyoung.com` 下点击退出时，浏览器跳转根路径 `/logout`，优先交给 APISIX SSO 插件处理真正登出。
+  - 保留非公司域名下的 `/erzhuang-project/logout` 兼容路径。
+  - Go 后端 `GET /logout` 改为清理本地 cookie 后 302 回项目首页，避免裸 JSON；`POST /api/auth/logout` 继续返回 JSON 给前端 Ajax 使用。
+  - 新增后端测试覆盖 `GET /erzhuang-project/logout` 不再返回 JSON，而是 302 回首页并清 cookie。
+- 验证：
+  - `cd frontend && npm test` 通过，23 tests passed。
+  - `cd frontend && npm run build` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build ./cmd/server` 通过。
+  - `go test ./internal/app` 运行测试二进制时仍触发本机 macOS `dyld missing LC_UUID`，属于已知本机 Go 工具链执行限制；编译级验证通过。
+
+## 2026-07-01 SSO 退出裸 JSON 与未真退出修复 2.23.3 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`a78260a fix: route sso logout through gateway`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`。
+  - GitLab remote 已从 `c0bcacf` 更新到 `a78260a`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 线上验证：
+  - 浏览器打开 `https://lite.sy.soyoung.com/erzhuang-project/?codex_verify=2.23.3d`，页面底部显示 `版本 2.23.3 (container)`。
+  - 门店列表页右上角仍显示“退出登录”按钮。
+  - 未直接点击“退出登录”，避免主动登出用户当前 SSO 会话；根据线上 bundle 逻辑，公司域名下点击退出将跳转根路径 `/logout`，不再跳 `/erzhuang-project/logout`。
+- 备注：
+  - 本次未发布韩国服务器。
+
+## 2026-07-01 SSO 退出后登录闭环修复 2.23.4 开发记录
+
+- 背景：
+  - 用户反馈退出后会短暂闪过项目内 SSO 欢迎页，再进入公司 SSO 登录页。
+  - 公司 SSO 登录页 URL 显示 `from_host=lite.sy.soyoung.com`，登录后回到域名根，而不是二壮项目起始页。
+- 证据：
+  - 未登录直接访问 `https://lite.sy.soyoung.com/erzhuang-project/` 时，APISIX 返回 302，`Location` 中包含完整 `state=https://lite.sy.soyoung.com/erzhuang-project/`。
+  - 访问 `https://lite.sy.soyoung.com/logout` 时，APISIX 生成的 `state` 是 `/logout`，追加 `state`、`redirect_uri`、`redirect` 查询参数都不会改变该行为，只会被作为 `/logout?...` 的一部分编码进 state。
+- 根因：
+  - 公司登录回跳路径由 APISIX SSO 插件根据当前请求路径生成，不是前端可直接用 `from_host` 参数改成带路径的 URL。
+  - 项目内 `LoginWelcome` 的按钮走 `/_/auth/callback`，容易让 SSO 只按 host 处理，形成回到 `lite.sy.soyoung.com` 根路径的体验。
+- 实现：
+  - 新增 `authCompanyEntryPath()`：公司域名下统一使用 `/erzhuang-project/` 作为 SSO 登录入口。
+  - 公司域名下未登录时不再展示项目内欢迎页，而是用 `window.location.replace("/erzhuang-project/")` 重新进入项目起始页，让 APISIX 生成完整 `state`。
+  - 使用 `sessionStorage` 做一次性防抖，避免异常配置下无限刷新；登录成功后清理该标记，保证下一次退出/登录仍可触发。
+  - 保留本地开发环境的项目内 `LoginWelcome`，不影响调试。
+- 验证：
+  - `cd frontend && npm test` 通过，24 tests passed。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-07-01 SSO 退出后登录闭环修复 2.23.4 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`8c2cd2f fix: keep sso login return path`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`。
+  - GitLab remote 已从 `3a2fd59` 更新到 `8c2cd2f`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 线上验证：
+  - 未登录访问 `https://lite.sy.soyoung.com/erzhuang-project/` 返回 302 到公司 SSO authorize 地址，`Location` 中包含完整 `state=https://lite.sy.soyoung.com/erzhuang-project/`。
+  - 当前浏览器会话已退出，无法直接查看后台页脚；待用户完成 SSO 登录后可在页面底部确认 `2.23.4 (container)`。
+- 备注：
+  - 本次未发布韩国服务器。
+
+## 2026-07-01 SSO 退出优先走网关修复 2.23.5 开发记录
+
+- 背景：
+  - 用户反馈 `2.23.4` 中点击“退出登录”后页面仍显示后台，出现 `Failed to fetch`，刷新后仍是已登录状态。
+- 根因：
+  - 前端退出流程仍然先 `await POST /api/auth/logout`，再跳转 `/logout`。
+  - 公司 SSO/APISIX 场景下，该业务 API 请求可能被网关/认证状态影响而 `Failed to fetch`，导致退出动作体验不稳定。
+  - 公司环境的真正退出应优先交给 APISIX `/logout`，不应依赖项目业务 API 成功。
+- 实现：
+  - 新增 `shouldUseGatewayLogout()`，公司域名 `lite.sy.soyoung.com` 下点击退出时立即跳转 `/logout`。
+  - 非公司域名保留原有 `POST /api/auth/logout` 本地清理逻辑，方便本地/兼容环境调试。
+  - 复用 `isCompanySSODomain()` 判断，统一公司域名下登录入口、退出入口、退出按钮可见性。
+- 验证：
+  - `cd frontend && npm test` 通过，25 tests passed。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-07-01 SSO 退出优先走网关修复 2.23.5 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`49d956c fix: bypass app logout api on company sso`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`。
+  - GitLab remote 已从 `376b56b` 更新到 `49d956c`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 线上验证：
+  - 浏览器打开 `https://lite.sy.soyoung.com/erzhuang-project/?codex_verify=2.23.5b`，页面底部显示 `版本 2.23.5 (container)`。
+  - 门店列表页右上角仍显示“退出登录”按钮。
+  - 未直接点击“退出登录”，避免主动登出用户当前 SSO 会话；根据线上 bundle 逻辑，公司域名下点击退出将直接跳转 `/logout`，不再先请求 `/api/auth/logout`。
+- 备注：
+  - 本次未发布韩国服务器。
+
+## 2026-07-01 SSO 用户表最小授权闭环 2.24.0 开发记录
+
+- 背景：
+  - 用户确认第一版用户表以企业邮箱作为唯一授权标识，保留 `display`、`phone`，后续继续扩展角色、机构范围和权限点。
+  - 默认管理员使用 `shalei@soyoung.com`。
+  - 登录提示区域应展示 SSO 返回的真实 `display`，不再依赖本地假用户信息。
+- 实现：
+  - 新增 `tb_users` Postgres 表初始化，字段包括 `email`、`username`、`display_name`、`feishu_user_id`、`phone`、`role`、`enabled`、`last_login_at`。
+  - `EnsurePostgresSchema` 自动种子默认管理员 `shalei@soyoung.com`，`role=admin`，`enabled=true`；已有数据不覆盖。
+  - `SSO_ENABLED=true` 时，`/api/auth/me` 先完成 APISIX SSO JWT 验签，再按 `data.mail` 查 `tb_users`；用户不存在或禁用返回 403。
+  - 登录成功后，用 SSO payload 的 `display`、`phone`、`user_id` 回填用户表，并返回给前端，现有右上角登录提示自动展示真实 `display_name`。
+  - `SSO_ENABLED=false` 时保留本地 admin 兼容态，避免本地和未启用 SSO 的环境被阻断。
+- 验证：
+  - `./.tools/go/bin/go test -c ./internal/app` 通过，后端认证包测试二进制可编译。
+  - `./.tools/go/bin/go build ./cmd/server` 通过。
+  - `cd frontend && npm test` 通过，25 tests passed。
+  - `cd frontend && npm run build` 通过。
+- 备注：
+  - 本机执行 Go 测试二进制仍会触发 macOS `dyld missing LC_UUID` 环境问题，因此本轮 Go 行为测试以测试二进制编译和服务端构建作为可执行验证。
+  - 未触碰 DBA 专项未提交的 MySQL 迁移文件。
+
+## 2026-07-01 SSO 用户表最小授权闭环 2.24.0 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`69018e0 feat: add sso user provisioning`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`，从 `018bb97` 更新到 `69018e0`。
+  - GitLab remote 已从 `018bb97` 更新到 `69018e0`。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 发布前验证：
+  - `./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+  - `cd frontend && npm test` 通过，25 tests passed。
+  - `cd frontend && npm run build` 通过。
+- 线上验证：
+  - 命令行访问 `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 APISIX 302 登录页，说明当前公司入口已被 SSO 接管；本地命令行没有浏览器 SSO 登录态，无法直接读取健康 JSON 或页面版本。
+  - 待浏览器登录态进入公司页面后，可在页面底部确认 `版本 2.24.0 (container)` 或 `2.24.0 (<commit>)`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - DBA 专项未提交的 MySQL 迁移文件保持未触碰。
+
+## 2026-07-01 SSO 兼容态优先读取真实用户 2.24.1 开发记录
+
+- 背景：
+  - 用户线上验证发现登录后右上角仍显示 `本地管理员 / local-admin@example.com`，没有显示公司 SSO 中的 `display`。
+- 根因：
+  - APISIX SSO 网关已经完成登录并保护入口，但业务后端环境仍可能处于 `SSO_ENABLED=false` 兼容态。
+  - 旧逻辑在 `SSO_ENABLED=false` 时会直接返回本地管理员，不会尝试读取请求里的 `sy_sso_token`。
+- 修复：
+  - `/api/auth/me` 改为只要请求携带有效 `sy_sso_token`，就优先解析真实 SSO 用户并查 `tb_users`。
+  - 只有请求没有 token，或 token 无效且后端没有强制启用 SSO 时，才回退本地管理员兼容态。
+  - 保留 `SSO_ENABLED=true` 的严格模式：无 token 或 token 无效仍返回 401。
+  - 新增测试覆盖“兼容态下有有效 SSO token 时应返回真实用户，而不是本地管理员”。
+- 验证：
+  - `./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+  - `cd frontend && npm test` 通过，25 tests passed。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-07-02 登录用户信息隐藏企业邮箱 2.24.2 开发记录
+
+- 背景：
+  - 用户确认 SSO 真实用户展示已正常，希望右上角登录信息只展示 `display`，不再外显企业邮箱。
+- 实现：
+  - 登录用户 chip 改为只展示 `display_name`，缺失时展示 `username`，再缺失显示“已登录”。
+  - 前端保留邮箱数据字段，但不再渲染到页面。
+  - 新增 `authUserDisplayName` helper 和单测，防止后续把企业邮箱重新作为展示兜底。
+  - 删除不再使用的 `.auth-user-email` 样式。
+- 验证：
+  - `cd frontend && npm test` 通过，26 tests passed。
+  - `cd frontend && npm run build` 通过。
+
+## 2026-07-02 系统顶栏与 H5 门店切换 2.25.0 开发记录
+
+- 背景：
+  - 用户希望门店列表、机构详情、H5 Monitor 的返回与登出位置统一，后续权限接入后维护更简单。
+  - H5 Monitor 需要在页面内切换有有效监控通道的门店，且门店不要求完成确认或业务区域确认。
+  - SSO 未授权用户需要明确显示“暂无访问权限”，未登录不能继续请求 H5 业务数据。
+- 实现：
+  - 新增共享 `SystemTopBar`，后台列表页右上角统一登出，详情页左侧 `返回列表`、右侧登出；详情页的 `查看监控` 保留在业务区。
+  - 新增 `GET /api/h5/monitor/stores`，按城市返回有有效监控通道的门店及可用通道数。
+  - 统一 H5 Monitor 有效通道口径：通道 active、`channel_no > 0`、录像机设备号非空、萤石账号存在且运行时凭证可用；不再依赖通道确认状态，也移除北京试点设备特例。
+  - 新增 H5 门店切换器，按城市分组、当前门店高亮，当前门店不在列表时仍可兜底显示。
+  - H5 首页和频道页接入 `SystemTopBar`，频道页返回改为 `replaceState` 回到监控首页，避免浏览器历史栈反复回到频道页。
+  - H5 401 统一进入 SSO/login 阻断流程，403 统一显示“暂无访问权限”。
+  - 加强播放器直播取流竞态保护：直播 URL 请求失效后若晚返回，会立即调用失效接口释放 `url_id`，避免异常占用萤石并发。
+- 验证：
+  - `cd frontend && npm test` 通过，2 files / 29 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/h5monitor` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+- 备注：
+  - 本次仅完成开发准备，尚未发布公司环境。
+  - `internal/storespace.H5MonitorRepository.ListMonitorStores` 的 SQL/runtime credentials 过滤尚无 repository-level SQL 测试，当前以 service/handler 边界测试和编译门禁覆盖；后续如补数据库测试基建，应补充这一层。
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。
+
+## 2026-07-02 系统顶栏与 H5 门店切换 2.25.0 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`35a70ca feat: add h5 store switcher topbar`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`，从 `8ea9569` 更新到 `35a70ca`。
+  - GitLab remote 已从 `8ea9569` 更新到 `35a70ca`。
+  - GitLab push 返回 `new_sha=35a70cab85c82cebd28786195e38e24b11f1a085`，说明自动发布分支已更新。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 发布前验证：
+  - `cd frontend && npm test` 通过，2 files / 29 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/h5monitor` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+- 线上验证：
+  - `curl -I -L https://lite.sy.soyoung.com/erzhuang-project/health` 返回 HTTP 200，server 为 `APISIX/3.6.0`。
+  - `curl -I -L https://lite.sy.soyoung.com/erzhuang-project/` 返回 HTTP 200，server 为 `APISIX/3.6.0`。
+  - 无浏览器 SSO 登录态时，命令行读取页面内容为 APISIX `302 Found` 页面，无法直接确认页脚版本；需用户在浏览器登录态下确认页面底部 `2.25.0 (container)` 或 `2.25.0 (<commit>)`。
+- 备注：
+  - 发布记录补充后，GitHub/GitLab 分支继续同步到 `a0c1edd docs: record h5 topbar company release`；该提交仅更新文档，业务代码提交为其父提交 `35a70ca`。
+  - 本次未发布韩国服务器。
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
+
+## 2026-07-02 H5 门店切换改为标题下拉 2.25.1 开发记录
+
+- 背景：
+  - 用户线上验收后确认 H5 Monitor 的门店切换能力可用，但不希望以页面下方陈列式导航呈现。
+  - 期望点击视频监控页的机构名称后下拉选择门店，并兼顾移动端自适应。
+- 实现：
+  - 将 `H5StoreSwitcher` 从展开式门店切换区改为标题触发的下拉浮层。
+  - H5 Monitor 首页标题区域直接承载门店切换，移除原独立陈列式切换块。
+  - 下拉列表继续沿用已有接口与城市分组能力，当前门店高亮，选择后使用原路由切换逻辑。
+  - 移动端下拉改为单列、限制屏幕宽度和高度，避免横向溢出。
+  - 新增组件渲染测试，锁定“当前门店以 dropdown trigger 呈现”的结构。
+- 验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - 本地自动截图验收受限：Playwright 自带 Chromium 未安装，本机 Chrome headless 启动被 macOS 权限拦截；本次以组件测试、生产构建和静态 CSS 约束完成发布前验收。
+- 备注：
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。
+
+## 2026-07-02 H5 门店切换改为标题下拉 2.25.1 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布 commit：`810dccd feat: make h5 store switcher dropdown`。
+- 推送结果：
+  - GitHub 已推送备份分支 `origin/codex/containerize-single-image`，从 `62b960f` 更新到 `810dccd`。
+  - GitLab remote 已从 `62b960f` 更新到 `810dccd`。
+  - GitLab push 返回 `new_sha=810dccd59b23b118682815d48fe7cfa6192f7a06`，说明自动发布分支已更新。
+  - 使用交互式 HTTPS 账号/token 推送成功，未把凭据写入命令记录、文档或提交。
+- 发布前验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+- 待线上验证：
+  - 公司自动发布通常约 5 分钟完成。
+  - 浏览器登录态下进入 H5 Monitor，确认机构名称点击后以下拉方式切换门店，移动端无横向溢出。
+  - 页面底部应展示 `2.25.1 (container)` 或 `2.25.1 (<commit>)`。
+- 备注：
+  - 本次未发布韩国服务器。
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
+
+## 2026-07-02 H5 门店下拉箭头与移动端浮层修复 2.25.2 开发记录
+
+- 背景：
+  - 用户线上验收发现 H5 Monitor 左上角门店切换小箭头被挤小，移动端下拉菜单位置略偏。
+- 根因：
+  - 旧箭头使用文字字符 `▾`，在标题按钮的自动列和移动端字体缩放下容易被压缩成小点。
+  - 移动端下拉浮层从标题文字左侧定位，未对齐监控卡片内容边缘。
+- 修复：
+  - 将门店切换箭头替换为固定尺寸 SVG icon，保证视觉尺寸稳定。
+  - 标题触发器从 `inline-grid` 调整为 `inline-flex`，减少箭头列被挤压的可能。
+  - 移动端下拉浮层左侧补偿卡片内边距，宽度保持 `calc(100vw - 32px)`，让菜单更贴合页面。
+- 验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+- 备注：
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。
+
+## 2026-07-02 H5 门店下拉箭头同行修复 2.25.3 开发记录
+
+- 背景：
+  - 用户继续验收发现门店切换箭头跑到门店名称下方，不符合预期。
+- 根因：
+  - 上一版将标题触发器改为 `inline-flex + flex-wrap` 后，DOM 顺序为“门店名、城市、箭头”，城市占满一行，导致箭头被推到下一行。
+- 修复：
+  - 新增 `h5-store-trigger-title-row`，将“门店名 + 箭头”包成同一行。
+  - 城市信息保持第二行展示。
+  - 测试增加标题行结构断言，防止箭头再次脱离门店名称。
+- 验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+- 备注：
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次变更。
+
+## 2026-07-02 用户管理与全局角色权限开发记录
+
+- 背景：
+  - 用户确认第一版后台权限采用全局角色，不做机构范围授权。
+  - `admin`：全量查看/编辑/用户管理；初始化 `shalei@soyoung.com`、`maming@soyoung.com`。
+  - `editor`：全量查看/门店列表/机构详情编辑；初始化 `changwenxia@soyoung.com`、`wangxiaofan@soyoung.com`。
+  - `viewer`：只读预留，暂不初始化具体用户。
+- 实现：
+  - 后端保留 `tb_users.role` 单字段，增加 `admin/editor/viewer` 权限 helper。
+  - 增加用户管理 API：`GET /api/users`、`POST /api/users`、`PUT /api/users/{id}`，仅 `admin` 可用。
+  - 后端写接口增加权限守卫：门店、设计图、录像机、通道、识别、确认等写操作需要 `store:write`；AI 模型切换按系统设置收紧为 `user:manage`。
+  - 前端新增“系统设置 / 用户管理”页面，管理员可新增、编辑、启停用户和切换角色。
+  - 前端按角色隐藏主要编辑入口：viewer 只读；editor 可编辑门店/设计图/通道但看不到用户管理和 AI 模型切换。
+- 验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+  - `go test ./internal/app` 运行测试执行阶段仍被本机已知 `dyld missing LC_UUID` 问题阻断，编译级门禁通过。
+  - 本地 Vite dev server 可启动；Playwright 截图验收受限于本机 Playwright Chromium 未安装，本轮以构建、测试、静态 diff review 和 UI 标准检查收口。
+- DBA 协同：
+  - 已重新唤醒 DBA 专项，新增 `docs/mysql-stage-a-readiness-report.md`。
+  - DBA 结论：Stage A 空库首次试跑静态复核无阻断；MySQL governance RBAC 仅作预演，不代表第一版用户管理要切多表 RBAC。
+- 备注：
+  - 本轮业务代码已形成本地提交，但尚未发布公司环境。
+  - DBA/MySQL 迁移 WIP 文件仍保持未纳入业务提交。
+
+## 2026-07-02 用户管理与全局角色权限 2.26.0 公司环境发布记录
+
+- 发布目标：公司 GitLab 固定分支 `codex/containerize-single-image`，公司 K8s 自动发布。
+- 发布内容：
+  - 新增后台用户管理第一版：管理员可添加、编辑、启停用户并设置 `admin/editor/viewer`。
+  - 后端写接口增加角色权限守卫，viewer 直接调写接口返回 403。
+  - 前端按角色隐藏编辑入口，AI 模型切换收紧为管理员可见。
+- 发布前验证：
+  - `cd frontend && npm test` 通过，3 files / 30 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+- 待线上验证：
+  - 公司自动发布通常约 5 分钟完成。
+  - 浏览器登录态下确认页脚版本为 `2.26.0 (container)` 或 `2.26.0 (<commit>)`。
+  - `shalei@soyoung.com` 可看到“系统设置”并进入用户管理。
+  - `changwenxia@soyoung.com` / `wangxiaofan@soyoung.com` 可编辑门店和通道，但不可进入用户管理或切换识别模型。
+- 备注：
+  - 本次未发布韩国服务器。
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
+
+## 2026-07-02 用户管理弹窗开关控件 2.26.1 开发记录
+
+- 背景：
+  - 用户确认“允许登录访问”更适合用启用/停用开关表达。
+  - 用户名应保持非必填，只有企业邮箱必填。
+- 实现：
+  - 用户管理添加/编辑弹窗中，将 checkbox 替换为 switch 样式控件。
+  - 表单标签明确为“用户名（可选）”“显示名称（可选）”。
+  - 后端既有逻辑保持不变：新增用户仅企业邮箱必填；用户名为空时按邮箱前缀兜底。
+- 验证：
+  - `cd frontend && npm test` 通过，3 files / 31 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/erzhuang-server-check ./cmd/server` 通过。
+- 备注：
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次业务变更。
+
+## 2026-07-02 SSO 统一退出 from_uri 修复 2.26.2 开发记录
+
+- 背景：
+  - 运维确认 SSO 统一退出组件需要业务侧在 logout 地址中带上 `from_uri` 参数。
+  - 退出后应回到项目首页 `https://lite.sy.soyoung.com/erzhuang-project/`，而不是回到 `lite.sy.soyoung.com` 根路径。
+- 实现：
+  - 公司域名 `lite.sy.soyoung.com` 下，前端退出地址改为 SSO `logouttogether`。
+  - 退出地址带 `from_host=lite.sy.soyoung.com` 和 encoded `from_uri=https://lite.sy.soyoung.com/erzhuang-project/`。
+  - 本地开发环境仍保留 `/erzhuang-project/logout` 退出路径。
+- 验证：
+  - 先补失败测试确认旧逻辑只返回 `/logout`。
+  - `cd frontend && npm test -- api.test.ts` 通过，27 tests passed。
+  - `cd frontend && npm test` 通过，3 files / 31 tests passed。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+- 备注：
+  - DBA/MySQL 迁移 WIP 文件保持未纳入本次发布提交。
+
+## 2026-07-02 OSS Stage A 受控迁移入口 2.27.0 开发记录
+
+- 背景：
+  - 公司 Pod 已通过 `POST /api/admin/ops/oss-smoke` 完成 OSS 内网 PUT/GET/DELETE smoke。
+  - 本机无法访问 OSS 内网 endpoint，因此样本对象复制应在公司运行环境内执行。
+  - 当前业务资产读写仍保持 `ASSET_STORE=supabase`，不切全局 OSS。
+- 实现：
+  - 新增 `POST /api/admin/ops/asset-migrate` 受控入口。
+  - 入口仅在 `OPS_ENABLED` / `K8S_SECRET_OPS_ENABLED` 开启且管理员具备 `user:manage` 权限时可用。
+  - 请求体接收 inventory CSV，默认 `external_org_id=10030`、`max_rows=20`，请求体限制 2MB。
+  - `apply=true` 当前只允许样本门店 `10030`。
+  - dry-run 不写 OSS；apply 只复制对象到 OSS，并返回待审查 `result_sql`，不直接写 MySQL。
+  - 源存储默认复用现有业务 Supabase 运行时变量，目标 OSS 优先复用 `K8S_SECRET_*` 变量。
+- DBA 审查要点：
+  - `result_sql` 当前只 update 已存在的 `tb_asset_objects` 行，不 insert/upsert。
+  - 执行 `result_sql` 前必须确认样本 logical key 已有 pending 记录，否则可能影响 0 行。
+  - `mysql_schema_tb.sql` 与 `mysql_business_schema_patch_tb.sql` 存在重复字段风险，后续需要明确“完整初始化路径”和“旧库补丁路径”。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/assetmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/assets` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build ./cmd/server ./cmd/asset-migrate ./cmd/oss-smoke` 通过。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `go test ./...` 执行阶段仍受本机 Go runtime `dyld missing LC_UUID` 问题阻断，编译级门禁通过。
+- 下一步：
+  - 发布该入口到公司环境。
+  - 从 MySQL 测试库导出 `external_org_id=10030` inventory CSV。
+  - 先在线上已登录管理员浏览器中调用 `apply=false` dry-run。
+  - dry-run 无 failed 后，再调用 `apply=true`，审查返回的 `result_sql` 后手工回写 MySQL。
+
+## 2026-07-02 OSS Stage A 源样本对象 2.27.1 开发记录
+
+- 背景：
+  - Stage A dry-run 已通过：`Total=2, WouldCopy=1, Skipped=1, Errors=0`。
+  - Stage A apply 失败：源 Supabase Storage 返回 `Object not found`。
+  - 用户确认此前清理过 snapshots，因此测试库引用存在、源对象缺失是合理状态。
+- 实现：
+  - 新增 `POST /api/admin/ops/stage-a-source-sample` 受控入口。
+  - 入口仅在 ops 开启且管理员具备 `user:manage` 权限时可用。
+  - 只支持两个动作：`seed` 和 `cleanup`。
+  - `seed` 只向源存储写入固定非敏感样本对象：`channel-snapshots/stage-a-10030-channel-1.jpg`。
+  - `cleanup` 只删除同一个固定样本对象。
+  - 不支持自定义 key，不支持上传真实业务截图。
+- 验证：
+  - 先补失败测试，确认新类型/入口不存在时 `go test -c ./internal/app` 编译失败。
+  - 实现后 `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 调用 `stage-a-source-sample` seed。
+  - 重新执行 `asset-migrate apply=true`。
+  - 验证成功后调用 cleanup 清理源样本对象；OSS 目标样本对象在最终验证策略确认后清理。
+
+## 2026-07-02 OSS Stage A 源样本 cleanup 2.27.2 修复记录
+
+- 背景：
+  - Stage A apply 已成功：`Copied=1, Skipped=1, Errors=0`，完整复制链路 `源 Supabase -> 公司 Pod -> OSS` 已跑通。
+  - 调用 `stage-a-source-sample cleanup` 时返回 502。
+  - 错误为 Supabase list 路径返回 `409 Duplicate`，发生在 `DeletePrefix` 的 list-then-delete 阶段。
+- 实现：
+  - 为 `SupabaseStorageStore` 增加 `Delete(ctx, key)`，直接按固定 key 删除，不先 list。
+  - Stage A cleanup 优先使用可选 `Delete` 接口；不支持该接口的 store 仍 fallback 到 `DeletePrefix`。
+- 验证：
+  - 先补失败测试 `TestSupabaseStorageStoreDeleteRemovesExactKeyWithoutListing`，确认旧代码没有 `Delete` 方法。
+  - 实现后 `go test -c ./internal/assets` 通过。
+  - `go test -c ./internal/app` 通过。
+
+## 2026-07-02 OSS Stage A 目标样本 cleanup 2.27.3 开发记录
+
+- 背景：
+  - Stage A 源样本对象已清理。
+  - OSS 目标 bucket 中仍保留非敏感样本对象 `channel-snapshots/stage-a-10030-channel-1.jpg`。
+- 实现：
+  - 新增 `POST /api/admin/ops/stage-a-target-sample` 受控入口。
+  - 入口仅支持 `{ "action": "cleanup" }`。
+  - 只删除目标 OSS 的固定 Stage A 样本 key，不支持自定义 key。
+  - 仍受 `OPS_ENABLED` 和管理员权限保护。
+- 验证：
+  - 先补失败测试确认新 runner/响应类型不存在。
+  - `go test -c ./internal/app` 通过。
+  - `go test -c ./internal/assets` 通过。
+  - `go build ./cmd/server` 通过。
+
+## 2026-07-02 OSS Stage A 样本迁移闭环记录
+
+- 范围：
+  - 样本门店：`external_org_id=10030`。
+  - 样本对象：`channel-snapshots/stage-a-10030-channel-1.jpg`。
+- 已完成：
+  - 公司 Pod OSS smoke 通过。
+  - MySQL 测试库 inventory 导出 2 行，rank=1/2 指向同一 logical key。
+  - `asset-migrate apply=false` dry-run 通过：`Total=2, WouldCopy=1, Skipped=1, Errors=0`。
+  - 源 Supabase 非敏感样本对象 seed 通过。
+  - `asset-migrate apply=true` 通过：`Copied=1, Skipped=1, Errors=0`，复制 159 bytes 到 OSS。
+  - 审查并执行 result SQL，精确更新 `tb_asset_objects.id=900081` 1 行。
+  - 回写后状态为 `storage_provider=oss`、`bucket=sy-camera-erzhuang-project`、`migration_status=migrated`。
+  - validation 关键检查通过：缺字段 0、重复 logical key 0、重复 OSS target key 0、bucket mismatch 0、migrated without proxy path 0。
+  - 源 Supabase 样本对象 cleanup 通过。
+  - 目标 OSS 样本对象 cleanup 通过。
+- 结论：
+  - Stage A 样本链路已闭环，证明 `Supabase 源对象 -> 公司 Pod -> OSS -> MySQL 状态回写 -> validation` 可行。
+  - 下一阶段可以准备 Stage B，但需要先确认真实历史对象源仍存在，并制定批量迁移、失败重试、回滚和清理策略。
+
+## 2026-07-02 Postgres -> MySQL 只读导出入口 2.28.0 开发记录
+
+- 背景：
+  - 用户纠正 MySQL 公司测试库需要承接当前 Supabase/PostgreSQL 真实业务数据，Stage A 样本链路不等于真实数据迁移完成。
+  - 本地没有 `DATABASE_URL` / Supabase 连接环境，真实源数据导出应在公司运行环境使用已有 Postgres 连接执行。
+- 实现：
+  - 新增 `cmd/pg-to-mysql-export`，本地/运行环境均可只读导出 Postgres 数据为 MySQL import SQL、auto increment SQL 和 report。
+  - 新增 `internal/mysqlmigration`，集中维护 Postgres -> MySQL 表映射、字段转换、机构范围过滤和 SQL 生成逻辑。
+  - 新增 `POST /api/admin/ops/pg-mysql-export` 受控入口。
+  - 入口只读 Postgres，不写 MySQL；仅在 `OPS_ENABLED` / `K8S_SECRET_OPS_ENABLED` 开启且管理员具备 `user:manage` 权限时可用。
+  - 默认导出 `external_org_id=10030`，最多允许一次传 5 个机构 ID，避免误导全量大 SQL。
+  - MySQL governance DDL 当时按 `tb_users.phone`、`tb_users.role` 兼容口径设计；后续公司测试库实测以 `mobile` + `tb_user_roles` 为准，导出器已在 2.29.2 调整。
+  - 新增 `docs/postgres-to-mysql-data-migration-runbook.md`，明确顺序为：Postgres 真实业务数据 -> MySQL 测试库 -> 基于 MySQL 真实资产清单迁 OSS。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/pg-to-mysql-export-check ./cmd/pg-to-mysql-export` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `git diff --check` 通过。
+  - `go test ./internal/app` 执行阶段仍受本机 Go runtime `dyld missing LC_UUID` 问题阻断，编译级门禁通过。
+- 下一步：
+  - 发布公司环境。
+  - 用浏览器控制台调用 `POST /erzhuang-project/api/admin/ops/pg-mysql-export` 导出 `external_org_id=10030` 小样本。
+  - 审核 report 和 import SQL 后，再决定是否写入 MySQL 测试库。
+
+## 2026-07-03 Postgres -> MySQL 导出 502 修复记录 2.28.1
+
+- 现象：
+  - 公司环境 `POST /erzhuang-project/api/admin/ops/pg-mysql-export` 已命中新入口，但返回 502。
+  - 控制台可见 `ok=false`、`external_org_ids=["10030"]`、`import_sql_chars=0`。
+- 根因：
+  - 导出器默认对每张源表拼接 `order by id`。
+  - `app_settings` 源表主键为 `key`，没有 `id` 字段，因此导出到该表时 PostgreSQL 查询失败。
+- 修复：
+  - 为 `tableSpec` 增加 `OrderBy`。
+  - `app_settings` 指定 `OrderBy: "key"`。
+  - 查询构造改为：排序列存在才追加 `order by`，避免无 `id` 表阻断迁移探针。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/pg-to-mysql-export-check ./cmd/pg-to-mysql-export` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 再次调用 `pg-mysql-export` 导出 `external_org_id=10030`，这次重点检查返回 `detail`、表行数、SQL 字符数和导出范围。
+
+## 2026-07-03 MySQL 金丝雀导入受控入口 2.29.0 开发记录
+
+- 背景：
+  - `pg-mysql-export` 已能导出 `external_org_id=10030` 的真实金丝雀数据。
+  - 本机没有 MySQL 客户端，且不希望把公司 MySQL 连接散落到本机手工操作。
+  - 用户确认优先走公司 Pod 内受控 ops 入口。
+- 实现：
+  - 新增 `POST /api/admin/ops/mysql-canary-import`。
+  - 入口仅在 ops 开启且管理员具备 `user:manage` 权限时可用。
+  - 仅允许 `external_org_id=10030`。
+  - `import_sql` 必须包含 `-- Scope external_org_id: 10030`。
+  - 会拒绝 `tb_stores` insert 中出现非 10030 的门店机构 ID。
+  - `apply=false` 只连接 MySQL、检查必要表、返回当前摘要，不执行导入 SQL。
+  - `apply=true` 才在事务中执行导入 SQL，并返回门店、录像机、通道、截图、日志、用户、孤儿行、非法 JSON 的摘要。
+  - MySQL DSN 从 `MYSQL_DSN` 或 `K8S_SECRET_MYSQL_DSN` 读取。
+  - 新增依赖 `github.com/go-sql-driver/mysql`。
+- 敏感数据处理：
+  - 导入 SQL 可能包含手机号、飞书 ID、模型识别原始长文本和截图 proxy path。
+  - 完整 SQL 只应在临时文件、浏览器下载和受控 ops 请求体中短期使用，不写入仓库和文档。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - `go test ./internal/app -run ...` 执行阶段仍受本机 macOS Go runtime `dyld missing LC_UUID` 阻断；该问题为既有本机运行问题，编译级门禁通过。
+- 下一步：
+  - 发布公司环境。
+  - 确认公司运行环境已配置 `K8S_SECRET_MYSQL_DSN` 或 `MYSQL_DSN`。
+  - 用导出的 `10030` SQL 先调用 `apply=false` dry-run，再看摘要决定是否 `apply=true`。
+
+## 2026-07-03 MySQL 金丝雀导入 JSON 转义修复 2.29.1
+
+- 现象：
+  - `external_org_id=10030` 的 `apply=false` dry-run 已能连接 MySQL 并校验表结构。
+  - `apply=true` 执行导入时返回 502，MySQL 报 `Invalid JSON text: "Invalid escape character in string."`，位置落在 `tb_video_channels.recognition_result`。
+- 根因：
+  - Postgres 源数据里的 `recognition_result` JSON 本身需要保留 `\n`、`\"` 等反斜杠转义。
+  - 导出器生成 MySQL SQL 字符串时只转义了单引号，没有转义反斜杠。
+  - MySQL 执行 SQL 字符串字面量时先解释反斜杠，导致写入 JSON 列前内容被破坏。
+- 修复：
+  - `internal/mysqlmigration.mysqlString` 统一先转义反斜杠，再转义单引号。
+  - 新增测试覆盖 JSON 字符串中的换行转义、引号转义和路径反斜杠。
+- 验证：
+  - 新增测试先按旧实现失败，再修复通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 重新用 `pg-mysql-export -> mysql-canary-import apply=true` 执行 `10030` 金丝雀导入。
+  - 预期摘要应出现 `store_count=1`、`recorder_count=1`、`channel_count=4`、`snapshot_count=4`，且 `orphan_count=0`、`invalid_json_count=0`。
+
+## 2026-07-03 MySQL 金丝雀导入用户字段兼容修复 2.29.2
+
+- 现象：
+  - 2.29.1 修复 JSON 转义后，`apply=true` 继续执行到用户表，返回 502。
+  - MySQL 报 `Unknown column 'phone' in 'field list'`。
+- 根因：
+  - Postgres 用户表包含 `phone`、`role` 单字段。
+  - 公司 MySQL 测试库当前用户主表以 `mobile`、`department`、`sso_subject` 和角色关系表为准，并不存在 `tb_users.phone`。
+  - 旧导出器仍按早期 governance 草案同时写 `phone`、`mobile`、`role`，与真实测试库不一致。
+- 修复：
+  - `tb_users` 导出列去掉 `phone` 和 `role`。
+  - Postgres `phone` 继续写入 MySQL `mobile`。
+  - 增加 `department`、`sso_subject` 目标列，源库缺失时写默认空值。
+  - 角色仍通过 `writeRoleStatements` 写入 `tb_user_roles`。
+  - 新增测试约束 `tb_users` 导出列不再包含 `phone`、`role`，且保留 `email`、`mobile`、`enabled`。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 再次执行 `10030` 金丝雀 `apply=true`，继续观察是否还有下一层真实 schema 差异。
+
+## 2026-07-03 MySQL 金丝雀导入后只读校验入口 2.29.3
+
+- 背景：
+  - `external_org_id=10030` 金丝雀已成功导入 MySQL 测试库。
+  - 导入后需要可重复、低风险地确认 MySQL 当前状态，避免每次都重新携带大段 `import_sql`。
+- 实现：
+  - 新增 `GET /api/admin/ops/mysql-canary-validate?external_org_id=10030`。
+  - 入口仅在 ops 开启且管理员具备 `user:manage` 权限时可用。
+  - 入口只读 MySQL，不执行导入 SQL，不修改数据。
+  - 复用 `ensureMySQLCanaryTables` 和 `queryMySQLCanarySummary`，返回门店、录像机、通道、截图、操作日志、用户、外键孤儿和非法 JSON 摘要。
+  - 仍限制 `external_org_id=10030`，避免误扫全量数据。
+- 验证：
+  - 新增 handler 测试覆盖只读校验成功返回摘要、拒绝非 10030 范围。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 调用只读校验入口，确认摘要仍为 `store_count=1`、`recorder_count=1`、`channel_count=4`、`snapshot_count=4`、`orphan_count=0`、`invalid_json_count=0`。
+  - 校验通过后，进入基于 MySQL 真实数据生成 OSS 资产清单。
+
+## 2026-07-03 MySQL 真实资产清单只读入口 2.29.4
+
+- 背景：
+  - `10030` 金丝雀导入后只读校验已返回 `ok=true`，且外键孤儿和非法 JSON 均为 0。
+  - 下一步 OSS 迁移必须基于 MySQL 真实业务行生成 manifest，不能继续使用 Stage A 假数据代表历史资产。
+- 实现：
+  - 新增 `GET /api/admin/ops/mysql-asset-inventory?external_org_id=10030`。
+  - 入口仅在 ops 开启且管理员具备 `user:manage` 权限时可用。
+  - 入口只读 MySQL，不复制对象，不修改 `tb_asset_objects`。
+  - 清单来源包括 `tb_store_design_plans` 的设计图路径和 `tb_channel_snapshots` 的通道截图路径。
+  - Go 侧归一化 `/api/store-space/channel-snapshots/{name}`、`channel-snapshots/{name}`、`/api/design-plan/uploads/{upload_id}/{asset}`、`uploads/{upload_id}/{asset}` 等路径。
+  - 对 `http(s)` 临时或签名 URL 标记为 `skipped/remote_http_url`，不强行迁移。
+  - 对同一 logical key 的多处引用输出 `logical_key_rank` 和 `logical_key_ref_count`，后续复制时只应复制 rank=1。
+- 验证：
+  - 新增 handler 测试覆盖返回 manifest CSV、拒绝非 10030 范围。
+  - 新增归一化测试覆盖通道截图 proxy path、重复引用、远程 URL 跳过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 调用资产清单入口，审查 `summary` 和 `manifest_csv`。
+  - 若清单合理，再把 `manifest_csv` 传入 `asset-migrate apply=false` 做 dry-run。
+
+## 2026-07-03 MySQL 通道截图资产清单最新记录口径修正 2.29.5
+
+- 现象：
+  - `10030` 刷新通道截图并重新导入 MySQL 后，资产清单从预期的 8 个引用变成 16 个引用。
+  - `snapshot_rows=16`、`duplicate_refs=16`，说明清单纳入了旧截图历史行和新截图行。
+- 根因：
+  - `tb_channel_snapshots` 会保留每次截图刷新产生的历史记录。
+  - 当前 OSS 迁移目标是迁移门店当前可展示的通道预览图，而不是迁移已物理删除或已过期的历史敏感截图。
+  - 资产清单入口原先扫描该门店所有 `tb_channel_snapshots`，导致同一通道历史截图也进入迁移范围。
+- 修复：
+  - `mysql-asset-inventory` 查询通道截图时，只取每个通道 `created_at/id` 最新的一条截图记录。
+  - Go 构建 manifest 时增加兜底过滤：同一通道只保留最新 `source_id` 的截图记录。
+  - 新增测试覆盖同一通道旧/新截图同时存在时，manifest 只包含新截图。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 重新调用 `mysql-asset-inventory?external_org_id=10030`。
+  - 预期 `summary.total=8`、`snapshot_rows=8`、`duplicate_refs=8`，再继续执行 `asset-migrate apply=false`。
+
+## 2026-07-03 MySQL 资产台账受控回写接口 2.29.6
+
+- 背景：
+  - `10030` 通道截图 OSS 实际复制成功：`Total=8`、`Copied=4`、`Skipped=4`、`Errors=0`。
+  - 再次查询 `mysql-asset-inventory` 仍显示 `pending=8`，说明 OSS 对象已复制，但 MySQL `tb_asset_objects` 台账尚未 upsert/标记 migrated。
+  - `asset-migrate` 返回的 `result_sql` 只 update 已存在行，不适合作为当前真实样本的唯一回写方式。
+- 实现：
+  - 新增 `POST /api/admin/ops/asset-state-backfill`。
+  - 输入 `manifest_csv`、`result_csv`、`external_org_id`、`batch_id`。
+  - 仅允许 `external_org_id=10030`。
+  - 只处理 `result_csv` 中 `action=copied`，并与 manifest 中 `logical_key_rank=1` 的行匹配。
+  - 使用参数化 SQL upsert `tb_asset_objects`，写入 `storage_provider=oss`、bucket、storage key、content type、size、owner、sensitivity、`migration_status=migrated`、batch id 和迁移时间。
+  - 同一 logical key 可重复执行，依赖 `logical_key_hash` 唯一键保持幂等；thumbnail/full 重复引用只登记一个资产对象。
+- 验证：
+  - 新增 handler 测试覆盖成功回写请求和拒绝非 10030 范围。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 用刚刚成功的 `manifest_csv` 和 `result_csv` 调用台账回写接口。
+  - 回写后再次调用 `mysql-asset-inventory`，预期当前这 4 个 logical key 不再需要重新复制；如清单入口仍只从业务表判断 pending，需要继续把 inventory 与 `tb_asset_objects` 状态联动。
+
+## 2026-07-03 MySQL 资产清单联动台账状态 2.29.7
+
+- 现象：
+  - `asset-state-backfill` 成功返回 `total=8`、`migrated=4`、`skipped=4`、`upserted=4`、`errors=0`。
+  - 随后再次调用 `mysql-asset-inventory`，仍显示 `pending=8`。
+- 根因：
+  - 资产清单入口只根据业务表路径生成 manifest，没有查询 `tb_asset_objects`。
+  - 因此即使台账已标记 `migration_status=migrated`，清单仍会机械标记为 `pending`。
+- 修复：
+  - `mysql-asset-inventory` 在生成 manifest 前按 logical key 查询 `tb_asset_objects`。
+  - 当台账状态满足 `migration_status=migrated`、`storage_provider=oss`、bucket/storage key 非空时，manifest 行标记为 `skipped`，原因 `already_migrated`。
+  - 保留重复引用统计，thumbnail/full 两个引用都会显示为已迁移跳过，不再建议复制。
+- 验证：
+  - 新增测试覆盖已迁移 logical key 进入 inventory 时，`pending=0`、`skipped=2`，CSV 包含 `already_migrated`。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 再次调用 `mysql-asset-inventory?external_org_id=10030`，预期 `pending=0`、`skipped=8`，manifest 中 skip reason 为 `already_migrated`。
+- 线上复验：
+  - 公司环境切到 `2.29.7` 后复查通过。
+  - `mysql-asset-inventory?external_org_id=10030` 返回 `total=8`、`pending=0`、`skipped=8`、`snapshot_rows=8`、`duplicate_refs=8`。
+  - manifest 中 8 条通道截图引用均为 `suggested_migration_status=skipped`、`skip_reason=already_migrated`。
+  - 结论：`10030` 金丝雀门店当前通道截图已完成“Postgres 业务数据 -> MySQL、Supabase 源对象 -> OSS、MySQL 资产台账回写、inventory 幂等跳过”的闭环验证。
+
+## 2026-07-03 Stage B 多门店金丝雀白名单 2.29.8
+
+- 背景：
+  - `10030` 单门店已完成完整闭环。
+  - 下一步需要扩大到真实业务门店，但仍不能开放全量迁移，避免误导出/误写/误复制。
+- 实现：
+  - 新增运行时白名单环境变量：`OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS`，K8s Secret 兼容名为 `K8S_SECRET_OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS`。
+  - 默认白名单始终包含 `10030`。
+  - 配置示例：`OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS=10030,10047`。
+  - `mysql-canary-validate`、`mysql-asset-inventory`、`asset-migrate apply=true`、`asset-state-backfill` 改为统一使用白名单校验。
+  - `mysql-canary-import` 的 SQL scope comment 改为匹配当前请求的 `external_org_id`，不再硬编码 `10030`。
+- 验证：
+  - 新增测试覆盖 `10047` 在白名单中时 validate、inventory、asset apply、asset-state-backfill 均允许进入 runner。
+  - 保留非白名单机构拒绝测试。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test ./internal/mysqlmigration` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 配置公司运行时白名单为 `10030,10047`。
+  - 对 `10047` 重复执行 Postgres -> MySQL -> OSS -> 台账回写 -> inventory 幂等验证。
+
+## 2026-07-03 Postgres 下线前运行时切换门槛
+
+- 产品目标：
+  - 最终会删除 Postgres 数据库，因此不能只完成数据搬迁；所有线上运行时接口必须切到 MySQL/OSS 后，才能认为迁移完成。
+  - 用户期望今天尽量完成可让运营使用的切换。
+- 硬门槛：
+  - MySQL 全量业务数据导入完成，并通过 orphan/invalid JSON 校验。
+  - Supabase 图片对象迁到 OSS，`tb_asset_objects` 台账完整且 inventory 可幂等识别 `already_migrated`。
+  - 后端运行时接口不再依赖 Postgres；至少机构列表、机构详情、通道映射、H5 Monitor 首页、截图读取等运营核心只读链路要支持 MySQL。
+  - 图片读取接口路径保持不变，内部优先从 OSS 读；未迁完前可 fallback 旧存储，正式删除 Postgres/Supabase 前必须确认 fallback 不再被依赖。
+  - 必须保留运行时开关，例如 `APP_DB_DRIVER=postgres|mysql` 或等价配置，确保公司环境切换后可以回滚。
+- 今日建议推进顺序：
+  - 先完成 Stage B 多门店 OSS 迁移闭环。
+  - 随后优先实现“只读运行时 MySQL repo + OSS 图片读取优先”的切换，不先动编辑/识别等写入重链路。
+  - 运营验收只读和查看监控主流程稳定后，再逐步切写操作。
+
+## 2026-07-03 Stage B 第一批多门店迁移闭环完成
+
+- 范围：
+  - `10047`、`10011`、`10070`、`10054`、`10062`。
+  - 加上已完成的 `10030`，当前已完成 6 个门店的 Postgres -> MySQL 与通道截图 OSS/台账迁移闭环。
+- 已完成动作：
+  - 对上述 5 个门店重新刷新当前通道截图，确认 H5 monitor 返回结构为 `groups[].channels[].id`，不再读取根级 `channels`。
+  - 分门店执行 Postgres -> MySQL 导出与导入，所有导入结果 `orphan=0`、`invalid_json=0`。
+  - 执行 `mysql-asset-inventory` 并用 `asset-migrate apply=false` dry-run，确认待复制数量与重复引用关系正常。
+  - 使用 `max_rows=10` 分批执行 `asset-migrate apply=true`，每批成功后立刻调用 `asset-state-backfill` 回写 `tb_asset_objects`，避免单次大量复制触发 504。
+- OSS 复制与台账回写结果：
+  - `10047`：复制并回写 26 个 logical assets，最终 `pending=0`。
+  - `10011`：复制并回写 43 个 logical assets，最终 `pending=0`。
+  - `10070`：复制并回写 38 个 logical assets，最终 `pending=0`。
+  - `10054`：复制并回写 56 个 logical assets，最终 `pending=0`。
+  - `10062`：复制并回写 51 个 logical assets，最终 `pending=0`。
+  - 本批合计新增迁移 214 个 logical assets。
+- 验收结论：
+  - 本批所有资产复制批次 `Errors=0`。
+  - 所有台账回写批次 `errors=0`。
+  - 该批门店已完成“业务数据进 MySQL、当前通道截图进 OSS、MySQL 资产台账可幂等识别”的迁移闭环。
+- 后续规划：
+  - 继续处理白名单中的 `10051`。
+  - 随后进入运行时切换：后端核心只读链路需要支持从 MySQL 读取，图片读取路径保持前端 URL 不变，内部优先按 `tb_asset_objects` 从 OSS 读取。
+  - Postgres/Supabase 删除前必须完成运行时切换和回滚开关验证。
+
+## 2026-07-03 MySQL/OSS 运行时只读切换能力 2.30.0
+
+- 背景：
+  - 用户明确后续会删除 Postgres，因此数据迁移完成后必须让线上运行时接口可切到 MySQL/OSS。
+  - 目标是先让运营核心查看链路可用，不等待所有编辑写入链路一次性 MySQL 化。
+- 实现：
+  - 新增 `APP_DB_DRIVER=postgres|mysql` 运行时开关；未配置时保持原有 Postgres 优先逻辑，避免影响当前线上。
+  - `APP_DB_DRIVER=mysql` 时读取 `MYSQL_DSN` 或 `K8S_SECRET_MYSQL_DSN`，并自动追加 `parseTime=true`，避免 MySQL `datetime` 扫描失败。
+  - 新增 `app.MySQLStore`，支持 `/health`、任务示例、SSO 用户读取/回写、用户管理、AI 设置读写。
+  - 新增 `storespace.MySQLStore`，支持门店列表、门店详情、设计图数据、通道数据、萤石账号读取、重复门店检查、单通道上下文读取。
+  - 新增 `storespace.NewMySQLH5MonitorRepository`，支持 H5 Monitor 门店列表、机构监控首页、通道校验与直播/回放前置查询。
+  - MySQL 模式下 `design-plan` 独立旧接口暂时使用内存 repo；当前前端主流程已通过 `store-space` 接口读取门店/详情。
+  - MySQL 模式下未迁完的编辑写入动作先返回 `not implemented`，避免误写半套链路；后续再逐步补齐写入链路。
+- 验证：
+  - 新增 `cmd/server` 配置测试覆盖 MySQL 开关、Postgres 默认、MySQL DSN 自动追加 `parseTime=true`。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - `go test ./...` 在本机仍触发 macOS 测试二进制 `missing LC_UUID load command`，这是本地工具链执行问题；已用 `go test -c` 和 `go build` 验证关键包编译。
+- 发布/切换建议：
+  - 先发布公司环境但不配置 `APP_DB_DRIVER=mysql`，确认版本正常。
+  - 切换窗口配置 `APP_DB_DRIVER=mysql`、`ASSET_STORE=oss`，保留 `DATABASE_URL` 作为回滚后可用配置。
+  - 切换后验证 `/health` 返回 `database=mysql`、`asset_store=oss`，再验机构列表、机构详情、视频监控门店切换、监控首页、通道直播入口。
+  - 若只读链路异常，删除或改回 `APP_DB_DRIVER=postgres` 即可回滚运行时读库。
+
+## 2026-07-03 MySQL Runtime 下 Postgres 导出复验与剩余批次清单 2.30.12
+
+- 已复验：
+  - 公司环境 `2.30.11` 下，`POST /api/admin/ops/pg-mysql-export` 在 `APP_DB_DRIVER=mysql` runtime 中已能通过 `DATABASE_URL` 只读连接 Postgres。
+  - `external_org_id=10030` 导出返回 `status=200`、`ok=true`、`sql chars=36510`。
+  - 导出表行数包括：`stores=1`、`video_recorders=1`、`video_channels=4`、`channel_snapshots=8`、`operation_logs=6`。
+- 本次实现：
+  - 新增 `GET /api/admin/ops/pg-mysql-source-orgs` 只读端点。
+  - 端点同时读取 Postgres 源门店和 MySQL 目标门店，返回每个 `external_org_id` 的源库计数、是否已导入 MySQL、是否在迁移白名单、是否可作为下一批迁移对象。
+  - 不执行导入、不复制资产、不写 MySQL，仅用于生成剩余迁移批次和降低人工猜测风险。
+- 后续推进：
+  - 发布公司环境后先调用该端点，确认源库约 55 家门店、MySQL 已完成 6 家、剩余门店列表和当前白名单状态。
+  - 将下一批 5 个 `batchable=true` 的机构按现有闭环继续迁移：Postgres 导出、MySQL 单店导入、资产 `max_rows=10` 分批复制、每批后资产台账回写。
+  - 如剩余机构不在 `OPS_MIGRATION_ALLOWED_EXTERNAL_ORG_IDS`，先追加白名单再迁移。
+
+## 2026-07-03 MySQL Runtime 刷新通道截图写链路 2.30.13
+
+- 现象：
+  - `10051` 已完成 Postgres -> MySQL 业务数据导入。
+  - 资产迁移第一批失败，`asset-migrate max_rows=1` 返回源对象 `404 not_found`。
+  - 尝试用 `POST /api/store-space/channels/{channel_id}/snapshot` 刷新当前截图时，公司 MySQL runtime 返回 `501 not implemented`。
+- 根因：
+  - `10051` 历史截图源对象已在旧存储中缺失，不能直接从旧 key 迁移到 OSS。
+  - MySQL runtime 只先实现了核心只读链路，`SaveChannelSnapshot` 仍返回 `ErrNotImplemented`，导致无法在 MySQL 下刷新并落库新截图。
+- 修复：
+  - 实现 `storespace.MySQLStore.SaveChannelSnapshot`。
+  - 刷新截图时可插入 `tb_channel_snapshots` 最新行，并按刷新语义清空识别状态字段、不增加识别次数。
+  - 返回通道时沿用 `GetChannel` 最新截图查询逻辑。
+- 验证：
+  - 新增 `TestMySQLChannelSnapshotUpdateArgsForRefresh` 覆盖刷新截图的 MySQL 更新参数。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 下一步：
+  - 发布公司环境。
+  - 重新刷新 `10051` 通道截图，再执行 `mysql-asset-inventory` 确认最新 manifest 指向新截图 key。
+  - 继续 `applyOrgInBatches('10051', 20)` 完成 OSS 复制和资产台账回写。
+
+## 2026-07-03 MySQL 刷新截图 collation 修复 2.30.14
+
+- 现象：
+  - `2.30.13` 部署后，`POST /api/store-space/channels/{channel_id}/snapshot` 不再返回 `501 not implemented`。
+  - 刷新 `10051` 通道截图时返回 `500`，诊断 detail 为 `Error 1267 (HY000): Illegal mix of collations ... for operation 'nullif'`。
+- 根因：
+  - MySQL 更新语句使用 `nullif(?, '')` 判断空字符串。
+  - 公司 MySQL runtime 中参数与空字符串字面量可能带不同 collation，`nullif` 会触发字符串比较并报 1267。
+- 修复：
+  - 将 MySQL 通道截图更新 SQL 的空字符串判断改为 `char_length(?)`。
+  - 保持刷新语义不变：刷新截图不增加识别次数、不覆盖已有识别状态；识别链路传入状态时仍可更新识别字段。
+- 验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+
+## 2026-07-03 MySQL 迁移第 55 家门店只读审计 2.30.15
+
+- 现象：
+  - Postgres -> MySQL 主数据迁移完成后，`pg-mysql-source-orgs` 返回 `source_count=54`、`mysql_count=54`、`remaining_count=0`。
+  - 用户业务记忆里总门店数为 55，需要确认是否有 1 家漏迁。
+- 根因判断：
+  - `pg-mysql-source-orgs` 的源清单口径是 `external_org_id` 非空的门店/机构。
+  - 没有录像机不会被排除；`10056`、`10071`、`10076`、`10077`、`10078` 等 `channel_count=0` 门店已经正常导入。
+  - 最可能的差异是 Postgres `stores` 里存在 1 家 `external_org_id` 为空的门店，不属于按机构 ID 迁移链路。
+- 本次实现：
+  - 新增 `GET /api/admin/ops/pg-mysql-store-audit` 只读诊断端点。
+  - 返回 Postgres `stores` 总数、`external_org_id` 非空门店数、非空 distinct 机构数、空 `external_org_id` 门店列表。
+  - 同时返回 MySQL `tb_stores` 总数、`external_org_id` 非空门店数、非空 distinct 机构数、空 `external_org_id` 门店列表。
+  - 端点只读，不导入、不复制资产、不写 MySQL。
+- 验证：
+  - 新增 `TestPGMySQLStoreAuditEndpointReturnsMissingExternalOrgStores` 覆盖端点响应会列出空 `external_org_id` 源门店。
+  - 本机直接运行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`；按项目既定方式使用 `go test -c` 与 `go build` 做编译验证。
+
+## 2026-07-03 MySQL Runtime 通道写链路补齐 2.30.16
+
+- 现象：
+  - MySQL/OSS 切换后，线上读链路可用，但录像机 `scan-channels` 返回 `501 not implemented`。
+  - 前端把 `501` 统一翻译为“截图识别能力还在接入中”，容易误判为所有识图模型断开。
+  - 实际诊断显示 `ai-settings` 为 `minimax / MiniMax-M3`，但 `scan-channels` 对 MySQL runtime 仍走到未实现写接口。
+- 根因：
+  - `MySQLStore.ReplaceRecorderChannels`、`MySQLStore.UpsertRecorderChannel`、通道解锁/确认写接口仍返回 `ErrNotImplemented`。
+  - 通道 recognizer 的挂载被启动时环境变量可用性 gate 住；MySQL runtime 下 AI provider 实际从 `tb_app_settings` 动态读取，不能只按启动时默认 OpenAI 环境判断。
+- 修复：
+  - 实现 MySQL 录像机扫描结果写回：新增/恢复通道、下线缺失通道、更新录像机在线状态和有效通道数、写操作日志。
+  - 实现 MySQL 探测识别通道 upsert，支持扫描未入库通道后保存截图和识别结果。
+  - 实现 MySQL 通道解锁和确认，支持人工修正识别结果。
+  - 通道 recognizer 改为始终挂载动态 provider，具体 OpenAI/MiniMax 配置在请求时按运行时 AI 设置读取。
+- 验证：
+  - 新增 MySQL 写链路 helper 测试覆盖无效通道校验和录像机状态计算。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+
+## 2026-07-03 批量通道识别网关超时保护 2.30.17
+
+- 现象：
+  - `POST /api/store-space/recorders/64/scan-channels` 已返回 `200`，录像机 `GQ2603587` 从离线变为在线，并写入 41 个有效通道。
+  - 控制台继续手动调用 `POST /api/store-space/recorders/64/recognize-channels` 时返回 APISIX `504 Gateway Time-out` HTML。
+- 根因：
+  - `recognize-channels` 是历史批量接口，会同步逐路抓图、保存截图、调用 AI，并在每路之间等待 1.2 秒。
+  - 41 路通道一次性同步处理超过公司网关超时窗口；这不是 AI 配置断开，也不是扫描写入失败。
+  - 前端页面当前“识别区域”按钮已经走逐通道 `/channels/{channel_id}/recognize`，更适合线上使用。
+- 修复：
+  - 后端历史批量接口按通道号排序后，每个请求最多处理 5 路待识别通道。
+  - 剩余未识别通道保留给下一轮请求或页面逐通道流程，避免一个请求长时间阻塞到 504。
+- 验证：
+  - 新增 `TestRecognizeRecorderChannelsLimitsWorkPerRequest` 覆盖 6 路待识别时单次只处理 5 路。
+  - 本机直接执行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+
+## 2026-07-03 批量通道识别进一步降载 2.30.18
+
+- 现象：
+  - `2.30.17` 将老批量接口限制为单次 5 路后，前 4 轮返回 `200`，第 5 轮仍出现 APISIX `504 Gateway Time-out`。
+  - 说明 5 路抓图、存储和 AI 识别在部分通道组合下仍可能超过公司网关窗口。
+- 修复：
+  - 将老批量接口 `POST /api/store-space/recorders/{recorder_id}/recognize-channels` 单次处理上限从 5 路降为 1 路。
+  - 页面逐通道识别路径保持不变；控制台或旧调用方即使继续调用老批量接口，也只推进 1 路，避免一次请求阻塞过久。
+- 验证：
+  - 更新 `TestRecognizeRecorderChannelsLimitsWorkPerRequest`，覆盖 6 路待识别时单次只处理 1 路。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+
+## 2026-07-04 MiniMax 非 JSON 解释文本兜底 2.30.19
+
+- 现象：
+  - 页面逐通道识别已稳定走 `/api/store-space/channels/{channel_id}/recognize`。
+  - `GQ2603587` 最终 41 路全部识别成功，但过程中 MiniMax 偶发返回 `<think>...` 解释文本，导致 JSON 解析失败。
+  - `FU9610841` 识别 29 路时再次出现同类问题：门口/侧门画面返回解释文本，没有合法 JSON。
+- 根因：
+  - MiniMax M3 即使请求了 JSON schema，也可能在非业务区域画面输出 `<think>` 分析文本。
+  - 后端已有弱电室、机房、医生办公室的文本兜底，但没有覆盖侧门、入口、走廊、通道等常见非业务区域。
+- 修复：
+  - 扩展 MiniMax 文本 fallback：识别北/南/东/西侧门、入口、门口、走廊、通道等描述。
+  - fallback 结果统一标记低置信、需人工复核，避免误当作高置信自动结果。
+- 验证：
+  - 新增 `TestMiniMaxRecognizerFallsBackFromEntranceExplanation` 覆盖 `<think>` 解释“北侧门 / door area / entrance”时返回 `scene_type=entrance`、`area_number=北侧门`。
+  - 本机直接执行 Go 测试仍触发 macOS 测试二进制 `missing LC_UUID load command`。
+  - 使用 `go test -c` 与服务端 `go build` 做编译验证。
+
+## 2026-07-04 通用识别兜底与批量重试上限 2.30.20
+
+- 现象：
+  - MiniMax 已确认会在非业务区域返回 `<think>` 解释文本；GPT/OpenAI 类模型也可能出现同类非 JSON 输出。
+  - 页面批量“识别区域”会跳过已识别通道，但失败通道下次点击仍会再次进入批量自动识别；如果失败原因稳定，可能重复消耗时间和模型调用。
+- 修复：
+  - OpenAI/GPT 通道识别路径也接入同一套非 JSON 文本兜底，和 MiniMax 共用入口、侧门、走廊、通道等非业务区域识别规则。
+  - 通用 prompt 明确禁止 `<think>`、思考过程、解释和代码块，只允许输出 JSON。
+  - 前端批量自动识别对失败通道设置上限：`recognition_attempts >= 2` 时不再自动批量重试，保留人工单通道重试入口。
+  - 为避免公司 GitLab hook，改动文件内移除敏感字符串拼接调用。
+- 验证：
+  - 新增 `TestOpenAIRecognizerFallsBackFromEntranceExplanation` 覆盖 GPT/OpenAI 返回 `<think>` 入口解释文本时的兜底。
+  - 更新前端 channel recognition 测试，覆盖失败 2 次后不再进入批量自动识别。
+  - 使用 `go test -c`、服务端 `go build`、前端测试和前端 build 做验证。
+
+## 2026-07-04 公司环境 PostgreSQL 运行时联系清理 2.30.23
+
+- 背景：
+  - 公司环境已完成 MySQL/OSS 主数据与资产迁移验收，线上 `/health` 返回 `database=mysql`、`asset_store=oss`。
+  - 用户明确确认不再保留旧库回滚连接，避免继续存在数据出海或误连旧库风险。
+- 清理：
+  - `cmd/server` 只接受 `APP_DB_DRIVER=mysql`，只读取 `MYSQL_DSN` / `K8S_SECRET_MYSQL_DSN`，不再读取旧 `DATABASE_URL` 作为数据库连接。
+  - 删除 pgx 依赖、旧 PostgreSQL repository、旧 schema 初始化、旧 H5 monitor repository、pg-to-mysql 导出 CLI、pg-mysql ops 导出/源清单/审计端点和对应测试。
+  - `designplan` 旧路由继续注册，但线上服务使用资产存储 + 内存 repo，不再持有旧库连接。
+  - 发布手册公司环境口径更新为 MySQL + OSS。
+- 验证：
+  - `rg -n "github.com/jackc/pgx|sql.Open\\(\"pgx\"|APP_DB_DRIVER=postgres|NewPostgresStore|EnsurePostgresSchema|pg-mysql|pg_mysql|mysqlmigration|ExportMySQLMigration|PostgresStore|PostgreSQL|postgres" cmd internal go.mod go.sum docs/deploy-runbook.md VERSION` 无结果。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/storespace -o /private/tmp/storespace.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/designplan -o /private/tmp/designplan.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - 本机直接运行 `go test ./cmd/server ./internal/app ./internal/storespace ./internal/designplan` 仍触发 macOS 测试二进制 `missing LC_UUID load command`，按项目既定方式以编译验证为准。
+
+## 2026-07-06 Supabase 删除前请求来源排查
+
+- 背景：
+  - 用户准备删除旧境外 Supabase 数据库，但 Supabase Dashboard Last 60 minutes 显示仍有请求：总计 30，Postgres 21，Storage 3，Realtime 3，API Gateway 3。
+- 本地代码复核：
+  - `cmd/server/main.go` 的 `databaseConfigFromEnv` 只接受 MySQL，只读取 `MYSQL_DSN` / `K8S_SECRET_MYSQL_DSN`；旧 `DATABASE_URL` 不再作为运行时数据库连接。
+  - `internal/assets/store.go` 仍保留 Supabase asset provider 兼容代码；但只要 `K8S_SECRET_ASSET_STORE=oss` / `ASSET_STORE=oss` 存在，运行时会选择 OSS，不会自动选择 Supabase。
+  - `internal/app/ops_handler.go` 仍保留历史资产迁移 source store 支持，可在手工设置 `SOURCE_ASSET_STORE=supabase` 或旧 Supabase 环境变量时访问 Supabase Storage；这属于迁移/ops 路径，不是主服务数据库运行时。
+- 当前判断：
+  - 结合线上 `/health` 已返回 `database=mysql`、`asset_store=oss`，公司主服务继续访问旧 Supabase/PostgreSQL 的概率较低。
+  - Supabase 控制台本身可能产生 Postgres / Storage / Realtime / API Gateway 请求；仅凭 Dashboard 首页请求数不能确认业务服务仍在访问。
+- 下一步：
+  - 查看 Supabase Logs 中 Postgres/API Gateway/Storage/Realtime 的来源、user agent、client IP、query 或 path。
+  - 运行一次只读 `pg_stat_activity` 查询定位当前连接；注意该查询本身也会产生一次 Postgres 活动。
+  - 做 60-70 分钟静默窗口观察：关闭 Supabase 控制台，不运行旧脚本/迁移/ops；窗口结束后再查看是否仍有不可解释请求。
+  - 请运维确认 K8s 当前 Pod/Secret 中不存在旧 `DATABASE_URL`、`SUPABASE_*`、`SOURCE_SUPABASE_*` 或 `SOURCE_ASSET_STORE=supabase`。
+- 用户执行 `pg_stat_activity` 后的结果：
+  - 当前活动连接均为 Supabase 平台内部组件或本地 loopback：`postgres_exporter`、`Supabase Storage API`、`pgbouncer`、`PostgREST 14.5`、`pg_net 0.20.3`、`pg_cron scheduler`。
+  - `client_addr` 主要为 `::1` / `127.0.0.1` / `NULL`，未看到公司 Go 服务、K8s Pod、Lighthouse、浏览器前端或外部业务客户端 IP。
+  - 查询内容包括 `pgbouncer.get_auth($1)`、`LISTEN "pgrst"`、`show archive_mode;`、`COMMIT` 等平台内部/控制台相关行为。
+  - 结论：该快照没有发现公司业务运行时继续连接旧 Supabase/PostgreSQL 的证据；仍建议做 60-70 分钟静默窗口和 Supabase Logs 复核后再删除。
+
+## 2026-07-06 旧 Supabase 数据库删除
+
+- 操作：
+  - 用户确认已删除旧 Supabase 数据库。
+- 删除前依据：
+  - 公司线上 `/health` 已返回 `database=mysql`、`asset_store=oss`。
+  - `cmd/server` 运行时只接受 MySQL，不再读取旧 `DATABASE_URL`。
+  - `pg_stat_activity` 快照未发现公司业务服务、K8s Pod、Lighthouse 或外部业务客户端连接旧 Supabase/PostgreSQL；可见连接均为 Supabase 平台内部组件或 loopback。
+- 当前状态：
+  - 旧 Supabase/PostgreSQL 不再作为可用数据源或回滚路径。
+  - 删除后的线上只读核心回归已通过。
+- 删除后线上回归：
+  - 执行人：用户在已登录公司浏览器控制台执行。
+  - `GET /erzhuang-project/health`：200，返回 `database=mysql`、`asset_store=oss`。
+  - `GET /erzhuang-project/api/auth/me`：200，返回当前登录用户“凯撒（沙磊）”。
+  - `GET /erzhuang-project/api/store-space/stores?page=1&page_size=100`：200，`total=54`、`items.length=54`。
+  - `GET /erzhuang-project/api/h5/orgs/10030/monitor`：200，北京保利实验室门店，`groups.length=1`。
+  - `GET /erzhuang-project/api/h5/orgs/10019/monitor`：200，上海陆家嘴店，`groups.length=5`。
+  - `GET /erzhuang-project/api/h5/orgs/10081/monitor`：200，杭州城北万象城店，`groups.length=5`。
+  - `failed=[]`。
+- 结论：
+  - 旧 Supabase 数据库删除后，公司线上 MySQL/OSS 主链路、登录、门店列表和 H5 Monitor 样本门店均正常。
+  - 旧 Supabase/PostgreSQL 不再是运行时依赖或回滚路径。
+
+## 2026-07-06 用户管理编辑角色不生效修复
+
+- 现象：
+  - 管理员在用户管理界面把某用户角色改为“编辑运维”并保存后，列表仍显示“普通查看”。
+  - 再次打开编辑弹窗，角色仍是“普通查看”。
+- 根因：
+  - 前端提交的角色值为 `editor`，后端 handler 也会接收并归一化为 `editor`。
+  - MySQL 读取角色依赖 `tb_user_roles -> tb_roles.code`，如果 `tb_roles` 中没有 `editor` 角色，`setMySQLUserRole` 的 `insert ignore into tb_user_roles ... select ... where r.code='editor'` 会插入 0 行且不报错。
+  - 随后列表查询 `coalesce(..., 'viewer')`，因此回退显示为“普通查看”。
+- 修复：
+  - `setMySQLUserRole` 在写用户角色关系前，先幂等补齐 `admin`、`editor`、`viewer` 三个应用系统角色，修复线上现有库漏种 `editor` 时保存无效的问题。
+  - `db/mysql_governance_schema_tb.sql` 增加 `editor` 角色 seed，并让 `editor` 复用原 `operator` 的运维权限集合，避免新库继续漏种。
+  - 新增 `TestSetMySQLUserRoleSeedsKnownRolesBeforeAssignment`，用 recording SQL driver 验证分配用户角色前会先 seed 已知角色，再删除旧关系并写入新关系。
+- 验证：
+  - 本机直接运行 Go 测试仍触发项目已知 macOS `missing LC_UUID load command`，未能执行测试断言。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./internal/app -o /private/tmp/app.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+- 发布后验证建议：
+  - 在用户管理中把一个普通查看用户改为“编辑运维”并保存。
+  - 列表应显示“编辑运维”。
+  - 再次打开编辑弹窗，角色下拉应保持“编辑运维”。
+  - 可再调用 `/api/auth/me` 验证该用户重新登录后权限含 `editor`、`store:read`、`store:write`。

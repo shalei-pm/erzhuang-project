@@ -4,49 +4,43 @@ import {
   storeSpaceApi,
   type EzvizAccount,
   type AreaType,
-  type NonBusinessSceneType,
+  type SnapshotDiagnostics,
   type StoreDetail,
   type VideoChannel,
   type VideoRecorder,
 } from "../api";
-import { areaTypeLabels } from "../domain/areas";
+import { areaTypeLabels, isAreaNumberOptional } from "../domain/areas";
+import { channelListFilters, filterAndSortChannels, type ChannelListFilter } from "../domain/channel-filters";
+import { requiresBedSplit } from "../domain/channel-mapping-target";
+import {
+  channelNetworkErrorMessage,
+  channelRecognitionMessage,
+  isChannelRecognitionFailed,
+  recorderRecognitionRunToast,
+  shouldBatchRecognizeChannel,
+} from "../domain/channel-recognition";
+import { channelSceneLabel } from "../domain/channel-labels";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
+import { fallbackProbeChannelNumbers, fallbackProbeMaxChannelNo, shouldStopFallbackProbe } from "../domain/fallback-probe";
 import { formatDateTime } from "../domain/format";
+import { ImageLoadQueue } from "../domain/image-load-queue";
 
-const sceneLabels: Record<NonBusinessSceneType, string> = {
-  front_desk: "前台",
-  corridor: "走廊",
-  passage: "通道",
-  waiting_area: "候诊区",
-  hall: "大厅",
-  entrance: "门口",
-  storage: "库房",
-  pharmacy: "药房",
-  machine_room: "机房",
-  unknown: "未知",
-};
-
-type ChannelTypeFilter = "all" | AreaType;
-
-const channelTypeFilters: { value: ChannelTypeFilter; label: string }[] = [
-  { value: "all", label: "全部" },
-  { value: "consultation", label: "面诊室" },
-  { value: "treatment", label: "治疗室" },
-  { value: "beauty", label: "生美" },
-];
+const snapshotImageQueue = new ImageLoadQueue(2);
 
 type VideoChannelTabProps = {
   store: StoreDetail;
   accounts: EzvizAccount[];
+  canEdit: boolean;
   onStoreUpdated: (update: StoreDetail | ((store: StoreDetail) => StoreDetail)) => void;
   onRecorderUpdated: (recorder: VideoRecorder) => void;
   onToast: (message: string) => void;
 };
 
-export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
+export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
   const [recognizingChannelIds, setRecognizingChannelIds] = useState<Set<number>>(() => new Set());
   const [recorderProgress, setRecorderProgress] = useState<Record<number, { done: number; total: number }>>({});
+  const [fallbackProbeProgress, setFallbackProbeProgress] = useState<Record<number, { checked: number; active: number }>>({});
   const [completedRecorderProgressId, setCompletedRecorderProgressId] = useState<number | null>(null);
   const [previewChannel, setPreviewChannel] = useState<VideoChannel | null>(null);
   const [confirmingChannelIds, setConfirmingChannelIds] = useState<Set<number>>(() => new Set());
@@ -57,8 +51,10 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   const [deletingChannelIds, setDeletingChannelIds] = useState<Set<number>>(() => new Set());
   const [newRecorderCode, setNewRecorderCode] = useState("");
   const [newRecorderAccountId, setNewRecorderAccountId] = useState<number | "">("");
-  const [channelTypeFilter, setChannelTypeFilter] = useState<ChannelTypeFilter>("all");
+  const [channelTypeFilter, setChannelTypeFilter] = useState<ChannelListFilter>("all");
+  const [exportingChannels, setExportingChannels] = useState(false);
   const [expiredSnapshotIds, setExpiredSnapshotIds] = useState<Set<number>>(() => new Set());
+  const [snapshotDiagnostics, setSnapshotDiagnostics] = useState<Record<number, SnapshotDiagnostics | { detail: string }>>({});
   const [editingChannels, setEditingChannels] = useState<Record<number, Partial<VideoChannel>>>({});
   const completionTimerRef = useRef<number | null>(null);
   const regionAccounts = selectableRegionAccounts(accounts);
@@ -80,6 +76,10 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       onToast(`已扫描 ${recorder.deviceCode}，发现 ${nextRecorder.effectiveChannelCount} 个有效通道。`);
     } catch (error) {
       const message = channelErrorMessage(error, "扫描失败，请稍后重试。");
+      if (shouldUseFallbackProbe(message)) {
+        await runFallbackProbeRecognition(recorder);
+        return;
+      }
       setChannelError(`录像机 ${recorder.deviceCode} 扫描失败：${message}`);
       onToast(message);
     } finally {
@@ -87,10 +87,57 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     }
   }
 
+  async function runFallbackProbeRecognition(recorder: VideoRecorder) {
+    let activeCount = 0;
+    let consecutiveFailures = 0;
+    const channelNumbers = fallbackProbeChannelNumbers();
+    setChannelError("");
+    setFallbackProbeProgress((current) => ({ ...current, [recorder.id]: { checked: 0, active: 0 } }));
+    setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: 0, total: fallbackProbeMaxChannelNo } }));
+    onToast(`无法直接获取 ${recorder.deviceCode} 的通道列表，正在通过抓图识别有效通道。`);
+    for (const channelNo of channelNumbers) {
+      try {
+        const result = await storeSpaceApi.probeRecognizeChannel(store.id, recorder, channelNo);
+        if (result.active && result.channel) {
+          consecutiveFailures = 0;
+          activeCount += 1;
+          onStoreUpdated((currentStore) => upsertChannelInStore(currentStore, recorder.id, result.channel as VideoChannel));
+          setExpiredSnapshotIds((current) => removeIdFromSet(current, result.channel!.id));
+          setSnapshotDiagnostics((current) => removeKeyFromRecord(current, result.channel!.id));
+        } else {
+          consecutiveFailures += 1;
+        }
+      } catch (error) {
+        consecutiveFailures += 1;
+      }
+      setFallbackProbeProgress((current) => ({ ...current, [recorder.id]: { checked: channelNo, active: activeCount } }));
+      setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: channelNo, total: fallbackProbeMaxChannelNo } }));
+      if (shouldStopFallbackProbe(channelNo, consecutiveFailures)) {
+        break;
+      }
+    }
+    setCompletedRecorderProgressId(recorder.id);
+    if (completionTimerRef.current !== null) {
+      window.clearTimeout(completionTimerRef.current);
+    }
+    completionTimerRef.current = window.setTimeout(() => {
+      setCompletedRecorderProgressId(null);
+      setFallbackProbeProgress((current) => {
+        const next = { ...current };
+        delete next[recorder.id];
+        return next;
+      });
+      completionTimerRef.current = null;
+    }, 900);
+    onToast(`已完成 ${recorder.deviceCode} 的抓图识别，发现 ${activeCount} 个有效通道。`);
+  }
+
   async function recognizeRecorder(recorder: VideoRecorder) {
-    const targetChannels = recorder.channels.filter((channel) => channel.status !== "inactive" && !isConfirmedChannel(channel));
+    const targetChannels = recorder.channels
+      .filter((channel) => !isConfirmedChannel(channel) && shouldBatchRecognizeChannel(channel))
+      .sort((left, right) => left.channelNo - right.channelNo);
     if (targetChannels.length === 0) {
-      onToast("暂无可识别通道，已确认通道需先点击编辑后再重新识别。");
+      onToast(`暂无需要识别的通道，${recorder.deviceCode} 已识别成功的通道不会重复消耗模型。`);
       return;
     }
     setWorkingRecorderId(recorder.id);
@@ -102,18 +149,49 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       targetChannels.forEach((channel) => next.add(channel.id));
       return next;
     });
+    const summary = {
+      total: targetChannels.length,
+      completed: 0,
+      failed: 0,
+      interrupted: 0,
+      firstError: "",
+    };
     try {
       for (let index = 0; index < targetChannels.length; index++) {
         const channel = targetChannels[index];
-        const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
-        onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
-        setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
-        setRecognizingChannelIds((current) => {
-          const next = new Set(current);
-          next.delete(channel.id);
-          return next;
-        });
-        setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: index + 1, total: targetChannels.length } }));
+        try {
+          const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
+          if (isChannelRecognitionFailed(updatedChannel)) {
+            summary.failed += 1;
+            const message = channelRecognitionMessage(updatedChannel) || "识别失败，请稍后重试。";
+            if (!summary.firstError) {
+              summary.firstError = `通道 ${channel.channelNo}：${message}`;
+            }
+          } else {
+            summary.completed += 1;
+          }
+          onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
+          setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
+          setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
+        } catch (error) {
+          const networkMessage = channelNetworkErrorMessage(error);
+          const message = networkMessage || channelErrorMessage(error, "截图识别失败，请稍后重试。");
+          if (networkMessage) {
+            summary.interrupted += 1;
+          } else {
+            summary.failed += 1;
+          }
+          if (!summary.firstError) {
+            summary.firstError = `通道 ${channel.channelNo}：${message}`;
+          }
+        } finally {
+          setRecognizingChannelIds((current) => {
+            const next = new Set(current);
+            next.delete(channel.id);
+            return next;
+          });
+          setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: index + 1, total: targetChannels.length } }));
+        }
       }
       setCompletedRecorderProgressId(recorder.id);
       if (completionTimerRef.current !== null) {
@@ -123,10 +201,10 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         setCompletedRecorderProgressId(null);
         completionTimerRef.current = null;
       }, 900);
-      onToast(`已完成 ${recorder.deviceCode} 的通道识别。`);
-    } catch (error) {
-      const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
-      setChannelError(`录像机 ${recorder.deviceCode} 识别失败：${message}`);
+      const message = recorderRecognitionRunToast(recorder.deviceCode, summary);
+      if (summary.failed > 0 || summary.interrupted > 0) {
+        setChannelError(message);
+      }
       onToast(message);
     } finally {
       setWorkingRecorderId(null);
@@ -190,13 +268,14 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     const patch = editingChannels[channel.id] ?? {};
     const areaType = patch.areaType ?? channel.areaType;
     const areaNumber = patch.areaNumber ?? channel.areaNumber;
+    const bedLabel = patch.bedLabel ?? channel.bedLabel;
     const sceneType = patch.sceneType ?? channel.sceneType;
-    if (areaType && !String(areaNumber).trim()) {
+    if (areaType && !isAreaNumberOptional(areaType) && !String(areaNumber).trim()) {
       onToast("确认为业务区域时，编号必填。");
       return;
     }
     const previousChannel = channel;
-    const optimisticChannel = confirmedChannelDraft(channel, areaType, areaNumber, patch.areaNote, sceneType);
+    const optimisticChannel = confirmedChannelDraft(channel, areaType, areaNumber, bedLabel, patch.areaNote, sceneType);
     setConfirmingChannelIds((current) => addIdToSet(current, channel.id));
     setChannelError("");
     setEditingChannels((current) => {
@@ -210,6 +289,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
         ...patch,
         areaType,
         areaNumber,
+        bedLabel: areaType && requiresBedSplit(areaType) ? bedLabel : "",
         areaNote: areaType ? "" : String(patch.areaNote ?? patch.areaNumber ?? channel.areaNote ?? ""),
         sceneType,
       });
@@ -297,6 +377,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       const updatedChannel = await storeSpaceApi.recognizeChannel(store.id, channel.id);
       onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
       setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
+      setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
       onToast(`已重新识别录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo}。`);
     } catch (error) {
       const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
@@ -318,6 +399,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
       const updatedChannel = await storeSpaceApi.refreshChannelSnapshot(store.id, channel.id);
       onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
       setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
+      setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
       onToast(`已刷新录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo} 截图。`);
     } catch (error) {
       const message = channelErrorMessage(error, "刷新截图失败，请稍后重试。");
@@ -332,6 +414,35 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
     }
   }
 
+  async function diagnoseSnapshotLoad(channel: VideoChannel) {
+    const snapshotName = snapshotNameFromURL(channel.thumbnailUrl || channel.fullImageUrl);
+    if (!snapshotName) {
+      setSnapshotDiagnostics((current) => ({ ...current, [channel.id]: { detail: "截图地址不是系统托管路径，无法诊断。" } }));
+      return;
+    }
+    try {
+      const diagnostics = await storeSpaceApi.diagnoseChannelSnapshot(snapshotName);
+      setSnapshotDiagnostics((current) => ({ ...current, [channel.id]: diagnostics }));
+    } catch (error) {
+      setSnapshotDiagnostics((current) => ({ ...current, [channel.id]: { detail: diagnosticErrorMessage(error) } }));
+    }
+  }
+
+  async function exportChannelMappings() {
+    setExportingChannels(true);
+    setChannelError("");
+    try {
+      await storeSpaceApi.exportChannelMappings(store.id);
+      onToast("通道映射表已开始下载。");
+    } catch (error) {
+      const message = channelErrorMessage(error, "导出失败，请稍后重试。");
+      setChannelError(message);
+      onToast(message);
+    } finally {
+      setExportingChannels(false);
+    }
+  }
+
   return (
     <section className="channel-shell">
       <section className="recorder-panel">
@@ -340,37 +451,39 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
             <strong>录像机列表</strong>
             <span>最多 3 台，删除后可在这里重新补充。</span>
           </div>
-          <div className="add-recorder-form" aria-label="添加录像机">
-            <select
-              value={newRecorderAccountId}
-              disabled={addingRecorder}
-              onChange={(event) => setNewRecorderAccountId(event.target.value ? Number(event.target.value) : "")}
-              aria-label="选择区域"
-            >
-              <option value="">{regionAccounts.length === 0 ? "暂无区域" : "选择区域"}</option>
-              {regionAccounts.map((account) => (
-                <option value={account.id} key={account.id}>
-                  {displayAccountRegion(account)}
-                </option>
-              ))}
-            </select>
-            <input
-              value={newRecorderCode}
-              disabled={addingRecorder || store.recorders.length >= 3}
-              onChange={(event) => setNewRecorderCode(event.target.value)}
-              placeholder="录像机设备编码"
-            />
-            <button disabled={addingRecorder || store.recorders.length >= 3} onClick={() => void addRecorder()}>
-              添加录像机
-            </button>
-          </div>
+          {canEdit ? (
+            <div className="add-recorder-form" aria-label="添加录像机">
+              <select
+                value={newRecorderAccountId}
+                disabled={addingRecorder}
+                onChange={(event) => setNewRecorderAccountId(event.target.value ? Number(event.target.value) : "")}
+                aria-label="选择区域"
+              >
+                <option value="">{regionAccounts.length === 0 ? "暂无区域" : "选择区域"}</option>
+                {regionAccounts.map((account) => (
+                  <option value={account.id} key={account.id}>
+                    {displayAccountRegion(account)}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={newRecorderCode}
+                disabled={addingRecorder || store.recorders.length >= 3}
+                onChange={(event) => setNewRecorderCode(event.target.value)}
+                placeholder="录像机设备编码"
+              />
+              <button disabled={addingRecorder || store.recorders.length >= 3} onClick={() => void addRecorder()}>
+                添加录像机
+              </button>
+            </div>
+          ) : null}
         </div>
         {channelError ? <div className="inline-error">{channelError}</div> : null}
 
         {store.recorders.length === 0 ? (
           <div className="manual-panel">
             <strong>暂无录像机</strong>
-            <p>可在上方填写设备编码并添加，添加后再扫描通道。</p>
+            <p>{canEdit ? "可在上方填写设备编码并添加，添加后再扫描通道。" : "暂无录像机数据。"}</p>
           </div>
         ) : (
           <div className="recorder-table-wrap">
@@ -400,33 +513,41 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                       <td>{recorder.effectiveChannelCount}</td>
                       <td>{formatDateTime(recorder.lastScannedAt)}</td>
                       <td>
-                        <div className="recorder-operation-area">
-                          <div className="row-actions recorder-actions">
-                            <button disabled={isRecognizingRecorder || isDeleting} onClick={() => void scanRecorder(recorder)}>
-                              {hasScanned ? "再次扫描" : "扫描通道"}
-                            </button>
-                            {hasScanned ? (
-                              <button disabled={isRecognizingRecorder || isDeleting} onClick={() => void recognizeRecorder(recorder)}>
-                                识别区域
+                        {canEdit ? (
+                          <div className="recorder-operation-area">
+                            <div className="row-actions recorder-actions">
+                              <button disabled={isRecognizingRecorder || isDeleting} onClick={() => void scanRecorder(recorder)}>
+                                {hasScanned ? "再次扫描" : "扫描通道"}
                               </button>
+                              {hasScanned ? (
+                                <button disabled={isRecognizingRecorder || isDeleting} onClick={() => void recognizeRecorder(recorder)}>
+                                  识别区域
+                                </button>
+                              ) : null}
+                              <button className="danger-link" disabled={isRecognizingRecorder || isDeleting} onClick={() => void deleteRecorder(recorder)}>
+                                {isDeleting ? (
+                                  <>
+                                    <span className="button-spinner" aria-hidden="true" />
+                                    删除中
+                                  </>
+                                ) : (
+                                  "删除"
+                                )}
+                              </button>
+                            </div>
+                            {isRecognizingRecorder ? (
+                              <span className="recorder-thinking-label">
+                                {fallbackProbeProgress[recorder.id]
+                                  ? fallbackProbeProgressLabel(fallbackProbeProgress[recorder.id])
+                                  : recognitionProgressLabel(recorderProgress[recorder.id])}
+                              </span>
+                            ) : recorder.recognitionProgress ? (
+                              <span className="recorder-muted-label">{recorder.recognitionProgress}</span>
                             ) : null}
-                            <button className="danger-link" disabled={isRecognizingRecorder || isDeleting} onClick={() => void deleteRecorder(recorder)}>
-                              {isDeleting ? (
-                                <>
-                                  <span className="button-spinner" aria-hidden="true" />
-                                  删除中
-                                </>
-                              ) : (
-                                "删除"
-                              )}
-                            </button>
                           </div>
-                          {isRecognizingRecorder ? (
-                            <span className="recorder-thinking-label">{recognitionProgressLabel(recorderProgress[recorder.id])}</span>
-                          ) : recorder.recognitionProgress ? (
-                            <span className="recorder-muted-label">{recorder.recognitionProgress}</span>
-                          ) : null}
-                        </div>
+                        ) : (
+                          <span className="recorder-muted-label">仅查看</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -446,33 +567,55 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
           <strong>通道列表</strong>
           <span>按业务区域类型筛选当前通道映射。</span>
         </div>
-        <div className="segmented-control" role="radiogroup" aria-label="业务区域类型筛选">
-          {channelTypeFilters.map((filter) => (
-            <button
-              key={filter.value}
-              type="button"
-              role="radio"
-              aria-checked={channelTypeFilter === filter.value}
-              className={channelTypeFilter === filter.value ? "is-active" : ""}
-              onClick={() => setChannelTypeFilter(filter.value)}
-            >
-              {filter.label}
-            </button>
-          ))}
+        <div className="channel-filter-actions">
+          <button className="secondary-action-button" type="button" disabled={exportingChannels} onClick={() => void exportChannelMappings()}>
+            {exportingChannels ? (
+              <>
+                <span className="button-spinner" aria-hidden="true" />
+                导出中
+              </>
+            ) : (
+              "导出 Excel"
+            )}
+          </button>
+          <div className="segmented-control" role="radiogroup" aria-label="业务区域类型筛选">
+            {channelListFilters.map((filter) => (
+              <button
+                key={filter.value}
+                type="button"
+                role="radio"
+                aria-checked={channelTypeFilter === filter.value}
+                className={channelTypeFilter === filter.value ? "is-active" : ""}
+                onClick={() => setChannelTypeFilter(filter.value)}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 
       {store.recorders.map((recorder) => {
-        const visibleChannels = recorder.channels.filter((channel) => channelMatchesTypeFilter(channel, channelTypeFilter, editingChannels[channel.id]));
+        const visibleChannels = filterAndSortChannels(recorder.channels, channelTypeFilter, editingChannels);
         return (
           <section className="channel-table-section" key={recorder.id}>
             <div className="section-title-row">
               <div>
                 <strong>{recorder.deviceCode} 有效通道</strong>
-                <span>请将白底黑字编号纸放在画面明显位置，例如：治疗室 1 / 面诊室 2 / 生美 3。</span>
+                <span>请将白底黑字编号纸放在画面明显位置，例如：治疗室 1 / 面诊室 2 / 美容室 3。</span>
               </div>
             </div>
             <table className="channel-table">
+              <colgroup>
+                <col className="channel-col-recorder" />
+                <col className="channel-col-number" />
+                <col className="channel-col-snapshot" />
+                <col className="channel-col-area-type" />
+                <col className="channel-col-area-number" />
+                <col className="channel-col-bed" />
+                <col className="channel-col-status" />
+                <col className="channel-col-actions" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>录像机</th>
@@ -480,6 +623,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                   <th>最近截图</th>
                   <th>业务区域类型</th>
                   <th>编号/备注</th>
+                  <th>床位拆分</th>
                   <th>确认状态</th>
                   <th>操作</th>
                 </tr>
@@ -487,7 +631,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
               <tbody>
                 {visibleChannels.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="channel-empty-cell">
+                    <td colSpan={8} className="channel-empty-cell">
                       当前筛选下暂无通道
                     </td>
                   </tr>
@@ -495,44 +639,52 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                   visibleChannels.map((channel) => {
                 const draft = editingChannels[channel.id] ?? {};
                 const isEditable =
-                  channel.status === "pending_confirmation" ||
-                  channel.status === "pending_recognition" ||
-                  channel.status === "recognition_failed" ||
-                  Boolean(draft.status);
+                  canEdit &&
+                  (channel.status === "pending_confirmation" ||
+                    channel.status === "pending_recognition" ||
+                    channel.status === "recognition_failed" ||
+                    Boolean(draft.status));
                 const recognitionMessage = channelRecognitionMessage(channel);
                 const isRecognizing = recognizingChannelIds.has(channel.id);
                 const isConfirming = confirmingChannelIds.has(channel.id);
                 const isUnlocking = unlockingChannelIds.has(channel.id);
                 const isDeleting = deletingChannelIds.has(channel.id);
                 const isConfirmed = isConfirmedChannel(channel);
+                const isSnapshotExpired = hasExpiredSnapshot(channel);
+                const canPreviewSnapshot = Boolean(channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) && !isSnapshotExpired);
+                const snapshotDiagnostic = snapshotDiagnostics[channel.id];
                 const selectedAreaType = draft.areaType !== undefined ? draft.areaType : channel.areaType;
                 const selectedAreaNumber = draft.areaNumber ?? (selectedAreaType ? channel.areaNumber : channel.areaNote || channel.areaNumber);
+                const selectedBedLabel = draft.bedLabel ?? channel.bedLabel;
+                const showBedLabel = requiresBedSplit(selectedAreaType);
                 return (
                   <tr key={channel.id}>
                     <td>{recorder.deviceCode}</td>
                     <td>{channel.channelNo}</td>
                     <td>
                       <button
-                        className={`channel-thumb ${channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) ? "has-image" : ""}`}
+                        className={`channel-thumb ${canPreviewSnapshot ? "has-image" : ""}`}
                         type="button"
-                        disabled={expiredSnapshotIds.has(channel.id) || (!channel.fullImageUrl && !channel.thumbnailUrl)}
-                        aria-label={channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) ? `查看通道 ${channel.channelNo} 截图` : "暂无截图"}
+                        disabled={!canPreviewSnapshot}
+                        aria-label={canPreviewSnapshot ? `查看通道 ${channel.channelNo} 截图` : "暂无截图"}
                         onClick={() => setPreviewChannel(channel)}
                       >
-                        {channel.thumbnailUrl && !expiredSnapshotIds.has(channel.id) ? (
-                          <img
+                        {canPreviewSnapshot ? (
+                          <QueuedSnapshotImage
                             src={channel.thumbnailUrl}
                             alt={`通道 ${channel.channelNo} 截图`}
                             onError={() => {
                               setExpiredSnapshotIds((current) => new Set(current).add(channel.id));
+                              void diagnoseSnapshotLoad(channel);
                             }}
                           />
-                        ) : expiredSnapshotIds.has(channel.id) ? (
-                          <span className="channel-thumb-expired">已过期</span>
+                        ) : expiredSnapshotIds.has(channel.id) || isSnapshotExpired ? (
+                          <span className="channel-thumb-expired">{isSnapshotExpired ? "已过期" : "加载失败"}</span>
                         ) : (
                           <span />
                         )}
                       </button>
+                      {snapshotDiagnostic ? <div className="channel-row-note is-error">{snapshotDiagnosticLabel(snapshotDiagnostic)}</div> : null}
                       {recognitionMessage ? <div className="channel-row-note">{recognitionMessage}</div> : null}
                     </td>
                     <td>
@@ -542,6 +694,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                           onChange={(event) =>
                             updateChannelDraft(channel.id, {
                               areaType: event.target.value as AreaType | "",
+                              bedLabel: requiresBedSplit(event.target.value as AreaType | "") ? selectedBedLabel : "",
                               areaNote: event.target.value ? "" : channel.areaNote || draft.areaNumber || "",
                               sceneType: event.target.value ? (event.target.value as AreaType) : "unknown",
                             })
@@ -549,8 +702,9 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                         >
                           <option value="">其他区域</option>
                           <option value="treatment">治疗室</option>
+                          <option value="vip_treatment">VIP治疗室</option>
                           <option value="consultation">面诊室</option>
-                          <option value="beauty">生美</option>
+                          <option value="beauty">美容室</option>
                         </select>
                       ) : (
                         channel.areaType ? areaTypeLabels[channel.areaType] : nonBusinessLabel(channel.sceneType)
@@ -568,68 +722,86 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
                             }
                             updateChannelDraft(channel.id, { areaNumber: event.target.value, areaNote: event.target.value });
                           }}
-                          placeholder={selectedAreaType ? "必填" : "-"}
+                          placeholder={selectedAreaType && !isAreaNumberOptional(selectedAreaType) ? "必填" : "-"}
                         />
                       ) : (
                         channel.areaType ? channel.areaNumber || "-" : channel.areaNote || channel.areaNumber || "-"
                       )}
                     </td>
                     <td>
+                      {isEditable ? (
+                        <input
+                          value={showBedLabel ? selectedBedLabel : ""}
+                          inputMode="text"
+                          disabled={!showBedLabel}
+                          onChange={(event) => updateChannelDraft(channel.id, { bedLabel: event.target.value })}
+                          placeholder={showBedLabel ? "单床可不填" : "选治疗类后填"}
+                          aria-label="床位拆分"
+                        />
+                      ) : (
+                        channelBedLabelText(channel)
+                      )}
+                    </td>
+                    <td>
                       <span className={`status-pill channel-${channel.status}`}>{channelStatusLabel(channel.status)}</span>
                     </td>
                     <td>
-                      <div className="row-actions">
-                        {isEditable ? (
-                          <button disabled={isConfirming || isDeleting} onClick={() => void confirmChannel(channel)}>
-                            {isConfirming ? (
+                      {canEdit ? (
+                        <div className="row-actions">
+                          {isEditable ? (
+                            <button disabled={isConfirming || isDeleting} onClick={() => void confirmChannel(channel)}>
+                              {isConfirming ? (
+                                <>
+                                  <span className="button-spinner" aria-hidden="true" />
+                                  确认中
+                                </>
+                              ) : (
+                                "确认"
+                              )}
+                            </button>
+                          ) : (
+                            <button disabled={isDeleting || isUnlocking} onClick={() => void unlockChannelForEdit(channel)}>
+                              {isUnlocking ? (
+                                <>
+                                  <span className="button-spinner" aria-hidden="true" />
+                                  解锁中
+                                </>
+                              ) : (
+                                "编辑"
+                              )}
+                            </button>
+                          )}
+                          <button
+                            disabled={isRecognizing || isDeleting || workingRecorderId === recorder.id}
+                            onClick={() => void (isConfirmed ? refreshChannelSnapshot(recorder, channel) : recognizeChannel(recorder, channel))}
+                          >
+                            {isRecognizing ? (
                               <>
                                 <span className="button-spinner" aria-hidden="true" />
-                                确认中
+                                {isConfirmed ? "刷新中" : "识别中"}
                               </>
                             ) : (
-                              "确认"
+                              isConfirmed ? "刷新截图" : "重新识别"
                             )}
                           </button>
-                        ) : (
-                          <button disabled={isDeleting || isUnlocking} onClick={() => void unlockChannelForEdit(channel)}>
-                            {isUnlocking ? (
+                          <button
+                            className="danger-link"
+                            disabled={isRecognizing || isDeleting || isConfirming || workingRecorderId === recorder.id}
+                            onClick={() => void deleteChannel(recorder, channel)}
+                          >
+                            {isDeleting ? (
                               <>
                                 <span className="button-spinner" aria-hidden="true" />
-                                解锁中
+                                删除中
                               </>
                             ) : (
-                              "编辑"
+                              "删除"
                             )}
                           </button>
-                        )}
-                        <button
-                          disabled={isRecognizing || isDeleting || workingRecorderId === recorder.id}
-                          onClick={() => void (isConfirmed ? refreshChannelSnapshot(recorder, channel) : recognizeChannel(recorder, channel))}
-                        >
-                          {isRecognizing ? (
-                            <>
-                              <span className="button-spinner" aria-hidden="true" />
-                              {isConfirmed ? "刷新中" : "识别中"}
-                            </>
-                          ) : (
-                            isConfirmed ? "刷新截图" : "重新识别"
-                          )}
-                        </button>
-                        <button
-                          className="danger-link"
-                          disabled={isRecognizing || isDeleting || isConfirming || workingRecorderId === recorder.id}
-                          onClick={() => void deleteChannel(recorder, channel)}
-                        >
-                          {isDeleting ? (
-                            <>
-                              <span className="button-spinner" aria-hidden="true" />
-                              删除中
-                            </>
-                          ) : (
-                            "删除"
-                          )}
-                        </button>
-                      </div>
+                        </div>
+                      ) : (
+                        <span className="recorder-muted-label">仅查看</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -646,7 +818,7 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
             <div className="snapshot-preview-head">
               <div>
                 <strong>通道 {previewChannel.channelNo} 最近截图</strong>
-                <span>{previewChannel.fullImageExpiresAt ? `大图有效期至 ${formatDateTime(previewChannel.fullImageExpiresAt)}` : "来自萤石云抓图"}</span>
+                <span>{previewChannel.fullImageExpiresAt ? `原始抓图有效期至 ${formatDateTime(previewChannel.fullImageExpiresAt)}` : "已保存到系统截图库"}</span>
               </div>
               <button type="button" onClick={() => setPreviewChannel(null)} aria-label="关闭截图预览">
                 ×
@@ -660,12 +832,6 @@ export function VideoChannelTab({ store, accounts, onStoreUpdated, onRecorderUpd
   );
 }
 
-function channelMatchesTypeFilter(channel: VideoChannel, filter: ChannelTypeFilter, draft?: Partial<VideoChannel>) {
-  if (filter === "all") return true;
-  const areaType = draft?.areaType !== undefined ? draft.areaType : channel.areaType;
-  return areaType === filter;
-}
-
 function addIdToSet(current: Set<number>, id: number) {
   return new Set(current).add(id);
 }
@@ -676,62 +842,129 @@ function removeIdFromSet(current: Set<number>, id: number) {
   return next;
 }
 
-function channelRecognitionMessage(channel: VideoChannel) {
-  const result = channel.recognitionResult;
-  if (!result) return "";
-  if (typeof result === "string") {
-    try {
-      return channelRecognitionMessageFromObject(JSON.parse(result));
-    } catch {
-      return result;
+function removeKeyFromRecord<T>(current: Record<number, T>, id: number) {
+  const next = { ...current };
+  delete next[id];
+  return next;
+}
+
+function QueuedSnapshotImage({ src, alt, onError }: { src: string; alt: string; onError: () => void }) {
+  const [queuedSrc, setQueuedSrc] = useState("");
+  const [shouldLoad, setShouldLoad] = useState(() => snapshotImageQueue.hasLoaded(src));
+  const placeholderRef = useRef<HTMLSpanElement | null>(null);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    if (snapshotImageQueue.hasLoaded(src)) {
+      setShouldLoad(true);
+      setQueuedSrc(src);
+      return;
     }
+    setShouldLoad(false);
+    setQueuedSrc("");
+  }, [src]);
+
+  useEffect(() => {
+    if (shouldLoad || snapshotImageQueue.hasLoaded(src)) return;
+    const target = placeholderRef.current;
+    if (!target || typeof IntersectionObserver === "undefined") {
+      setShouldLoad(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "160px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [shouldLoad, src]);
+
+  useEffect(() => {
+    if (!shouldLoad) return;
+    if (snapshotImageQueue.hasLoaded(src)) {
+      setQueuedSrc(src);
+      return;
+    }
+    let cancelled = false;
+    const load = snapshotImageQueue.enqueue(() => preloadImage(src));
+    load
+      .then((nextSrc) => {
+        if (!cancelled) {
+          snapshotImageQueue.rememberLoaded(nextSrc);
+          setQueuedSrc(nextSrc);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled && !(error instanceof DOMException && error.name === "AbortError")) {
+          onErrorRef.current();
+        }
+      });
+    return () => {
+      cancelled = true;
+      load.cancel();
+    };
+  }, [shouldLoad, src]);
+
+  if (!queuedSrc) {
+    return <span ref={placeholderRef} className="channel-thumb-loading" aria-hidden="true" />;
   }
-  if (typeof result === "object" && result) {
-    return channelRecognitionMessageFromObject(result);
-  }
-  return "";
+
+  return <img src={queuedSrc} alt={alt} loading="lazy" decoding="async" onError={onError} />;
 }
 
-function channelRecognitionMessageFromObject(value: unknown) {
-  if (!value || typeof value !== "object") return "";
-  const result = value as {
-    status?: string;
-    message?: string;
-    area_type?: AreaType | "";
-    area_number?: string;
-    confidence?: string;
-    recognition_ms?: number;
-    total_ms?: number;
-    capture_ms?: number;
-  };
-  const timing = recognitionTimingLabel(result);
-  if (result.status === "capture_failed" || result.status === "recognition_failed") {
-    return ["失败", timing].filter(Boolean).join(" · ");
-  }
-  if (result.status === "recognized") {
-    const confidence = result.confidence === "low" ? "低置信" : "";
-    return [confidence, timing].filter(Boolean).join(" · ");
-  }
-  if (result.status === "captured") {
-    return ["抓图", timing].filter(Boolean).join(" · ");
-  }
-  return result.message || timing;
+function preloadImage(src: string) {
+  return new Promise<string>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(src);
+    image.onerror = () => reject(new Error("snapshot image load failed"));
+    image.src = src;
+  });
 }
 
-function recognitionTimingLabel(result: { capture_ms?: number; recognition_ms?: number; total_ms?: number }) {
-  const parts: string[] = [];
-  if (typeof result.recognition_ms === "number" && result.recognition_ms > 0) {
-    parts.push(`识别 ${formatDuration(result.recognition_ms)}`);
+function hasExpiredSnapshot(channel: VideoChannel) {
+  if (!channel.fullImageExpiresAt) {
+    return false;
   }
-  if (typeof result.total_ms === "number" && result.total_ms > 0) {
-    parts.push(`总 ${formatDuration(result.total_ms)}`);
-  }
-  return parts.join(" / ");
+  return new Date(channel.fullImageExpiresAt).getTime() <= Date.now();
 }
 
-function formatDuration(ms: number) {
-  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.max(1, Math.round(ms))}ms`;
+function snapshotNameFromURL(value: string) {
+  const match = value.match(/\/api\/store-space\/channel-snapshots\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function snapshotDiagnosticLabel(diagnostics: SnapshotDiagnostics | { detail: string }) {
+  if ("code" in diagnostics) {
+    const parts = [
+      diagnostics.code || "snapshot_diagnostic",
+      diagnostics.stage ? `阶段 ${diagnostics.stage}` : "",
+      diagnostics.assetStore ? `存储 ${diagnostics.assetStore}` : "",
+      diagnostics.snapshotKey ? `路径 ${diagnostics.snapshotKey}` : "",
+      diagnostics.detail,
+    ].filter(Boolean);
+    return parts.join(" · ");
+  }
+  return diagnostics.detail;
+}
+
+function diagnosticErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    return [error.message, error.code ? `code=${error.code}` : "", error.stage ? `stage=${error.stage}` : "", error.detail].filter(Boolean).join(" · ");
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return "诊断接口请求失败";
 }
 
 function replaceChannelInStore(store: StoreDetail, updatedChannel: VideoChannel): StoreDetail {
@@ -750,6 +983,30 @@ function replaceChannelInStore(store: StoreDetail, updatedChannel: VideoChannel)
     channelCount: recorders.reduce((total, recorder) => total + recorder.channels.filter((channel) => channel.status !== "inactive").length, 0),
     updatedAt: new Date().toISOString(),
   };
+}
+
+function upsertChannelInStore(store: StoreDetail, recorderId: number, updatedChannel: VideoChannel): StoreDetail {
+  const recorders = store.recorders.map((recorder) => {
+    if (recorder.id !== recorderId) return recorder;
+    const channel = { ...updatedChannel, recorderId, recorderCode: recorder.deviceCode };
+    const existing = recorder.channels.some((item) => item.id === channel.id || item.channelNo === channel.channelNo);
+    const channels = (existing
+      ? recorder.channels.map((item) => (item.id === channel.id || item.channelNo === channel.channelNo ? channel : item))
+      : [...recorder.channels, channel]
+    ).sort((a, b) => a.channelNo - b.channelNo);
+    return {
+      ...recorder,
+      status: "online" as const,
+      channels,
+      effectiveChannelCount: channels.filter((item) => item.status !== "inactive").length,
+      lastScannedAt: new Date().toISOString(),
+    };
+  });
+  return recalculateStoreVideoMetrics({
+    ...store,
+    recorders,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 function removeRecorderFromStore(store: StoreDetail, recorderId: number): StoreDetail {
@@ -789,6 +1046,7 @@ function confirmedChannelDraft(
   channel: VideoChannel,
   areaType: AreaType | "",
   areaNumber: string,
+  bedLabel: string,
   areaNote: unknown,
   sceneType: VideoChannel["sceneType"],
 ): VideoChannel {
@@ -797,6 +1055,7 @@ function confirmedChannelDraft(
     ...channel,
     areaType,
     areaNumber: isBusiness ? String(areaNumber).trim() : "",
+    bedLabel: isBusiness && requiresBedSplit(areaType) ? String(bedLabel).trim() : "",
     areaNote: isBusiness ? "" : String(areaNote ?? areaNumber ?? channel.areaNote ?? ""),
     sceneType: isBusiness ? (areaType as AreaType) : sceneType,
     status: isBusiness ? "confirmed_business" : "confirmed_non_business",
@@ -808,10 +1067,16 @@ function channelDraftFromChannel(channel: VideoChannel): Partial<VideoChannel> {
   return {
     areaType: channel.areaType,
     areaNumber: channel.areaType ? channel.areaNumber : channel.areaNote || channel.areaNumber,
+    bedLabel: channel.bedLabel,
     areaNote: channel.areaNote,
     sceneType: channel.sceneType,
     status: "pending_confirmation",
   };
+}
+
+function channelBedLabelText(channel: VideoChannel) {
+  if (!requiresBedSplit(channel.areaType)) return "-";
+  return channel.bedLabel.trim() || "-";
 }
 
 function isConfirmedChannel(channel: VideoChannel) {
@@ -821,6 +1086,14 @@ function isConfirmedChannel(channel: VideoChannel) {
 function recognitionProgressLabel(progress?: { done: number; total: number }) {
   if (!progress || progress.total <= 0) return "正在准备识别";
   return `识别进度 ${progress.done}/${progress.total} · ${recognitionProgressPercent(progress)}%`;
+}
+
+function fallbackProbeProgressLabel(progress: { checked: number; active: number }) {
+  return `抓图识别中 · 已检测 ${progress.checked} 个，有效 ${progress.active} 个`;
+}
+
+function shouldUseFallbackProbe(message: string) {
+  return message.includes("10026") || message.includes("设备数量超出个人版限制");
 }
 
 function recognitionProgressPercent(progress?: { done: number; total: number }) {
@@ -848,10 +1121,7 @@ function RecorderTableProgress({ progress, complete }: { progress?: { done: numb
 }
 
 function nonBusinessLabel(sceneType: VideoChannel["sceneType"]) {
-  if (sceneType === "treatment" || sceneType === "consultation" || sceneType === "beauty") {
-    return areaTypeLabels[sceneType];
-  }
-  return sceneLabels[sceneType] ?? "其他区域";
+  return channelSceneLabel(sceneType);
 }
 
 function channelStatusLabel(status: VideoChannel["status"]) {
@@ -867,6 +1137,10 @@ function channelStatusLabel(status: VideoChannel["status"]) {
 }
 
 function channelErrorMessage(error: unknown, fallback: string) {
+  const networkMessage = channelNetworkErrorMessage(error);
+  if (networkMessage) {
+    return networkMessage;
+  }
   if (error instanceof ApiError && error.status === 404) {
     return "通道映射接口未就绪或资源不存在，请确认后端服务状态。";
   }
@@ -875,6 +1149,9 @@ function channelErrorMessage(error: unknown, fallback: string) {
   }
   if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
     return Object.values(error.fields).join("；");
+  }
+  if (error instanceof ApiError && (error.code || error.stage || error.detail)) {
+    return [error.message, error.code ? `code=${error.code}` : "", error.stage ? `stage=${error.stage}` : "", error.detail].filter(Boolean).join(" · ");
   }
   if (error instanceof Error && error.message.trim()) {
     return error.message;

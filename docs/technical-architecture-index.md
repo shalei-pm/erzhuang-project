@@ -241,7 +241,47 @@ HTTP 总入口。
 - `PostgresStore`：Supabase PostgreSQL。
 - `insertAreas`：保存区域。
 - `insertOperationLog`：保存操作日志。
-- `previewURL`、`thumbnailURL`：当前是预留路径，真实图片接口待 Phase 3 实现。
+- `previewURL`、`thumbnailURL`：返回 Go 后端图片接口，由后端从 AssetStore 读取并转发。
+
+### `internal/assets`
+
+设计图文件和通道截图的统一资产存储层。
+
+- `Store`：统一接口，支持保存、打开、按前缀删除。
+- `LocalStore`：默认本地文件实现，用 `UPLOAD_DIR`。
+- `SupabaseStorageStore`：公司 K8s 可用的 Supabase Storage 实现。
+- `NewStoreFromEnv`：通过 `ASSET_STORE` 切换实现。
+- 本地兼容规则：数据库逻辑 key 仍是 `uploads/{upload_id}/...`，`LocalStore` 会映射到 `UPLOAD_DIR/{upload_id}/...`，避免旧本地文件多一层 `uploads`。
+
+关键环境变量：
+
+```text
+ASSET_STORE=local|supabase
+UPLOAD_DIR=/app/uploads
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_STORAGE_BUCKET=design-plan-assets
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` 是后端密钥，只能放服务器或 K8s Secret，不能写入仓库或前端配置。
+
+### `internal/designplan/uploads.go`
+
+设计图上传、PDF 转 PNG、缩略图生成和资产保存。
+
+- PDF 渲染仍在本地临时工作目录完成。
+- 生成的 `original.pdf`、`preview.png`、`thumbnail.png` 通过 `AssetStore` 保存。
+- 数据库存储字段保持不变，仍保存 `uploads/{upload_id}/preview.png` 这类 key。
+- 图片接口使用流式读取，不再依赖 `http.ServeFile` 只能读本地文件。
+- 在 `ASSET_STORE=supabase` 时，`UPLOAD_DIR` 只作为 PDF 转图的工作目录，不作为最终持久化目录。
+
+### `internal/storespace/snapshots.go`
+
+通道截图持久化。
+
+- 萤石云返回临时截图 URL 后，后端下载图片。
+- 图片通过 `AssetStore` 保存为 `channel-snapshots/{name}.jpg`。
+- 前端仍访问 `/api/store-space/channel-snapshots/{name}`，由 Go 后端读取并转发。
 
 ### `internal/designplan/schema.go`
 

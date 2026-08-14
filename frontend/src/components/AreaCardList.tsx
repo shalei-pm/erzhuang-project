@@ -1,11 +1,12 @@
 import type { AreaType, StoreArea } from "../api";
-import { areaDisplayName, areaSummary } from "../domain/areas";
+import { areaDisplayName, areaSummary, isAreaNumberOptional } from "../domain/areas";
 
 type AreaCardListProps = {
   areas: StoreArea[];
   selectedAreaId: string | null;
   areaErrors: Record<string, string[]>;
   areaCardRefs: React.MutableRefObject<Record<string, HTMLElement | null>>;
+  canEdit?: boolean;
   onSelectArea: (areaId: string) => void;
   onUpdateArea: (areaId: string, patch: Partial<StoreArea>) => void;
   onMoveArea: (areaId: string, direction: -1 | 1) => void;
@@ -17,6 +18,7 @@ export function AreaCardList({
   selectedAreaId,
   areaErrors,
   areaCardRefs,
+  canEdit = true,
   onSelectArea,
   onUpdateArea,
   onMoveArea,
@@ -27,6 +29,7 @@ export function AreaCardList({
       {areas.map((areaItem, index) => {
         const errors = areaErrors[areaItem.id] ?? [];
         const lockedByChannel = areaItem.source === "video_channel" || areaItem.source === "multiple";
+        const numberOptional = isAreaNumberOptional(areaItem.type);
         return (
           <article
             ref={(node) => {
@@ -54,39 +57,42 @@ export function AreaCardList({
                 区域类型
                 <select
                   value={areaItem.type}
-                  disabled={lockedByChannel}
+                  disabled={!canEdit || lockedByChannel}
                   onChange={(event) => onUpdateArea(areaItem.id, { type: event.target.value as AreaType | "" })}
                 >
                   <option value="">请选择</option>
                   <option value="treatment">治疗室</option>
+                  <option value="vip_treatment">VIP治疗室</option>
                   <option value="consultation">面诊室</option>
-                  <option value="beauty">生美</option>
+                  <option value="beauty">美容室</option>
                 </select>
               </label>
               <label>
                 编号
                 <input
                   value={areaItem.number}
-                  disabled={lockedByChannel}
+                  disabled={!canEdit || lockedByChannel}
                   onChange={(event) => onUpdateArea(areaItem.id, { number: event.target.value })}
                   inputMode="numeric"
-                  placeholder="必填"
+                  placeholder={numberOptional ? "-" : "必填"}
                 />
               </label>
             </div>
             {lockedByChannel ? <p className="area-card-note">类型和编号由通道映射维护；这里仅补充或调整图纸标注框。</p> : null}
             {errors.length > 0 ? <p className="area-error">{errors.join("；")}</p> : null}
-            <div className="area-card-actions">
-              <button disabled={index === 0} onClick={() => onMoveArea(areaItem.id, -1)}>
-                上移
-              </button>
-              <button disabled={index === areas.length - 1} onClick={() => onMoveArea(areaItem.id, 1)}>
-                下移
-              </button>
-              <button className="danger-link" onClick={() => onDeleteArea(areaItem.id)}>
-                删除
-              </button>
-            </div>
+            {canEdit ? (
+              <div className="area-card-actions">
+                <button disabled={index === 0} onClick={() => onMoveArea(areaItem.id, -1)}>
+                  上移
+                </button>
+                <button disabled={index === areas.length - 1} onClick={() => onMoveArea(areaItem.id, 1)}>
+                  下移
+                </button>
+                <button className="danger-link" onClick={() => onDeleteArea(areaItem.id)}>
+                  删除
+                </button>
+              </div>
+            ) : null}
           </article>
         );
       })}

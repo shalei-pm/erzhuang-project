@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本项目是个人练习项目，用来学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证和回滚流程。
+本项目最初是个人练习项目，用来学习 Codex 开发、Go 后端、GitHub 版本管理，以及腾讯云 Lighthouse 部署、验证和回滚流程。当前已经新增公司 GitLab + K8s 自动发布链路；后续涉及公司环境发布时，以公司 GitLab 分支流程为准。
 
 ## 用户背景
 
@@ -22,7 +22,7 @@
 
 ## 项目目标
 
-形成一条可重复的真实研发练习链路：
+形成一条可重复的真实研发链路：
 
 1. 本地 Codex 开发 Go 项目。
 2. 使用 Git 管理代码版本。
@@ -35,6 +35,8 @@
 9. 支持回滚。
 
 长期目标是：用户可以对 Codex 说“开发并发版”，Codex 能通过 GitHub + SSH 或受控部署脚本完成发布，而不需要用户手动转述每一步给 Hermes。
+
+公司环境当前目标是：本地 Codex 在同一个仓库目录开发，确认后推送到公司 GitLab 固定分支，由公司流水线自动构建和发布，Codex 负责版本、分支、验证和文档记录。
 
 ## 当前服务器背景
 
@@ -105,6 +107,50 @@
   5. 主会话 review PR，必要时打回专项会话修改。
   6. PR 合并后由主会话发布到 Lighthouse，并验证 `/health` 和页面版本号。
 - 当前仓库暂未配置 GitHub Actions；后续如增加 CI，PR 合并前必须检查 CI 结果。
+
+## 公司 GitLab 与自动发布流程
+
+公司环境发布链路已经接入公司 GitLab 和 K8s 自动发布。本项目后续涉及公司线上环境时，默认使用该流程：
+
+- 公司 GitLab 仓库：`https://gitlab.sy.soyoung.com/pm/shalei-pm/erzhuang-project.git`。
+- 本地 remote 名称：`gitlab`。
+- 固定公司发布分支：`codex/containerize-single-image`。
+- 公司 GitLab 分支约每 5 分钟自动发布一次。
+- 本地当前目录 `/Users/sylar/erzhuang-project` 同时保留 GitHub 与 GitLab remote，不另开目录，避免上下文和代码状态分裂。
+- 公司发布分支是受保护分支，不允许 force push；需要使用正常 commit、merge、push。
+- 从个人 `main` 或其他开发分支同步到公司分支时，优先：
+  1. `git fetch gitlab`
+  2. `git switch codex/containerize-single-image`
+  3. `git merge main`
+  4. 本地验证
+  5. `git push gitlab codex/containerize-single-image`
+- 如果公司分支已有运维调整，例如 Dockerfile、K8s 环境变量、数据库连接方式，不要用本地个人配置覆盖。合并冲突时以公司运行配置为准，再把业务代码和必要文档合进去。
+- 公司环境数据库和密钥必须通过运行时环境变量或 K8s Secret 注入。不要把 Supabase、OpenAI、萤石云、MiniMax 等密钥写入仓库、Dockerfile、前端 `VITE_*` 变量或文档。
+- 公司环境前端版本号由容器构建时注入 `VITE_APP_VERSION`。Dockerfile 需要从 `VERSION` 和构建参数 `GIT_VERSION` 生成页面底部版本号，避免线上展示 `local-dev`。
+- 推送后需要等待自动发布完成，再检查：
+  - 页面底部版本号是否为 `VERSION (commit)` 或 `VERSION (container)`。
+  - `https://lite.sy.soyoung.com/erzhuang-project/health` 是否健康。
+  - 关键页面是否能打开，静态资源和 API 路径是否仍走 `/erzhuang-project/` 前缀。
+
+## 发布术语约定
+
+默认规则：除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，所有已确认准备发布的代码都先提交并推送到 GitHub `origin/main` 作为主代码备份，再按目标环境执行公司或韩国服务器发布。
+
+用户说“发布到公司”时，固定含义是：
+
+1. 将当前已确认代码 merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
+2. 推送到 remote `gitlab`。
+3. 等待公司 GitLab / K8s 自动发布，不操作韩国 Lighthouse。
+4. 保留公司环境配置，禁止 force push，禁止用个人服务器配置覆盖公司运行配置。
+
+用户说“发布到韩国服务器”时，固定含义是：
+
+1. 将当前已确认代码推送到 GitHub `origin/main`。
+2. 通过腾讯云 TAT 让韩国 Lighthouse 服务器拉取 GitHub 最新 `main`。
+3. 服务器执行 `scripts/deploy.sh` 自动测试、构建、重启 `erzhuang-project.service`。
+4. 验证 `http://127.0.0.1:18081/health` 和公网 `/erzhuang/` 入口。
+
+如果用户同时要求两个环境，先确认代码已在同一 commit 或明确记录两个环境对应的 commit，避免线上版本对不齐。
 
 ## 前端验收门禁
 
@@ -211,3 +257,17 @@ Codex 在本项目中应当：
 4. 运行验证命令。
 5. 把重要学习状态同步到 `docs/codex-learning-state.md`。
 6. 最后用中文总结结果和下一步建议。
+
+## DBA 专项协作规则
+
+本项目在迁移到公司正规环境期间，由主会话暂任项目负责人，但数据库治理需要长期专项负责。凡涉及以下事项，主会话默认先交给置顶线程「DBA专项：MySQL迁移、权限模型与资产存储」产出方案，再由主会话验收和决策：
+
+- MySQL schema、表结构、字段类型、索引、约束、`tb_` 表名前缀。
+- PostgreSQL/Supabase 到 MySQL 的样本迁移、全量迁移、校验、回滚。
+- 用户表、角色、机构范围、页面/Tab/操作权限、SSO 登录态落库。
+- 通道截图、设计图、PDF 等资产对象映射表和公司文件服务迁移。
+- 数据敏感性、安全审计、操作日志、数据保留与清理策略。
+
+主会话可以做初步判断和风险提问，但不应在未通知 DBA 专项的情况下独立完成数据库方案或大规模 schema 改动。DBA 专项只产出方案、脚本和验证建议；未经用户或主会话明确要求，不直接发布、不改正式数据、不推送公司环境。
+
+如果 DBA 专项遇到需要产品负责人、主会话、运维或安全/SSO 同学双向确认的事项，必须先整理成文档或待确认清单，再交给主会话复核。清单至少写清：背景、可选方案、推荐方案、影响范围、风险、需要谁确认、确认后下一步。不要在未确认的前提下直接实现、清表、改 schema、迁移历史数据或调整权限模型。

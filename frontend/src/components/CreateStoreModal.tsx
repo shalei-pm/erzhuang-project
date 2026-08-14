@@ -1,31 +1,10 @@
 import { useRef, useState } from "react";
 import type { CreateStoreSpacePayload, EzvizAccount, RecorderDraft, UploadResult } from "../api";
+import { CITY_OPTIONS } from "../domain/cities";
 import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz";
 
 const MAX_PDF_BYTES = 5 * 1024 * 1024;
 const MAX_RECORDERS = 3;
-const CITY_OPTIONS = [
-  "北京",
-  "上海",
-  "广州",
-  "深圳",
-  "成都",
-  "杭州",
-  "重庆",
-  "武汉",
-  "苏州",
-  "西安",
-  "南京",
-  "长沙",
-  "天津",
-  "郑州",
-  "东莞",
-  "青岛",
-  "昆明",
-  "宁波",
-  "合肥",
-  "佛山",
-];
 
 type CreateStoreModalProps = {
   accounts: EzvizAccount[];
@@ -40,6 +19,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [city, setCity] = useState("");
   const [name, setName] = useState("");
+  const [shortName, setShortName] = useState("");
   const [externalOrgId, setExternalOrgId] = useState("");
   const [designPlan, setDesignPlan] = useState<UploadResult | null>(null);
   const [recorders, setRecorders] = useState<RecorderDraft[]>([]);
@@ -105,6 +85,7 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
     void onSubmit({
       city: city.trim(),
       name: name.trim(),
+      shortName: shortName.trim(),
       externalOrgId: externalOrgId.trim(),
       designPlan,
       recorders: cleanRecorders,
@@ -139,6 +120,10 @@ export function CreateStoreModal({ accounts, uploading, saving, onUploadPdf, onC
           <label>
             门店名称
             <input value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入门店名称" />
+          </label>
+          <label>
+            机构简称
+            <input value={shortName} onChange={(event) => setShortName(event.target.value)} placeholder="选填，例如 凯德晶萃" />
           </label>
           <label>
             新氧机构 ID

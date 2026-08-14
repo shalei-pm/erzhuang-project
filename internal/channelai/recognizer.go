@@ -36,15 +36,52 @@ type Recognizer interface {
 	Recognize(ctx context.Context, imageURL string) (Result, error)
 }
 
+type ProviderReader interface {
+	GetAIProvider(ctx context.Context) (string, error)
+}
+
+func NewDynamicRecognizer(providerReader ProviderReader) Recognizer {
+	return &DynamicRecognizer{providerReader: providerReader}
+}
+
+type DynamicRecognizer struct {
+	providerReader ProviderReader
+}
+
+func (r *DynamicRecognizer) Recognize(ctx context.Context, imageURL string) (Result, error) {
+	provider := ""
+	if r.providerReader != nil {
+		value, err := r.providerReader.GetAIProvider(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		provider = value
+	}
+	recognizer, enabled, err := NewRecognizerForProvider(provider)
+	if err != nil {
+		return Result{}, err
+	}
+	if !enabled {
+		return Result{}, errors.New("channel ai recognizer is not configured")
+	}
+	return recognizer.Recognize(ctx, imageURL)
+}
+
 func NewRecognizerFromEnv() (Recognizer, bool, error) {
-	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CHANNEL_AI_PROVIDER")))
+	return NewRecognizerForProvider(os.Getenv("CHANNEL_AI_PROVIDER"))
+}
+
+func NewRecognizerForProvider(provider string) (Recognizer, bool, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
 	switch provider {
 	case "", "openai", "responses", "openai-responses":
 		recognizer, enabled := NewOpenAIRecognizerFromEnv()
 		return recognizer, enabled, nil
 	case "external-command", "command", "script":
 		return NewCommandRecognizerFromEnv()
-	case "minimax", "minimax-script", "minimax-understand-image":
+	case "minimax":
+		return NewMiniMaxRecognizerFromEnv()
+	case "minimax-script", "minimax-understand-image":
 		return NewMiniMaxCommandRecognizerFromEnv()
 	default:
 		return nil, false, fmt.Errorf("unsupported CHANNEL_AI_PROVIDER %q", provider)
@@ -178,8 +215,12 @@ func (r *OpenAIRecognizer) Recognize(ctx context.Context, imageURL string) (Resu
 		return Result{}, errors.New("vision recognition returned empty output")
 	}
 	var output Result
-	if err := json.Unmarshal([]byte(extractJSONText(text)), &output); err != nil {
-		return Result{}, fmt.Errorf("parse channel recognition json: %w", err)
+	if err := json.Unmarshal([]byte(extractModelJSONText(text)), &output); err != nil {
+		fallback, ok := fallbackModelTextResult(text)
+		if !ok {
+			return Result{}, fmt.Errorf("parse channel recognition json: %w: %s", err, compactModelText(text))
+		}
+		output = fallback
 	}
 	output.RawResult = json.RawMessage(responseBody)
 	output.Provider = r.providerName()
@@ -356,7 +397,14 @@ func extractJSONText(value string) string {
 	if end <= 1 {
 		return text
 	}
-	return strings.TrimSpace(strings.Join(lines[1:end], "\n"))
+	var builder strings.Builder
+	for index := 1; index < end; index++ {
+		if index > 1 {
+			builder.WriteByte('\n')
+		}
+		builder.WriteString(lines[index])
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func looksLikeResult(result Result) bool {
@@ -394,7 +442,7 @@ func normalize(result Result) Result {
 
 func normalizeAreaType(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "treatment", "consultation", "beauty":
+	case "treatment", "vip_treatment", "consultation", "beauty":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""
@@ -403,7 +451,7 @@ func normalizeAreaType(value string) string {
 
 func normalizeSceneType(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "treatment", "consultation", "beauty", "front_desk", "corridor", "passage", "waiting_area", "hall", "entrance", "storage", "pharmacy", "machine_room", "unknown":
+	case "treatment", "vip_treatment", "consultation", "beauty", "front_desk", "corridor", "passage", "waiting_area", "hall", "entrance", "storage", "pharmacy", "machine_room", "unknown":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return "unknown"
@@ -479,17 +527,18 @@ func (r responsesResponse) firstOutputText() string {
 func prompt() string {
 	return strings.TrimSpace(`你是医疗门店监控画面识别助手。请判断这张摄像头截图对应的区域类型，并提取画面中编号卡片的信息。
 
-请只输出一个 JSON 对象，不要输出 Markdown，不要使用代码块，不要解释。
+请只输出一个 JSON 对象，不要输出 Markdown，不要使用代码块，不要解释，不要输出 <think> 或思考过程。
 
-业务区域只允许三类：
+业务区域允许：
 - treatment：治疗室，指医美治疗室。
+- vip_treatment：VIP治疗室，仅当画面、编号卡片、水印或可见文字明确出现“VIP”时使用；不能因为房间看起来更高级而猜测为 VIP。
 - consultation：面诊室。
 - beauty：生美、生美区、生美治疗室、美容区、美容治疗室。
 
 非业务区域可选：front_desk、corridor、passage、waiting_area、hall、entrance、storage、pharmacy、machine_room、unknown。
 
 规则：
-1. 如果画面中有显著编号卡片，且卡片写有“治疗室 1”“面诊室 2”“生美 3”等业务类型和数字，则 area_type 和 area_number 必须以卡片文本为准，即使画面环境判断不同。
+1. 如果画面中有显著编号卡片，且卡片写有“治疗室 1”“VIP治疗室”“面诊室 2”“生美 3”等业务类型和数字，则 area_type 和 area_number 必须以卡片文本为准，即使画面环境判断不同。
 2. 如果卡片只有数字，没有业务类型，则 area_number 填该数字，area_type 根据画面环境判断。
 3. 如果没有卡片，则根据画面判断 scene_type；能明确属于治疗室、面诊室、生美时，也可以填 area_type，但 area_number 为空。
 4. 如果不是三类业务区域，area_type 置空，scene_type 填对应非业务区域，area_number 填非业务区域的中文实体名称，例如“机房”“药房”“前台”“走廊”“通道”“候诊区”“大厅”“门口”“库房”；无法判断时 area_number 置空。
@@ -503,8 +552,8 @@ func schema() map[string]any {
 		"additionalProperties": false,
 		"required":             []string{"scene_type", "area_type", "area_number", "card_text", "decision_source", "confidence", "needs_review", "raw_notes"},
 		"properties": map[string]any{
-			"scene_type":      map[string]any{"type": "string", "enum": []string{"treatment", "consultation", "beauty", "front_desk", "corridor", "passage", "waiting_area", "hall", "entrance", "storage", "pharmacy", "machine_room", "unknown"}},
-			"area_type":       map[string]any{"type": "string", "enum": []string{"", "treatment", "consultation", "beauty"}},
+			"scene_type":      map[string]any{"type": "string", "enum": []string{"treatment", "vip_treatment", "consultation", "beauty", "front_desk", "corridor", "passage", "waiting_area", "hall", "entrance", "storage", "pharmacy", "machine_room", "unknown"}},
+			"area_type":       map[string]any{"type": "string", "enum": []string{"", "treatment", "vip_treatment", "consultation", "beauty"}},
 			"area_number":     map[string]any{"type": "string"},
 			"card_text":       map[string]any{"type": "string"},
 			"decision_source": map[string]any{"type": "string", "enum": []string{"number_card", "scene", "none"}},

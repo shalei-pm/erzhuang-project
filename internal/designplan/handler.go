@@ -15,23 +15,35 @@ type Handler struct {
 	service *Service
 }
 
+type RouteMiddleware func(http.HandlerFunc) http.HandlerFunc
+
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
 func RegisterRoutes(mux *http.ServeMux, service *Service) {
+	RegisterRoutesWithWriteGuard(mux, service, nil)
+}
+
+func RegisterRoutesWithWriteGuard(mux *http.ServeMux, service *Service, writeGuard RouteMiddleware) {
 	handler := NewHandler(service)
-	mux.HandleFunc("POST /api/design-plan/uploads", handler.uploadPDF)
+	write := func(next http.HandlerFunc) http.HandlerFunc {
+		if writeGuard == nil {
+			return next
+		}
+		return writeGuard(next)
+	}
+	mux.HandleFunc("POST /api/design-plan/uploads", write(handler.uploadPDF))
 	mux.HandleFunc("GET /api/design-plan/uploads/{upload_id}/{asset}", handler.getUploadAsset)
-	mux.HandleFunc("POST /api/design-plan/uploads/{upload_id}/recognize", handler.recognizeUpload)
+	mux.HandleFunc("POST /api/design-plan/uploads/{upload_id}/recognize", write(handler.recognizeUpload))
 	mux.HandleFunc("GET /api/design-plan/stores", handler.listStores)
-	mux.HandleFunc("POST /api/design-plan/stores", handler.createStore)
+	mux.HandleFunc("POST /api/design-plan/stores", write(handler.createStore))
 	mux.HandleFunc("POST /api/design-plan/stores/check-duplicate", handler.checkDuplicate)
 	mux.HandleFunc("GET /api/design-plan/stores/{id}", handler.getStore)
 	mux.HandleFunc("GET /api/design-plan/stores/{id}/preview", handler.getStorePreview)
 	mux.HandleFunc("GET /api/design-plan/stores/{id}/thumbnail", handler.getStoreThumbnail)
-	mux.HandleFunc("PUT /api/design-plan/stores/{id}", handler.updateStore)
-	mux.HandleFunc("DELETE /api/design-plan/stores/{id}", handler.deleteStore)
+	mux.HandleFunc("PUT /api/design-plan/stores/{id}", write(handler.updateStore))
+	mux.HandleFunc("DELETE /api/design-plan/stores/{id}", write(handler.deleteStore))
 }
 
 func (h *Handler) uploadPDF(w http.ResponseWriter, r *http.Request) {
@@ -95,12 +107,13 @@ func (h *Handler) getUploadAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "asset not found", nil)
 		return
 	}
-	path, err := h.service.UploadFilePath(uploadID, asset)
+	reader, contentType, err := h.service.OpenUploadAsset(uploadID, asset)
 	if err != nil {
 		handleServiceError(w, err)
 		return
 	}
-	http.ServeFile(w, r, path)
+	defer reader.Close()
+	serveAsset(w, reader, contentType)
 }
 
 func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {
@@ -162,12 +175,22 @@ func (h *Handler) serveStoreImage(w http.ResponseWriter, r *http.Request, kind U
 	if kind == UploadAssetThumbnail {
 		value = store.ThumbnailPath
 	}
-	path, err := h.service.StoredFilePath(value)
+	reader, contentType, err := h.service.OpenStoredAsset(value)
 	if err != nil {
 		handleServiceError(w, err)
 		return
 	}
-	http.ServeFile(w, r, path)
+	defer reader.Close()
+	serveAsset(w, reader, contentType)
+}
+
+func serveAsset(w http.ResponseWriter, reader io.Reader, contentType string) {
+	if strings.TrimSpace(contentType) != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	if _, err := io.Copy(w, reader); err != nil {
+		log.Printf("designplan: serve asset failed: %v", err)
+	}
 }
 
 func (h *Handler) createStore(w http.ResponseWriter, r *http.Request) {
