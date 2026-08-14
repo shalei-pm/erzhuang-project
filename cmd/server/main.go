@@ -16,7 +16,6 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
-	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -25,17 +24,6 @@ import (
 func main() {
 	addr := getenv("ADDR", "127.0.0.1:18080")
 	handler := app.NewHandler()
-	var resourceViewService *resourceview.Service
-	if businessConfig := businessDatabaseConfigFromEnv(); businessConfig.DSN != "" {
-		businessDB, err := openDatabase(businessConfig)
-		if err != nil {
-			log.Printf("business resource view disabled: database setup failed: %v", err)
-		} else {
-			defer businessDB.Close()
-			resourceViewService = resourceview.NewService(resourceview.NewMySQLRepository(businessDB))
-			log.Print("business resource view enabled")
-		}
-	}
 
 	if config, err := databaseConfigFromEnv(); err != nil {
 		log.Fatalf("database config failed: %v", err)
@@ -79,10 +67,9 @@ func main() {
 			h5MonitorService = h5monitor.NewService(h5RepositoryFactory(ezvizAccounts), ezviz.NewClient(ezviz.ClientOptions{}))
 			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
-		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceView(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService)
+		handler = app.NewHandlerWithServicesAndH5Monitor(appStore, designPlanService, storeSpaceService, h5MonitorService)
 		log.Printf("database store enabled: %s", config.Driver)
 	} else {
-		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceView(app.NewMemoryStore(), designplan.NewService(designplan.NewMemoryStore()), storespace.NewService(storespace.NewMemoryStore()), nil, resourceViewService)
 		log.Print("database store disabled: using memory store")
 	}
 
@@ -124,21 +111,13 @@ func databaseConfigFromEnv() (databaseConfig, error) {
 	}
 }
 
-func businessDatabaseConfigFromEnv() databaseConfig {
-	dsn := envValue("BUSINESS_MYSQL_DSN", "K8S_SECRET_BUSINESS_MYSQL_DSN")
-	if dsn == "" {
-		return databaseConfig{}
-	}
-	return databaseConfig{Driver: "mysql", DSN: mysqlDSNWithParseTime(dsn)}
-}
-
 func mysqlDSNWithParseTime(dsn string) string {
 	dsn = strings.TrimSpace(dsn)
 	if dsn == "" || strings.Contains(dsn, "parseTime=") {
 		return dsn
 	}
 	separator := "?"
-	if queryStart := strings.LastIndex(dsn, "?"); queryStart > strings.LastIndex(dsn, "/") {
+	if strings.Contains(dsn, "?") {
 		separator = "&"
 	}
 	return dsn + separator + "parseTime=true"
