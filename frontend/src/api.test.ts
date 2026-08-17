@@ -102,6 +102,7 @@ describe("auth helpers", () => {
 
   it("uses the project entry path on the company domain so apisix keeps the full return state", () => {
     expect(authCompanyEntryPath("lite.sy.soyoung.com")).toBe("/erzhuang-project/");
+    expect(authCompanyEntryPath("lite.soyoung.com")).toBe("/erzhuang-project/");
     expect(authCompanyEntryPath("127.0.0.1")).toBe("");
   });
 
@@ -110,15 +111,20 @@ describe("auth helpers", () => {
     expect(authLogoutPath("lite.sy.soyoung.com")).toBe(
       "/erzhuang-project/logout?redirect=https%3A%2F%2Fsecurity-test.sy.soyoung.com%2Fapi%2Fg%2Fsso%2Flogouttogether%3Ffrom_host%3Dlite.sy.soyoung.com%26from_uri%3Dhttps%253A%252F%252Flite.sy.soyoung.com%252Ferzhuang-project%252F",
     );
+    expect(authLogoutPath("lite.soyoung.com", "http:")).toBe(
+      "/erzhuang-project/logout?redirect=https%3A%2F%2Fsecurity-test.sy.soyoung.com%2Fapi%2Fg%2Fsso%2Flogouttogether%3Ffrom_host%3Dlite.soyoung.com%26from_uri%3Dhttp%253A%252F%252Flite.soyoung.com%252Ferzhuang-project%252F",
+    );
   });
 
   it("uses a top-level same-origin logout hop on the company domain", () => {
     expect(shouldSkipLocalLogoutBeforeRedirect("lite.sy.soyoung.com")).toBe(true);
+    expect(shouldSkipLocalLogoutBeforeRedirect("lite.soyoung.com")).toBe(true);
     expect(shouldSkipLocalLogoutBeforeRedirect("127.0.0.1")).toBe(false);
   });
 
   it("shows logout on the company sso domain even while backend auth remains in compatibility mode", () => {
     expect(shouldShowLogoutEntry({ enabled: false, authenticated: true }, "lite.sy.soyoung.com")).toBe(true);
+    expect(shouldShowLogoutEntry({ enabled: false, authenticated: true }, "lite.soyoung.com")).toBe(true);
     expect(shouldShowLogoutEntry({ enabled: false, authenticated: true }, "127.0.0.1")).toBe(false);
     expect(shouldShowLogoutEntry({ enabled: true, authenticated: true }, "127.0.0.1")).toBe(true);
   });

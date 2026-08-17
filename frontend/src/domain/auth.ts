@@ -43,11 +43,11 @@ export function authCompanyEntryPath(hostname = currentHostname()) {
   return "";
 }
 
-export function authLogoutPath(hostname = currentHostname()) {
+export function authLogoutPath(hostname = currentHostname(), protocol = currentProtocol()) {
   if (isCompanySSODomain(hostname)) {
     const gatewayParams = new URLSearchParams({
       from_host: hostname,
-      from_uri: `https://${hostname}${authBasePath()}/`,
+      from_uri: `${normalizedProtocol(protocol)}//${hostname}${authBasePath()}/`,
     });
     const gatewayLogout = `https://security-test.sy.soyoung.com/api/g/sso/logouttogether?${gatewayParams.toString()}`;
     const localParams = new URLSearchParams({ redirect: gatewayLogout });
@@ -93,6 +93,14 @@ function currentHostname() {
   return typeof window === "undefined" ? "" : window.location.hostname;
 }
 
+function currentProtocol() {
+  return typeof window === "undefined" ? "https:" : window.location.protocol;
+}
+
+function normalizedProtocol(protocol: string) {
+  return protocol === "http:" ? "http:" : "https:";
+}
+
 function isCompanySSODomain(hostname: string) {
-  return hostname === "lite.sy.soyoung.com";
+  return hostname === "lite.sy.soyoung.com" || hostname === "lite.soyoung.com";
 }
