@@ -255,10 +255,10 @@ func authCookieClearDomains(host string) []string {
 		return domains
 	}
 	domains = append(domains, hostname)
-	parts := strings.Split(hostname, ".")
-	if len(parts) >= 3 {
-		parentDomain := parts[len(parts)-3] + "." + parts[len(parts)-2] + "." + parts[len(parts)-1]
-		domains = append(domains, parentDomain)
+	if strings.HasSuffix(hostname, ".sy.soyoung.com") {
+		domains = append(domains, "sy.soyoung.com")
+	} else if strings.HasSuffix(hostname, ".soyoung.com") {
+		domains = append(domains, "soyoung.com")
 	}
 	return uniqueStrings(domains)
 }
