@@ -102,8 +102,8 @@ func (r *MySQLRepository) getStoreRecordsForTenant(ctx context.Context, tenant B
 
 func (r *MySQLRepository) listDevices(ctx context.Context, tenantID int64) ([]BusinessDevice, error) {
 	rows, err := r.db.QueryContext(ctx, `
-select id, tenant_id, coalesce(parent_id, 0), name, hardware_id, sn, ip, category, provider,
-       status, online_status, ext_params, heartbeat_at, deleted_at
+select id, tenant_id, coalesce(parent_id, 0), name, hardware_id, sn, ip_addr, category, provider,
+       status, online_status, ext_params, last_heartbeat_time, deleted_at
 from tb_crm_iot_device
 where tenant_id = ?
   and deleted_at is null
@@ -127,10 +127,10 @@ order by id asc`, tenantID)
 
 func (r *MySQLRepository) listSpaces(ctx context.Context, tenantID int64) ([]BusinessSpace, error) {
 	rows, err := r.db.QueryContext(ctx, `
-select id, tenant_id, coalesce(parent_id, 0), name, code, level, status, dict_id, sort_order
+select id, tenant_id, coalesce(parent_id, 0), name, code, level, status, dict_id, order_num
 from tb_crm_consulting_room
 where tenant_id = ?
-order by level asc, sort_order asc, id asc`, tenantID)
+order by level asc, order_num asc, id asc`, tenantID)
 	if err != nil {
 		return nil, err
 	}

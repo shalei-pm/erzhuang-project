@@ -35,3 +35,30 @@ func TestMySQLRepositoryIsReadOnlyAndBusinessTableScoped(t *testing.T) {
 		}
 	}
 }
+
+func TestMySQLRepositoryUsesSyncedResourceTableColumnNames(t *testing.T) {
+	content, err := os.ReadFile("mysql_repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(content)
+	for _, required := range []string{
+		"ip_addr",
+		"last_heartbeat_time",
+		"order_num",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("mysql repository missing synchronized-table column %q", required)
+		}
+	}
+	for _, stale := range []string{
+		"name, hardware_id, sn, ip, category",
+		"ext_params, heartbeat_at",
+		"dict_id, sort_order",
+		"sort_order asc",
+	} {
+		if strings.Contains(source, stale) {
+			t.Fatalf("mysql repository uses stale business-table column pattern %q", stale)
+		}
+	}
+}
