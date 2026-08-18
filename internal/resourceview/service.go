@@ -73,7 +73,7 @@ func (s *Service) GetStore(ctx context.Context, tenantID int64, access MonitorAc
 func BuildStoreDetail(records StoreRecords, access MonitorAccess) StoreDetail {
 	spaces := normalizedSpaces(records.Spaces)
 	devices := normalizedDevices(records.Devices)
-	relations := normalizedRelations(records.Relations)
+	relations := cameraRelevantRelations(normalizedRelations(records.Relations), devices)
 	cameras := buildCameras(devices, relations, spaces)
 	bindings := buildValidBindings(spaces, cameras, relations)
 	spaces = enrichSpaces(spaces, bindings)
@@ -258,6 +258,23 @@ func normalizedRelations(input []BusinessAreaDeviceRelation) []AreaDeviceRelatio
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+func cameraRelevantRelations(relations []AreaDeviceRelation, devices []Device) []AreaDeviceRelation {
+	devicesByID := devicesByID(devices)
+	filtered := make([]AreaDeviceRelation, 0, len(relations))
+	for _, relation := range relations {
+		if device, ok := devicesByID[relation.DeviceID]; ok {
+			if device.Category == "camera" {
+				filtered = append(filtered, relation)
+			}
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(relation.FunctionType)), "camera") {
+			filtered = append(filtered, relation)
+		}
+	}
+	return filtered
 }
 
 func buildCameras(devices []Device, relations []AreaDeviceRelation, spaces []Space) []Camera {

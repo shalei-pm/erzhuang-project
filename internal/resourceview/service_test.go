@@ -137,6 +137,36 @@ func TestBuildStoreDetailTreatsMissingSpaceBindingAsUnbound(t *testing.T) {
 	assertIssueCount(t, detail.Issues, IssueUnboundCamera, 1)
 }
 
+func TestBuildStoreDetailIgnoresNonCameraRelations(t *testing.T) {
+	records := StoreRecords{
+		Tenant: BusinessTenant{ID: 10060, Name: "真实关系类型门店", Status: 1},
+		Devices: []BusinessDevice{
+			{ID: 68, TenantID: 10060, Name: "安防摄像头", Category: "camera", Status: 1, OnlineStatus: 1},
+			{ID: 69, TenantID: 10060, Name: "PAD", Category: "pad", Status: 1, OnlineStatus: 1},
+			{ID: 70, TenantID: 10060, Name: "电视", Category: "tv", Status: 1, OnlineStatus: 1},
+			{ID: 71, TenantID: 10060, Name: "蓝牙网关", Category: "bt_gateway", Status: 1, OnlineStatus: 1},
+		},
+		Spaces: []BusinessSpace{{ID: 12, TenantID: 10060, Name: "治疗室1", Level: 2, Status: 1}},
+		Relations: []BusinessAreaDeviceRelation{
+			{ID: 1, AreaID: 12, DeviceID: 68, FunctionType: "security_camera"},
+			{ID: 2, AreaID: 12, DeviceID: 69, FunctionType: "pad"},
+			{ID: 3, AreaID: 12, DeviceID: 70, FunctionType: "business_tv"},
+			{ID: 4, AreaID: 12, DeviceID: 71, FunctionType: "bt_gateway"},
+			{ID: 5, AreaID: 12, DeviceID: 999, FunctionType: "security_camera"},
+		},
+	}
+
+	detail := BuildStoreDetail(records, MonitorAccess{})
+
+	if len(detail.Relations) != 2 {
+		t.Fatalf("camera relations = %#v, want only camera and missing-camera relations", detail.Relations)
+	}
+	if detail.Summary.BoundCameraCount != 1 || detail.Summary.UnboundCameraCount != 0 {
+		t.Fatalf("summary = %#v, want one bound camera", detail.Summary)
+	}
+	assertIssueCount(t, detail.Issues, IssueMissingCamera, 1)
+}
+
 func TestBuildStoreDetailDeduplicatesIdenticalRelations(t *testing.T) {
 	records := StoreRecords{
 		Tenant: BusinessTenant{ID: 10036, Name: "重复绑定门店", Status: 1},

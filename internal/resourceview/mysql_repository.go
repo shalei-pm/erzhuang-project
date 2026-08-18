@@ -149,12 +149,14 @@ order by level asc, sort_order asc, id asc`, tenantID)
 
 func (r *MySQLRepository) listRelations(ctx context.Context, tenantID int64) ([]BusinessAreaDeviceRelation, error) {
 	rows, err := r.db.QueryContext(ctx, `
-select id, device_id, area_id, function_type, created_at
-from tb_crm_iot_area_device_relation
-where area_id in (
+select r.id, r.device_id, r.area_id, r.function_type, r.created_at
+from tb_crm_iot_area_device_relation r
+left join tb_crm_iot_device d on d.id = r.device_id
+where r.area_id in (
   select id from tb_crm_consulting_room where tenant_id = ?
 )
-order by id asc`, tenantID)
+  and (d.category = 'camera' or (d.id is null and r.function_type like '%camera'))
+order by r.id asc`, tenantID)
 	if err != nil {
 		return nil, err
 	}

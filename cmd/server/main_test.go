@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -94,24 +96,23 @@ func TestMySQLDSNWithParseTimeAllowsQuestionMarkInPassword(t *testing.T) {
 	}
 }
 
-func TestBusinessDatabaseConfigFromEnvUsesK8SSecret(t *testing.T) {
-	t.Setenv("K8S_SECRET_BUSINESS_MYSQL_DSN", "resource-view-user:resource-view-pass@tcp(mysql:3306)/resource_view_fixture")
-
-	config := businessDatabaseConfigFromEnv()
-
-	if config.Driver != "mysql" {
-		t.Fatalf("driver = %q, want mysql", config.Driver)
+func TestResourceViewUsesPrimaryMySQLOnly(t *testing.T) {
+	content, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if config.DSN != "resource-view-user:resource-view-pass@tcp(mysql:3306)/resource_view_fixture?parseTime=true" {
-		t.Fatalf("dsn = %q, want business dsn with parseTime", config.DSN)
+	source := string(content)
+	for _, banned := range []string{
+		"BUSINESS_MYSQL_DSN",
+		"K8S_SECRET_BUSINESS_MYSQL_DSN",
+		"businessDatabaseConfigFromEnv",
+	} {
+		if strings.Contains(source, banned) {
+			t.Fatalf("main.go still contains %q", banned)
+		}
 	}
-}
-
-func TestBusinessDatabaseConfigFromEnvDisabledWhenEmpty(t *testing.T) {
-	config := businessDatabaseConfigFromEnv()
-
-	if config.Driver != "" || config.DSN != "" {
-		t.Fatalf("config = %#v, want empty config", config)
+	if !strings.Contains(source, "resourceview.NewMySQLRepository(db)") {
+		t.Fatal("main.go does not build resource view from the primary mysql database")
 	}
 }
 
