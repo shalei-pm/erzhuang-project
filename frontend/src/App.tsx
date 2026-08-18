@@ -312,7 +312,6 @@ function AdminApp() {
             <span>录像机 {visibleSummary.nvrCount}</span>
             <span>摄像头 {visibleSummary.cameraCount}</span>
             <span>已绑定 {visibleSummary.boundCameraCount}</span>
-            <span>异常 {visibleSummary.warningCount}</span>
           </div>
         </div>
         <div className="city-filter" role="radiogroup" aria-label="城市筛选">
