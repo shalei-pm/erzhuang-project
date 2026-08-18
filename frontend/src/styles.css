@@ -939,9 +939,7 @@ h1 {
 .resource-store-table th:nth-child(9),
 .resource-store-table td:nth-child(9),
 .resource-store-table th:nth-child(10),
-.resource-store-table td:nth-child(10),
-.resource-store-table th:nth-child(11),
-.resource-store-table td:nth-child(11) {
+.resource-store-table td:nth-child(10) {
   width: 72px;
 }
 
@@ -955,8 +953,8 @@ h1 {
   width: 98px;
 }
 
-.resource-store-table th:nth-child(12),
-.resource-store-table td:nth-child(12) {
+.resource-store-table th:nth-child(11),
+.resource-store-table td:nth-child(11) {
   width: 168px;
   padding-right: 18px;
 }
