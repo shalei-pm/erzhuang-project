@@ -49,12 +49,12 @@ func (s *Service) ListStores(ctx context.Context, filters StoreFilters, access f
 	if end > len(details) {
 		end = len(details)
 	}
-	for _, detail := range details[start:end] {
+	for index, detail := range details[start:end] {
 		monitorAccess := MonitorAccess{}
 		if access != nil {
 			monitorAccess = access(detail.TenantID)
 		}
-		result.Items = append(result.Items, storeListItem(detail, monitorAccess))
+		result.Items = append(result.Items, storeListItem(detail, records[start+index], monitorAccess))
 	}
 	return result, nil
 }
@@ -148,7 +148,7 @@ func cityOptions(details []StoreDetail) []CityOption {
 	return options
 }
 
-func storeListItem(detail StoreDetail, access MonitorAccess) StoreListItem {
+func storeListItem(detail StoreDetail, records StoreRecords, access MonitorAccess) StoreListItem {
 	return StoreListItem{
 		TenantID:           detail.TenantID,
 		StoreName:          detail.StoreName,
@@ -163,9 +163,24 @@ func storeListItem(detail StoreDetail, access MonitorAccess) StoreListItem {
 		UnboundCameraCount: detail.Summary.UnboundCameraCount,
 		OfflineDeviceCount: detail.Summary.OfflineDeviceCount,
 		WarningCount:       detail.Summary.WarningCount,
+		CamerasFullyBound:  detail.Summary.CameraCount > 0 && detail.Summary.UnboundCameraCount == 0,
+		UpdatedAt:          latestRelationUpdatedAt(records.Relations),
 		CanViewMonitor:     access.CanViewMonitor,
 		MonitorURL:         strings.TrimSpace(access.MonitorURL),
 	}
+}
+
+func latestRelationUpdatedAt(relations []BusinessAreaDeviceRelation) string {
+	var latest time.Time
+	for _, relation := range relations {
+		if relation.CreatedAt.After(latest) {
+			latest = relation.CreatedAt
+		}
+	}
+	if latest.IsZero() {
+		return ""
+	}
+	return latest.Format(time.RFC3339)
 }
 
 func parseNVRChannelHardwareID(value string) *int {

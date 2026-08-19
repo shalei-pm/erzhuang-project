@@ -222,6 +222,8 @@ export type ResourceStoreSummary = {
   unboundCameraCount: number;
   offlineDeviceCount: number;
   warningCount: number;
+  camerasFullyBound: boolean;
+  updatedAt: string;
   canViewMonitor: boolean;
   monitorUrl?: string;
 };
@@ -297,6 +299,8 @@ export type ResourceStoreDetail = {
   hospitalName: string;
   cityId: number;
   cityName: string;
+  camerasFullyBound: boolean;
+  updatedAt: string;
   summary: ResourceStoreListSummary;
   edges: ResourceDevice[];
   nvrs: ResourceDevice[];
@@ -722,6 +726,10 @@ type BackendResourceStoreSummary = {
   offlineDeviceCount?: number;
   warning_count?: number;
   warningCount?: number;
+  cameras_fully_bound?: boolean;
+  camerasFullyBound?: boolean;
+  updated_at?: string;
+  updatedAt?: string;
   can_view_monitor?: boolean;
   canViewMonitor?: boolean;
   monitor_url?: string;
@@ -1609,6 +1617,8 @@ function mockStoreToResourceDetail(store: StoreDetail): ResourceStoreDetail {
       unboundCameraCount: 0,
       offlineDeviceCount: store.status === "needs_review" ? 1 : 0,
       warningCount: issues.length,
+      camerasFullyBound: cameras.length > 0,
+      updatedAt: store.updatedAt,
       canViewMonitor: store.canViewMonitor,
       monitorUrl: store.canViewMonitor ? `/erzhuang-project/h5/orgs/${tenantId}/monitor` : undefined,
     },
@@ -1619,6 +1629,8 @@ function mockStoreToResourceDetail(store: StoreDetail): ResourceStoreDetail {
     hospitalName: store.name,
     cityId: mockCityId(store.city),
     cityName: store.city || "未分城市",
+    camerasFullyBound: cameras.length > 0,
+    updatedAt: store.updatedAt,
     summary,
     edges: [edge],
     nvrs: [nvr],
@@ -1648,6 +1660,8 @@ function resourceDetailToSummary(detail: ResourceStoreDetail): ResourceStoreSumm
     unboundCameraCount: detail.summary.unboundCameraCount,
     offlineDeviceCount: detail.summary.offlineDeviceCount,
     warningCount: detail.summary.warningCount,
+    camerasFullyBound: detail.camerasFullyBound,
+    updatedAt: detail.updatedAt,
     canViewMonitor: detail.canViewMonitor,
     monitorUrl: detail.monitorUrl,
   };
@@ -2668,6 +2682,8 @@ function mapResourceStoreSummary(store: BackendResourceStoreSummary): ResourceSt
     unboundCameraCount: store.unbound_camera_count ?? store.unboundCameraCount ?? 0,
     offlineDeviceCount: store.offline_device_count ?? store.offlineDeviceCount ?? 0,
     warningCount: store.warning_count ?? store.warningCount ?? 0,
+    camerasFullyBound: store.cameras_fully_bound ?? store.camerasFullyBound ?? false,
+    updatedAt: store.updated_at ?? store.updatedAt ?? "",
     canViewMonitor: store.can_view_monitor ?? store.canViewMonitor ?? false,
     monitorUrl: store.monitor_url ?? store.monitorUrl,
   };

@@ -3,7 +3,40 @@ package resourceview
 import (
 	"reflect"
 	"testing"
+	"time"
 )
+
+func TestStoreListItemRequiresEveryCameraToHaveAValidBinding(t *testing.T) {
+	updatedAt := time.Date(2026, time.August, 19, 14, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	fullyBound := storeListItem(
+		StoreDetail{TenantID: 10019, Summary: StoreSummary{CameraCount: 2, BoundCameraCount: 2, UnboundCameraCount: 0}},
+		StoreRecords{Relations: []BusinessAreaDeviceRelation{{ID: 1, CreatedAt: updatedAt}}},
+		MonitorAccess{},
+	)
+	if !fullyBound.CamerasFullyBound {
+		t.Fatalf("fully bound cameras should be confirmed: %#v", fullyBound)
+	}
+	if fullyBound.UpdatedAt != "2026-08-19T14:30:00+08:00" {
+		t.Fatalf("updated_at = %q", fullyBound.UpdatedAt)
+	}
+
+	partiallyBound := storeListItem(
+		StoreDetail{Summary: StoreSummary{CameraCount: 2, BoundCameraCount: 1, UnboundCameraCount: 1}},
+		StoreRecords{},
+		MonitorAccess{},
+	)
+	if partiallyBound.CamerasFullyBound {
+		t.Fatalf("a store with an unbound camera must not be confirmed: %#v", partiallyBound)
+	}
+	if partiallyBound.UpdatedAt != "" {
+		t.Fatalf("store without relations should not have an update time: %#v", partiallyBound)
+	}
+
+	noCameras := storeListItem(StoreDetail{Summary: StoreSummary{}}, StoreRecords{}, MonitorAccess{})
+	if noCameras.CamerasFullyBound {
+		t.Fatalf("a store without cameras must not be confirmed: %#v", noCameras)
+	}
+}
 
 func TestBuildStoreDetailCreatesThreeLevelSpaceTreeAndDeviceTree(t *testing.T) {
 	records := StoreRecords{

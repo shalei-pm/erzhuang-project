@@ -108,6 +108,8 @@ type StoreListItem struct {
 	UnboundCameraCount int    `json:"unbound_camera_count"`
 	OfflineDeviceCount int    `json:"offline_device_count"`
 	WarningCount       int    `json:"warning_count"`
+	CamerasFullyBound  bool   `json:"cameras_fully_bound"`
+	UpdatedAt          string `json:"updated_at,omitempty"`
 	CanViewMonitor     bool   `json:"can_view_monitor"`
 	MonitorURL         string `json:"monitor_url,omitempty"`
 }
