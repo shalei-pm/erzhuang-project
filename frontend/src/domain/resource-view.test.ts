@@ -71,6 +71,17 @@ describe("resource view domain", () => {
       { level1: "一级", level2: "二级", level3: "三级", bed: "床位 A" },
     ]);
   });
+
+  it("uses the NVRCHANNEL hardware id convention for recorder and channel columns", () => {
+    const rows = buildCameraBindingRows({
+      cameras: [camera({ id: 10, hardwareId: "NVRCHANNEL:22-10", nvrId: 0 })],
+      nvrs: [device({ id: 22, hardwareId: "录像机硬件编号不用于展示" })],
+      spaces: [],
+      relations: [],
+    } as Pick<ResourceStoreDetail, "cameras" | "nvrs" | "spaces" | "relations">);
+
+    expect(rows[0]).toMatchObject({ recorderIdentifier: "22", channelNo: 10 });
+  });
 });
 
 function device(overrides: Record<string, unknown>) {

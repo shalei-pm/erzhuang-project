@@ -10,6 +10,7 @@ export type CameraBindingPath = {
 export type CameraBindingRow = {
   camera: ResourceCamera;
   recorderIdentifier: string;
+  channelNo?: number;
   bindingPaths: CameraBindingPath[];
   isBound: boolean;
 };
@@ -56,10 +57,12 @@ export function buildCameraBindingRows(store: Pick<ResourceStoreDetail, "cameras
   return store.cameras
     .map((camera) => {
       const bindingPaths = (pathsByCameraID.get(camera.id) ?? []).sort(compareBindingPaths);
-      const nvr = nvrByID.get(camera.nvrId);
+      const encodedNvrChannel = parseNvrChannel(camera.hardwareId);
+      const nvr = nvrByID.get(encodedNvrChannel?.nvrID ?? camera.nvrId);
       return {
         camera,
-        recorderIdentifier: nvr?.hardwareId || nvr?.sn || camera.nvrName || (camera.nvrId ? `NVR ${camera.nvrId}` : "-"),
+        recorderIdentifier: encodedNvrChannel ? `${encodedNvrChannel.nvrID}` : nvr?.hardwareId || nvr?.sn || camera.nvrName || (camera.nvrId ? `${camera.nvrId}` : "-"),
+        channelNo: encodedNvrChannel?.channelNo ?? camera.channelNo,
         bindingPaths,
         isBound: bindingPaths.length > 0,
       };
@@ -67,7 +70,7 @@ export function buildCameraBindingRows(store: Pick<ResourceStoreDetail, "cameras
     .sort((left, right) => {
       const recorderDiff = left.recorderIdentifier.localeCompare(right.recorderIdentifier, "zh-CN");
       if (recorderDiff !== 0) return recorderDiff;
-      const channelDiff = numericChannel(left.camera.channelNo) - numericChannel(right.camera.channelNo);
+      const channelDiff = numericChannel(left.channelNo) - numericChannel(right.channelNo);
       if (channelDiff !== 0) return channelDiff;
       return left.camera.id - right.camera.id;
     });
@@ -105,4 +108,10 @@ function compareBindingPaths(left: CameraBindingPath, right: CameraBindingPath) 
 
 function numericChannel(channelNo: number | undefined) {
   return channelNo ?? Number.MAX_SAFE_INTEGER;
+}
+
+function parseNvrChannel(hardwareID: string) {
+  const match = /(?:^|\s)NVRCHANNEL:(\d+)-(\d+)(?:\s|$)/i.exec(hardwareID.trim());
+  if (!match) return null;
+  return { nvrID: Number(match[1]), channelNo: Number(match[2]) };
 }

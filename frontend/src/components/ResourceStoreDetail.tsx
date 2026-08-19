@@ -64,7 +64,7 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
               rows.map((row) => (
                 <tr key={row.camera.id}>
                   <td className="resource-recorder-cell">{row.recorderIdentifier}</td>
-                  <td>{row.camera.channelNo ?? "-"}</td>
+                  <td>{row.channelNo ?? "-"}</td>
                   <td>{row.camera.id}</td>
                   <td className="resource-snapshot-cell">-</td>
                   <td>
