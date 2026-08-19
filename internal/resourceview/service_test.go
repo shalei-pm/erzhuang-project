@@ -259,6 +259,33 @@ func TestBuildStoreDetailIgnoresNonCameraRelations(t *testing.T) {
 	assertIssueCount(t, detail.Issues, IssueMissingCamera, 1)
 }
 
+func TestBuildStoreDetailCountsCamerasOncePerDisplayedSpaceType(t *testing.T) {
+	records := StoreRecords{
+		Tenant: BusinessTenant{ID: 10059, Name: "空间类型计数门店", Status: 1},
+		Devices: []BusinessDevice{
+			{ID: 10, TenantID: 10059, Category: "camera", Provider: "HikVisionNvrChannel", Status: 1},
+			{ID: 20, TenantID: 10059, Category: "camera", Provider: "HikVisionNvrChannel", Status: 1},
+		},
+		Spaces: []BusinessSpace{
+			{ID: 1, TenantID: 10059, Name: consultationSpaceType, Status: 1},
+			{ID: 2, TenantID: 10059, ParentID: 1, Name: "面诊室 A", Level: 2, Status: 1},
+			{ID: 3, TenantID: 10059, ParentID: 1, Name: "面诊室 B", Level: 2, Status: 1},
+			{ID: 4, TenantID: 10059, Name: "治疗区域", Status: 1},
+			{ID: 5, TenantID: 10059, ParentID: 4, Name: "治疗室 A", Level: 3, Status: 1},
+		},
+		Relations: []BusinessAreaDeviceRelation{
+			{ID: 1, AreaID: 2, DeviceID: 10, FunctionType: "camera"},
+			{ID: 2, AreaID: 3, DeviceID: 10, FunctionType: "camera"},
+			{ID: 3, AreaID: 5, DeviceID: 20, FunctionType: "camera"},
+		},
+	}
+
+	detail := BuildStoreDetail(records, MonitorAccess{})
+	if detail.Summary.ConsultationCameraCount != 1 || detail.Summary.TreatmentCameraCount != 1 {
+		t.Fatalf("space type counts = %#v, want consultation=1 treatment=1", detail.Summary)
+	}
+}
+
 func TestBuildStoreDetailDeduplicatesIdenticalRelations(t *testing.T) {
 	records := StoreRecords{
 		Tenant: BusinessTenant{ID: 10036, Name: "重复绑定门店", Status: 1},

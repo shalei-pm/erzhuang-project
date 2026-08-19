@@ -114,6 +114,7 @@ describe("resource view domain", () => {
     } as Pick<ResourceStoreDetail, "cameras" | "nvrs" | "spaces" | "relations">);
 
     expect(filterCameraBindingRows(rows, "all").map((row) => row.camera.id)).toEqual([20, 10]);
+    expect(filterCameraBindingRows(rows, "unbound").map((row) => row.camera.id)).toEqual([10]);
   });
 
   it("filters to a space type and sorts the matching names ascending", () => {

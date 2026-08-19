@@ -13,7 +13,12 @@ export type CameraBindingRow = {
   isBound: boolean;
 };
 
-export type CameraBindingFilter = "all" | string;
+export type CameraBindingFilter = "all" | "unbound" | string;
+
+export type CameraBindingSpaceTypeCount = {
+  spaceType: string;
+  cameraCount: number;
+};
 
 export function resourceDeviceOnlineLabel(value: number | null | undefined) {
   if (value === 1) return "在线";
@@ -77,9 +82,21 @@ export function buildCameraBindingRows(store: Pick<ResourceStoreDetail, "cameras
 }
 
 export function cameraBindingSpaceTypes(rows: CameraBindingRow[]) {
-  return [...new Set(rows.flatMap((row) => row.bindingPaths.map((path) => path.spaceType).filter(Boolean)))].sort((left, right) =>
-    left.localeCompare(right, "zh-CN"),
-  );
+  return cameraBindingSpaceTypeCounts(rows).map((item) => item.spaceType);
+}
+
+export function cameraBindingSpaceTypeCounts(rows: CameraBindingRow[]): CameraBindingSpaceTypeCount[] {
+  const cameraIDsByType = new Map<string, Set<number>>();
+  for (const row of rows) {
+    for (const type of new Set(row.bindingPaths.map((path) => path.spaceType).filter(Boolean))) {
+      const ids = cameraIDsByType.get(type) ?? new Set<number>();
+      ids.add(row.camera.id);
+      cameraIDsByType.set(type, ids);
+    }
+  }
+  return [...cameraIDsByType.entries()]
+    .map(([spaceType, cameraIDs]) => ({ spaceType, cameraCount: cameraIDs.size }))
+    .sort((left, right) => left.spaceType.localeCompare(right.spaceType, "zh-CN"));
 }
 
 export function filterCameraBindingRows(rows: CameraBindingRow[], filter: CameraBindingFilter): CameraBindingRow[] {
@@ -88,6 +105,10 @@ export function filterCameraBindingRows(rows: CameraBindingRow[], filter: Camera
       .map((row, index) => ({ row, index }))
       .sort((left, right) => Number(right.row.isBound) - Number(left.row.isBound) || left.index - right.index)
       .map(({ row }) => row);
+  }
+
+  if (filter === "unbound") {
+    return rows.filter((row) => !row.isBound);
   }
 
   return rows

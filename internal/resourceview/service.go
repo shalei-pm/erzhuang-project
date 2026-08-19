@@ -14,7 +14,11 @@ type Service struct {
 	repo Repository
 }
 
-const consultingAreaContainerID int64 = 2387
+const (
+	consultingAreaContainerID int64 = 2387
+	consultationSpaceType           = "面诊室"
+	treatmentSpaceType              = "治疗室"
+)
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
@@ -138,6 +142,8 @@ func summarizeStoreDetails(details []StoreDetail) StoreSummary {
 		summary.NVRCount += detail.Summary.NVRCount
 		summary.CameraCount += detail.Summary.CameraCount
 		summary.SpaceCount += detail.Summary.SpaceCount
+		summary.ConsultationCameraCount += detail.Summary.ConsultationCameraCount
+		summary.TreatmentCameraCount += detail.Summary.TreatmentCameraCount
 		summary.BoundCameraCount += detail.Summary.BoundCameraCount
 		summary.UnboundCameraCount += detail.Summary.UnboundCameraCount
 		summary.OfflineDeviceCount += detail.Summary.OfflineDeviceCount
@@ -167,23 +173,25 @@ func cityOptions(details []StoreDetail) []CityOption {
 
 func storeListItem(detail StoreDetail, records StoreRecords, access MonitorAccess) StoreListItem {
 	return StoreListItem{
-		TenantID:           detail.TenantID,
-		StoreName:          detail.StoreName,
-		HospitalName:       detail.HospitalName,
-		CityID:             detail.CityID,
-		CityName:           detail.CityName,
-		EdgeCount:          detail.Summary.EdgeCount,
-		NVRCount:           detail.Summary.NVRCount,
-		CameraCount:        detail.Summary.CameraCount,
-		SpaceCount:         detail.Summary.SpaceCount,
-		BoundCameraCount:   detail.Summary.BoundCameraCount,
-		UnboundCameraCount: detail.Summary.UnboundCameraCount,
-		OfflineDeviceCount: detail.Summary.OfflineDeviceCount,
-		WarningCount:       detail.Summary.WarningCount,
-		CamerasFullyBound:  detail.Summary.CameraCount > 0 && detail.Summary.UnboundCameraCount == 0,
-		UpdatedAt:          latestRelationUpdatedAt(records.Relations),
-		CanViewMonitor:     access.CanViewMonitor,
-		MonitorURL:         strings.TrimSpace(access.MonitorURL),
+		TenantID:                detail.TenantID,
+		StoreName:               detail.StoreName,
+		HospitalName:            detail.HospitalName,
+		CityID:                  detail.CityID,
+		CityName:                detail.CityName,
+		EdgeCount:               detail.Summary.EdgeCount,
+		NVRCount:                detail.Summary.NVRCount,
+		CameraCount:             detail.Summary.CameraCount,
+		SpaceCount:              detail.Summary.SpaceCount,
+		ConsultationCameraCount: detail.Summary.ConsultationCameraCount,
+		TreatmentCameraCount:    detail.Summary.TreatmentCameraCount,
+		BoundCameraCount:        detail.Summary.BoundCameraCount,
+		UnboundCameraCount:      detail.Summary.UnboundCameraCount,
+		OfflineDeviceCount:      detail.Summary.OfflineDeviceCount,
+		WarningCount:            detail.Summary.WarningCount,
+		CamerasFullyBound:       detail.Summary.CameraCount > 0 && detail.Summary.UnboundCameraCount == 0,
+		UpdatedAt:               latestRelationUpdatedAt(records.Relations),
+		CanViewMonitor:          access.CanViewMonitor,
+		MonitorURL:              strings.TrimSpace(access.MonitorURL),
 	}
 }
 
@@ -444,6 +452,7 @@ func enrichSpaces(spaces []Space, bindings bindingIndex) []Space {
 
 func buildSummary(devices []Device, spaces []Space, bindings bindingIndex, issues []Issue) StoreSummary {
 	cameraIDs := map[int64]struct{}{}
+	spacesByID := spacesByID(spaces)
 	summary := StoreSummary{StoreCount: 1, SpaceCount: len(spaces), WarningCount: len(issues)}
 
 	for _, device := range devices {
@@ -465,8 +474,37 @@ func buildSummary(devices []Device, spaces []Space, bindings bindingIndex, issue
 			summary.BoundCameraCount++
 		}
 	}
+	for cameraID, spaceIDs := range bindings.spaceIDsByCamera {
+		if _, ok := cameraIDs[cameraID]; !ok {
+			continue
+		}
+		types := map[string]struct{}{}
+		for _, spaceID := range spaceIDs {
+			space, ok := spacesByID[spaceID]
+			if !ok {
+				continue
+			}
+			types[displaySpaceType(space, spacesByID)] = struct{}{}
+		}
+		if _, ok := types[consultationSpaceType]; ok {
+			summary.ConsultationCameraCount++
+		}
+		if _, ok := types[treatmentSpaceType]; ok {
+			summary.TreatmentCameraCount++
+		}
+	}
 	summary.UnboundCameraCount = summary.CameraCount - summary.BoundCameraCount
 	return summary
+}
+
+func displaySpaceType(space Space, spacesByID map[int64]Space) string {
+	if space.Level == 3 {
+		return treatmentSpaceType
+	}
+	if parent, ok := spacesByID[space.ParentID]; ok {
+		return strings.TrimSpace(parent.Name)
+	}
+	return ""
 }
 
 func buildIssues(devices []Device, spaces []Space, relations []AreaDeviceRelation, cameras []Camera, bindings bindingIndex) []Issue {

@@ -4,6 +4,7 @@ import type { ResourceStoreDetail as ResourceStoreDetailType } from "../api";
 import { formatDateTime } from "../domain/format";
 import {
   buildCameraBindingRows,
+  cameraBindingSpaceTypeCounts,
   cameraBindingSpaceTypes,
   filterCameraBindingRows,
   type CameraBindingFilter,
@@ -20,8 +21,9 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
   const [spaceTypeFilter, setSpaceTypeFilter] = useState<CameraBindingFilter>("all");
   const boundCameraCount = rows.filter((row) => row.isBound).length;
   const unboundCameraCount = rows.length - boundCameraCount;
+  const spaceTypeCounts = cameraBindingSpaceTypeCounts(rows);
   const spaceTypes = cameraBindingSpaceTypes(rows);
-  const activeSpaceTypeFilter = spaceTypeFilter === "all" || spaceTypes.includes(spaceTypeFilter) ? spaceTypeFilter : "all";
+  const activeSpaceTypeFilter = spaceTypeFilter === "all" || spaceTypeFilter === "unbound" || spaceTypes.includes(spaceTypeFilter) ? spaceTypeFilter : "all";
   const visibleRows = filterCameraBindingRows(rows, activeSpaceTypeFilter);
 
   return (
@@ -60,8 +62,9 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
               type="button"
             >
               全部
+              <span>{rows.length}</span>
             </button>
-            {spaceTypes.map((spaceType) => (
+            {spaceTypeCounts.map(({ spaceType, cameraCount }) => (
               <button
                 className={activeSpaceTypeFilter === spaceType ? "is-active" : undefined}
                 key={spaceType}
@@ -69,8 +72,17 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
                 type="button"
               >
                 {spaceType}
+                <span>{cameraCount}</span>
               </button>
             ))}
+            <button
+              className={activeSpaceTypeFilter === "unbound" ? "is-active" : undefined}
+              onClick={() => setSpaceTypeFilter("unbound")}
+              type="button"
+            >
+              未绑定
+              <span>{unboundCameraCount}</span>
+            </button>
           </div>
         ) : null}
         <div className="table-frame resource-binding-table-frame">
@@ -101,7 +113,7 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
               {visibleRows.length === 0 ? (
                 <tr>
                   <td className="empty-cell" colSpan={8}>
-                    {activeSpaceTypeFilter === "all" ? "业务库暂无摄像头数据" : "该空间类型暂无已绑定摄像头"}
+                    {activeSpaceTypeFilter === "all" ? "业务库暂无摄像头数据" : activeSpaceTypeFilter === "unbound" ? "暂无未绑定摄像头" : "该空间类型暂无已绑定摄像头"}
                   </td>
                 </tr>
               ) : (

@@ -83,35 +83,39 @@ type CityOption struct {
 }
 
 type StoreSummary struct {
-	StoreCount         int `json:"store_count"`
-	EdgeCount          int `json:"edge_count"`
-	NVRCount           int `json:"nvr_count"`
-	CameraCount        int `json:"camera_count"`
-	SpaceCount         int `json:"space_count"`
-	BoundCameraCount   int `json:"bound_camera_count"`
-	UnboundCameraCount int `json:"unbound_camera_count"`
-	OfflineDeviceCount int `json:"offline_device_count"`
-	WarningCount       int `json:"warning_count"`
+	StoreCount              int `json:"store_count"`
+	EdgeCount               int `json:"edge_count"`
+	NVRCount                int `json:"nvr_count"`
+	CameraCount             int `json:"camera_count"`
+	SpaceCount              int `json:"space_count"`
+	ConsultationCameraCount int `json:"consultation_camera_count"`
+	TreatmentCameraCount    int `json:"treatment_camera_count"`
+	BoundCameraCount        int `json:"bound_camera_count"`
+	UnboundCameraCount      int `json:"unbound_camera_count"`
+	OfflineDeviceCount      int `json:"offline_device_count"`
+	WarningCount            int `json:"warning_count"`
 }
 
 type StoreListItem struct {
-	TenantID           int64  `json:"tenant_id"`
-	StoreName          string `json:"store_name"`
-	HospitalName       string `json:"hospital_name"`
-	CityID             int64  `json:"city_id"`
-	CityName           string `json:"city_name"`
-	EdgeCount          int    `json:"edge_count"`
-	NVRCount           int    `json:"nvr_count"`
-	CameraCount        int    `json:"camera_count"`
-	SpaceCount         int    `json:"space_count"`
-	BoundCameraCount   int    `json:"bound_camera_count"`
-	UnboundCameraCount int    `json:"unbound_camera_count"`
-	OfflineDeviceCount int    `json:"offline_device_count"`
-	WarningCount       int    `json:"warning_count"`
-	CamerasFullyBound  bool   `json:"cameras_fully_bound"`
-	UpdatedAt          string `json:"updated_at,omitempty"`
-	CanViewMonitor     bool   `json:"can_view_monitor"`
-	MonitorURL         string `json:"monitor_url,omitempty"`
+	TenantID                int64  `json:"tenant_id"`
+	StoreName               string `json:"store_name"`
+	HospitalName            string `json:"hospital_name"`
+	CityID                  int64  `json:"city_id"`
+	CityName                string `json:"city_name"`
+	EdgeCount               int    `json:"edge_count"`
+	NVRCount                int    `json:"nvr_count"`
+	CameraCount             int    `json:"camera_count"`
+	SpaceCount              int    `json:"space_count"`
+	ConsultationCameraCount int    `json:"consultation_camera_count"`
+	TreatmentCameraCount    int    `json:"treatment_camera_count"`
+	BoundCameraCount        int    `json:"bound_camera_count"`
+	UnboundCameraCount      int    `json:"unbound_camera_count"`
+	OfflineDeviceCount      int    `json:"offline_device_count"`
+	WarningCount            int    `json:"warning_count"`
+	CamerasFullyBound       bool   `json:"cameras_fully_bound"`
+	UpdatedAt               string `json:"updated_at,omitempty"`
+	CanViewMonitor          bool   `json:"can_view_monitor"`
+	MonitorURL              string `json:"monitor_url,omitempty"`
 }
 
 type StoreDetail struct {

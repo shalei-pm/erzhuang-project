@@ -32,7 +32,8 @@ export function ResourceStoreList({
             <th>工控机</th>
             <th>NVR</th>
             <th>摄像头</th>
-            <th>空间</th>
+            <th>面诊室</th>
+            <th>治疗室</th>
             <th>已绑定</th>
             <th>未绑定</th>
             <th>更新时间</th>
@@ -42,13 +43,13 @@ export function ResourceStoreList({
         <tbody>
           {loading ? (
             <tr>
-              <td colSpan={12} className="empty-cell">
+              <td colSpan={13} className="empty-cell">
                 正在加载门店空间资源
               </td>
             </tr>
           ) : stores.length === 0 ? (
             <tr>
-              <td colSpan={12} className="empty-cell">
+              <td colSpan={13} className="empty-cell">
                 <div className="empty-state">
                   <strong>暂无已部署工控机的门店</strong>
                   <p>请确认业务库已配置工控机、空间和摄像头绑定关系。</p>
@@ -74,7 +75,8 @@ export function ResourceStoreList({
                   <td>{store.edgeCount}</td>
                   <td>{store.nvrCount}</td>
                   <td>{store.cameraCount}</td>
-                  <td>{store.spaceCount}</td>
+                  <td>{store.consultationCameraCount}</td>
+                  <td>{store.treatmentCameraCount}</td>
                   <td>{store.boundCameraCount}</td>
                   <td>{store.unboundCameraCount}</td>
                   <td>{formatDateTime(store.updatedAt)}</td>

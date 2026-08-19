@@ -196,6 +196,8 @@ export type ResourceStoreListSummary = {
   nvrCount: number;
   cameraCount: number;
   spaceCount: number;
+  consultationCameraCount: number;
+  treatmentCameraCount: number;
   boundCameraCount: number;
   unboundCameraCount: number;
   offlineDeviceCount: number;
@@ -218,6 +220,8 @@ export type ResourceStoreSummary = {
   nvrCount: number;
   cameraCount: number;
   spaceCount: number;
+  consultationCameraCount: number;
+  treatmentCameraCount: number;
   boundCameraCount: number;
   unboundCameraCount: number;
   offlineDeviceCount: number;
@@ -689,6 +693,10 @@ type BackendResourceStoreListSummary = {
   cameraCount?: number;
   space_count?: number;
   spaceCount?: number;
+  consultation_camera_count?: number;
+  consultationCameraCount?: number;
+  treatment_camera_count?: number;
+  treatmentCameraCount?: number;
   bound_camera_count?: number;
   boundCameraCount?: number;
   unbound_camera_count?: number;
@@ -718,6 +726,10 @@ type BackendResourceStoreSummary = {
   cameraCount?: number;
   space_count?: number;
   spaceCount?: number;
+  consultation_camera_count?: number;
+  consultationCameraCount?: number;
+  treatment_camera_count?: number;
+  treatmentCameraCount?: number;
   bound_camera_count?: number;
   boundCameraCount?: number;
   unbound_camera_count?: number;
@@ -1613,6 +1625,8 @@ function mockStoreToResourceDetail(store: StoreDetail): ResourceStoreDetail {
       nvrCount: 1,
       cameraCount: cameras.length,
       spaceCount: store.areas.length,
+      consultationCameraCount: store.areas.slice(0, 6).filter((area) => area.type === "consultation").length,
+      treatmentCameraCount: store.areas.slice(0, 6).filter((area) => area.type === "treatment" || area.type === "vip_treatment").length,
       boundCameraCount: cameras.length,
       unboundCameraCount: 0,
       offlineDeviceCount: store.status === "needs_review" ? 1 : 0,
@@ -1656,6 +1670,8 @@ function resourceDetailToSummary(detail: ResourceStoreDetail): ResourceStoreSumm
     nvrCount: detail.summary.nvrCount,
     cameraCount: detail.summary.cameraCount,
     spaceCount: detail.summary.spaceCount,
+    consultationCameraCount: detail.summary.consultationCameraCount,
+    treatmentCameraCount: detail.summary.treatmentCameraCount,
     boundCameraCount: detail.summary.boundCameraCount,
     unboundCameraCount: detail.summary.unboundCameraCount,
     offlineDeviceCount: detail.summary.offlineDeviceCount,
@@ -2678,6 +2694,8 @@ function mapResourceStoreSummary(store: BackendResourceStoreSummary): ResourceSt
     nvrCount: store.nvr_count ?? store.nvrCount ?? 0,
     cameraCount: store.camera_count ?? store.cameraCount ?? 0,
     spaceCount: store.space_count ?? store.spaceCount ?? 0,
+    consultationCameraCount: store.consultation_camera_count ?? store.consultationCameraCount ?? 0,
+    treatmentCameraCount: store.treatment_camera_count ?? store.treatmentCameraCount ?? 0,
     boundCameraCount: store.bound_camera_count ?? store.boundCameraCount ?? 0,
     unboundCameraCount: store.unbound_camera_count ?? store.unboundCameraCount ?? 0,
     offlineDeviceCount: store.offline_device_count ?? store.offlineDeviceCount ?? 0,
@@ -2696,6 +2714,8 @@ function mapResourceStoreListSummary(summary: BackendResourceStoreListSummary): 
     nvrCount: summary.nvr_count ?? summary.nvrCount ?? 0,
     cameraCount: summary.camera_count ?? summary.cameraCount ?? 0,
     spaceCount: summary.space_count ?? summary.spaceCount ?? 0,
+    consultationCameraCount: summary.consultation_camera_count ?? summary.consultationCameraCount ?? 0,
+    treatmentCameraCount: summary.treatment_camera_count ?? summary.treatmentCameraCount ?? 0,
     boundCameraCount: summary.bound_camera_count ?? summary.boundCameraCount ?? 0,
     unboundCameraCount: summary.unbound_camera_count ?? summary.unboundCameraCount ?? 0,
     offlineDeviceCount: summary.offline_device_count ?? summary.offlineDeviceCount ?? 0,
@@ -2711,6 +2731,8 @@ function summarizeResourceStoreSummaries(stores: ResourceStoreSummary[]): Resour
       nvrCount: summary.nvrCount + store.nvrCount,
       cameraCount: summary.cameraCount + store.cameraCount,
       spaceCount: summary.spaceCount + store.spaceCount,
+      consultationCameraCount: summary.consultationCameraCount + store.consultationCameraCount,
+      treatmentCameraCount: summary.treatmentCameraCount + store.treatmentCameraCount,
       boundCameraCount: summary.boundCameraCount + store.boundCameraCount,
       unboundCameraCount: summary.unboundCameraCount + store.unboundCameraCount,
       offlineDeviceCount: summary.offlineDeviceCount + store.offlineDeviceCount,
@@ -2722,6 +2744,8 @@ function summarizeResourceStoreSummaries(stores: ResourceStoreSummary[]): Resour
       nvrCount: 0,
       cameraCount: 0,
       spaceCount: 0,
+      consultationCameraCount: 0,
+      treatmentCameraCount: 0,
       boundCameraCount: 0,
       unboundCameraCount: 0,
       offlineDeviceCount: 0,

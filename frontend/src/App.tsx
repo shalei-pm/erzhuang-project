@@ -40,6 +40,8 @@ const EMPTY_RESOURCE_LIST_SUMMARY: ResourceStoreListSummary = {
   nvrCount: 0,
   cameraCount: 0,
   spaceCount: 0,
+  consultationCameraCount: 0,
+  treatmentCameraCount: 0,
   boundCameraCount: 0,
   unboundCameraCount: 0,
   offlineDeviceCount: 0,
