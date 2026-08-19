@@ -1695,6 +1695,12 @@ td:nth-child(10) {
   white-space: nowrap;
 }
 
+.resource-binding-table th:last-child,
+.resource-binding-table td:last-child {
+  padding-right: 20px;
+  text-align: right;
+}
+
 .resource-tree,
 .resource-issues {
   display: grid;
