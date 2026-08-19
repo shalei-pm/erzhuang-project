@@ -108,6 +108,7 @@ from tb_crm_iot_device
 where tenant_id = ?
   and deleted_at is null
   and category in ('edge', 'nvr', 'camera')
+  and (category != 'camera' or (provider = 'HikVisionNvrChannel' and status = 1))
 order by id asc`, tenantID)
 	if err != nil {
 		return nil, err
@@ -155,7 +156,10 @@ left join tb_crm_iot_device d on d.id = r.device_id
 where r.area_id in (
   select id from tb_crm_consulting_room where tenant_id = ?
 )
-  and (d.category = 'camera' or (d.id is null and r.function_type like '%camera'))
+  and (
+    (d.category = 'camera' and d.provider = 'HikVisionNvrChannel' and d.status = 1 and d.deleted_at is null)
+    or (d.id is null and r.function_type like '%camera')
+  )
 order by r.id asc`, tenantID)
 	if err != nil {
 		return nil, err

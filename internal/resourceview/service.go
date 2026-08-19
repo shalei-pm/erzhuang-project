@@ -72,8 +72,9 @@ func (s *Service) GetStore(ctx context.Context, tenantID int64, access MonitorAc
 
 func BuildStoreDetail(records StoreRecords, access MonitorAccess) StoreDetail {
 	spaces := normalizedSpaces(records.Spaces)
-	devices := normalizedDevices(records.Devices)
-	relations := cameraRelevantRelations(normalizedRelations(records.Relations), devices)
+	allDevices := normalizedDevices(records.Devices)
+	devices := resourceViewDevices(allDevices)
+	relations := cameraRelevantRelations(normalizedRelations(records.Relations), allDevices)
 	cameras := buildCameras(devices, relations, spaces)
 	bindings := buildValidBindings(spaces, cameras, relations)
 	spaces = enrichSpaces(spaces, bindings)
@@ -98,6 +99,20 @@ func BuildStoreDetail(records StoreRecords, access MonitorAccess) StoreDetail {
 		CanViewMonitor: access.CanViewMonitor,
 		MonitorURL:     strings.TrimSpace(access.MonitorURL),
 	}
+}
+
+func resourceViewDevices(devices []Device) []Device {
+	filtered := make([]Device, 0, len(devices))
+	for _, device := range devices {
+		if device.Category != "camera" || isEligibleCamera(device) {
+			filtered = append(filtered, device)
+		}
+	}
+	return filtered
+}
+
+func isEligibleCamera(device Device) bool {
+	return device.Category == "camera" && device.Provider == "HikVisionNvrChannel" && device.Status == 1
 }
 
 func normalizeStoreFilters(filters StoreFilters) StoreFilters {
@@ -280,7 +295,7 @@ func cameraRelevantRelations(relations []AreaDeviceRelation, devices []Device) [
 	filtered := make([]AreaDeviceRelation, 0, len(relations))
 	for _, relation := range relations {
 		if device, ok := devicesByID[relation.DeviceID]; ok {
-			if device.Category == "camera" {
+			if isEligibleCamera(device) {
 				filtered = append(filtered, relation)
 			}
 			continue

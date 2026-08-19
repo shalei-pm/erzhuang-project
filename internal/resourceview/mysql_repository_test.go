@@ -29,6 +29,8 @@ func TestMySQLRepositoryIsReadOnlyAndBusinessTableScoped(t *testing.T) {
 		"category = 'edge'",
 		"left join tb_crm_iot_device d",
 		"d.category = 'camera'",
+		"provider = 'hikvisionnvrchannel'",
+		"d.status = 1",
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("mysql repository missing required token %q", required)

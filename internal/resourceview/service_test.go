@@ -44,7 +44,7 @@ func TestBuildStoreDetailCreatesThreeLevelSpaceTreeAndDeviceTree(t *testing.T) {
 		Devices: []BusinessDevice{
 			{ID: 1, TenantID: 10019, Name: "edge-1", HardwareID: "60beb422a54f", Category: "edge", Status: 1, OnlineStatus: 1},
 			{ID: 22, TenantID: 10019, Name: "nvr-1", HardwareID: "NVR001", Category: "nvr", Status: 1, OnlineStatus: 1},
-			{ID: 68, TenantID: 10019, ParentID: 22, Name: "治疗室1", HardwareID: "NVRCHANNEL:22-1", Category: "camera", Status: 1, OnlineStatus: 1},
+			{ID: 68, TenantID: 10019, ParentID: 22, Name: "治疗室1", HardwareID: "NVRCHANNEL:22-1", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 1},
 		},
 		Spaces: []BusinessSpace{
 			{ID: 10, TenantID: 10019, Name: "治疗区域", Level: 1, Status: 1, SortOrder: 2},
@@ -109,9 +109,9 @@ func TestBuildStoreDetailReportsMappingIssues(t *testing.T) {
 		Devices: []BusinessDevice{
 			{ID: 7, TenantID: 10030, Name: "edge-1", HardwareID: "EDGE001", Category: "edge", Status: 1, OnlineStatus: 2},
 			{ID: 22, TenantID: 10030, Name: "nvr-1", HardwareID: "NVR001", Category: "nvr", Status: 1, OnlineStatus: 2},
-			{ID: 68, TenantID: 10030, ParentID: 22, Name: "摄像头1", HardwareID: "NVRCHANNEL:22-1", Category: "camera", Status: 1, OnlineStatus: 1},
-			{ID: 69, TenantID: 10030, ParentID: 404, Name: "摄像头2", HardwareID: "NVRCHANNEL:404-2", Category: "camera", Status: 1, OnlineStatus: 2},
-			{ID: 70, TenantID: 10030, ParentID: 22, Name: "摄像头3", HardwareID: "NVRCHANNEL:22-3", Category: "camera", Status: 1, OnlineStatus: 1},
+			{ID: 68, TenantID: 10030, ParentID: 22, Name: "摄像头1", HardwareID: "NVRCHANNEL:22-1", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 1},
+			{ID: 69, TenantID: 10030, ParentID: 404, Name: "摄像头2", HardwareID: "NVRCHANNEL:404-2", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 2},
+			{ID: 70, TenantID: 10030, ParentID: 22, Name: "摄像头3", HardwareID: "NVRCHANNEL:22-3", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 1},
 		},
 		Spaces: []BusinessSpace{
 			{ID: 11, TenantID: 10030, Name: "治疗室1", Level: 2, Status: 0},
@@ -154,7 +154,7 @@ func TestBuildStoreDetailTreatsMissingSpaceBindingAsUnbound(t *testing.T) {
 	records := StoreRecords{
 		Tenant: BusinessTenant{ID: 10035, Name: "缺空间绑定门店", Status: 1},
 		Devices: []BusinessDevice{
-			{ID: 68, TenantID: 10035, Name: "摄像头1", Category: "camera", Status: 1, OnlineStatus: 1},
+			{ID: 68, TenantID: 10035, Name: "摄像头1", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 1},
 		},
 		Relations: []BusinessAreaDeviceRelation{
 			{ID: 1, AreaID: 999, DeviceID: 68, FunctionType: "camera"},
@@ -170,11 +170,40 @@ func TestBuildStoreDetailTreatsMissingSpaceBindingAsUnbound(t *testing.T) {
 	assertIssueCount(t, detail.Issues, IssueUnboundCamera, 1)
 }
 
+func TestBuildStoreDetailOnlyIncludesEnabledHikVisionNvrChannelCameras(t *testing.T) {
+	records := StoreRecords{
+		Tenant: BusinessTenant{ID: 10061, Name: "摄像头范围门店", Status: 1},
+		Devices: []BusinessDevice{
+			{ID: 10, TenantID: 10061, Name: "有效通道", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 1},
+			{ID: 11, TenantID: 10061, Name: "其他厂商", Category: "camera", Provider: "OtherProvider", Status: 1, OnlineStatus: 1},
+			{ID: 12, TenantID: 10061, Name: "已停用通道", Category: "camera", Provider: "HikVisionNvrChannel", Status: 0, OnlineStatus: 1},
+		},
+		Spaces: []BusinessSpace{{ID: 20, TenantID: 10061, Name: "治疗室 1", Status: 1}},
+		Relations: []BusinessAreaDeviceRelation{
+			{ID: 1, AreaID: 20, DeviceID: 10, FunctionType: "camera"},
+			{ID: 2, AreaID: 20, DeviceID: 11, FunctionType: "camera"},
+			{ID: 3, AreaID: 20, DeviceID: 12, FunctionType: "camera"},
+		},
+	}
+
+	detail := BuildStoreDetail(records, MonitorAccess{})
+
+	if len(detail.Cameras) != 1 || detail.Cameras[0].ID != 10 {
+		t.Fatalf("eligible cameras = %#v, want only camera 10", detail.Cameras)
+	}
+	if detail.Summary.CameraCount != 1 || detail.Summary.BoundCameraCount != 1 || detail.Summary.UnboundCameraCount != 0 {
+		t.Fatalf("summary = %#v, want one bound eligible camera", detail.Summary)
+	}
+	if len(detail.Relations) != 1 || detail.Relations[0].DeviceID != 10 {
+		t.Fatalf("relations = %#v, want only eligible camera relation", detail.Relations)
+	}
+}
+
 func TestBuildStoreDetailIgnoresNonCameraRelations(t *testing.T) {
 	records := StoreRecords{
 		Tenant: BusinessTenant{ID: 10060, Name: "真实关系类型门店", Status: 1},
 		Devices: []BusinessDevice{
-			{ID: 68, TenantID: 10060, Name: "安防摄像头", Category: "camera", Status: 1, OnlineStatus: 1},
+			{ID: 68, TenantID: 10060, Name: "安防摄像头", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 1},
 			{ID: 69, TenantID: 10060, Name: "PAD", Category: "pad", Status: 1, OnlineStatus: 1},
 			{ID: 70, TenantID: 10060, Name: "电视", Category: "tv", Status: 1, OnlineStatus: 1},
 			{ID: 71, TenantID: 10060, Name: "蓝牙网关", Category: "bt_gateway", Status: 1, OnlineStatus: 1},
@@ -204,7 +233,7 @@ func TestBuildStoreDetailDeduplicatesIdenticalRelations(t *testing.T) {
 	records := StoreRecords{
 		Tenant: BusinessTenant{ID: 10036, Name: "重复绑定门店", Status: 1},
 		Devices: []BusinessDevice{
-			{ID: 68, TenantID: 10036, Name: "摄像头1", Category: "camera", Status: 1, OnlineStatus: 1},
+			{ID: 68, TenantID: 10036, Name: "摄像头1", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 1},
 		},
 		Spaces: []BusinessSpace{
 			{ID: 12, TenantID: 10036, Name: "治疗室1", Level: 2, Status: 1},
@@ -291,10 +320,10 @@ func TestBuildStoreDetailKeepsStableSorting(t *testing.T) {
 	records := StoreRecords{
 		Tenant: BusinessTenant{ID: 10050, Name: "排序门店", Status: 1},
 		Devices: []BusinessDevice{
-			{ID: 30, TenantID: 10050, Name: "camera-30", HardwareID: "NVRCHANNEL:20-2", ParentID: 20, Category: "camera", Status: 1, OnlineStatus: 1},
+			{ID: 30, TenantID: 10050, Name: "camera-30", HardwareID: "NVRCHANNEL:20-2", ParentID: 20, Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 1},
 			{ID: 10, TenantID: 10050, Name: "edge-10", Category: "edge", Status: 1, OnlineStatus: 1},
 			{ID: 20, TenantID: 10050, Name: "nvr-20", Category: "nvr", Status: 1, OnlineStatus: 1},
-			{ID: 31, TenantID: 10050, Name: "camera-31", HardwareID: "NVRCHANNEL:20-1", ParentID: 20, Category: "camera", Status: 1, OnlineStatus: 1},
+			{ID: 31, TenantID: 10050, Name: "camera-31", HardwareID: "NVRCHANNEL:20-1", ParentID: 20, Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 1},
 		},
 		Spaces: []BusinessSpace{
 			{ID: 12, TenantID: 10050, ParentID: 11, Name: "床位2", Level: 3, Status: 1, SortOrder: 2},
