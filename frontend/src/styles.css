@@ -1476,13 +1476,23 @@ td:nth-child(10) {
 }
 
 .resource-binding-table-frame {
-  margin-top: 16px;
   overflow-x: auto;
+}
+
+.resource-binding-section {
+  margin-top: 16px;
+}
+
+.resource-binding-section h2 {
+  margin: 0 0 10px;
+  color: var(--text-strong);
+  font-size: 16px;
+  font-weight: 650;
 }
 
 .resource-binding-table {
   width: 100%;
-  min-width: 920px;
+  min-width: 980px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -1513,16 +1523,19 @@ td:nth-child(10) {
 }
 
 .resource-binding-col-recorder {
-  width: 112px;
+  width: 108px;
 }
 
 .resource-binding-col-channel {
-  width: 72px;
+  width: 68px;
 }
 
-.resource-binding-col-camera,
+.resource-binding-col-camera {
+  width: 104px;
+}
+
 .resource-binding-col-snapshot {
-  width: 96px;
+  width: 92px;
 }
 
 .resource-binding-col-status {
@@ -1530,7 +1543,11 @@ td:nth-child(10) {
 }
 
 .resource-binding-col-space-type {
-  width: 136px;
+  width: 124px;
+}
+
+.resource-binding-col-action {
+  width: 96px;
 }
 
 .resource-recorder-cell {
@@ -1546,16 +1563,16 @@ td:nth-child(10) {
 }
 
 .resource-snapshot-placeholder {
-  display: grid;
-  place-items: center;
-  gap: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 64px;
   height: 40px;
   overflow: hidden;
-  border: 1px solid #d7dfe9;
+  border: 1px solid #dfe5ec;
   border-radius: 4px;
-  background: #f6f8fb;
-  color: #8b98aa;
+  background: #eef1f4;
+  color: #a8b1bc;
 }
 
 .resource-snapshot-placeholder span {
@@ -1586,11 +1603,6 @@ td:nth-child(10) {
   border-top: 1px solid currentColor;
   transform: skewY(-24deg);
   content: "";
-}
-
-.resource-snapshot-placeholder small {
-  font-size: 10px;
-  line-height: 1;
 }
 
 .resource-binding-status {
@@ -1629,6 +1641,18 @@ td:nth-child(10) {
   overflow-wrap: anywhere;
   text-overflow: clip;
   white-space: normal;
+}
+
+.resource-refresh-snapshot-button {
+  min-width: 72px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #d8dee7;
+  border-radius: 4px;
+  background: #f5f6f8;
+  color: #9aa4b2;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .resource-tree,

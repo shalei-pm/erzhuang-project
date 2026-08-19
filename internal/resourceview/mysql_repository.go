@@ -131,7 +131,14 @@ func (r *MySQLRepository) listSpaces(ctx context.Context, tenantID int64) ([]Bus
 select id, tenant_id, coalesce(parent_id, 0), name, code, level, status, dict_id, order_num
 from tb_crm_consulting_room
 where tenant_id = ?
-order by level asc, order_num asc, id asc`, tenantID)
+   or id in (
+     select distinct parent_id
+     from tb_crm_consulting_room
+     where tenant_id = ?
+       and parent_id is not null
+       and parent_id <> 0
+   )
+order by level asc, order_num asc, id asc`, tenantID, tenantID)
 	if err != nil {
 		return nil, err
 	}

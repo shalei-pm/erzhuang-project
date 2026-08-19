@@ -38,55 +38,65 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
         ) : null}
       </header>
 
-      <section className="table-frame resource-binding-table-frame" aria-label="摄像头与空间绑定关系">
-        <table className="resource-binding-table">
-          <colgroup>
-            <col className="resource-binding-col-recorder" />
-            <col className="resource-binding-col-channel" />
-            <col className="resource-binding-col-camera" />
-            <col className="resource-binding-col-snapshot" />
-            <col className="resource-binding-col-status" />
-            <col className="resource-binding-col-space-type" />
-            <col className="resource-binding-col-space-name" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>录像机编号</th>
-              <th>通道号</th>
-              <th>摄像头 ID</th>
-              <th>最近截图</th>
-              <th>绑定状态</th>
-              <th>空间类型</th>
-              <th>空间名称</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
+      <section className="resource-binding-section" aria-label="摄像头与空间绑定关系">
+        <h2>摄像头列表</h2>
+        <div className="table-frame resource-binding-table-frame">
+          <table className="resource-binding-table">
+            <colgroup>
+              <col className="resource-binding-col-camera" />
+              <col className="resource-binding-col-recorder" />
+              <col className="resource-binding-col-channel" />
+              <col className="resource-binding-col-snapshot" />
+              <col className="resource-binding-col-space-type" />
+              <col className="resource-binding-col-space-name" />
+              <col className="resource-binding-col-status" />
+              <col className="resource-binding-col-action" />
+            </colgroup>
+            <thead>
               <tr>
-                <td className="empty-cell" colSpan={7}>
-                  业务库暂无摄像头数据
-                </td>
+                <th>摄像头 ID</th>
+                <th>录像机编号</th>
+                <th>通道号</th>
+                <th>最近截图</th>
+                <th>空间类型</th>
+                <th>空间名称</th>
+                <th>绑定状态</th>
+                <th>操作</th>
               </tr>
-            ) : (
-              rows.map((row) => (
-                <tr key={row.camera.id}>
-                  <td className="resource-recorder-cell">{row.recorderIdentifier}</td>
-                  <td>{row.channelNo ?? "-"}</td>
-                  <td>{row.camera.id}</td>
-                  <td className="resource-snapshot-cell">
-                    <SnapshotPlaceholder />
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td className="empty-cell" colSpan={8}>
+                    业务库暂无摄像头数据
                   </td>
-                  <td>
-                    <span className={row.isBound ? "resource-binding-status is-bound" : "resource-binding-status is-unbound"}>
-                      {row.isBound ? "已绑定" : "未绑定"}
-                    </span>
-                  </td>
-                  <BindingPathCells paths={row.bindingPaths} />
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                rows.map((row) => (
+                  <tr key={row.camera.id}>
+                    <td>{row.camera.id}</td>
+                    <td className="resource-recorder-cell">{row.recorderIdentifier}</td>
+                    <td>{row.channelNo ?? "-"}</td>
+                    <td className="resource-snapshot-cell">
+                      <SnapshotPlaceholder />
+                    </td>
+                    <BindingPathCells paths={row.bindingPaths} />
+                    <td>
+                      <span className={row.isBound ? "resource-binding-status is-bound" : "resource-binding-status is-unbound"}>
+                        {row.isBound ? "已绑定" : "未绑定"}
+                      </span>
+                    </td>
+                    <td>
+                      <button className="resource-refresh-snapshot-button" disabled title="截图服务待接入">
+                        刷新截图
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
     </section>
   );
@@ -135,7 +145,6 @@ function SnapshotPlaceholder() {
   return (
     <div className="resource-snapshot-placeholder" role="img" aria-label="暂无截图">
       <span aria-hidden="true" />
-      <small>暂无截图</small>
     </div>
   );
 }

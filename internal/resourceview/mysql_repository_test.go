@@ -48,6 +48,8 @@ func TestMySQLRepositoryUsesSyncedResourceTableColumnNames(t *testing.T) {
 		"ip_addr",
 		"last_heartbeat_time",
 		"order_num",
+		"select distinct parent_id",
+		"and parent_id <> 0",
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("mysql repository missing synchronized-table column %q", required)
