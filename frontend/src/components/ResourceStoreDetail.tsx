@@ -40,6 +40,15 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
 
       <section className="table-frame resource-binding-table-frame" aria-label="摄像头与空间绑定关系">
         <table className="resource-binding-table">
+          <colgroup>
+            <col className="resource-binding-col-recorder" />
+            <col className="resource-binding-col-channel" />
+            <col className="resource-binding-col-camera" />
+            <col className="resource-binding-col-snapshot" />
+            <col className="resource-binding-col-status" />
+            <col className="resource-binding-col-space-type" />
+            <col className="resource-binding-col-space-name" />
+          </colgroup>
           <thead>
             <tr>
               <th>录像机编号</th>
@@ -64,7 +73,9 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
                   <td className="resource-recorder-cell">{row.recorderIdentifier}</td>
                   <td>{row.channelNo ?? "-"}</td>
                   <td>{row.camera.id}</td>
-                  <td className="resource-snapshot-cell">-</td>
+                  <td className="resource-snapshot-cell">
+                    <SnapshotPlaceholder />
+                  </td>
                   <td>
                     <span className={row.isBound ? "resource-binding-status is-bound" : "resource-binding-status is-unbound"}>
                       {row.isBound ? "已绑定" : "未绑定"}
@@ -110,12 +121,21 @@ function EmptyPathCell() {
 
 function PathCell({ paths, field }: { paths: CameraBindingPath[]; field: keyof CameraBindingPath }) {
   return (
-    <td>
+    <td className={field === "spaceName" ? "resource-space-name-cell" : undefined}>
       <div className="resource-binding-path-values">
         {paths.map((path, index) => (
           <span key={`${field}-${index}`}>{path[field] || "-"}</span>
         ))}
       </div>
     </td>
+  );
+}
+
+function SnapshotPlaceholder() {
+  return (
+    <div className="resource-snapshot-placeholder" role="img" aria-label="暂无截图">
+      <span aria-hidden="true" />
+      <small>暂无截图</small>
+    </div>
   );
 }

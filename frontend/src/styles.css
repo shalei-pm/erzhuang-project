@@ -1482,8 +1482,9 @@ td:nth-child(10) {
 
 .resource-binding-table {
   width: 100%;
-  min-width: 940px;
+  min-width: 920px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .resource-binding-table th,
@@ -1511,39 +1512,85 @@ td:nth-child(10) {
   border-bottom: 0;
 }
 
-.resource-binding-table th:nth-child(1),
-.resource-binding-table td:nth-child(1) {
-  min-width: 156px;
+.resource-binding-col-recorder {
+  width: 112px;
 }
 
-.resource-binding-table th:nth-child(2),
-.resource-binding-table td:nth-child(2),
-.resource-binding-table th:nth-child(3),
-.resource-binding-table td:nth-child(3),
-.resource-binding-table th:nth-child(4),
-.resource-binding-table td:nth-child(4),
-.resource-binding-table th:nth-child(5),
-.resource-binding-table td:nth-child(5) {
-  min-width: 92px;
+.resource-binding-col-channel {
+  width: 72px;
 }
 
-.resource-binding-table th:nth-child(6),
-.resource-binding-table td:nth-child(6) {
-  min-width: 164px;
+.resource-binding-col-camera,
+.resource-binding-col-snapshot {
+  width: 96px;
 }
 
-.resource-binding-table th:nth-child(7),
-.resource-binding-table td:nth-child(7) {
-  min-width: 220px;
+.resource-binding-col-status {
+  width: 100px;
+}
+
+.resource-binding-col-space-type {
+  width: 136px;
 }
 
 .resource-recorder-cell {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
-.resource-snapshot-cell,
 .resource-empty-value {
   color: var(--text-muted) !important;
+}
+
+.resource-snapshot-cell {
+  padding-block: 6px !important;
+}
+
+.resource-snapshot-placeholder {
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  width: 64px;
+  height: 40px;
+  overflow: hidden;
+  border: 1px solid #d7dfe9;
+  border-radius: 4px;
+  background: #f6f8fb;
+  color: #8b98aa;
+}
+
+.resource-snapshot-placeholder span {
+  position: relative;
+  display: block;
+  width: 20px;
+  height: 14px;
+  border: 1px solid currentColor;
+}
+
+.resource-snapshot-placeholder span::before {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.resource-snapshot-placeholder span::after {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  left: 3px;
+  height: 5px;
+  border-top: 1px solid currentColor;
+  transform: skewY(-24deg);
+  content: "";
+}
+
+.resource-snapshot-placeholder small {
+  font-size: 10px;
+  line-height: 1;
 }
 
 .resource-binding-status {
@@ -1575,6 +1622,13 @@ td:nth-child(10) {
   min-height: 18px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.resource-space-name-cell .resource-binding-path-values span {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .resource-tree,
