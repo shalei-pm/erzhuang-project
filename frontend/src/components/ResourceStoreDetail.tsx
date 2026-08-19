@@ -1,9 +1,6 @@
-import { useState } from "react";
-
-import type { ResourceCamera, ResourceIssue, ResourceSpaceNode, ResourceStoreDetail as ResourceStoreDetailType } from "../api";
-import { sortedResourceIssues } from "../domain/resource-view";
-
-type ResourceDetailTab = "spaces" | "devices" | "issues";
+import type { ResourceStoreDetail as ResourceStoreDetailType } from "../api";
+import { formatDateTime } from "../domain/format";
+import { buildCameraBindingRows, type CameraBindingPath } from "../domain/resource-view";
 
 type ResourceStoreDetailProps = {
   store: ResourceStoreDetailType;
@@ -11,8 +8,9 @@ type ResourceStoreDetailProps = {
 };
 
 export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetailProps) {
-  const [tab, setTab] = useState<ResourceDetailTab>("spaces");
-  const issues = sortedResourceIssues(store.issues);
+  const rows = buildCameraBindingRows(store);
+  const boundCameraCount = rows.filter((row) => row.isBound).length;
+  const unboundCameraCount = rows.length - boundCameraCount;
 
   return (
     <section className="detail-page resource-detail-page">
@@ -22,12 +20,13 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
             <p className="eyebrow">门店空间资源查看</p>
             <h1>{store.storeName || store.hospitalName || `机构 ${store.tenantId}`}</h1>
           </div>
-          <div className="detail-metrics" aria-label="门店资源概览">
+          <div className="detail-metrics resource-detail-metrics" aria-label="摄像头绑定概览">
             <Metric label="机构 ID" value={store.tenantId} />
-            <Metric label="工控机" value={store.summary.edgeCount} />
-            <Metric label="NVR" value={store.summary.nvrCount} />
-            <Metric label="摄像头" value={store.summary.cameraCount} />
-            <Metric label="异常" value={store.summary.warningCount} />
+            <Metric label="摄像头" value={rows.length} />
+            <Metric label="已绑定" value={boundCameraCount} />
+            <Metric label="未绑定" value={unboundCameraCount} />
+            <Metric label="最近映射更新" value={formatDateTime(store.updatedAt)} />
+            <Metric label="状态" value={store.camerasFullyBound ? "已确认" : "待确认"} />
           </div>
         </div>
         {store.canViewMonitor && store.monitorUrl ? (
@@ -39,21 +38,47 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
         ) : null}
       </header>
 
-      <nav className="tabs" aria-label="资源视角">
-        <button className={tab === "spaces" ? "is-active" : ""} onClick={() => setTab("spaces")}>
-          空间视角
-        </button>
-        <button className={tab === "devices" ? "is-active" : ""} onClick={() => setTab("devices")}>
-          设备视角
-        </button>
-        <button className={tab === "issues" ? "is-active" : ""} onClick={() => setTab("issues")}>
-          异常项
-        </button>
-      </nav>
-
-      {tab === "spaces" ? <SpaceTree nodes={store.spaceTree} /> : null}
-      {tab === "devices" ? <DeviceTree store={store} /> : null}
-      {tab === "issues" ? <IssueList issues={issues} /> : null}
+      <section className="table-frame resource-binding-table-frame" aria-label="摄像头与空间绑定关系">
+        <table className="resource-binding-table">
+          <thead>
+            <tr>
+              <th>录像机编号</th>
+              <th>通道号</th>
+              <th>摄像头 ID</th>
+              <th>最近截图</th>
+              <th>绑定状态</th>
+              <th>空间层级 1</th>
+              <th>空间层级 2</th>
+              <th>空间层级 3</th>
+              <th>床位</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td className="empty-cell" colSpan={9}>
+                  业务库暂无摄像头数据
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.camera.id}>
+                  <td className="resource-recorder-cell">{row.recorderIdentifier}</td>
+                  <td>{row.camera.channelNo ?? "-"}</td>
+                  <td>{row.camera.id}</td>
+                  <td className="resource-snapshot-cell">-</td>
+                  <td>
+                    <span className={row.isBound ? "resource-binding-status is-bound" : "resource-binding-status is-unbound"}>
+                      {row.isBound ? "已绑定" : "未绑定"}
+                    </span>
+                  </td>
+                  <BindingPathCells paths={row.bindingPaths} />
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </section>
     </section>
   );
 }
@@ -67,123 +92,36 @@ function Metric({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function SpaceTree({ nodes }: { nodes: ResourceSpaceNode[] }) {
-  if (nodes.length === 0) {
-    return <div className="resource-empty-panel">业务库暂无空间数据</div>;
+function BindingPathCells({ paths }: { paths: CameraBindingPath[] }) {
+  if (paths.length === 0) {
+    return <>
+      <EmptyPathCell />
+      <EmptyPathCell />
+      <EmptyPathCell />
+      <EmptyPathCell />
+    </>;
   }
 
-  return (
-    <div className="resource-tree">
-      {nodes.map((node) => (
-        <SpaceNodeView key={node.id} node={node} />
-      ))}
-    </div>
-  );
+  return <>
+    <PathCell paths={paths} field="level1" />
+    <PathCell paths={paths} field="level2" />
+    <PathCell paths={paths} field="level3" />
+    <PathCell paths={paths} field="bed" />
+  </>;
 }
 
-function SpaceNodeView({ node }: { node: ResourceSpaceNode }) {
+function EmptyPathCell() {
+  return <td className="resource-empty-value">-</td>;
+}
+
+function PathCell({ paths, field }: { paths: CameraBindingPath[]; field: keyof CameraBindingPath }) {
   return (
-    <article className="resource-node">
-      <div className="resource-node-header">
-        <div>
-          <strong>{node.name || `空间 ${node.id}`}</strong>
-          <span>Level {node.level}</span>
-        </div>
-        <span className={node.status === 1 ? "resource-status is-ok" : "resource-status is-muted"}>{node.statusText || `状态 ${node.status}`}</span>
+    <td>
+      <div className="resource-binding-path-values">
+        {paths.map((path, index) => (
+          <span key={`${field}-${index}`}>{path[field] || "-"}</span>
+        ))}
       </div>
-      <div className="resource-badges">
-        <span>空间 ID {node.id}</span>
-        {node.code ? <span>编码 {node.code}</span> : null}
-        <span>绑定摄像头 {node.boundCameraCount}</span>
-      </div>
-      {node.boundCameras.length > 0 ? (
-        <div className="resource-camera-list">
-          {node.boundCameras.map((camera) => (
-            <CameraBadge camera={camera} key={camera.id} />
-          ))}
-        </div>
-      ) : null}
-      {node.children.length > 0 ? (
-        <div className="resource-node-children">
-          {node.children.map((child) => (
-            <SpaceNodeView key={child.id} node={child} />
-          ))}
-        </div>
-      ) : null}
-    </article>
-  );
-}
-
-function DeviceTree({ store }: { store: ResourceStoreDetailType }) {
-  return (
-    <div className="resource-device-layout">
-      <section className="resource-panel">
-        <h2>工控机</h2>
-        {store.deviceTree.edges.length === 0 ? <div className="resource-empty-panel">暂无工控机</div> : null}
-        <div className="resource-device-grid">
-          {store.deviceTree.edges.map((edge) => (
-            <DeviceCard key={edge.id} name={edge.name || "工控机"} meta={edge.hardwareId || edge.sn || `设备 ${edge.id}`} status={edge.onlineText} />
-          ))}
-        </div>
-      </section>
-      <section className="resource-panel">
-        <h2>NVR 与摄像头</h2>
-        {store.deviceTree.nvrs.length === 0 ? <div className="resource-empty-panel">暂无 NVR</div> : null}
-        <div className="resource-tree">
-          {store.deviceTree.nvrs.map((nvr) => (
-            <article className="resource-node" key={nvr.id}>
-              <div className="resource-node-header">
-                <div>
-                  <strong>{nvr.name || `NVR ${nvr.id}`}</strong>
-                  <span>{nvr.hardwareId || nvr.sn || `设备 ${nvr.id}`}</span>
-                </div>
-                <span className={nvr.onlineStatus === 1 ? "resource-status is-ok" : "resource-status is-warn"}>{nvr.onlineText}</span>
-              </div>
-              <div className="resource-camera-list">
-                {nvr.cameras.length > 0 ? nvr.cameras.map((camera) => <CameraBadge camera={camera} key={camera.id} />) : <span>暂无摄像头</span>}
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function DeviceCard({ name, meta, status }: { name: string; meta: string; status: string }) {
-  return (
-    <article className="resource-device-card">
-      <strong>{name}</strong>
-      <span>{meta || "-"}</span>
-      <em>{status || "未知"}</em>
-    </article>
-  );
-}
-
-function CameraBadge({ camera }: { camera: ResourceCamera }) {
-  return (
-    <span className="resource-camera-badge">
-      {camera.channelNo ? `通道 ${camera.channelNo}` : `摄像头 ${camera.id}`}
-      {camera.name ? ` · ${camera.name}` : ""}
-    </span>
-  );
-}
-
-function IssueList({ issues }: { issues: ResourceIssue[] }) {
-  if (issues.length === 0) {
-    return <div className="resource-empty-panel">暂未发现空间资源异常</div>;
-  }
-
-  return (
-    <div className="resource-issues">
-      {issues.map((issue) => (
-        <article className={`resource-issue resource-issue-${issue.severity}`} key={`${issue.type}-${issue.entityType}-${issue.entityId}`}>
-          <strong>{issue.message || issue.type}</strong>
-          <span>
-            {issue.entityType || "-"} #{issue.entityId || "-"}
-          </span>
-        </article>
-      ))}
-    </div>
+    </td>
   );
 }

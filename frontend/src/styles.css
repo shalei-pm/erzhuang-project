@@ -1467,6 +1467,111 @@ td:nth-child(10) {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.resource-detail-metrics {
+  grid-template-columns: repeat(6, max-content);
+}
+
+.resource-detail-metrics div:nth-child(5) {
+  min-width: 152px;
+}
+
+.resource-binding-table-frame {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+.resource-binding-table {
+  width: 100%;
+  min-width: 1240px;
+  border-collapse: collapse;
+}
+
+.resource-binding-table th,
+.resource-binding-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.resource-binding-table th {
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.resource-binding-table td {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.resource-binding-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.resource-binding-table th:nth-child(1),
+.resource-binding-table td:nth-child(1) {
+  min-width: 156px;
+}
+
+.resource-binding-table th:nth-child(2),
+.resource-binding-table td:nth-child(2),
+.resource-binding-table th:nth-child(3),
+.resource-binding-table td:nth-child(3),
+.resource-binding-table th:nth-child(4),
+.resource-binding-table td:nth-child(4),
+.resource-binding-table th:nth-child(5),
+.resource-binding-table td:nth-child(5) {
+  min-width: 92px;
+}
+
+.resource-binding-table th:nth-child(n + 6),
+.resource-binding-table td:nth-child(n + 6) {
+  min-width: 148px;
+}
+
+.resource-recorder-cell {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.resource-snapshot-cell,
+.resource-empty-value {
+  color: var(--text-muted) !important;
+}
+
+.resource-binding-status {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.resource-binding-status.is-bound {
+  background: #dcfce7;
+  color: var(--success);
+}
+
+.resource-binding-status.is-unbound {
+  background: #fef3c7;
+  color: var(--warning);
+}
+
+.resource-binding-path-values {
+  display: grid;
+  gap: 5px;
+}
+
+.resource-binding-path-values span {
+  min-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .resource-tree,
 .resource-issues {
   display: grid;
