@@ -21,7 +21,7 @@ describe("resource view domain", () => {
     expect(issueSeverityRank("error")).toBeLessThan(issueSeverityRank("warning"));
   });
 
-  it("builds camera rows from parent relationships instead of unstable level values", () => {
+  it("builds camera rows from the bound space and its direct parent", () => {
     const rows = buildCameraBindingRows({
       cameras: [
         camera({ id: 20, nvrId: 9, channelNo: 2 }),
@@ -43,12 +43,12 @@ describe("resource view domain", () => {
     expect(rows[0]).toMatchObject({
       recorderIdentifier: "NVR-001",
       isBound: true,
-      bindingPaths: [{ level1: "治疗区", level2: "治疗室 1", level3: "床位 1", bed: "" }],
+      bindingPaths: [{ spaceType: "治疗室", spaceName: "床位 1" }],
     });
     expect(rows[1]).toMatchObject({ isBound: false, bindingPaths: [] });
   });
 
-  it("keeps multiple camera bindings and merges a fourth hierarchy segment into bed", () => {
+  it("keeps multiple camera bindings as space type and name pairs", () => {
     const rows = buildCameraBindingRows({
       cameras: [camera({ id: 10, nvrId: 9, channelNo: 1 })],
       nvrs: [device({ id: 9, hardwareId: "NVR-001" })],
@@ -67,9 +67,24 @@ describe("resource view domain", () => {
     } as Pick<ResourceStoreDetail, "cameras" | "nvrs" | "spaces" | "relations">);
 
     expect(rows[0].bindingPaths).toEqual([
-      { level1: "一级", level2: "另一房间", level3: "", bed: "" },
-      { level1: "一级", level2: "二级", level3: "三级", bed: "床位 A" },
+      { spaceType: "三级", spaceName: "床位 A" },
+      { spaceType: "一级", spaceName: "另一房间" },
     ]);
+  });
+
+  it("shows the direct parent name as space type for the business mapping example", () => {
+    const rows = buildCameraBindingRows({
+      cameras: [camera({ id: 70 })],
+      nvrs: [],
+      spaces: [
+        space({ id: 2387, name: "诊室区域" }),
+        space({ id: 2665, parentId: 2387, name: "产研中心" }),
+        space({ id: 2667, parentId: 2665, name: "产研中心1-2" }),
+      ],
+      relations: [{ id: 2, deviceId: 70, areaId: 2667, functionType: "camera" }],
+    } as Pick<ResourceStoreDetail, "cameras" | "nvrs" | "spaces" | "relations">);
+
+    expect(rows[0].bindingPaths).toEqual([{ spaceType: "产研中心", spaceName: "产研中心1-2" }]);
   });
 
   it("uses the NVRCHANNEL hardware id convention for recorder and channel columns", () => {
@@ -101,7 +116,7 @@ function device(overrides: Record<string, unknown>) {
 }
 
 function camera(overrides: Record<string, unknown>) {
-  return { ...device({ category: "camera", name: "摄像头", ...overrides }), nvrId: 0, spacePaths: [] };
+  return { ...device({ category: "camera", name: "摄像头" }), nvrId: 0, spacePaths: [], ...overrides };
 }
 
 function space(overrides: Record<string, unknown>) {

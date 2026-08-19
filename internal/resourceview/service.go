@@ -14,6 +14,8 @@ type Service struct {
 	repo Repository
 }
 
+const consultingAreaContainerID int64 = 2387
+
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
@@ -74,7 +76,7 @@ func BuildStoreDetail(records StoreRecords, access MonitorAccess) StoreDetail {
 	spaces := normalizedSpaces(records.Spaces)
 	allDevices := normalizedDevices(records.Devices)
 	devices := resourceViewDevices(allDevices)
-	relations := cameraRelevantRelations(normalizedRelations(records.Relations), allDevices)
+	relations := applicableCameraRelations(cameraRelevantRelations(normalizedRelations(records.Relations), allDevices), spaces)
 	cameras := buildCameras(devices, relations, spaces)
 	bindings := buildValidBindings(spaces, cameras, relations)
 	spaces = enrichSpaces(spaces, bindings)
@@ -303,6 +305,18 @@ func cameraRelevantRelations(relations []AreaDeviceRelation, devices []Device) [
 		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(relation.FunctionType)), "camera") {
 			filtered = append(filtered, relation)
 		}
+	}
+	return filtered
+}
+
+func applicableCameraRelations(relations []AreaDeviceRelation, spaces []Space) []AreaDeviceRelation {
+	spacesByID := spacesByID(spaces)
+	filtered := make([]AreaDeviceRelation, 0, len(relations))
+	for _, relation := range relations {
+		if space, ok := spacesByID[relation.AreaID]; ok && space.ParentID == consultingAreaContainerID {
+			continue
+		}
+		filtered = append(filtered, relation)
 	}
 	return filtered
 }

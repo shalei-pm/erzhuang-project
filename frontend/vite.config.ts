@@ -10,6 +10,7 @@ export default defineConfig({
       "src/components/**/*.test.{ts,tsx}",
       "src/domain/channel-recognition.test.ts",
       "src/domain/h5-monitor-active-tab.test.ts",
+      "src/domain/resource-view.test.ts",
     ],
     env: {
       VITE_DESIGN_PLAN_API_BASE: "/erzhuang-project/api/design-plan",

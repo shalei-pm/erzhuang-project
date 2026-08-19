@@ -47,16 +47,14 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
               <th>摄像头 ID</th>
               <th>最近截图</th>
               <th>绑定状态</th>
-              <th>空间层级 1</th>
-              <th>空间层级 2</th>
-              <th>空间层级 3</th>
-              <th>床位</th>
+              <th>空间类型</th>
+              <th>空间名称</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className="empty-cell" colSpan={9}>
+                <td className="empty-cell" colSpan={7}>
                   业务库暂无摄像头数据
                 </td>
               </tr>
@@ -97,16 +95,12 @@ function BindingPathCells({ paths }: { paths: CameraBindingPath[] }) {
     return <>
       <EmptyPathCell />
       <EmptyPathCell />
-      <EmptyPathCell />
-      <EmptyPathCell />
     </>;
   }
 
   return <>
-    <PathCell paths={paths} field="level1" />
-    <PathCell paths={paths} field="level2" />
-    <PathCell paths={paths} field="level3" />
-    <PathCell paths={paths} field="bed" />
+    <PathCell paths={paths} field="spaceType" />
+    <PathCell paths={paths} field="spaceName" />
   </>;
 }
 

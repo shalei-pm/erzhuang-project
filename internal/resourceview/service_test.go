@@ -170,6 +170,36 @@ func TestBuildStoreDetailTreatsMissingSpaceBindingAsUnbound(t *testing.T) {
 	assertIssueCount(t, detail.Issues, IssueUnboundCamera, 1)
 }
 
+func TestBuildStoreDetailIgnoresConsultingAreaContainerRelation(t *testing.T) {
+	records := StoreRecords{
+		Tenant: BusinessTenant{ID: 10062, Name: "空间容器关联门店", Status: 1},
+		Devices: []BusinessDevice{
+			{ID: 70, TenantID: 10062, Name: "摄像头 70", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1, OnlineStatus: 1},
+		},
+		Spaces: []BusinessSpace{
+			{ID: 2387, TenantID: 10062, Name: "诊室区域", Status: 1},
+			{ID: 2665, TenantID: 10062, ParentID: 2387, Name: "产研中心", Status: 1},
+			{ID: 2667, TenantID: 10062, ParentID: 2665, Name: "产研中心1-2", Status: 1},
+		},
+		Relations: []BusinessAreaDeviceRelation{
+			{ID: 1, AreaID: 2665, DeviceID: 70, FunctionType: "camera"},
+			{ID: 2, AreaID: 2667, DeviceID: 70, FunctionType: "camera"},
+		},
+	}
+
+	detail := BuildStoreDetail(records, MonitorAccess{})
+
+	if len(detail.Relations) != 1 || detail.Relations[0].AreaID != 2667 {
+		t.Fatalf("relations = %#v, want only area 2667", detail.Relations)
+	}
+	if detail.Summary.BoundCameraCount != 1 || detail.Summary.UnboundCameraCount != 0 {
+		t.Fatalf("summary = %#v, want one bound camera", detail.Summary)
+	}
+	if len(detail.Cameras) != 1 || !reflect.DeepEqual(detail.Cameras[0].SpacePaths, []string{"诊室区域 / 产研中心 / 产研中心1-2"}) {
+		t.Fatalf("camera paths = %#v", detail.Cameras)
+	}
+}
+
 func TestBuildStoreDetailOnlyIncludesEnabledHikVisionNvrChannelCameras(t *testing.T) {
 	records := StoreRecords{
 		Tenant: BusinessTenant{ID: 10061, Name: "摄像头范围门店", Status: 1},

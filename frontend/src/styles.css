@@ -1482,7 +1482,7 @@ td:nth-child(10) {
 
 .resource-binding-table {
   width: 100%;
-  min-width: 1240px;
+  min-width: 940px;
   border-collapse: collapse;
 }
 
@@ -1527,9 +1527,14 @@ td:nth-child(10) {
   min-width: 92px;
 }
 
-.resource-binding-table th:nth-child(n + 6),
-.resource-binding-table td:nth-child(n + 6) {
-  min-width: 148px;
+.resource-binding-table th:nth-child(6),
+.resource-binding-table td:nth-child(6) {
+  min-width: 164px;
+}
+
+.resource-binding-table th:nth-child(7),
+.resource-binding-table td:nth-child(7) {
+  min-width: 220px;
 }
 
 .resource-recorder-cell {

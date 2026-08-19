@@ -1,10 +1,8 @@
 import type { ResourceCamera, ResourceIssue, ResourceIssueSeverity, ResourceSpace, ResourceStoreDetail } from "../api";
 
 export type CameraBindingPath = {
-  level1: string;
-  level2: string;
-  level3: string;
-  bed: string;
+  spaceType: string;
+  spaceName: string;
 };
 
 export type CameraBindingRow = {
@@ -56,7 +54,7 @@ export function buildCameraBindingRows(store: Pick<ResourceStoreDetail, "cameras
 
   return store.cameras
     .map((camera) => {
-      const bindingPaths = (pathsByCameraID.get(camera.id) ?? []).sort(compareBindingPaths);
+      const bindingPaths = pathsByCameraID.get(camera.id) ?? [];
       const encodedNvrChannel = parseNvrChannel(camera.hardwareId);
       const nvr = nvrByID.get(encodedNvrChannel?.nvrID ?? camera.nvrId);
       return {
@@ -77,33 +75,12 @@ export function buildCameraBindingRows(store: Pick<ResourceStoreDetail, "cameras
 }
 
 function buildCameraBindingPath(space: ResourceSpace, spacesByID: Map<number, ResourceSpace>): CameraBindingPath {
-  const chain: ResourceSpace[] = [];
-  const seenSpaceIDs = new Set<number>();
-  let current: ResourceSpace | undefined = space;
-
-  while (current && !seenSpaceIDs.has(current.id)) {
-    chain.push(current);
-    seenSpaceIDs.add(current.id);
-    current = current.parentId ? spacesByID.get(current.parentId) : undefined;
-  }
-
-  const names = chain
-    .reverse()
-    .map((item) => item.name.trim() || `空间 ${item.id}`);
+  const parent = space.parentId ? spacesByID.get(space.parentId) : undefined;
 
   return {
-    level1: names[0] ?? "",
-    level2: names[1] ?? "",
-    level3: names[2] ?? "",
-    bed: names.length > 4 ? names.slice(3).join(" / ") : names[3] ?? "",
+    spaceType: space.level === 3 ? "治疗室" : parent?.name.trim() || "",
+    spaceName: space.name.trim() || `空间 ${space.id}`,
   };
-}
-
-function compareBindingPaths(left: CameraBindingPath, right: CameraBindingPath) {
-  return `${left.level1}\u0000${left.level2}\u0000${left.level3}\u0000${left.bed}`.localeCompare(
-    `${right.level1}\u0000${right.level2}\u0000${right.level3}\u0000${right.bed}`,
-    "zh-CN",
-  );
 }
 
 function numericChannel(channelNo: number | undefined) {
