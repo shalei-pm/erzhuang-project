@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { ResourceStoreDetail } from "../api";
-import { buildCameraBindingRows, issueSeverityRank, resourceDeviceOnlineLabel, sortedResourceIssues } from "./resource-view";
+import {
+  buildCameraBindingRows,
+  cameraBindingSpaceTypes,
+  filterCameraBindingRows,
+  issueSeverityRank,
+  resourceDeviceOnlineLabel,
+  sortedResourceIssues,
+} from "./resource-view";
 
 describe("resource view domain", () => {
   it("labels online state from business db values", () => {
@@ -96,6 +103,41 @@ describe("resource view domain", () => {
     } as Pick<ResourceStoreDetail, "cameras" | "nvrs" | "spaces" | "relations">);
 
     expect(rows[0]).toMatchObject({ recorderIdentifier: "22", channelNo: 10 });
+  });
+
+  it("puts bound cameras first in the all list", () => {
+    const rows = buildCameraBindingRows({
+      cameras: [camera({ id: 10 }), camera({ id: 20 })],
+      nvrs: [],
+      spaces: [space({ id: 1, name: "面诊室" })],
+      relations: [{ id: 1, deviceId: 20, areaId: 1, functionType: "camera" }],
+    } as Pick<ResourceStoreDetail, "cameras" | "nvrs" | "spaces" | "relations">);
+
+    expect(filterCameraBindingRows(rows, "all").map((row) => row.camera.id)).toEqual([20, 10]);
+  });
+
+  it("filters to a space type and sorts the matching names ascending", () => {
+    const rows = buildCameraBindingRows({
+      cameras: [camera({ id: 10 }), camera({ id: 20 }), camera({ id: 30 })],
+      nvrs: [],
+      spaces: [
+        space({ id: 1, name: "面诊室" }),
+        space({ id: 2, parentId: 1, name: "面诊室 B" }),
+        space({ id: 3, parentId: 1, name: "面诊室 A" }),
+        space({ id: 4, name: "美容室" }),
+        space({ id: 5, parentId: 4, name: "美容室 1" }),
+      ],
+      relations: [
+        { id: 1, deviceId: 10, areaId: 2, functionType: "camera" },
+        { id: 2, deviceId: 20, areaId: 3, functionType: "camera" },
+        { id: 3, deviceId: 30, areaId: 5, functionType: "camera" },
+      ],
+    } as Pick<ResourceStoreDetail, "cameras" | "nvrs" | "spaces" | "relations">);
+
+    expect(cameraBindingSpaceTypes(rows)).toEqual(["美容室", "面诊室"]);
+    const filtered = filterCameraBindingRows(rows, "面诊室");
+    expect(filtered.map((row) => row.camera.id)).toEqual([20, 10]);
+    expect(filtered.map((row) => row.bindingPaths.map((path) => path.spaceName))).toEqual([["面诊室 A"], ["面诊室 B"]]);
   });
 });
 

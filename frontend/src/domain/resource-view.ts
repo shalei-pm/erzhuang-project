@@ -13,6 +13,8 @@ export type CameraBindingRow = {
   isBound: boolean;
 };
 
+export type CameraBindingFilter = "all" | string;
+
 export function resourceDeviceOnlineLabel(value: number | null | undefined) {
   if (value === 1) return "在线";
   if (value === 2) return "离线";
@@ -74,6 +76,30 @@ export function buildCameraBindingRows(store: Pick<ResourceStoreDetail, "cameras
     });
 }
 
+export function cameraBindingSpaceTypes(rows: CameraBindingRow[]) {
+  return [...new Set(rows.flatMap((row) => row.bindingPaths.map((path) => path.spaceType).filter(Boolean)))].sort((left, right) =>
+    left.localeCompare(right, "zh-CN"),
+  );
+}
+
+export function filterCameraBindingRows(rows: CameraBindingRow[], filter: CameraBindingFilter): CameraBindingRow[] {
+  if (filter === "all") {
+    return rows
+      .map((row, index) => ({ row, index }))
+      .sort((left, right) => Number(right.row.isBound) - Number(left.row.isBound) || left.index - right.index)
+      .map(({ row }) => row);
+  }
+
+  return rows
+    .map((row) => ({ ...row, bindingPaths: row.bindingPaths.filter((path) => path.spaceType === filter) }))
+    .filter((row) => row.bindingPaths.length > 0)
+    .sort((left, right) => {
+      const nameDiff = firstSpaceName(left.bindingPaths).localeCompare(firstSpaceName(right.bindingPaths), "zh-CN");
+      if (nameDiff !== 0) return nameDiff;
+      return left.camera.id - right.camera.id;
+    });
+}
+
 function buildCameraBindingPath(space: ResourceSpace, spacesByID: Map<number, ResourceSpace>): CameraBindingPath {
   const parent = space.parentId ? spacesByID.get(space.parentId) : undefined;
 
@@ -85,6 +111,10 @@ function buildCameraBindingPath(space: ResourceSpace, spacesByID: Map<number, Re
 
 function numericChannel(channelNo: number | undefined) {
   return channelNo ?? Number.MAX_SAFE_INTEGER;
+}
+
+function firstSpaceName(paths: CameraBindingPath[]) {
+  return [...paths].map((path) => path.spaceName).sort((left, right) => left.localeCompare(right, "zh-CN"))[0] || "";
 }
 
 function parseNvrChannel(hardwareID: string) {

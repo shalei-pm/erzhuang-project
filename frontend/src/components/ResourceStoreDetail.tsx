@@ -1,6 +1,14 @@
+import { useState } from "react";
+
 import type { ResourceStoreDetail as ResourceStoreDetailType } from "../api";
 import { formatDateTime } from "../domain/format";
-import { buildCameraBindingRows, type CameraBindingPath } from "../domain/resource-view";
+import {
+  buildCameraBindingRows,
+  cameraBindingSpaceTypes,
+  filterCameraBindingRows,
+  type CameraBindingFilter,
+  type CameraBindingPath,
+} from "../domain/resource-view";
 
 type ResourceStoreDetailProps = {
   store: ResourceStoreDetailType;
@@ -9,8 +17,12 @@ type ResourceStoreDetailProps = {
 
 export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetailProps) {
   const rows = buildCameraBindingRows(store);
+  const [spaceTypeFilter, setSpaceTypeFilter] = useState<CameraBindingFilter>("all");
   const boundCameraCount = rows.filter((row) => row.isBound).length;
   const unboundCameraCount = rows.length - boundCameraCount;
+  const spaceTypes = cameraBindingSpaceTypes(rows);
+  const activeSpaceTypeFilter = spaceTypeFilter === "all" || spaceTypes.includes(spaceTypeFilter) ? spaceTypeFilter : "all";
+  const visibleRows = filterCameraBindingRows(rows, activeSpaceTypeFilter);
 
   return (
     <section className="detail-page resource-detail-page">
@@ -40,6 +52,27 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
 
       <section className="resource-binding-section" aria-label="摄像头与空间绑定关系">
         <h2>摄像头列表</h2>
+        {spaceTypes.length > 0 ? (
+          <div className="resource-space-filter" aria-label="按空间类型筛选">
+            <button
+              className={activeSpaceTypeFilter === "all" ? "is-active" : undefined}
+              onClick={() => setSpaceTypeFilter("all")}
+              type="button"
+            >
+              全部
+            </button>
+            {spaceTypes.map((spaceType) => (
+              <button
+                className={activeSpaceTypeFilter === spaceType ? "is-active" : undefined}
+                key={spaceType}
+                onClick={() => setSpaceTypeFilter(spaceType)}
+                type="button"
+              >
+                {spaceType}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="table-frame resource-binding-table-frame">
           <table className="resource-binding-table">
             <colgroup>
@@ -65,14 +98,14 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {visibleRows.length === 0 ? (
                 <tr>
                   <td className="empty-cell" colSpan={8}>
-                    业务库暂无摄像头数据
+                    {activeSpaceTypeFilter === "all" ? "业务库暂无摄像头数据" : "该空间类型暂无已绑定摄像头"}
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
+                visibleRows.map((row) => (
                   <tr key={row.camera.id}>
                     <td>{row.camera.id}</td>
                     <td className="resource-recorder-cell">{row.recorderIdentifier}</td>
