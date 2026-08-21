@@ -40,6 +40,7 @@ class NVRPlayer {
         this.onDisconnected = options.onDisconnected || (() => {});
         this.onRecovered    = options.onRecovered    || (() => {});
         this.onFirstFrame   = options.onFirstFrame   || (() => {});
+        this.onDiagnostics  = options.onDiagnostics  || (() => {});
 
         this.autoReconnect  = false;
         this.reconnectDelay = options.reconnectDelay || 3000;
@@ -90,6 +91,9 @@ class NVRPlayer {
         this.wasmReady       = false;
         this.wasmHeaderSent  = false;
         this.wasmPendingHeader = null;
+        this.diagnostics = null;
+        this._lastDiagnosticsAt = 0;
+        this._resetDiagnostics();
 
         this._monitorTimer   = null;
         this._reconnectTimer = null;
@@ -192,6 +196,28 @@ class NVRPlayer {
         }, 2000);
     }
 
+    _resetDiagnostics() {
+        this.diagnostics = {
+            receivedPackets: 0,
+            wasmRuntimeReady: false,
+            wasmReady: false,
+            wasmOutputInit: 0,
+            wasmOutputFrames: 0,
+            decoderInputFrames: 0,
+            renderedFrames: 0,
+            closeCode: null
+        };
+        this._lastDiagnosticsAt = 0;
+        this._publishDiagnostics(true);
+    }
+
+    _publishDiagnostics(force = false) {
+        const now = Date.now();
+        if (!force && now - this._lastDiagnosticsAt < 250) return;
+        this._lastDiagnosticsAt = now;
+        this.onDiagnostics({ ...this.diagnostics });
+    }
+
     // ─── WASM 解码器（回放模式）────────────────────────────────────────────────
 
     async _createTransformWorker() {
@@ -213,12 +239,23 @@ class NVRPlayer {
         this.transformWorker.onmessage = ({ data: e }) => {
             if (e.type === 'loaded') {
                 this.wasmRuntimeReady = true;
+                this.diagnostics.wasmRuntimeReady = true;
+                this._publishDiagnostics(true);
                 this._sendPendingWasmHeader();
             } else if (e.type === 'created') {
                 this.wasmReady = true;
+                this.diagnostics.wasmReady = true;
+                this._publishDiagnostics(true);
             } else if (e.type === 'outputData') {
-                if (e.dType === 1) this._handleH264Init(e.buf);
-                else if (e.dType === 2) this._handleH264Frame(e.buf, e.frameInfo);
+                if (e.dType === 1) {
+                    this.diagnostics.wasmOutputInit++;
+                    this._publishDiagnostics();
+                    this._handleH264Init(e.buf);
+                } else if (e.dType === 2) {
+                    this.diagnostics.wasmOutputFrames++;
+                    this._publishDiagnostics();
+                    this._handleH264Frame(e.buf, e.frameInfo);
+                }
             }
         };
         this.transformWorker.onerror = (e) => {
@@ -366,6 +403,8 @@ class NVRPlayer {
             }
 
             try {
+                this.diagnostics.decoderInputFrames++;
+                this._publishDiagnostics();
                 this.decoder.decode(new EncodedVideoChunk({
                     type: isKeyFrame ? 'key' : 'delta',
                     timestamp: frameInfo.nTimeStamp * 1000,
@@ -392,6 +431,8 @@ class NVRPlayer {
                 }
             }
         }
+        this.diagnostics.decoderInputFrames++;
+        this._publishDiagnostics();
         this._safeDecode(isKeyFrame ? 'key' : 'delta', frameInfo.nTimeStamp * 1000, frameData);
     }
 
@@ -406,6 +447,8 @@ class NVRPlayer {
             this.canvas.height = frame.displayHeight;
         }
         this.ctx.drawImage(frame, 0, 0);
+        this.diagnostics.renderedFrames++;
+        this._publishDiagnostics();
         if (!this._hasRenderedFirstFrame) {
             this._hasRenderedFirstFrame = true;
             this.onFirstFrame();
@@ -709,14 +752,21 @@ class NVRPlayer {
         this.ws.binaryType = 'arraybuffer';
 
         this.ws.onopen = () => {
+            this._publishDiagnostics(true);
             this.onConnected();
         };
 
         this.ws.onmessage = ({ data }) => {
-            if (data instanceof ArrayBuffer) this._decodeH265(data);
+            if (data instanceof ArrayBuffer) {
+                this.diagnostics.receivedPackets++;
+                this._publishDiagnostics();
+                this._decodeH265(data);
+            }
         };
 
         this.ws.onclose = (e) => {
+            this.diagnostics.closeCode = Number.isFinite(e?.code) ? e.code : null;
+            this._publishDiagnostics(true);
             this.onDisconnected();
             // 断线后重置解码器状态，确保重连后以干净状态处理新流
             this._resetDecoderState();
@@ -756,6 +806,7 @@ class NVRPlayer {
     async play(url) {
         this._isRunning = true;
         this._hasRenderedFirstFrame = false;
+        this._resetDiagnostics();
         this.wsUrl   = url;
         this.useWasm = this.forceWasm;
 

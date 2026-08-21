@@ -1,3 +1,14 @@
+export type NVRPlayerDiagnostics = {
+  receivedPackets: number;
+  wasmRuntimeReady: boolean;
+  wasmReady: boolean;
+  wasmOutputInit: number;
+  wasmOutputFrames: number;
+  decoderInputFrames: number;
+  renderedFrames: number;
+  closeCode: number | null;
+};
+
 export type NVRPlayerOptions = {
   autoReconnect?: boolean;
   reconnectDelay?: number;
@@ -7,6 +18,7 @@ export type NVRPlayerOptions = {
   onConnected?: () => void;
   onDisconnected?: () => void;
   onFirstFrame?: () => void;
+  onDiagnostics?: (diagnostics: NVRPlayerDiagnostics) => void;
 };
 
 export default class NVRPlayer {

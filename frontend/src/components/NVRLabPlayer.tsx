@@ -3,6 +3,28 @@ import NVRPlayer from "../vendor/nvr-player/nvr-player.js";
 import { H5PlayerControls } from "./H5PlayerControls";
 import type { NVRLabStreamSession } from "../domain/nvr-lab";
 
+export type NVRLabPlayerDiagnostics = {
+  receivedPackets: number;
+  wasmRuntimeReady: boolean;
+  wasmReady: boolean;
+  wasmOutputInit: number;
+  wasmOutputFrames: number;
+  decoderInputFrames: number;
+  renderedFrames: number;
+  closeCode: number | null;
+};
+
+const EMPTY_DIAGNOSTICS: NVRLabPlayerDiagnostics = {
+  receivedPackets: 0,
+  wasmRuntimeReady: false,
+  wasmReady: false,
+  wasmOutputInit: 0,
+  wasmOutputFrames: 0,
+  decoderInputFrames: 0,
+  renderedFrames: 0,
+  closeCode: null,
+};
+
 export type NVRLabPlayerStatus = {
   stage: "idle" | "connecting" | "connected" | "first-frame" | "error";
   message: string;
@@ -24,6 +46,7 @@ export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) 
   const [controlsVisible, setControlsVisible] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [landscape, setLandscape] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<NVRLabPlayerDiagnostics>(EMPTY_DIAGNOSTICS);
 
   useEffect(() => {
     if (!session || !canvasRef.current) return;
@@ -50,8 +73,10 @@ export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) 
         setPlaying(false);
         report({ stage: "error", message: playerErrorMessage(error) });
       },
+      onDiagnostics: setDiagnostics,
     });
     playerRef.current = player;
+    setDiagnostics(EMPTY_DIAGNOSTICS);
     setPlaying(false);
     setMuted(true);
     report({ stage: "connecting", message: "正在连接视频流" });
@@ -108,7 +133,8 @@ export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) 
   }
 
   return (
-    <div ref={playerShellRef} className={`h5-player-shell ${landscape ? "is-landscape" : ""}`}>
+    <>
+      <div ref={playerShellRef} className={`h5-player-shell ${landscape ? "is-landscape" : ""}`}>
       <div className="h5-player-rotator">
         <div className="h5-player-wrapper">
           <div className="h5-player-container" onClick={() => setControlsVisible((visible) => !visible)}>
@@ -133,6 +159,23 @@ export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) 
           </div>
         </div>
       </div>
+      </div>
+      {session?.mode === "playback" ? <NVRLabPlaybackDiagnostics diagnostics={diagnostics} /> : null}
+    </>
+  );
+}
+
+export function NVRLabPlaybackDiagnostics({ diagnostics }: { diagnostics: NVRLabPlayerDiagnostics }) {
+  return (
+    <div className="nvr-lab-playback-diagnostics" aria-label="回放链路诊断">
+      <span>接收媒体包 {diagnostics.receivedPackets}</span>
+      <span>WASM 运行时 {diagnostics.wasmRuntimeReady ? "已就绪" : "未就绪"}</span>
+      <span>WASM 转封装 {diagnostics.wasmReady ? "已创建" : "未创建"}</span>
+      <span>WASM 初始化 {diagnostics.wasmOutputInit}</span>
+      <span>WASM 输出帧 {diagnostics.wasmOutputFrames}</span>
+      <span>解码输入帧 {diagnostics.decoderInputFrames}</span>
+      <span>已渲染帧 {diagnostics.renderedFrames}</span>
+      {diagnostics.closeCode !== null ? <span>连接关闭码 {diagnostics.closeCode}</span> : null}
     </div>
   );
 }
