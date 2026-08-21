@@ -10,6 +10,7 @@ export default defineConfig({
       "src/components/**/*.test.{ts,tsx}",
       "src/domain/channel-recognition.test.ts",
       "src/domain/h5-monitor-active-tab.test.ts",
+      "src/domain/nvr-lab.test.ts",
       "src/domain/resource-view.test.ts",
     ],
     env: {

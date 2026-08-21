@@ -70,6 +70,29 @@ func (h *Handler) requirePermissionHandler(permission string, next http.HandlerF
 	}
 }
 
+func (h *Handler) nvrLabAdminGuard(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, err := h.currentAuthUser(r)
+		if errors.Is(err, errUnauthorizedAuth) {
+			h.writeUnauthorizedAuth(w)
+			return
+		}
+		if errors.Is(err, errForbiddenAuth) {
+			h.writeForbiddenAuth(w)
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "load auth user failed"})
+			return
+		}
+		if normalizeRole(user.Role) != RoleAdmin {
+			writeJSON(w, http.StatusForbidden, map[string]string{"code": "nvr_lab_forbidden", "error": "暂无实验页面访问权限"})
+			return
+		}
+		next(w, r)
+	}
+}
+
 func hasPermission(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {

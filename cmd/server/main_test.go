@@ -116,6 +116,15 @@ func TestResourceViewUsesPrimaryMySQLOnly(t *testing.T) {
 	}
 }
 
+func TestNVRLabAuthorizationReadsKubernetesSecretFirst(t *testing.T) {
+	t.Setenv("NVR_STREAM_AUTHORIZATION", "fallback-value")
+	t.Setenv("K8S_SECRET_NVR_STREAM_AUTHORIZATION", "secret-value")
+
+	if got := nvrLabAuthorizationFromEnv(); got != "secret-value" {
+		t.Fatalf("authorization = %q, want Kubernetes secret value", got)
+	}
+}
+
 func TestNewDynamicChannelRecognizerAlwaysReturnsRuntimeRecognizer(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("VISION_API_KEY", "")

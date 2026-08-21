@@ -16,6 +16,7 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
+	"github.com/shalei-pm/erzhuang-project/internal/nvrlab"
 	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 
@@ -26,6 +27,7 @@ func main() {
 	addr := getenv("ADDR", "127.0.0.1:18080")
 	handler := app.NewHandler()
 	var resourceViewService *resourceview.Service
+	var nvrLabService *nvrlab.Service
 
 	if config, err := databaseConfigFromEnv(); err != nil {
 		log.Fatalf("database config failed: %v", err)
@@ -46,7 +48,12 @@ func main() {
 		var designPlanService *designplan.Service
 		mysqlAppStore := app.NewMySQLStore(db)
 		mysqlStoreSpaceRepo := storespace.NewMySQLStore(db)
-		resourceViewService = resourceview.NewService(resourceview.NewMySQLRepository(db))
+		resourceViewRepository := resourceview.NewMySQLRepository(db)
+		resourceViewService = resourceview.NewService(resourceViewRepository)
+		if authorization := nvrLabAuthorizationFromEnv(); authorization != "" {
+			nvrLabService = nvrlab.NewService(resourceViewRepository, nvrlab.NewHTTPAuthorizationClient(nil, authorization))
+			log.Print("nvr lab stream authorization enabled")
+		}
 		appStore = mysqlAppStore
 		storeSpaceRepo = mysqlStoreSpaceRepo
 		h5RepositoryFactory = func(accounts []ezviz.Account) h5monitor.StoreRepository {
@@ -70,10 +77,10 @@ func main() {
 			h5MonitorService = h5monitor.NewService(h5RepositoryFactory(ezvizAccounts), ezviz.NewClient(ezviz.ClientOptions{}))
 			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
-		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceView(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService)
+		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRLab(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService)
 		log.Printf("database store and resource view enabled: %s", config.Driver)
 	} else {
-		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceView(app.NewMemoryStore(), designplan.NewService(designplan.NewMemoryStore()), storespace.NewService(storespace.NewMemoryStore()), nil, resourceViewService)
+		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRLab(app.NewMemoryStore(), designplan.NewService(designplan.NewMemoryStore()), storespace.NewService(storespace.NewMemoryStore()), nil, resourceViewService, nvrLabService)
 		log.Print("database store disabled: using memory store")
 	}
 
@@ -155,6 +162,10 @@ func envValue(keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func nvrLabAuthorizationFromEnv() string {
+	return envValue("K8S_SECRET_NVR_STREAM_AUTHORIZATION", "NVR_STREAM_AUTHORIZATION")
 }
 
 func getenv(key, fallback string) string {

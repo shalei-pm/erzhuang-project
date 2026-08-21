@@ -14,6 +14,7 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
+	"github.com/shalei-pm/erzhuang-project/internal/nvrlab"
 	"github.com/shalei-pm/erzhuang-project/internal/osssmoke"
 	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
@@ -70,22 +71,26 @@ func NewHandlerWithStore(store Store) http.Handler {
 }
 
 func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository, storeSpaceRepo storespace.Repository) http.Handler {
-	return newHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo), nil, nil)
+	return newHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo), nil, nil, nil)
 }
 
 func NewHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, nil, nil)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, nil, nil, nil)
 }
 
 func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, nil)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, nil, nil)
 }
 
 func NewHandlerWithServicesAndH5MonitorAndResourceView(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nil)
 }
 
-func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service) http.Handler {
+func NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRLab(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service) http.Handler {
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService)
+}
+
+func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service) http.Handler {
 	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
@@ -112,6 +117,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
 	storespace.RegisterRoutesWithGuards(mux, storeSpaceService, handler.monitorVisibilityMiddleware, handler.storeWriteGuard)
 	resourceview.RegisterRoutesWithReadGuard(mux, resourceViewService, handler.resourceViewMonitorAccess, handler.storeReadGuard)
+	nvrlab.RegisterRoutes(mux, nvrLabService, handler.nvrLabAdminGuard)
 	if h5MonitorService != nil {
 		h5monitor.RegisterRoutesWithAuthorizer(mux, h5MonitorService, h5MonitorAuthorizer{handler: handler})
 	}
