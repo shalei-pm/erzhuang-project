@@ -54,15 +54,15 @@ func sampleRecords() resourceview.StoreRecords {
 func TestListCamerasReturnsOnlyEnabledHikVisionCameras(t *testing.T) {
 	service := NewService(fakeRepository{records: map[int64]resourceview.StoreRecords{ExperimentTenantID: sampleRecords()}}, &fakeAuthorizationClient{})
 
-	cameras, err := service.ListCameras(context.Background(), ExperimentTenantID)
+	response, err := service.ListCameras(context.Background(), ExperimentTenantID)
 	if err != nil {
 		t.Fatalf("ListCameras() error = %v", err)
 	}
-	if len(cameras) != 1 {
-		t.Fatalf("cameras = %#v, want one valid camera", cameras)
+	if len(response.Cameras) != 1 {
+		t.Fatalf("cameras = %#v, want one valid camera", response.Cameras)
 	}
-	if cameras[0].ID != 111 || cameras[0].SpaceType != "治疗室" || cameras[0].SpaceName != "产研中心1-2" {
-		t.Fatalf("camera = %#v", cameras[0])
+	if response.Cameras[0].ID != 111 || response.Cameras[0].SpaceType != "治疗室" || response.Cameras[0].SpaceName != "产研中心1-2" {
+		t.Fatalf("camera = %#v", response.Cameras[0])
 	}
 }
 
