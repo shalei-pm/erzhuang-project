@@ -2,6 +2,7 @@ package nvrlab
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -71,7 +72,27 @@ func TestHTTPAuthorizationClientDoesNotReturnAuthorizationResponseBody(t *testin
 	client.authorizationEndpoint = server.URL
 
 	_, err := client.CreateStreamURL(context.Background(), 111, StreamSessionRequest{Mode: ModeLive})
-	if err != ErrAuthorizationFailed {
+	if !errors.Is(err, ErrAuthorizationFailed) {
 		t.Fatalf("CreateStreamURL() error = %v, want ErrAuthorizationFailed", err)
+	}
+	var diagnostic *authorizationFailureError
+	if !errors.As(err, &diagnostic) || diagnostic.category != "upstream_http" || diagnostic.value != http.StatusBadGateway {
+		t.Fatalf("diagnostic = %#v, want upstream_http/%d", diagnostic, http.StatusBadGateway)
+	}
+}
+
+func TestHTTPAuthorizationClientClassifiesUpstreamBusinessCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":40101,"data":{}}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPAuthorizationClient(server.Client(), "service-secret")
+	client.authorizationEndpoint = server.URL
+
+	_, err := client.CreateStreamURL(context.Background(), 111, StreamSessionRequest{Mode: ModeLive})
+	var diagnostic *authorizationFailureError
+	if !errors.As(err, &diagnostic) || diagnostic.category != "upstream_code" || diagnostic.value != 40101 {
+		t.Fatalf("diagnostic = %#v, want upstream_code/40101", diagnostic)
 	}
 }

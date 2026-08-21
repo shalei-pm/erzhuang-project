@@ -25,6 +25,25 @@ type HTTPAuthorizationClient struct {
 	authorization         string
 }
 
+// authorizationFailureError carries only safe failure classification for server logs.
+// It deliberately excludes upstream bodies, credentials, tokens, and stream URLs.
+type authorizationFailureError struct {
+	category string
+	value    int
+}
+
+func (e *authorizationFailureError) Error() string {
+	return "nvr stream authorization failed"
+}
+
+func (e *authorizationFailureError) Unwrap() error {
+	return ErrAuthorizationFailed
+}
+
+func newAuthorizationFailure(category string, value int) error {
+	return &authorizationFailureError{category: category, value: value}
+}
+
 func NewHTTPAuthorizationClient(client *http.Client, authorization string) *HTTPAuthorizationClient {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
@@ -43,7 +62,7 @@ func (c *HTTPAuthorizationClient) CreateStreamURL(ctx context.Context, cameraID 
 	}
 	endpoint, err := url.Parse(c.authorizationEndpoint)
 	if err != nil {
-		return "", ErrAuthorizationFailed
+		return "", newAuthorizationFailure("request_url", 0)
 	}
 	query := endpoint.Query()
 	query.Set("camera_id", strconv.FormatInt(cameraID, 10))
@@ -56,7 +75,7 @@ func (c *HTTPAuthorizationClient) CreateStreamURL(ctx context.Context, cameraID 
 
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return "", ErrAuthorizationFailed
+		return "", newAuthorizationFailure("request_build", 0)
 	}
 	httpRequest.Header.Set("Authorization", c.authorization)
 	response, err := c.client.Do(httpRequest)
@@ -64,11 +83,11 @@ func (c *HTTPAuthorizationClient) CreateStreamURL(ctx context.Context, cameraID 
 		if errors.Is(err, context.DeadlineExceeded) {
 			return "", ErrAuthorizationTimeout
 		}
-		return "", ErrAuthorizationFailed
+		return "", newAuthorizationFailure("transport", 0)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return "", ErrAuthorizationFailed
+		return "", newAuthorizationFailure("upstream_http", response.StatusCode)
 	}
 	var payload struct {
 		Code int `json:"code"`
@@ -77,12 +96,18 @@ func (c *HTTPAuthorizationClient) CreateStreamURL(ctx context.Context, cameraID 
 		} `json:"data"`
 	}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 64<<10))
-	if err := decoder.Decode(&payload); err != nil || payload.Code != 0 || strings.TrimSpace(payload.Data.Token) == "" {
-		return "", ErrAuthorizationFailed
+	if err := decoder.Decode(&payload); err != nil {
+		return "", newAuthorizationFailure("response_decode", 0)
+	}
+	if payload.Code != 0 {
+		return "", newAuthorizationFailure("upstream_code", payload.Code)
+	}
+	if strings.TrimSpace(payload.Data.Token) == "" {
+		return "", newAuthorizationFailure("missing_token", 0)
 	}
 	websocketEndpoint, err := url.Parse(c.webSocketEndpoint)
 	if err != nil {
-		return "", ErrAuthorizationFailed
+		return "", newAuthorizationFailure("websocket_url", 0)
 	}
 	websocketQuery := websocketEndpoint.Query()
 	websocketQuery.Set("token", payload.Data.Token)
