@@ -110,8 +110,8 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
         </nav>
         {mode === "playback" ? (
           <div className="nvr-lab-playback-form">
-            <label>开始时间<input type="datetime-local" value={startAt} onChange={(event) => setStartAt(event.target.value)} /></label>
-            <label>结束时间<input type="datetime-local" value={endAt} onChange={(event) => setEndAt(event.target.value)} /></label>
+            <label>开始时间<input type="datetime-local" step="1" value={startAt} onChange={(event) => setStartAt(event.target.value)} /></label>
+            <label>结束时间<input type="datetime-local" step="1" value={endAt} onChange={(event) => setEndAt(event.target.value)} /></label>
             <button type="button" onClick={playPlayback}>播放</button>
           </div>
         ) : null}
