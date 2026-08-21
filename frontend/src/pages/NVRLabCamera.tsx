@@ -54,6 +54,10 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
           onAuthRequired();
           return;
         }
+        if (error instanceof NVRLabApiError) {
+          setMessage(`${error.message}（${error.code || `HTTP ${error.status}`}）`);
+          return;
+        }
         setMessage(error instanceof Error ? error.message : "播放会话创建失败");
       }
     },
