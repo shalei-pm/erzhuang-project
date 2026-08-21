@@ -21,8 +21,8 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
   const [session, setSession] = useState<NVRLabStreamSession | null>(null);
   const [message, setMessage] = useState("");
   const [playerStatus, setPlayerStatus] = useState<NVRLabPlayerStatus>({ stage: "idle", message: "播放器准备中" });
-  const [startAt, setStartAt] = useState("");
-  const [endAt, setEndAt] = useState("");
+  const [startAt, setStartAt] = useState(() => playbackQueryValue("start_at"));
+  const [endAt, setEndAt] = useState(() => playbackQueryValue("end_at"));
 
   useEffect(() => {
     let cancelled = false;
@@ -124,4 +124,9 @@ function localDateTimeToUnix(value: string): number {
   if (!value) return 0;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 0 : Math.floor(date.getTime() / 1000);
+}
+
+function playbackQueryValue(key: "start_at" | "end_at"): string {
+  const value = new URLSearchParams(window.location.search).get(key) || "";
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value) ? value : "";
 }
