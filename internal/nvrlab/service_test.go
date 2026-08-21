@@ -28,11 +28,15 @@ type fakeAuthorizationClient struct {
 	lastCameraID int64
 	lastRequest  StreamSessionRequest
 	url          string
+	err          error
 }
 
 func (c *fakeAuthorizationClient) CreateStreamURL(_ context.Context, cameraID int64, request StreamSessionRequest) (string, error) {
 	c.lastCameraID = cameraID
 	c.lastRequest = request
+	if c.err != nil {
+		return "", c.err
+	}
 	return c.url, nil
 }
 

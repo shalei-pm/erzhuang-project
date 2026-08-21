@@ -76,13 +76,18 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrAuthorizationTimeout):
 		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"code": "nvr_stream_authorization_timeout", "error": "取流鉴权超时，请稍后重试"})
 	case errors.Is(err, ErrAuthorizationFailed):
+		code := "nvr_stream_authorization_failed"
 		var diagnostic *authorizationFailureError
 		if errors.As(err, &diagnostic) {
 			log.Printf("nvr stream authorization failed: category=%s value=%d", diagnostic.category, diagnostic.value)
+			code = "nvr_stream_authorization_" + diagnostic.category
+			if diagnostic.value != 0 {
+				code += "_" + strconv.Itoa(diagnostic.value)
+			}
 		} else {
 			log.Print("nvr stream authorization failed: category=unknown value=0")
 		}
-		writeJSON(w, http.StatusBadGateway, map[string]string{"code": "nvr_stream_authorization_failed", "error": "取流鉴权失败，请稍后重试"})
+		writeJSON(w, http.StatusBadGateway, map[string]string{"code": code, "error": "取流鉴权失败，请稍后重试"})
 	default:
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "nvr_lab_failed", "error": "取流实验页请求失败"})
 	}

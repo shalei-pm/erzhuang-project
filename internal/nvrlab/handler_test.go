@@ -54,3 +54,30 @@ func TestStreamSessionRequiresFreshAdminGuard(t *testing.T) {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
 }
+
+func TestStreamSessionReturnsSafeAuthorizationDiagnosticCode(t *testing.T) {
+	service := NewService(
+		fakeRepository{records: map[int64]resourceview.StoreRecords{ExperimentTenantID: sampleRecords()}},
+		&fakeAuthorizationClient{err: newAuthorizationFailure("upstream_http", http.StatusUnauthorized)},
+	)
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, service, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/nvr-lab/10001/cameras/111/stream-session", strings.NewReader(`{"mode":"live"}`))
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	var payload map[string]string
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["code"] != "nvr_stream_authorization_upstream_http_401" {
+		t.Fatalf("code = %q", payload["code"])
+	}
+	if strings.Contains(response.Body.String(), "service-secret") || strings.Contains(response.Body.String(), "private detail") {
+		t.Fatal("response exposed sensitive authorization detail")
+	}
+}
