@@ -190,7 +190,7 @@ docker build -f Dockerfile.nvr-snapshot-backfill -t erzhuang-nvr-snapshot-spike:
 
 - [ ] **Step 5: Run exactly one temporary test Job.**
 
-Use a known playable `10001` live camera with `--tenant-id 10001 --camera-id <approved-camera> --missing-only --timeout-per-camera 20s --concurrency 1`. Success means private valid JPEG, one `succeeded` row, authorized UI display, and sanitized logs. Any other result stops the plan before the 44-camera batch.
+Use the already desktop-verified `10001 / camera_id=111` live stream with `--tenant-id 10001 --camera-id 111 --missing-only --timeout-per-camera 20s --concurrency 1`. Success means private valid JPEG, one `succeeded` row, authorized UI display, and sanitized logs. Any other result stops the plan before the 44-camera batch.
 
 - [ ] **Step 6: Commit only after the gate passes.**
 
@@ -303,4 +303,3 @@ Delete the temporary Job and roll the Web thumbnail preference back through its 
 - The plan covers isolated Job, serial capture, exact ownership boundary, native decoding spike, private OSS, authorization, resume, staged approvals, and rollback.
 - It deliberately contains no scheduled capture, normal Web write endpoint, manual user flow, or business-table mutation.
 - Browser NVRPlayer success is not proof of native decoding. Task 3 is the stop/go gate; if it fails, report the stable technical failure and wait for an upstream screenshot API or media protocol contract.
-
