@@ -6141,3 +6141,10 @@ git pull --ff-only
 - 实测资源首页：67 家门店、75 台 NVR、2881 路摄像头正常加载；实测 `10001` 正常监控页：44 路摄像头、区域筛选和入口正常，控制台/页面未见项目错误。
 - 视觉结论：当前 10001 仍显示中性灰色缩略图占位，符合预期，因为 `tb_nvr_camera_snapshots` 尚未由 DBA 创建且临时回填 Job 尚未执行。该结果不是新读取路由故障；真实图验证必须在 DDL 与单路 Job 成功后进行。
 - Chrome 插件已用于实际页面验收；未降级为模拟点击。未执行 WSS、MySQL、OSS 或任何数据写入。
+
+### 2026-08-26 3.2.5 NVR 回填执行载体调整
+
+- Wharf 当前测试流水线不支持为同一提交选择独立 Dockerfile，也未修改流水线或实例配置。
+- 已确认测试 Pod 提供受控 WebShell；因此将既有 `nvr-snapshot-backfill` 二进制与 `ffmpeg` 纳入正常 Web 镜像，但保持 Web 的 `ENTRYPOINT` 不变。回填只能通过受控终端显式执行，不会随 Web 启动、部署或请求自动运行。
+- 该执行路径仅复用 Pod 已有的 MySQL、OSS 和 NVR 授权环境变量；命令不打印 Secret、不写 MySQL，仅写既有私有 OSS 对象。
+- 本机 `GOOS=linux` 回填命令构建及 `git diff --check` 通过；定向 Go 测试在 macOS 测试二进制启动时仍受既有 `dyld missing LC_UUID` 限制。Wharf Dockerfile 将在 Linux 构建阶段执行 `go test ./...`，构建成功后再通过 Pod WebShell 做 `10001/camera 111` 的一次性验证。
