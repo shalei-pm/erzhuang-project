@@ -103,6 +103,7 @@
 - 2026-08-26 工控机 NVR 监控全量替换：用户已确认正常 H5 入口全量切换、未配置门店隐藏、管理员/编辑运维全量可见、普通查看按 `monitor:view` 门店范围过滤；技术实施由主会话负责，必须保留 `MONITOR_PLAYBACK_MODE=nvr|legacy` 运行时回滚和 Git 稳定 commit 回滚。设计与实施计划分别位于 `docs/superpowers/specs/2026-08-26-nvr-monitor-full-rollout-design.md`、`docs/superpowers/plans/2026-08-26-nvr-monitor-full-rollout-implementation.md`；当前已进入测试发布前的代码验证阶段。
 - 2026-08-26 3.2.0 全量 NVR 首版已完成本地实现，待测试发布：新增 `internal/nvrmonitor`，正常路由在 `MONITOR_PLAYBACK_MODE=nvr` 时改用 NVR 门店、摄像头和会话接口；默认/非法模式或缺少 `K8S_SECRET_NVR_STREAM_AUTHORIZATION` 时回退 `legacy`。NVR 准入固定为启用门店下 `category='camera' AND provider='HikVisionNvrChannel' AND status=1 AND deleted_at IS NULL`；前端同一构建通过受认证的 `/api/h5/monitor-mode` 在运行时选择 NVR 或旧萤石页面，旧通道深链接不猜测映射。前端 Vitest `62` 项和生产构建已通过；本机没有 Go，后端编译和测试必须由 Wharf 测试构建补验。待测试 K8s 开关为 `nvr` 后做实际功能与回滚演练。
 - 2026-08-26 测试发布记录：`f1625a4 feat: roll out nvr monitor routes` 已同步 GitHub 备份分支和 GitLab `codex/containerize-single-image`，触发 Wharf pipeline `752`。随后只读核对 GitLab remote，该分支 HEAD 为 `f1625a4`；临时 GitLab AskPass 已删除。测试健康检查在未登录命令行会话中正确返回 APISIX SSO `302`，不能据此判定应用异常。GitLab API 对当前发布凭据不开放 pipeline 查询（`404`），Chrome 插件当前无已连接标签页，故尚未确认 Wharf 构建/部署结果或页面版本；不得将本次状态描述为“测试发布成功”。下一步先在 Wharf 确认构建和部署，再把测试实例的 `MONITOR_PLAYBACK_MODE` 设为 `nvr` 并执行功能和 `nvr -> legacy` 回滚演练。
+- 2026-08-26 NVR 缩略图排查：正常 NVR 监控列表的黑色画面来自前端固定空态，不是工控机截图请求失败；该页面当前没有渲染 API 返回的 `thumbnail_url`。二壮资源查看已保留旧 2.x 截图兜底，但只允许“旧系统恰有一台录像机、按通道号匹配”的门店使用，避免多录像机或序列号不一致造成错图。待确定缩略图策略：受限历史图兜底、首帧后的按需私有存储，或由工控机平台提供受鉴权截图 API；未经确认不新增截图写入、后台抓流或长期媒体留存。
 
 - 建立文件化项目记忆机制：
   - `docs/codex-learning-state.md`：长期状态、发布记录、关键上下文。
