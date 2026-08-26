@@ -5980,4 +5980,6 @@ git pull --ff-only
 - 资源详情返回的是受控应用 URL。该图片端点先校验 `store:read` 和门店监控范围，再从现有 OSS 截图存储读取；前端不接触对象路径、签名 URL 或密钥。
 - 已修复 NVR 实验页：标题栏与播放器增加间距；“开启声音”直接在点击手势中创建/恢复 Web Audio；直播暂停改为停止本地 Canvas 输出，恢复后继续渲染接收中的新帧。
 - 本地验证：前端 `npm test -- --run` 为 8 files / 54 tests 全通过，`npm run build` 通过。当前机器没有 Go 与 gofmt，后端编译/测试由 Wharf 构建补验。
-- 待发布验收：测试实例健康检查和 `3.1.7 (container)`；至少一条单录像机截图命中、一条多录像机占位；Chrome 验证声音、暂停与恢复。当前会话未暴露 Chrome 插件能力，未以 Computer Use 模拟点击替代。
+- 发布状态：2026-08-26 已提交并推送 GitLab 测试分支与 GitHub 备份，commit `7355395 fix: reuse legacy snapshots and stabilize nvr controls`。Wharf pipeline `752` 已自动部署；已登录测试页显示 `3.1.7 (container)`，临时 GitLab `GIT_ASKPASS` 已删除。
+- 已验收：测试首页能加载真实门店列表；10001 / 摄像头 111 的 NVR 直播成功渲染，播放器上方的标题卡片与播放器保持可见间距。
+- 待补充人工点验：一条单旧录像机门店的截图命中、一条多录像机门店的灰色占位，以及“开启声音”和暂停/恢复的实际控制结果。当前浏览器会话仅开放导航与截图，未以 Computer Use 模拟点击替代。

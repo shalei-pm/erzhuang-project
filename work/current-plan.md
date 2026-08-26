@@ -14,7 +14,9 @@
 - [x] NVR 实验页增加标题与播放器间距；声音在按钮手势中初始化 Web Audio；暂停改为本地冻结画面，恢复后继续渲染新帧。
 - [x] 前端 `npm test -- --run` 通过：8 个文件、54 项测试；`npm run build` 通过。
 - [ ] 当前机器没有 `go`/`gofmt`，后端 `go test ./...` 与 `go build ./cmd/server` 由 Wharf 构建日志补验。
-- [ ] 推送 GitLab 测试分支，等待 pipeline `752` 自动部署；部署后验收健康检查、版本号、单录像机命中/多录像机占位以及 NVR 声音和暂停恢复。
+- [x] 已推送 GitLab 测试分支与 GitHub 备份：`7355395 fix: reuse legacy snapshots and stabilize nvr controls`。
+- [x] Wharf `752` 已自动部署。已登录测试页显示 `3.1.7 (container)`；10001 / 摄像头 111 直播成功渲染，标题与播放器间距已校准。
+- [ ] 仍需在真实终端点验：单录像机截图命中/多录像机占位，以及“开启声音”和暂停/恢复的实际控制结果。当前浏览器会话仅开放页面导航与截图，无法安全模拟这些点击。
 
 ## 当前状态摘要
 
@@ -32,7 +34,7 @@
 - 3.0 模块名：门店空间资源查看。
 - 3.0 不改 H5 Monitor，当前怎么看监控还怎么看。
 - 3.0 不做设计图上传/标注、AI 通道识别、人工确认、门店/录像机/通道写入。
-- 当前分支：`codex/store-space-resource-view-3`。
+- 当前分支：`codex/containerize-single-image`。
 - 2.x 完整备份已完成并推送 GitHub：tag `v2.31-stable-before-resource-view-3`，zip `docs/handoffs/archives/erzhuang-project-2.31.8-before-resource-view-3.zip`。
 - 3.0 后端领域聚合、只读 repository、API handler 和 `cmd/server` 接线已完成初版。
 - 3.0 前端 API 类型、只读列表、只读详情、空间视角、设备视角、异常项和主页面切换已完成初版。
