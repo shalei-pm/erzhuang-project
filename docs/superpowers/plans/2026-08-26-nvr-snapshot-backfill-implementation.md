@@ -46,26 +46,25 @@
 ```sql
 create table tb_nvr_camera_snapshots (
   id bigint unsigned not null auto_increment,
-  tenant_id bigint unsigned not null,
   camera_id bigint unsigned not null,
-  status varchar(32) not null,
-  object_key varchar(512) not null default '',
-  content_type varchar(64) not null default '',
+  tenant_id bigint unsigned not null,
+  status varchar(32) character set ascii collate ascii_general_ci not null,
+  oss_object_key varchar(512) character set ascii collate ascii_bin not null default '',
+  content_type varchar(64) character set ascii collate ascii_general_ci not null default '',
   width int unsigned not null default 0,
   height int unsigned not null default 0,
   byte_size int unsigned not null default 0,
   captured_at datetime(3) null,
   attempted_at datetime(3) not null,
-  error_code varchar(64) not null default '',
+  error_code varchar(64) character set ascii collate ascii_general_ci not null default '',
   created_at datetime(3) not null default current_timestamp(3),
   updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
   primary key (id),
-  unique key uk_nvr_camera_snapshot (tenant_id, camera_id),
-  key idx_nvr_snapshot_status_attempted (status, attempted_at),
-  key idx_nvr_snapshot_camera (camera_id)
+  unique key uk_nvr_snapshot_camera (camera_id),
+  key idx_nvr_snapshot_tenant_status_attempted (tenant_id, status, attempted_at)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_general_ci;
 
-select tenant_id, camera_id, status, object_key, content_type, width, height,
+select tenant_id, camera_id, status, oss_object_key, content_type, width, height,
        byte_size, captured_at, attempted_at, error_code
 from tb_nvr_camera_snapshots where tenant_id = 10001 order by camera_id;
 
@@ -76,6 +75,8 @@ drop table tb_nvr_camera_snapshots;
 - [ ] **Step 2: Submit it to DBA/operations for test-environment execution.**
 
 The submission explicitly says: Web code must not use `CREATE TABLE IF NOT EXISTS`; the `drop table` rollback leaves OSS objects untouched unless a separate deletion is approved.
+
+The DBA review fixes `camera_id` as the unique identity because `tb_crm_iot_device.id` is globally unique. It also requires ASCII binary collation for the object key. The main review retains `status`, `attempted_at`, and `error_code`: failed attempts must be durable and resumable, but must never contain raw upstream errors.
 
 - [ ] **Step 3: Commit only the reviewed DDL and runbook.**
 
@@ -190,7 +191,7 @@ docker build -f Dockerfile.nvr-snapshot-backfill -t erzhuang-nvr-snapshot-spike:
 
 - [ ] **Step 5: Run exactly one temporary test Job.**
 
-Use the already desktop-verified `10001 / camera_id=111` live stream with `--tenant-id 10001 --camera-id 111 --missing-only --timeout-per-camera 20s --concurrency 1`. Success means private valid JPEG, one `succeeded` row, authorized UI display, and sanitized logs. Any other result stops the plan before the 44-camera batch.
+First run the non-persistent technical gate with the already desktop-verified `10001 / camera_id=111` live stream. It may create an in-memory or temporary local JPEG for validation, but must not write MySQL or OSS. Only after the gate passes and DBA DDL/Job permissions are ready, run `--tenant-id 10001 --camera-id 111 --missing-only --timeout-per-camera 20s --concurrency 1` and require private valid JPEG, one `succeeded` row, authorized UI display, and sanitized logs. Any other result stops the plan before the 44-camera batch.
 
 - [ ] **Step 6: Commit only after the gate passes.**
 

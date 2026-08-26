@@ -6063,4 +6063,18 @@ git pull --ff-only
 - 设计与实施计划：`docs/superpowers/specs/2026-08-26-nvr-snapshot-backfill-design.md`、`docs/superpowers/plans/2026-08-26-nvr-snapshot-backfill-implementation.md`。
 - 目标架构：独立 one-shot Job 使用现有 MySQL/OSS/NVR 授权 Secret 抓取一帧，读取同步业务表，只写私有 OSS 与待 DBA 执行的自有表 `tb_nvr_camera_snapshots`；Web 缩略图请求继续按门店 `monitor:view` 权限校验。
 - 关键未知：浏览器 NVRPlayer 已证明 Canvas 端播放，但未证明服务端可将 WSS RTP/H.265 原生解码为 JPEG。必须先在测试门店 `10001` 对一个已知可直播摄像头做 20 秒、并发 1 的技术闸门；失败即停止批处理。
-- 运行顺序：DBA 测试 DDL -> 单摄像头闸门 -> 用户确认的 `10001` 串行批处理 -> 用户确认的全量测试 -> 独立生产审批和执行。正常 Web 发布与临时 Job 生命周期彼此隔离。
+- 运行顺序：无副作用单摄像头解码闸门 -> DBA 测试 DDL/Job 权限 -> 用户确认的 `10001` 串行批处理 -> 用户确认的全量测试 -> 独立生产审批和执行。正常 Web 发布与临时 Job 生命周期彼此隔离。
+
+### 2026-08-26 主会话直属 DBA 子 agent 审核结论
+
+- 主会话改用直属 DBA 子 agent 监督本次工作，不依赖用户人工转交。子 agent 未执行数据库、代码、发布或提交操作。
+- 接受：`camera_id` 是全局唯一摄像头身份；`oss_object_key` 用 ASCII binary collation；不对同步 `tb_crm_*` 建外键；Web、一次性 Job、DBA/运维三类主体使用分离的最小权限。
+- 主会话裁决：不接受“只保存成功缩略图、不保留状态”的建议。回填表保留失败状态、最近尝试时间和稳定错误码，以满足暂停、续跑与审计需求，且不存任何原始错误、JWT、WSS URL 或媒体内容。
+- 顺序优化：单摄像头原生解码技术闸门可先不写数据库和 OSS，仅验证真实 WSS/RTP/H.265 是否能产出受限 JPEG；通过后才需要测试库 DDL 与 Job 最小权限配置。
+
+### 2026-08-26 直属子 agent：协议技术闸门第一小步
+
+- 实现范围严格限制在 `internal/nvrsnapshot/depacketizer.go` 与对应单测：固定 RTP v2/PT96、H.265 FU=49、Annex-B 输出、无网络/MySQL/OSS/ffmpeg/凭据处理。
+- 主会话已做两阶段审查。首次规格审查打回无限 FU 缓存、分片中断状态与边界测试问题；首次质量审查打回 AP/PACI、FU 元数据校验和单 NAL 上限问题。修复后的规格复审和质量复审均通过。
+- 安全策略：未支持的 AP(48)/PACI(50)，以及 FU 内部伪装的 48/49/50 类型一律返回 `demux_failed`；FU 和普通 NAL 同受 4 MiB 默认内存上限；异常后可恢复处理下一条合法 NAL。
+- 验证状态：子 agent 真实尝试 `go test ./internal/nvrsnapshot`，开发机返回 `command not found: go`，且不存在 `gofmt`。因此代码尚未提交、推送、发布或声称测试通过；待具备 Go 1.22 工具链后先格式化并运行该包单测。
