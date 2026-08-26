@@ -42,6 +42,14 @@ func newTestHandler(t *testing.T, allow map[string]bool) http.Handler {
 	return mux
 }
 
+func newTestHandlerWithSnapshots(t *testing.T, allow map[string]bool, snapshots SnapshotStore) http.Handler {
+	t.Helper()
+	service := NewServiceWithSnapshotStore(fakeRepository{stores: map[int64]resourceview.StoreRecords{10001: nvrMonitorRecords()}}, &fakeAuthorizationClient{url: "wss://stream.example.test/session"}, snapshots)
+	mux := http.NewServeMux()
+	RegisterRoutesWithAuthorizer(mux, service, fakeAuthorizer{allow: allow})
+	return mux
+}
+
 func TestStoresFiltersToAuthorizedMonitorScope(t *testing.T) {
 	handler := newTestHandler(t, map[string]bool{"10001": true})
 	request := httptest.NewRequest(http.MethodGet, "/api/h5/nvr-monitor/stores", nil)
@@ -100,5 +108,41 @@ func TestStreamSessionRejectsCameraOutsideTenantEligibleSet(t *testing.T) {
 
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestSnapshotServesBackfilledImageOnlyToAuthorizedStore(t *testing.T) {
+	handler := newTestHandlerWithSnapshots(t, map[string]bool{"10001": true}, fakeSnapshotStore{
+		available: map[int64]bool{111: true},
+		data:      map[int64]string{111: "jpeg-data"},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if response.Body.String() != "jpeg-data" || response.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("unexpected snapshot response: headers=%#v body=%q", response.Header(), response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "private, max-age=604800, immutable" {
+		t.Fatalf("Cache-Control = %q", response.Header().Get("Cache-Control"))
+	}
+}
+
+func TestSnapshotDoesNotLeakToUnauthorizedStore(t *testing.T) {
+	handler := newTestHandlerWithSnapshots(t, map[string]bool{"10001": false}, fakeSnapshotStore{
+		available: map[int64]bool{111: true},
+		data:      map[int64]string{111: "jpeg-data"},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden || response.Body.String() == "jpeg-data" {
+		t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
 	}
 }

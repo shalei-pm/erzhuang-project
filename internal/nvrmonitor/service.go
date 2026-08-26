@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,13 +20,26 @@ type AuthorizationClient interface {
 	CreateStreamURL(ctx context.Context, cameraID int64, request StreamSessionRequest) (string, error)
 }
 
+// SnapshotStore is an optional, private thumbnail source populated by the
+// one-shot NVR backfill Job. It deliberately does not participate in stream
+// authorization or capture.
+type SnapshotStore interface {
+	ListAvailable(ctx context.Context, tenantID int64) (map[int64]bool, error)
+	Open(ctx context.Context, tenantID int64, cameraID int64) (io.ReadCloser, string, error)
+}
+
 type Service struct {
 	repository    resourceview.Repository
 	authorization AuthorizationClient
+	snapshots     SnapshotStore
 }
 
 func NewService(repository resourceview.Repository, authorization AuthorizationClient) *Service {
 	return &Service{repository: repository, authorization: authorization}
+}
+
+func NewServiceWithSnapshotStore(repository resourceview.Repository, authorization AuthorizationClient, snapshots SnapshotStore) *Service {
+	return &Service{repository: repository, authorization: authorization, snapshots: snapshots}
 }
 
 func (s *Service) ListStores(ctx context.Context) (MonitorStoresResponse, error) {
@@ -38,7 +52,7 @@ func (s *Service) ListStores(ctx context.Context) (MonitorStoresResponse, error)
 	}
 	byCity := map[string][]StoreInfo{}
 	for _, record := range records {
-		cameras := camerasFromRecords(record)
+		cameras := camerasFromRecords(record, nil)
 		if len(cameras) == 0 {
 			continue
 		}
@@ -74,13 +88,32 @@ func (s *Service) GetCameras(ctx context.Context, externalOrgID string) (CameraL
 	if err != nil {
 		return CameraListResponse{}, err
 	}
+	availableSnapshots := s.listAvailableSnapshots(ctx, records.Tenant.ID)
 	return CameraListResponse{
 		ExternalOrgID: strconv.FormatInt(records.Tenant.ID, 10),
 		TenantID:      records.Tenant.ID,
 		StoreName:     strings.TrimSpace(records.Tenant.Name),
 		City:          cityLabel(records.Tenant.CityID),
-		Cameras:       camerasFromRecords(records),
+		Cameras:       camerasFromRecords(records, availableSnapshots),
 	}, nil
+}
+
+func (s *Service) OpenSnapshot(ctx context.Context, externalOrgID string, cameraID int64) (io.ReadCloser, string, error) {
+	records, err := s.storeRecords(ctx, externalOrgID)
+	if err != nil {
+		return nil, "", err
+	}
+	if !containsCamera(camerasFromRecords(records, nil), cameraID) {
+		return nil, "", ErrCameraNotFound
+	}
+	if s.snapshots == nil {
+		return nil, "", ErrSnapshotNotFound
+	}
+	reader, contentType, err := s.snapshots.Open(ctx, records.Tenant.ID, cameraID)
+	if err != nil {
+		return nil, "", ErrSnapshotNotFound
+	}
+	return reader, contentType, nil
 }
 
 func (s *Service) CreateSession(ctx context.Context, externalOrgID string, cameraID int64, request StreamSessionRequest) (StreamSessionResponse, error) {
@@ -150,7 +183,20 @@ func containsCamera(cameras []Camera, cameraID int64) bool {
 	return false
 }
 
-func camerasFromRecords(records resourceview.StoreRecords) []Camera {
+func (s *Service) listAvailableSnapshots(ctx context.Context, tenantID int64) map[int64]bool {
+	if s.snapshots == nil {
+		return nil
+	}
+	available, err := s.snapshots.ListAvailable(ctx, tenantID)
+	if err != nil {
+		// The read path remains compatible while the DBA-owned table is not yet
+		// present. Existing legacy thumbnails stay available as a fallback.
+		return nil
+	}
+	return available
+}
+
+func camerasFromRecords(records resourceview.StoreRecords, availableSnapshots map[int64]bool) []Camera {
 	spaces := map[int64]resourceview.BusinessSpace{}
 	for _, space := range records.Spaces {
 		spaces[space.ID] = space
@@ -174,7 +220,9 @@ func camerasFromRecords(records resourceview.StoreRecords) []Camera {
 			camera.SpaceName = strings.TrimSpace(space.Name)
 			camera.SpaceType = spaceType(*space, spaces)
 		}
-		if channelNo := nvrChannelNo(device.HardwareID); channelNo > 0 && records.LegacyCameraSnapshots[channelNo] != "" {
+		if availableSnapshots[device.ID] {
+			camera.ThumbnailURL = fmt.Sprintf("/api/h5/nvr-monitor/orgs/%d/cameras/%d/snapshot", records.Tenant.ID, device.ID)
+		} else if channelNo := nvrChannelNo(device.HardwareID); channelNo > 0 && records.LegacyCameraSnapshots[channelNo] != "" {
 			camera.ThumbnailURL = fmt.Sprintf("/api/store-space-resource-view/stores/%d/cameras/%d/snapshot", records.Tenant.ID, device.ID)
 		}
 		cameras = append(cameras, camera)

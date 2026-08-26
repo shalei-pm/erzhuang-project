@@ -1,8 +1,10 @@
 package nvrmonitor
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
@@ -41,6 +43,30 @@ type fakeAuthorizationClient struct {
 	lastRequest  StreamSessionRequest
 	url          string
 	err          error
+}
+
+type fakeSnapshotStore struct {
+	available map[int64]bool
+	data      map[int64]string
+	err       error
+}
+
+func (s fakeSnapshotStore) ListAvailable(context.Context, int64) (map[int64]bool, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.available, nil
+}
+
+func (s fakeSnapshotStore) Open(_ context.Context, _ int64, cameraID int64) (io.ReadCloser, string, error) {
+	if s.err != nil {
+		return nil, "", s.err
+	}
+	data, ok := s.data[cameraID]
+	if !ok {
+		return nil, "", ErrSnapshotNotFound
+	}
+	return io.NopCloser(bytes.NewBufferString(data)), "image/jpeg", nil
 }
 
 func (c *fakeAuthorizationClient) CreateStreamURL(_ context.Context, cameraID int64, request StreamSessionRequest) (string, error) {
@@ -104,6 +130,38 @@ func TestGetCamerasOnlyReturnsEligibleCameraAndApplicableSpace(t *testing.T) {
 	}
 	if camera.ThumbnailURL == "" {
 		t.Fatalf("camera = %#v, want legacy thumbnail url", camera)
+	}
+}
+
+func TestGetCamerasPrefersBackfilledSnapshotOverLegacyFallback(t *testing.T) {
+	service := NewServiceWithSnapshotStore(
+		fakeRepository{stores: map[int64]resourceview.StoreRecords{10001: nvrMonitorRecords()}},
+		&fakeAuthorizationClient{},
+		fakeSnapshotStore{available: map[int64]bool{111: true}},
+	)
+
+	response, err := service.GetCameras(context.Background(), "10001")
+	if err != nil {
+		t.Fatalf("GetCameras() error = %v", err)
+	}
+	if got, want := response.Cameras[0].ThumbnailURL, "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot"; got != want {
+		t.Fatalf("thumbnail url = %q, want %q", got, want)
+	}
+}
+
+func TestGetCamerasFallsBackToLegacyWhenSnapshotLookupFails(t *testing.T) {
+	service := NewServiceWithSnapshotStore(
+		fakeRepository{stores: map[int64]resourceview.StoreRecords{10001: nvrMonitorRecords()}},
+		&fakeAuthorizationClient{},
+		fakeSnapshotStore{err: errors.New("snapshot table does not exist")},
+	)
+
+	response, err := service.GetCameras(context.Background(), "10001")
+	if err != nil {
+		t.Fatalf("GetCameras() error = %v", err)
+	}
+	if got := response.Cameras[0].ThumbnailURL; got == "" || got == "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot" {
+		t.Fatalf("thumbnail url = %q, want legacy fallback", got)
 	}
 }
 

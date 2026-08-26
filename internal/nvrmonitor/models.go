@@ -3,15 +3,16 @@ package nvrmonitor
 import "errors"
 
 var (
-	ErrStoreNotFound          = errors.New("nvr monitor store not found")
-	ErrCameraNotFound         = errors.New("nvr monitor camera not found")
-	ErrInvalidStreamMode      = errors.New("nvr monitor stream mode is invalid")
-	ErrInvalidPlaybackWindow  = errors.New("nvr monitor playback window is invalid")
-	ErrNotConfigured          = errors.New("nvr monitor is not configured")
-	ErrAuthorizationFailed    = errors.New("nvr monitor authorization failed")
-	ErrAuthorizationTimeout   = errors.New("nvr monitor authorization timed out")
-	ErrUnauthorized           = errors.New("nvr monitor unauthorized")
-	ErrForbidden              = errors.New("nvr monitor forbidden")
+	ErrStoreNotFound         = errors.New("nvr monitor store not found")
+	ErrCameraNotFound        = errors.New("nvr monitor camera not found")
+	ErrInvalidStreamMode     = errors.New("nvr monitor stream mode is invalid")
+	ErrInvalidPlaybackWindow = errors.New("nvr monitor playback window is invalid")
+	ErrNotConfigured         = errors.New("nvr monitor is not configured")
+	ErrAuthorizationFailed   = errors.New("nvr monitor authorization failed")
+	ErrAuthorizationTimeout  = errors.New("nvr monitor authorization timed out")
+	ErrSnapshotNotFound      = errors.New("nvr monitor snapshot not found")
+	ErrUnauthorized          = errors.New("nvr monitor unauthorized")
+	ErrForbidden             = errors.New("nvr monitor forbidden")
 )
 
 type Mode string
@@ -22,10 +23,10 @@ const (
 )
 
 type StoreInfo struct {
-	ExternalOrgID         string `json:"external_org_id"`
-	StoreName             string `json:"store_name"`
-	City                  string `json:"city"`
-	AvailableCameraCount  int    `json:"available_camera_count"`
+	ExternalOrgID        string `json:"external_org_id"`
+	StoreName            string `json:"store_name"`
+	City                 string `json:"city"`
+	AvailableCameraCount int    `json:"available_camera_count"`
 }
 
 type StoreCityGroup struct {

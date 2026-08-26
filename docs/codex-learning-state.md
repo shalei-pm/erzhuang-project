@@ -6126,3 +6126,10 @@ git pull --ff-only
 - Job 与 Web 使用分离最小数据库权限；`database_write_failed` 只能作为 Job 非零退出/汇总错误，不能伪造为已持久化的摄像头失败状态。
 - 已实现并通过 `internal/nvrsnapshot` 定向测试的核心回填服务：候选查询精确限制在有效 `HikVisionNvrChannel` 摄像头，缺图初始化与显式失败续跑分离；每路 20 秒、默认相邻请求至少 2 秒、连续三次鉴权/WSS 连接类失败熔断。该阶段仍未连接真实 MySQL、OSS 或 WSS。
 - `0f3ace5` 已仅同步 GitHub：回填核心、DDL 和 DBA 验收材料。`286445b` 已仅同步 GitHub：独立回填 CLI、全程 MySQL 命名锁及临时测试 Job 模板；均未推 GitLab 或执行。当前待完成 Web 受控读取路径、测试环境独立镜像构建、DBA 执行测试 DDL 和测试 Job 实际运行。
+
+### 2026-08-26 3.2.2 NVR 回填快照读取路径
+
+- Web 侧已完成受控读取接线：正常 NVR 摄像头 API 会优先查询自有 `tb_nvr_camera_snapshots` 的成功结果，并仅返回项目内受控图片路由；图片请求再次复用该门店监控授权，数据库行必须与 `nvr-camera-snapshots/{tenant_id}/{camera_id}.jpg` 及 `image/jpeg` 完全匹配后才会打开私有 OSS 对象。
+- 兼容策略：快照表尚未由 DBA 创建、读取异常、无成功行或对象缺失时，摄像头列表继续使用已验证的“单旧录像机 + 同通道号”历史截图，最终回退前端中性灰色占位；不影响既有工控机直播、回放、鉴权或门店范围权限。
+- 新增单测覆盖新图优先、查询异常的旧图回退、快照图片授权读取与未授权拒绝；回填 CLI 补充非法参数和运行时 Secret 缺失的失败关闭测试。
+- 本机已在允许 localhost 临时监听的受控测试环境中通过 `CGO_ENABLED=0 go test ./... -count=1 -timeout=120s` 和 `go build ./cmd/server`；未连接 WSS、MySQL、OSS、K8s 或执行 DDL/Job。待推送测试分支、DBA 测试 DDL 和临时 Job 验证。

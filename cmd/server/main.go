@@ -55,7 +55,7 @@ func main() {
 		resourceViewService = resourceview.NewService(resourceViewRepository)
 		if authorization := nvrLabAuthorizationFromEnv(); authorization != "" {
 			nvrLabService = nvrlab.NewService(resourceViewRepository, nvrlab.NewHTTPAuthorizationClient(nil, authorization))
-			nvrMonitorService = nvrmonitor.NewService(resourceViewRepository, nvrmonitor.NewHTTPAuthorizationClient(nil, authorization))
+			nvrMonitorService = nvrmonitor.NewServiceWithSnapshotStore(resourceViewRepository, nvrmonitor.NewHTTPAuthorizationClient(nil, authorization), nvrmonitor.NewMySQLSnapshotStore(db, assetStore))
 			log.Print("nvr stream authorization enabled")
 		} else if monitorPlaybackMode == app.MonitorPlaybackModeNVR {
 			monitorPlaybackMode = app.MonitorPlaybackModeLegacy

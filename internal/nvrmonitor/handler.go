@@ -3,6 +3,7 @@ package nvrmonitor
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ func RegisterRoutesWithAuthorizer(mux *http.ServeMux, service *Service, authoriz
 	handler := &Handler{service: service, authorizer: authorizer}
 	mux.HandleFunc("GET /api/h5/nvr-monitor/stores", handler.listStores)
 	mux.HandleFunc("GET /api/h5/nvr-monitor/orgs/{externalOrgId}/cameras", handler.listCameras)
+	mux.HandleFunc("GET /api/h5/nvr-monitor/orgs/{externalOrgId}/cameras/{cameraId}/snapshot", handler.getSnapshot)
 	mux.HandleFunc("POST /api/h5/nvr-monitor/orgs/{externalOrgId}/cameras/{cameraId}/stream-session", handler.createSession)
 }
 
@@ -94,6 +96,35 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) getSnapshot(w http.ResponseWriter, r *http.Request) {
+	externalOrgID := strings.TrimSpace(r.PathValue("externalOrgId"))
+	if !h.ensureCanViewStore(w, r, externalOrgID) {
+		return
+	}
+	if h.service == nil {
+		http.NotFound(w, r)
+		return
+	}
+	cameraID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("cameraId")), 10, 64)
+	if err != nil || cameraID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	reader, contentType, err := h.service.OpenSnapshot(r.Context(), externalOrgID, cameraID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer reader.Close()
+	w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
+	if strings.TrimSpace(contentType) != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	if _, err := io.Copy(w, reader); err != nil {
+		return
+	}
 }
 
 func (h *Handler) ensureCanViewStore(w http.ResponseWriter, r *http.Request, externalOrgID string) bool {
