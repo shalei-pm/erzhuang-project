@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import NVRPlayer from "../vendor/nvr-player/nvr-player.js";
 import { H5PlayerControls } from "./H5PlayerControls";
+import { PlaybackSegmentSlider, type PlaybackSegmentTiming } from "./PlaybackSegmentSlider";
 import type { NVRLabStreamSession } from "../domain/nvr-lab";
 
 export type NVRLabPlayerStatus = {
@@ -10,11 +11,23 @@ export type NVRLabPlayerStatus = {
 
 type NVRLabPlayerProps = {
   session: NVRLabStreamSession | null;
+  playbackSegment?: PlaybackSegmentTiming | null;
+  playbackCursorUnix?: number | null;
   onStatus?: (status: NVRLabPlayerStatus) => void;
+  onPlaybackStateChange?: (playing: boolean) => void;
+  onSeekPlayback?: (startTime: number) => void;
   onRetry: () => void;
 };
 
-export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) {
+export function NVRLabPlayer({
+  session,
+  playbackSegment = null,
+  playbackCursorUnix = null,
+  onStatus,
+  onPlaybackStateChange,
+  onSeekPlayback,
+  onRetry,
+}: NVRLabPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playerRef = useRef<NVRPlayer | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
@@ -40,19 +53,23 @@ export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) 
       onConnected: () => report({ stage: "connected", message: "视频流已连接，等待画面" }),
       onFirstFrame: () => {
         setPlaying(true);
+        onPlaybackStateChange?.(true);
         report({ stage: "first-frame", message: "画面已开始播放" });
       },
       onDisconnected: () => {
         setPlaying(false);
+        onPlaybackStateChange?.(false);
         report({ stage: "error", message: "视频流已断开，请重新连接" });
       },
       onError: (error) => {
         setPlaying(false);
+        onPlaybackStateChange?.(false);
         report({ stage: "error", message: playerErrorMessage(error) });
       },
     });
     playerRef.current = player;
     setPlaying(false);
+    onPlaybackStateChange?.(false);
     setMuted(true);
     report({ stage: "connecting", message: "正在连接视频流" });
     void player.play(session.url).catch((error: unknown) => report({ stage: "error", message: playerErrorMessage(error) }));
@@ -60,9 +77,10 @@ export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) 
     return () => {
       disposed = true;
       player.stop();
+      onPlaybackStateChange?.(false);
       if (playerRef.current === player) playerRef.current = null;
     };
-  }, [session, onStatus]);
+  }, [session, onPlaybackStateChange, onStatus]);
 
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -76,10 +94,12 @@ export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) 
     if (playing) {
       player.pause();
       setPlaying(false);
+      onPlaybackStateChange?.(false);
       return;
     }
     player.resume();
     setPlaying(true);
+    onPlaybackStateChange?.(true);
   }
 
   async function toggleSound() {
@@ -127,7 +147,19 @@ export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) 
             <H5PlayerControls
               state={{ playing, muted, loading: status.stage === "connecting", failed: status.stage === "error", fullscreen, landscape }}
               visible={controlsVisible}
-              center={<span>{session?.mode === "playback" ? "录像" : "实时视频"}</span>}
+              center={
+                session?.mode === "playback" && playbackSegment && onSeekPlayback ? (
+                  <PlaybackSegmentSlider
+                    segment={playbackSegment}
+                    disabled={status.stage === "connecting" || status.stage === "error"}
+                    currentStartTime={playbackCursorUnix}
+                    compactControls
+                    onCommit={onSeekPlayback}
+                  />
+                ) : (
+                  <span>{session?.mode === "playback" ? "录像" : "实时视频"}</span>
+                )
+              }
               onTogglePlay={() => void togglePlay()}
               onToggleSound={() => void toggleSound()}
               onScreenshot={screenshot}

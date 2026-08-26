@@ -6020,3 +6020,10 @@ git pull --ff-only
 - 本地验证：Vitest `10 files / 59 tests` 与 `npm run build` 通过。Chrome 验收确认 `h5-bottom-tabs` 的计算样式为 `position: fixed`；点击“录像”后底栏选中且 24 个小时段出现；播放器内部无模式切换控件。
 - 提交与发布：`48102a7 fix: use page bottom bar for nvr modes` 已推送 GitHub 备份与 GitLab `codex/containerize-single-image`；Wharf `752` 已自动部署，未触碰正式 `main`。
 - 测试环境 Chrome 验收：`camera_id=82` 直播画面正常；`h5-bottom-tabs` 固定在页面视口底部；点击录像后底栏选中、日期和 24 个小时段出现；播放器内部的模式导航数量为 `0`。本轮原先错误的 `ca3c938` 内部控制栏实现已被此版本覆盖。
+
+### 2026-08-26 进行中：3.1.12 NVR 回放进度定位
+
+- 产品需求：NVR 回放补齐 2.x 播放器内的回放进度拖动。
+- 实现：复用 `PlaybackSegmentSlider`，将其时间范围类型从旧萤石记录片段抽成只含开始/结束秒的通用结构。NVR 页在已创建回放会话时将小时窗口传入播放器中央；直播和无回放会话时保留原有模式文字。
+- 定位语义：拖动完成以目标秒为新的回放开始时间、保留已选小时窗口的结束时间，重新向后端签发 WSS 会话。工控机 SDK 未公开可靠媒体时间码，因此游标仅在首帧后依据播放/暂停状态作秒级估算，拖动后以新会话的实际流为准。
+- 本地验证：Vitest `10 files / 60 tests` 与 `npm run build` 通过。Chrome 插件本地预览确认页面级 `h5-bottom-tabs` 仍是唯一模式入口，播放器内没有模式导航；本地未连接公司后端，故页面返回 HTTP 500，无法伪造真实回放会话或滑块呈现。当前开发机未安装 Go，`go test ./...` 与 `go build` 留给 Wharf 构建补验。待发布测试环境后以真实回放窗口验收首帧、游标推进和拖动重定位。

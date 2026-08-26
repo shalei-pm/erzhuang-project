@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { nvrLabApi, NVRLabApiError } from "../api-nvr-lab";
 import { NVRLabPlayer, type NVRLabPlayerStatus } from "../components/NVRLabPlayer";
+import type { PlaybackSegmentTiming } from "../components/PlaybackSegmentSlider";
 import { PlaybackDatePicker, initialPlaybackDateTimeValue } from "../components/PlaybackDatePicker";
 import { SystemTopBar } from "../components/SystemTopBar";
 import {
@@ -33,7 +34,30 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
   const [message, setMessage] = useState("");
   const [playerStatus, setPlayerStatus] = useState<NVRLabPlayerStatus>({ stage: "idle", message: "播放器准备中" });
   const [playbackStartAt, setPlaybackStartAt] = useState(() => playbackQueryValue("start_at") || initialPlaybackDateTimeValue(new Date(Date.now() - NVR_LAB_MAX_PLAYBACK_SECONDS * 1000)));
+  const [activePlaybackRange, setActivePlaybackRange] = useState<NVRLabPlaybackRange | null>(null);
+  const [playbackCursorUnix, setPlaybackCursorUnix] = useState<number | null>(null);
+  const [playbackPlaying, setPlaybackPlaying] = useState(false);
+  const [playbackStartedAtMs, setPlaybackStartedAtMs] = useState<number | null>(null);
+  const [playbackElapsedSeconds, setPlaybackElapsedSeconds] = useState(0);
+  const activePlaybackRangeRef = useRef<NVRLabPlaybackRange | null>(null);
+  const playbackCursorRef = useRef<number | null>(null);
+  const modeRef = useRef<NVRLabMode>("live");
   const playbackRange = buildNVRLabPlaybackFromStart(playbackStartAt);
+  const playbackSegment: PlaybackSegmentTiming | null = activePlaybackRange
+    ? { start_time: activePlaybackRange.startTime, end_time: activePlaybackRange.endTime }
+    : null;
+
+  useEffect(() => {
+    activePlaybackRangeRef.current = activePlaybackRange;
+  }, [activePlaybackRange]);
+
+  useEffect(() => {
+    playbackCursorRef.current = playbackCursorUnix;
+  }, [playbackCursorUnix]);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,11 +107,18 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
     setMode(nextMode);
     setSession(null);
     setMessage("");
+    if (nextMode === "live") resetPlaybackProgress();
     if (nextMode === "live") void requestSession("live");
   }
 
   function playPlayback(range: NVRLabPlaybackRange) {
     setMessage("");
+    setPlayerStatus({ stage: "connecting", message: "正在连接视频流" });
+    setActivePlaybackRange(range);
+    setPlaybackCursorUnix(range.startTime);
+    setPlaybackPlaying(false);
+    setPlaybackStartedAtMs(null);
+    setPlaybackElapsedSeconds(0);
     void requestSession("playback", range.startTime, range.endTime);
   }
 
@@ -96,7 +127,44 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
       void requestSession("live");
       return;
     }
-    if (playbackRange) playPlayback(playbackRange);
+    const retryRange = activePlaybackRange || playbackRange;
+    if (retryRange) playPlayback(retryRange);
+  }
+
+  const handlePlaybackStateChange = useCallback((playing: boolean) => {
+    setPlaybackPlaying(playing);
+    const range = activePlaybackRangeRef.current;
+    if (modeRef.current !== "playback" || !range) return;
+    const cursor = playbackCursorRef.current ?? range.startTime;
+    const elapsed = Math.min(Math.max(0, cursor - range.startTime), Math.max(0, range.endTime - range.startTime - 1));
+    setPlaybackElapsedSeconds(elapsed);
+    setPlaybackStartedAtMs(playing ? Date.now() : null);
+  }, []);
+
+  const seekPlayback = useCallback((startTime: number) => {
+    const range = activePlaybackRangeRef.current;
+    if (!range || startTime < range.startTime || startTime >= range.endTime) return;
+    playPlayback({ ...range, startTime, startAt: formatPlaybackStartAt(startTime) });
+  }, []);
+
+  useEffect(() => {
+    if (!activePlaybackRange || !playbackPlaying || playbackStartedAtMs === null) return;
+    const tick = () => {
+      const elapsed = playbackElapsedSeconds + Math.max(0, Math.floor((Date.now() - playbackStartedAtMs) / 1000));
+      const cursor = Math.min(activePlaybackRange.endTime - 1, activePlaybackRange.startTime + elapsed);
+      setPlaybackCursorUnix(cursor);
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [activePlaybackRange, playbackElapsedSeconds, playbackPlaying, playbackStartedAtMs]);
+
+  function resetPlaybackProgress() {
+    setActivePlaybackRange(null);
+    setPlaybackCursorUnix(null);
+    setPlaybackPlaying(false);
+    setPlaybackStartedAtMs(null);
+    setPlaybackElapsedSeconds(0);
   }
 
   return (
@@ -111,7 +179,15 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
           </div>
         </header>
         <section className="h5-viewer-player" aria-label="监控画面">
-          <NVRLabPlayer session={session} onRetry={retrySession} onStatus={setPlayerStatus} />
+          <NVRLabPlayer
+            session={session}
+            playbackSegment={playbackSegment}
+            playbackCursorUnix={playbackCursorUnix}
+            onRetry={retrySession}
+            onStatus={setPlayerStatus}
+            onPlaybackStateChange={handlePlaybackStateChange}
+            onSeekPlayback={seekPlayback}
+          />
         </section>
         {message ? <div className="h5-error">{message}</div> : null}
         <div className="h5-player-status-panel">
@@ -182,6 +258,11 @@ function hourLabel(hour: number): string {
 
 function pad2(value: number): string {
   return `${value}`.padStart(2, "0");
+}
+
+function formatPlaybackStartAt(unix: number): string {
+  const value = new Date(unix * 1000);
+  return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}T${pad2(value.getHours())}:${pad2(value.getMinutes())}`;
 }
 
 function playbackQueryValue(key: "start_at"): string {

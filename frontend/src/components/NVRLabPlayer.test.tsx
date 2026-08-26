@@ -42,6 +42,22 @@ describe("NVRLabPlayer", () => {
     expect(markup).toContain('aria-label="开启声音"');
   });
 
+  it("renders the 2.x playback progress slider for an active NVR playback window", () => {
+    const markup = renderToStaticMarkup(
+      createElement(NVRLabPlayer, {
+        session: { mode: "playback", url: "wss://example.test/session" },
+        playbackSegment: { start_time: 1_000, end_time: 1_060 },
+        playbackCursorUnix: 1_020,
+        onSeekPlayback: () => undefined,
+        onRetry: () => undefined,
+      }),
+    );
+
+    expect(markup).toContain('aria-label="片段内定位"');
+    expect(markup).toContain('type="range"');
+    expect(markup).toContain('value="20"');
+  });
+
   it("renders the live and playback switcher as the shared page bottom bar", () => {
     vi.stubGlobal("window", { location: { search: "" } });
     const markup = renderToStaticMarkup(
