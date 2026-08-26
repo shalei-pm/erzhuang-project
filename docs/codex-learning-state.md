@@ -6112,3 +6112,4 @@ git pull --ff-only
 - 最终代码质量复审发现并关闭：独立镜像遗漏 `internal/resourceview` 依赖、单横线/双横线混用可绕过重复 `camera-id` 校验、ffmpeg deadline 错误分类不准确、以及失败 JPEG 和读取临时缓冲未清零。
 - 最终本机验证通过：`gofmt`、`CGO_ENABLED=0 go test ./cmd/nvr-snapshot-spike ./internal/nvrsnapshot -count=1 -timeout=30s`、`go build -o /tmp/nvr-snapshot-spike ./cmd/nvr-snapshot-spike`、`go vet ./cmd/nvr-snapshot-spike ./internal/nvrsnapshot`、`go mod verify` 和 `git diff --check`。
 - Docker CLI 在当前开发机不存在，`Dockerfile.nvr-snapshot-spike` 尚无本机镜像构建证据；不得将其表述为已构建。提交后由公司 Linux/Wharf 或具备 Docker 的隔离构建环境执行独立镜像构建，并补全仓 Go 测试与 `go test -race ./internal/nvrsnapshot`。
+- 代码版本：`c53d631 feat: add nvr snapshot spike runner` 已仅推送 GitHub `origin/codex/containerize-single-image`；未推公司 GitLab、未触发 Wharf、未部署测试或正式环境。
