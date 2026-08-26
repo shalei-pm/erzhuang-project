@@ -1,0 +1,21 @@
+# Temporary test Job template. Operations replaces the image and existing
+# Secret references during submission; do not add these values to the Web Pod.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: erzhuang-nvr-snapshot-backfill-10001
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  parallelism: 1
+  completions: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: nvr-snapshot-backfill
+          image: REPLACE_WITH_RUNNER_IMAGE
+          args: ["--tenant-id=10001", "--camera-id=111", "--request-interval=2s"]
+          envFrom:
+            - secretRef:
+                name: REPLACE_WITH_EXISTING_TEST_RUNTIME_SECRET

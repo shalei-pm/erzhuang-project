@@ -15,6 +15,30 @@ func NewMySQLRepository(db *sql.DB) *MySQLRepository {
 	return &MySQLRepository{db: db}
 }
 
+// AcquireJobLock prevents two independently submitted Jobs from capturing in
+// parallel. The returned release function must be called after Run completes.
+func (r *MySQLRepository) AcquireJobLock(ctx context.Context) (func(), error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("nvr snapshot repository is not configured")
+	}
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var acquired int
+	if err := conn.QueryRowContext(ctx, "select get_lock('erzhuang:nvr-snapshot-backfill', 0)").Scan(&acquired); err != nil || acquired != 1 {
+		conn.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("nvr snapshot backfill is already running")
+	}
+	return func() {
+		_, _ = conn.ExecContext(context.Background(), "select release_lock('erzhuang:nvr-snapshot-backfill')")
+		_ = conn.Close()
+	}, nil
+}
+
 func (r *MySQLRepository) ListCandidates(ctx context.Context, selection Selection) ([]Candidate, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("nvr snapshot repository is not configured")
