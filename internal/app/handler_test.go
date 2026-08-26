@@ -2016,12 +2016,20 @@ func (r fakeAppResourceRepository) ListStores(ctx context.Context, filters resou
 	return r.records, nil
 }
 
+func (r fakeAppResourceRepository) ListNVRMonitorStores(ctx context.Context) ([]resourceview.StoreRecords, error) {
+	return r.ListStores(ctx, resourceview.StoreFilters{})
+}
+
 func (r fakeAppResourceRepository) GetStoreRecords(ctx context.Context, tenantID int64) (resourceview.StoreRecords, error) {
 	record, ok := r.byID[tenantID]
 	if !ok {
 		return resourceview.StoreRecords{}, resourceview.ErrNotFound
 	}
 	return record, nil
+}
+
+func (r fakeAppResourceRepository) GetNVRMonitorStoreRecords(ctx context.Context, tenantID int64) (resourceview.StoreRecords, error) {
+	return r.GetStoreRecords(ctx, tenantID)
 }
 
 func authUsersContain(users []AuthUserRecord, email string, role string) bool {

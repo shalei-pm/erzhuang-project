@@ -17,6 +17,7 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 	"github.com/shalei-pm/erzhuang-project/internal/nvrlab"
+	"github.com/shalei-pm/erzhuang-project/internal/nvrmonitor"
 	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 
@@ -28,6 +29,8 @@ func main() {
 	handler := app.NewHandler()
 	var resourceViewService *resourceview.Service
 	var nvrLabService *nvrlab.Service
+	var nvrMonitorService *nvrmonitor.Service
+	monitorPlaybackMode := app.MonitorPlaybackModeFromEnv()
 
 	if config, err := databaseConfigFromEnv(); err != nil {
 		log.Fatalf("database config failed: %v", err)
@@ -52,7 +55,11 @@ func main() {
 		resourceViewService = resourceview.NewService(resourceViewRepository)
 		if authorization := nvrLabAuthorizationFromEnv(); authorization != "" {
 			nvrLabService = nvrlab.NewService(resourceViewRepository, nvrlab.NewHTTPAuthorizationClient(nil, authorization))
-			log.Print("nvr lab stream authorization enabled")
+			nvrMonitorService = nvrmonitor.NewService(resourceViewRepository, nvrmonitor.NewHTTPAuthorizationClient(nil, authorization))
+			log.Print("nvr stream authorization enabled")
+		} else if monitorPlaybackMode == app.MonitorPlaybackModeNVR {
+			monitorPlaybackMode = app.MonitorPlaybackModeLegacy
+			log.Print("nvr monitor requested without authorization secret; using legacy monitor")
 		}
 		appStore = mysqlAppStore
 		storeSpaceRepo = mysqlStoreSpaceRepo
@@ -77,10 +84,10 @@ func main() {
 			h5MonitorService = h5monitor.NewService(h5RepositoryFactory(ezvizAccounts), ezviz.NewClient(ezviz.ClientOptions{}))
 			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
-		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRLab(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService)
+		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode)
 		log.Printf("database store and resource view enabled: %s", config.Driver)
 	} else {
-		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRLab(app.NewMemoryStore(), designplan.NewService(designplan.NewMemoryStore()), storespace.NewService(storespace.NewMemoryStore()), nil, resourceViewService, nvrLabService)
+		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(app.NewMemoryStore(), designplan.NewService(designplan.NewMemoryStore()), storespace.NewService(storespace.NewMemoryStore()), nil, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode)
 		log.Print("database store disabled: using memory store")
 	}
 

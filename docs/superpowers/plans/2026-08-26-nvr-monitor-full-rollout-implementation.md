@@ -122,10 +122,11 @@ type Repository interface {
     ListStores(ctx context.Context, filters StoreFilters) ([]StoreRecords, error)
     ListNVRMonitorStores(ctx context.Context) ([]StoreRecords, error)
     GetStoreRecords(ctx context.Context, tenantID int64) (StoreRecords, error)
+    GetNVRMonitorStoreRecords(ctx context.Context, tenantID int64) (StoreRecords, error)
 }
 ```
 
-`ListNVRMonitorStores` 使用独立基础 SQL 找出具备有效工控机摄像头的启用门店，再复用 `getStoreRecordsForTenant` 补齐摄像头、空间、关系和旧缩略图。不得向 `tb_crm_*` 任何表写数据，也不得把旧萤石通道作为新准入条件。
+`ListNVRMonitorStores` 与 `GetNVRMonitorStoreRecords` 使用独立基础 SQL 找出具备有效工控机摄像头的启用门店，再复用 `getStoreRecordsForTenant` 补齐摄像头、空间、关系和旧缩略图。不得向 `tb_crm_*` 任何表写数据，也不得把旧萤石通道作为新准入条件。
 
 - [ ] **Step 4: 运行仓储与资源视图全量测试**
 
@@ -428,3 +429,8 @@ git commit -m "docs: record nvr monitor rollout verification"
 - 非目标：计划不删除萤石代码、账号或历史数据；不新增 DDL、不写 `tb_crm_*`；不增加抓图或并发限制。
 - 一致性：NVR API 固定使用 `/api/h5/nvr-monitor`，正常前端路由固定使用 `/h5/orgs/{externalOrgId}/monitor`，所有会话请求统一携带 `mode` 与可选 Unix 秒级 `start_time`/`end_time`。
 - 发布门禁：先测试分支，完成 `nvr -> legacy` 演练后才具备正式发布条件。
+
+## Execution Record
+
+- 2026-08-26：已完成 Task 1 至 Task 6 的首版代码，版本更新为 `3.2.0`。前端 `npm test -- --run` 为 `10 files / 62 tests` 通过，`npm run build` 通过；本机无 Go/gofmt，后端测试和编译仍以 Wharf 测试构建为准。
+- 尚未完成 Task 7：必须先把测试实例 `MONITOR_PLAYBACK_MODE` 设为 `nvr`，完成多城市、三种角色、直播/回放、旧深链接和 `nvr -> legacy` 演练，才可评估正式发布。

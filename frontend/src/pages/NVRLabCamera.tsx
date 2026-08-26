@@ -19,6 +19,7 @@ import {
 import type { AuthState } from "../domain/auth";
 
 type NVRLabCameraProps = {
+	externalOrgId: string;
   cameraId: number;
   auth: AuthState | null;
   loggingOut: boolean;
@@ -28,7 +29,7 @@ type NVRLabCameraProps = {
   onBack: () => void;
 };
 
-export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout, onAuthRequired, onBack }: NVRLabCameraProps) {
+export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMessage, onLogout, onAuthRequired, onBack }: NVRLabCameraProps) {
   const [camera, setCamera] = useState<NVRLabCamera | null>(null);
   const [mode, setMode] = useState<NVRLabMode>("live");
   const [session, setSession] = useState<NVRLabStreamSession | null>(null);
@@ -63,7 +64,7 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
   useEffect(() => {
     let cancelled = false;
     nvrLabApi
-      .listCameras()
+      .listCameras(externalOrgId)
       .then((response) => {
         if (cancelled) return;
         const found = response.cameras.find((item) => item.id === cameraId) || null;
@@ -76,14 +77,14 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
     return () => {
       cancelled = true;
     };
-  }, [cameraId]);
+  }, [cameraId, externalOrgId]);
 
   const requestSession = useCallback(
     async (nextMode: NVRLabMode, nextStart?: number, nextEnd?: number) => {
       setSession(null);
       setMessage("");
       try {
-        const nextSession = await nvrLabApi.createStreamSession(cameraId, nextMode, nextStart, nextEnd);
+        const nextSession = await nvrLabApi.createStreamSession(externalOrgId, cameraId, nextMode, nextStart, nextEnd);
         setSession(nextSession);
       } catch (error) {
         if (error instanceof NVRLabApiError && error.status === 401) {
@@ -97,7 +98,7 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
         setMessage(error instanceof Error ? error.message : "播放会话创建失败");
       }
     },
-    [cameraId, onAuthRequired],
+	[externalOrgId, cameraId, onAuthRequired],
   );
 
   useEffect(() => {
@@ -180,7 +181,7 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
         <header className="h5-viewer-header">
           <div className="h5-viewer-title">
             <h1>{camera ? nvrLabCameraTitle(camera) : "摄像头监控"}</h1>
-            <span>{camera ? nvrLabCameraSubtitle(camera) : "工控机取流实验"}</span>
+            <span>{camera ? nvrLabCameraSubtitle(camera) : "工控机监控"}</span>
           </div>
         </header>
         <section className="h5-viewer-player" aria-label="监控画面">

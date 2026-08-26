@@ -17,6 +17,7 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 	"github.com/shalei-pm/erzhuang-project/internal/nvrlab"
+	"github.com/shalei-pm/erzhuang-project/internal/nvrmonitor"
 	"github.com/shalei-pm/erzhuang-project/internal/osssmoke"
 	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
@@ -64,6 +65,8 @@ type Handler struct {
 	mysqlInventoryRunner     mysqlAssetInventoryRunner
 	storeSpaceService        *storespace.Service
 	resourceViewService      *resourceview.Service
+	nvrMonitorService        *nvrmonitor.Service
+	monitorPlaybackMode      MonitorPlaybackMode
 }
 
 func NewHandler() http.Handler {
@@ -75,32 +78,37 @@ func NewHandlerWithStore(store Store) http.Handler {
 }
 
 func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository, storeSpaceRepo storespace.Repository) http.Handler {
-	return newHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo), nil, nil, nil)
+	return newHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo), nil, nil, nil, nil, MonitorPlaybackModeLegacy)
 }
 
 func NewHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, nil, nil, nil)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, nil, nil, nil, nil, MonitorPlaybackModeLegacy)
 }
 
 func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, nil, nil)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, nil, nil, nil, MonitorPlaybackModeLegacy)
 }
 
 func NewHandlerWithServicesAndH5MonitorAndResourceView(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nil)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nil, nil, MonitorPlaybackModeLegacy)
 }
 
 func NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRLab(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nil, MonitorPlaybackModeLegacy)
 }
 
-func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service) http.Handler {
-	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner, storeSpaceService: storeSpaceService, resourceViewService: resourceViewService}
+func NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode)
+}
+
+func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
+	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner, storeSpaceService: storeSpaceService, resourceViewService: resourceViewService, nvrMonitorService: nvrMonitorService, monitorPlaybackMode: monitorPlaybackMode}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
 	mux.HandleFunc("GET /api/auth/me", handler.authMeHandler)
 	mux.HandleFunc("POST /api/auth/logout", handler.authLogoutHandler)
+	mux.HandleFunc("GET /api/h5/monitor-mode", handler.requirePermissionHandler(PermissionStoreRead, handler.monitorModeHandler))
 	mux.HandleFunc("GET /_/auth/callback", handler.authCallbackHandler)
 	mux.HandleFunc("GET /logout", handler.authLogoutHandler)
 	mux.HandleFunc("GET /api/users/monitor-store-scope-candidates", handler.listMonitorStoreScopeCandidatesHandler)
@@ -123,11 +131,17 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	resourceview.RegisterRoutesWithReadGuard(mux, resourceViewService, handler.resourceViewMonitorAccess, handler.storeReadGuard)
 	mux.HandleFunc("GET /api/store-space-resource-view/stores/{tenantId}/cameras/{cameraId}/snapshot", handler.storeReadGuard(handler.resourceViewLegacySnapshotHandler))
 	nvrlab.RegisterRoutes(mux, nvrLabService, handler.nvrLabAdminGuard)
-	if h5MonitorService != nil {
+	if monitorPlaybackMode == MonitorPlaybackModeNVR && nvrMonitorService != nil {
+		nvrmonitor.RegisterRoutesWithAuthorizer(mux, nvrMonitorService, nvrMonitorAuthorizer{handler: handler})
+	} else if h5MonitorService != nil {
 		h5monitor.RegisterRoutesWithAuthorizer(mux, h5MonitorService, h5MonitorAuthorizer{handler: handler})
 	}
 	registerFrontendRoutes(mux)
 	return withBasePathAPIPrefixes(mux)
+}
+
+func (h *Handler) monitorModeHandler(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"mode": string(h.monitorPlaybackMode)})
 }
 
 func (h *Handler) resourceViewLegacySnapshotHandler(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +230,21 @@ func (h *Handler) resourceViewMonitorAccess(r *http.Request, tenantID int64) (re
 	}
 	if !ok {
 		return resourceview.MonitorAccess{}, nil
+	}
+	if h.monitorPlaybackMode == MonitorPlaybackModeNVR {
+		if h.nvrMonitorService == nil {
+			return resourceview.MonitorAccess{}, nil
+		}
+		cameras, err := h.nvrMonitorService.GetCameras(r.Context(), externalOrgID)
+		if errors.Is(err, nvrmonitor.ErrStoreNotFound) || errors.Is(err, nvrmonitor.ErrNotConfigured) {
+			return resourceview.MonitorAccess{}, nil
+		}
+		if err != nil {
+			return resourceview.MonitorAccess{}, err
+		}
+		if len(cameras.Cameras) == 0 {
+			return resourceview.MonitorAccess{}, nil
+		}
 	}
 	return resourceview.MonitorAccess{
 		CanViewMonitor: true,

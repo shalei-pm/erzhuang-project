@@ -84,6 +84,49 @@ where id = ? and status = 1
 	return r.getStoreRecordsForTenant(ctx, tenant)
 }
 
+func (r *MySQLRepository) ListNVRMonitorStores(ctx context.Context) ([]StoreRecords, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("mysql resource view repository is not configured")
+	}
+	rows, err := r.db.QueryContext(ctx, listNVRMonitorStoreBaseSQL+" order by t.city_id asc, t.id asc")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := []StoreRecords{}
+	for rows.Next() {
+		tenant, err := scanBusinessTenant(rows)
+		if err != nil {
+			return nil, err
+		}
+		record, err := r.getStoreRecordsForTenant(ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
+func (r *MySQLRepository) GetNVRMonitorStoreRecords(ctx context.Context, tenantID int64) (StoreRecords, error) {
+	if r == nil || r.db == nil {
+		return StoreRecords{}, errors.New("mysql resource view repository is not configured")
+	}
+	row := r.db.QueryRowContext(ctx, listNVRMonitorStoreBaseSQL+" and t.id = ?", tenantID)
+	tenant, err := scanBusinessTenant(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return StoreRecords{}, ErrNotFound
+	}
+	if err != nil {
+		return StoreRecords{}, err
+	}
+	return r.getStoreRecordsForTenant(ctx, tenant)
+}
+
 func (r *MySQLRepository) getStoreRecordsForTenant(ctx context.Context, tenant BusinessTenant) (StoreRecords, error) {
 	devices, err := r.listDevices(ctx, tenant.ID)
 	if err != nil {
@@ -245,6 +288,20 @@ where t.status = 1
     from tb_crm_iot_device d
     where d.tenant_id = t.id
       and d.category = 'edge'
+      and d.status = 1
+      and d.deleted_at is null
+  )`
+
+const listNVRMonitorStoreBaseSQL = `
+select t.id, t.name, t.hospital_name, t.status, t.province_id, t.city_id
+from tb_crm_admin_tenant t
+where t.status = 1
+  and exists (
+    select 1
+    from tb_crm_iot_device d
+    where d.tenant_id = t.id
+      and d.category = 'camera'
+      and d.provider = 'HikVisionNvrChannel'
       and d.status = 1
       and d.deleted_at is null
   )`

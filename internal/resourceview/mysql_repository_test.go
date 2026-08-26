@@ -71,3 +71,26 @@ func TestMySQLRepositoryUsesSyncedResourceTableColumnNames(t *testing.T) {
 		}
 	}
 }
+
+func TestMySQLRepositoryHasDedicatedNVRMonitorEligibilityQuery(t *testing.T) {
+	content, err := os.ReadFile("mysql_repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := strings.ToLower(string(content))
+	for _, required := range []string{
+		"listnvrmonitorstores",
+		"getnvrmonitorstorerecords",
+		"listnvrmonitorstorebasesql",
+		"t.status = 1",
+		"d.category = 'camera'",
+		"d.provider = 'hikvisionnvrchannel'",
+		"d.status = 1",
+		"d.deleted_at is null",
+		"order by t.city_id asc, t.id asc",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("mysql repository missing nvr monitor eligibility token %q", required)
+		}
+	}
+}

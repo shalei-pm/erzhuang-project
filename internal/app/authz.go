@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
+	"github.com/shalei-pm/erzhuang-project/internal/nvrmonitor"
 )
 
 var (
@@ -104,6 +105,55 @@ func hasPermission(values []string, target string) bool {
 
 type h5MonitorAuthorizer struct {
 	handler *Handler
+}
+
+type nvrMonitorAuthorizer struct {
+	handler *Handler
+}
+
+func (a nvrMonitorAuthorizer) CanViewStore(r *http.Request, externalOrgID string) (bool, error) {
+	user, err := a.handler.currentAuthUser(r)
+	if err != nil {
+		return false, nvrMonitorAuthError(err)
+	}
+	return a.handler.store.CanUserViewMonitorStore(r.Context(), user, externalOrgID)
+}
+
+func (a nvrMonitorAuthorizer) FilterStores(r *http.Request, response nvrmonitor.MonitorStoresResponse) (nvrmonitor.MonitorStoresResponse, error) {
+	user, err := a.handler.currentAuthUser(r)
+	if err != nil {
+		return nvrmonitor.MonitorStoresResponse{}, nvrMonitorAuthError(err)
+	}
+	if normalizeRole(user.Role) != RoleViewer {
+		return response, nil
+	}
+	filtered := nvrmonitor.MonitorStoresResponse{}
+	for _, group := range response.Cities {
+		nextGroup := nvrmonitor.StoreCityGroup{City: group.City}
+		for _, store := range group.Stores {
+			ok, err := a.handler.store.CanUserViewMonitorStore(r.Context(), user, store.ExternalOrgID)
+			if err != nil {
+				return nvrmonitor.MonitorStoresResponse{}, err
+			}
+			if ok {
+				nextGroup.Stores = append(nextGroup.Stores, store)
+			}
+		}
+		if len(nextGroup.Stores) > 0 {
+			filtered.Cities = append(filtered.Cities, nextGroup)
+		}
+	}
+	return filtered, nil
+}
+
+func nvrMonitorAuthError(err error) error {
+	if errors.Is(err, errUnauthorizedAuth) {
+		return nvrmonitor.ErrUnauthorized
+	}
+	if errors.Is(err, errForbiddenAuth) {
+		return nvrmonitor.ErrForbidden
+	}
+	return err
 }
 
 func (a h5MonitorAuthorizer) CurrentUser(r *http.Request) (h5monitor.AuthContext, error) {

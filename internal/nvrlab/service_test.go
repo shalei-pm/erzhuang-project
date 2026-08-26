@@ -16,12 +16,20 @@ func (r fakeRepository) ListStores(context.Context, resourceview.StoreFilters) (
 	return nil, nil
 }
 
+func (r fakeRepository) ListNVRMonitorStores(context.Context) ([]resourceview.StoreRecords, error) {
+	return nil, nil
+}
+
 func (r fakeRepository) GetStoreRecords(_ context.Context, tenantID int64) (resourceview.StoreRecords, error) {
 	record, ok := r.records[tenantID]
 	if !ok {
 		return resourceview.StoreRecords{}, resourceview.ErrNotFound
 	}
 	return record, nil
+}
+
+func (r fakeRepository) GetNVRMonitorStoreRecords(_ context.Context, tenantID int64) (resourceview.StoreRecords, error) {
+	return r.GetStoreRecords(context.Background(), tenantID)
 }
 
 type fakeAuthorizationClient struct {

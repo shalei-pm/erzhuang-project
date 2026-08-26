@@ -62,6 +62,7 @@ describe("NVRLabPlayer", () => {
     vi.stubGlobal("window", { location: { search: "" } });
     const markup = renderToStaticMarkup(
       createElement(NVRLabCamera, {
+		externalOrgId: "10001",
         cameraId: 111,
         auth: null,
         loggingOut: false,

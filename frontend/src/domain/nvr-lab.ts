@@ -1,5 +1,6 @@
 export type NVRLabMode = "live" | "playback";
 export type NVRLabRoute = { name: "home" } | { name: "camera"; cameraId: number } | null;
+export type NVRMonitorRoute = { name: "home"; externalOrgId: string } | { name: "camera"; externalOrgId: string; cameraId: number } | null;
 export const NVR_LAB_MAX_PLAYBACK_SECONDS = 60 * 60;
 
 export type NVRLabPlaybackRange = {
@@ -23,9 +24,22 @@ export type NVRLabCamera = {
 };
 
 export type NVRLabCameraListResponse = {
+	external_org_id: string;
   tenant_id: number;
   store_name: string;
+	city?: string;
   cameras: NVRLabCamera[];
+};
+
+export type NVRMonitorStoreInfo = {
+  external_org_id: string;
+  store_name: string;
+  city: string;
+  available_camera_count: number;
+};
+
+export type NVRMonitorStoresResponse = {
+  cities: Array<{ city: string; stores: NVRMonitorStoreInfo[] }>;
 };
 
 export type NVRLabStreamSession = {
@@ -51,6 +65,17 @@ export function parseNVRLabRoute(pathname: string): NVRLabRoute {
   if (parts.length !== h5Index + 5 || parts[h5Index + 3] !== "cameras") return null;
   const cameraId = Number(parts[h5Index + 4]);
   return Number.isInteger(cameraId) && cameraId > 0 ? { name: "camera", cameraId } : null;
+}
+
+export function parseNVRMonitorRoute(pathname: string): NVRMonitorRoute {
+  const parts = pathname.split("/").filter(Boolean);
+  const h5Index = parts.lastIndexOf("h5");
+  if (h5Index < 0 || parts[h5Index + 1] !== "orgs" || !parts[h5Index + 2] || parts[h5Index + 3] !== "monitor") return null;
+  const externalOrgId = decodeURIComponent(parts[h5Index + 2]);
+  if (parts.length === h5Index + 4) return { name: "home", externalOrgId };
+  if (parts.length !== h5Index + 6 || parts[h5Index + 4] !== "cameras") return null;
+  const cameraId = Number(parts[h5Index + 5]);
+  return Number.isInteger(cameraId) && cameraId > 0 ? { name: "camera", externalOrgId, cameraId } : null;
 }
 
 export function validateNVRLabPlayback(startTime: number, endTime: number): string {
@@ -108,6 +133,20 @@ export function nvrLabCameraTab(camera: NVRLabCamera): NVRLabTabKey {
 export function nvrLabRoutePath(route: Exclude<NVRLabRoute, null>): string {
   const base = (import.meta.env.BASE_URL || "/erzhuang-project/").replace(/\/$/, "");
   return route.name === "home" ? `${base}/h5/nvr-lab/10001` : `${base}/h5/nvr-lab/10001/cameras/${route.cameraId}`;
+}
+
+export function nvrMonitorRoutePath(route: Exclude<NVRMonitorRoute, null>): string {
+  const base = nvrMonitorBasePath();
+  const externalOrgId = encodeURIComponent(route.externalOrgId);
+  return route.name === "home" ? `${base}/h5/orgs/${externalOrgId}/monitor` : `${base}/h5/orgs/${externalOrgId}/monitor/cameras/${route.cameraId}`;
+}
+
+function nvrMonitorBasePath(): string {
+  if (typeof window !== "undefined") {
+    const match = window.location.pathname.match(/^(.*)\/h5\/(?:orgs|nvr-lab)\//);
+    if (match?.[1]) return match[1].replace(/\/$/, "");
+  }
+  return (import.meta.env.BASE_URL || "/erzhuang-project/").replace(/\/$/, "");
 }
 
 function formatDateTimeInput(date: Date): string {

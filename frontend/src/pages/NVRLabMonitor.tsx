@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { nvrLabApi, NVRLabApiError } from "../api-nvr-lab";
 import { SystemTopBar } from "../components/SystemTopBar";
+import { NVRMonitorStoreSwitcher } from "../components/NVRMonitorStoreSwitcher";
 import {
   nvrLabCameraSubtitle,
   nvrLabCameraTab,
@@ -12,16 +13,19 @@ import {
 import type { AuthState } from "../domain/auth";
 
 type NVRLabMonitorProps = {
+  externalOrgId: string;
   auth: AuthState | null;
   loggingOut: boolean;
   authMessage: string;
   onLogout: () => void | Promise<void>;
   onAuthRequired: () => void;
   onOpenCamera: (cameraId: number) => void;
+  onSelectStore: (externalOrgId: string) => void;
 };
 
-export function NVRLabMonitor({ auth, loggingOut, authMessage, onLogout, onAuthRequired, onOpenCamera }: NVRLabMonitorProps) {
-  const [storeName, setStoreName] = useState("北京保利总部店");
+export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, onLogout, onAuthRequired, onOpenCamera, onSelectStore }: NVRLabMonitorProps) {
+	const [storeName, setStoreName] = useState("门店监控");
+	const [city, setCity] = useState("");
   const [cameras, setCameras] = useState<NVRLabCamera[]>([]);
   const [activeTab, setActiveTab] = useState<NVRLabTabKey>("all");
   const [loading, setLoading] = useState(true);
@@ -30,10 +34,11 @@ export function NVRLabMonitor({ auth, loggingOut, authMessage, onLogout, onAuthR
   useEffect(() => {
     let cancelled = false;
     nvrLabApi
-      .listCameras()
+      .listCameras(externalOrgId)
       .then((response) => {
         if (cancelled) return;
-        setStoreName(response.store_name || "北京保利总部店");
+		setStoreName(response.store_name || "门店监控");
+		setCity(response.city || "");
         setCameras(response.cameras || []);
         setMessage("");
       })
@@ -51,7 +56,7 @@ export function NVRLabMonitor({ auth, loggingOut, authMessage, onLogout, onAuthR
     return () => {
       cancelled = true;
     };
-  }, [onAuthRequired]);
+  }, [externalOrgId, onAuthRequired]);
 
   const visibleTabs = useMemo(() => {
     const count = new Map<NVRLabTabKey, number>([["all", cameras.length]]);
@@ -66,10 +71,7 @@ export function NVRLabMonitor({ auth, loggingOut, authMessage, onLogout, onAuthR
       <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
       {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
       <header className="h5-header h5-monitor-header">
-        <div className="nvr-lab-store-heading">
-          <h1>{storeName}</h1>
-          <span>工控机取流实验</span>
-        </div>
+        <NVRMonitorStoreSwitcher currentExternalOrgId={externalOrgId} currentStoreName={storeName} currentCity={city} onAuthRequired={onAuthRequired} onSelectStore={onSelectStore} />
         <span className="h5-channel-count">共 {visibleCameras.length} 路</span>
       </header>
       <nav className="h5-area-tabs" aria-label="区域筛选">

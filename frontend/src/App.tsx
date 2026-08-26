@@ -31,7 +31,8 @@ import {
   readH5MonitorActiveTabFromSearch,
   type H5MonitorTabKey,
 } from "./domain/h5-monitor-active-tab";
-import { parseNVRLabRoute, nvrLabRoutePath } from "./domain/nvr-lab";
+import { nvrLabApi } from "./api-nvr-lab";
+import { parseNVRLabRoute, nvrLabRoutePath, nvrMonitorRoutePath } from "./domain/nvr-lab";
 
 const PAGE_SIZE = 20;
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "local-dev";
@@ -59,6 +60,7 @@ const NVRLabCameraPage = lazy(() => import("./pages/NVRLabCamera").then((module)
 type H5Route =
   | { name: "home"; externalOrgId: string; tab?: H5MonitorTabKey }
   | { name: "channel"; externalOrgId: string; channelId: number; tab?: H5MonitorTabKey }
+	| { name: "nvr-camera"; externalOrgId: string; cameraId: number }
   | { name: "nvr-lab-home" }
   | { name: "nvr-lab-camera"; cameraId: number }
   | null;
@@ -433,6 +435,8 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
+	const [monitorMode, setMonitorMode] = useState<"legacy" | "nvr">("legacy");
+	const [monitorModeLoading, setMonitorModeLoading] = useState(true);
   const showLogoutEntry = shouldShowLogoutEntry(auth);
 
   useEffect(() => {
@@ -468,6 +472,24 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
       window.sessionStorage.removeItem("erzhuang:h5-sso-entry-redirected");
     }
   }, [auth]);
+
+	useEffect(() => {
+		if (!auth?.authenticated) {
+			setMonitorMode("legacy");
+			setMonitorModeLoading(false);
+			return;
+		}
+		setMonitorModeLoading(true);
+		let cancelled = false;
+		nvrLabApi.getMonitorMode().then((response) => {
+			if (!cancelled) setMonitorMode(response.mode === "nvr" ? "nvr" : "legacy");
+		}).catch(() => {
+			if (!cancelled) setMonitorMode("legacy");
+		}).finally(() => {
+			if (!cancelled) setMonitorModeLoading(false);
+		});
+		return () => { cancelled = true; };
+	}, [auth?.authenticated]);
 
   useEffect(() => {
     if (!shouldShowLoginWelcome(auth)) return;
@@ -535,6 +557,53 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
   }
 
+	if (monitorModeLoading) {
+		return <main className="app-shell"><div className="auth-loading">正在加载监控配置...</div></main>;
+	}
+
+	if (monitorMode === "nvr" && route.name === "home") {
+		return <Suspense fallback={<div className="h5-loading">加载中...</div>}><NVRLabMonitorPage
+			externalOrgId={route.externalOrgId}
+			auth={showLogoutEntry ? auth : null}
+			loggingOut={loggingOut}
+			authMessage={authMessage}
+			onLogout={logout}
+			onAuthRequired={handleAuthRequired}
+			onOpenCamera={(cameraId) => {
+				window.history.pushState({}, "", nvrMonitorRoutePath({ name: "camera", externalOrgId: route.externalOrgId, cameraId }));
+				setRoute({ name: "nvr-camera", externalOrgId: route.externalOrgId, cameraId });
+			}}
+			onSelectStore={(externalOrgId) => {
+				window.history.pushState({}, "", nvrMonitorRoutePath({ name: "home", externalOrgId }));
+				setRoute({ name: "home", externalOrgId });
+			}}
+		/></Suspense>;
+	}
+
+	if (monitorMode === "nvr" && route.name === "nvr-camera") {
+		return <Suspense fallback={<div className="h5-loading">加载中...</div>}><NVRLabCameraPage
+			externalOrgId={route.externalOrgId}
+			cameraId={route.cameraId}
+			auth={showLogoutEntry ? auth : null}
+			loggingOut={loggingOut}
+			authMessage={authMessage}
+			onLogout={logout}
+			onAuthRequired={handleAuthRequired}
+			onBack={() => {
+				window.history.replaceState({}, "", nvrMonitorRoutePath({ name: "home", externalOrgId: route.externalOrgId }));
+				setRoute({ name: "home", externalOrgId: route.externalOrgId });
+			}}
+		/></Suspense>;
+	}
+
+	if (monitorMode === "nvr" && route.name === "channel") {
+		return <main className="h5-page h5-monitor-page"><SystemTopBar auth={showLogoutEntry ? auth : null} loggingOut={loggingOut} onLogout={logout} /><div className="h5-empty">监控地址已更新，请返回摄像头列表继续查看。<button type="button" onClick={() => { window.history.replaceState({}, "", nvrMonitorRoutePath({ name: "home", externalOrgId: route.externalOrgId })); setRoute({ name: "home", externalOrgId: route.externalOrgId }); }}>返回摄像头列表</button></div></main>;
+	}
+
+	if (route.name === "nvr-camera") {
+		return <main className="h5-page h5-monitor-page"><div className="h5-empty">当前监控模式不支持该摄像头地址。</div></main>;
+	}
+
   if (route.name === "home") {
     return (
       <Suspense fallback={<div className="h5-loading">加载中...</div>}>
@@ -576,6 +645,7 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     return (
       <Suspense fallback={<div className="h5-loading">加载中...</div>}>
         <NVRLabMonitorPage
+		  externalOrgId="10001"
           auth={showLogoutEntry ? auth : null}
           loggingOut={loggingOut}
           authMessage={authMessage}
@@ -586,6 +656,7 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
             window.history.pushState({}, "", nvrLabRoutePath({ name: "camera", cameraId }));
             setRoute(nextRoute);
           }}
+		  onSelectStore={() => undefined}
         />
       </Suspense>
     );
@@ -595,6 +666,7 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     return (
       <Suspense fallback={<div className="h5-loading">加载中...</div>}>
         <NVRLabCameraPage
+		  externalOrgId="10001"
           cameraId={route.cameraId}
           auth={showLogoutEntry ? auth : null}
           loggingOut={loggingOut}
@@ -636,6 +708,14 @@ function parseH5Route(): H5Route {
   if (nvrLabRoute?.name === "home") return { name: "nvr-lab-home" };
   if (nvrLabRoute?.name === "camera") return { name: "nvr-lab-camera", cameraId: nvrLabRoute.cameraId };
   const h5Path = stripKnownBasePrefix(path);
+	const nvrCameraMatch = h5Path.match(/^\/h5\/orgs\/([^/]+)\/monitor\/cameras\/([^/]+)$/);
+	if (nvrCameraMatch) {
+		const cameraId = Number.parseInt(nvrCameraMatch[2], 10);
+		if (Number.isInteger(cameraId) && cameraId > 0) {
+			return { name: "nvr-camera", externalOrgId: decodeURIComponent(nvrCameraMatch[1]), cameraId };
+		}
+		return null;
+	}
   const tab = normalizeH5RouteTab(readH5MonitorActiveTabFromSearch(window.location.search));
 
   const channelMatch = h5Path.match(/^\/h5\/orgs\/([^/]+)\/monitor\/channels\/([^/]+)$/);

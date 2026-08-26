@@ -92,7 +92,11 @@
 - [x] 正式设计：`docs/superpowers/specs/2026-08-26-nvr-monitor-full-rollout-design.md`。
 - [x] 用户确认：技术实施方案由主会话掌握，必须保留运行时与版本回滚能力。
 - [x] 实施计划：`docs/superpowers/plans/2026-08-26-nvr-monitor-full-rollout-implementation.md`。
-- [ ] 按计划先完成模式开关、只读准入与通用后端模块；每一批次独立验证和提交。
+- [x] 已完成第一版实现：服务端模式开关、只读 NVR 准入、通用 API、门店范围授权、资源查看入口口径和正常 H5 NVR 路由。
+- [x] 前端回归：Vitest `10 files / 62 tests` 和生产构建通过。
+- [ ] 本机没有 `go`/`gofmt`；等待测试 Wharf 构建完成 Go 编译与后端测试门禁。
+- [ ] 测试实例设置 `MONITOR_PLAYBACK_MODE=nvr` 后，完成多城市、多角色、直播/回放、旧深链接和 `nvr -> legacy` 回滚演练。
+- [ ] 测试验收通过后，才进入正式环境 Secret、`main`、pipeline `771` 与审批流程。
 
 ## 当前状态摘要
 

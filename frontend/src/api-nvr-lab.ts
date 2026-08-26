@@ -1,4 +1,4 @@
-import type { NVRLabCameraListResponse, NVRLabMode, NVRLabStreamSession } from "./domain/nvr-lab";
+import type { NVRLabCameraListResponse, NVRLabMode, NVRLabStreamSession, NVRMonitorStoresResponse } from "./domain/nvr-lab";
 
 const API_BASE = apiBase();
 
@@ -15,17 +15,25 @@ export class NVRLabApiError extends Error {
 }
 
 export const nvrLabApi = {
-  listCameras(): Promise<NVRLabCameraListResponse> {
-    return requestJSON(`${API_BASE}/h5/nvr-lab/10001/cameras`);
+  getMonitorMode(): Promise<{ mode: "legacy" | "nvr" }> {
+    return requestJSON(`${API_BASE}/h5/monitor-mode`);
   },
 
-  createStreamSession(cameraId: number, mode: NVRLabMode, startTime?: number, endTime?: number): Promise<NVRLabStreamSession> {
+  listMonitorStores(): Promise<NVRMonitorStoresResponse> {
+    return requestJSON(`${API_BASE}/h5/nvr-monitor/stores`);
+  },
+
+  listCameras(externalOrgId: string): Promise<NVRLabCameraListResponse> {
+    return requestJSON(`${API_BASE}/h5/nvr-monitor/orgs/${encodeURIComponent(externalOrgId)}/cameras`);
+  },
+
+  createStreamSession(externalOrgId: string, cameraId: number, mode: NVRLabMode, startTime?: number, endTime?: number): Promise<NVRLabStreamSession> {
     const payload: Record<string, unknown> = { mode };
     if (mode === "playback") {
       payload.start_time = startTime;
       payload.end_time = endTime;
     }
-    return requestJSON(`${API_BASE}/h5/nvr-lab/10001/cameras/${encodeURIComponent(String(cameraId))}/stream-session`, {
+    return requestJSON(`${API_BASE}/h5/nvr-monitor/orgs/${encodeURIComponent(externalOrgId)}/cameras/${encodeURIComponent(String(cameraId))}/stream-session`, {
       method: "POST",
       body: JSON.stringify(payload),
     });

@@ -100,7 +100,8 @@
 
 ### 当前进行中
 
-- 2026-08-26 工控机 NVR 监控全量替换：用户已确认正常 H5 入口全量切换、未配置门店隐藏、管理员/编辑运维全量可见、普通查看按 `monitor:view` 门店范围过滤；技术实施由主会话负责，必须保留 `MONITOR_PLAYBACK_MODE=nvr|legacy` 运行时回滚和 Git 稳定 commit 回滚。设计与实施计划分别位于 `docs/superpowers/specs/2026-08-26-nvr-monitor-full-rollout-design.md`、`docs/superpowers/plans/2026-08-26-nvr-monitor-full-rollout-implementation.md`；尚未开始业务代码改造。
+- 2026-08-26 工控机 NVR 监控全量替换：用户已确认正常 H5 入口全量切换、未配置门店隐藏、管理员/编辑运维全量可见、普通查看按 `monitor:view` 门店范围过滤；技术实施由主会话负责，必须保留 `MONITOR_PLAYBACK_MODE=nvr|legacy` 运行时回滚和 Git 稳定 commit 回滚。设计与实施计划分别位于 `docs/superpowers/specs/2026-08-26-nvr-monitor-full-rollout-design.md`、`docs/superpowers/plans/2026-08-26-nvr-monitor-full-rollout-implementation.md`；当前已进入测试发布前的代码验证阶段。
+- 2026-08-26 3.2.0 全量 NVR 首版已完成本地实现，待测试发布：新增 `internal/nvrmonitor`，正常路由在 `MONITOR_PLAYBACK_MODE=nvr` 时改用 NVR 门店、摄像头和会话接口；默认/非法模式或缺少 `K8S_SECRET_NVR_STREAM_AUTHORIZATION` 时回退 `legacy`。NVR 准入固定为启用门店下 `category='camera' AND provider='HikVisionNvrChannel' AND status=1 AND deleted_at IS NULL`；前端同一构建通过受认证的 `/api/h5/monitor-mode` 在运行时选择 NVR 或旧萤石页面，旧通道深链接不猜测映射。前端 Vitest `62` 项和生产构建已通过；本机没有 Go，后端编译和测试必须由 Wharf 测试构建补验。待测试 K8s 开关为 `nvr` 后做实际功能与回滚演练。
 
 - 建立文件化项目记忆机制：
   - `docs/codex-learning-state.md`：长期状态、发布记录、关键上下文。

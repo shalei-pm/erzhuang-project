@@ -1,0 +1,234 @@
+package nvrmonitor
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
+)
+
+const maxPlaybackWindow = time.Hour
+const consultingAreaContainerID int64 = 2387
+
+type AuthorizationClient interface {
+	CreateStreamURL(ctx context.Context, cameraID int64, request StreamSessionRequest) (string, error)
+}
+
+type Service struct {
+	repository    resourceview.Repository
+	authorization AuthorizationClient
+}
+
+func NewService(repository resourceview.Repository, authorization AuthorizationClient) *Service {
+	return &Service{repository: repository, authorization: authorization}
+}
+
+func (s *Service) ListStores(ctx context.Context) (MonitorStoresResponse, error) {
+	if s == nil || s.repository == nil {
+		return MonitorStoresResponse{}, ErrNotConfigured
+	}
+	records, err := s.repository.ListNVRMonitorStores(ctx)
+	if err != nil {
+		return MonitorStoresResponse{}, err
+	}
+	byCity := map[string][]StoreInfo{}
+	for _, record := range records {
+		cameras := camerasFromRecords(record)
+		if len(cameras) == 0 {
+			continue
+		}
+		city := cityLabel(record.Tenant.CityID)
+		byCity[city] = append(byCity[city], StoreInfo{
+			ExternalOrgID:        strconv.FormatInt(record.Tenant.ID, 10),
+			StoreName:            strings.TrimSpace(record.Tenant.Name),
+			City:                 city,
+			AvailableCameraCount: len(cameras),
+		})
+	}
+	cities := make([]string, 0, len(byCity))
+	for city := range byCity {
+		cities = append(cities, city)
+	}
+	sort.Strings(cities)
+	result := MonitorStoresResponse{Cities: make([]StoreCityGroup, 0, len(cities))}
+	for _, city := range cities {
+		stores := byCity[city]
+		sort.Slice(stores, func(i, j int) bool {
+			if stores[i].StoreName != stores[j].StoreName {
+				return stores[i].StoreName < stores[j].StoreName
+			}
+			return stores[i].ExternalOrgID < stores[j].ExternalOrgID
+		})
+		result.Cities = append(result.Cities, StoreCityGroup{City: city, Stores: stores})
+	}
+	return result, nil
+}
+
+func (s *Service) GetCameras(ctx context.Context, externalOrgID string) (CameraListResponse, error) {
+	records, err := s.storeRecords(ctx, externalOrgID)
+	if err != nil {
+		return CameraListResponse{}, err
+	}
+	return CameraListResponse{
+		ExternalOrgID: strconv.FormatInt(records.Tenant.ID, 10),
+		TenantID:      records.Tenant.ID,
+		StoreName:     strings.TrimSpace(records.Tenant.Name),
+		City:          cityLabel(records.Tenant.CityID),
+		Cameras:       camerasFromRecords(records),
+	}, nil
+}
+
+func (s *Service) CreateSession(ctx context.Context, externalOrgID string, cameraID int64, request StreamSessionRequest) (StreamSessionResponse, error) {
+	if err := validateStreamSessionRequest(request); err != nil {
+		return StreamSessionResponse{}, err
+	}
+	response, err := s.GetCameras(ctx, externalOrgID)
+	if err != nil {
+		return StreamSessionResponse{}, err
+	}
+	if !containsCamera(response.Cameras, cameraID) {
+		return StreamSessionResponse{}, ErrCameraNotFound
+	}
+	if s.authorization == nil {
+		return StreamSessionResponse{}, ErrNotConfigured
+	}
+	streamURL, err := s.authorization.CreateStreamURL(ctx, cameraID, request)
+	if err != nil {
+		return StreamSessionResponse{}, err
+	}
+	if strings.TrimSpace(streamURL) == "" {
+		return StreamSessionResponse{}, ErrAuthorizationFailed
+	}
+	return StreamSessionResponse{URL: streamURL, Mode: request.Mode}, nil
+}
+
+func (s *Service) storeRecords(ctx context.Context, externalOrgID string) (resourceview.StoreRecords, error) {
+	if s == nil || s.repository == nil {
+		return resourceview.StoreRecords{}, ErrNotConfigured
+	}
+	tenantID, err := strconv.ParseInt(strings.TrimSpace(externalOrgID), 10, 64)
+	if err != nil || tenantID <= 0 {
+		return resourceview.StoreRecords{}, ErrStoreNotFound
+	}
+	records, err := s.repository.GetNVRMonitorStoreRecords(ctx, tenantID)
+	if errors.Is(err, resourceview.ErrNotFound) {
+		return resourceview.StoreRecords{}, ErrStoreNotFound
+	}
+	if err != nil {
+		return resourceview.StoreRecords{}, err
+	}
+	return records, nil
+}
+
+func validateStreamSessionRequest(request StreamSessionRequest) error {
+	switch request.Mode {
+	case ModeLive:
+		if request.StartTime != 0 || request.EndTime != 0 {
+			return ErrInvalidStreamMode
+		}
+	case ModePlayback:
+		if request.StartTime <= 0 || request.EndTime <= request.StartTime || request.EndTime-request.StartTime > int64(maxPlaybackWindow/time.Second) {
+			return ErrInvalidPlaybackWindow
+		}
+	default:
+		return ErrInvalidStreamMode
+	}
+	return nil
+}
+
+func containsCamera(cameras []Camera, cameraID int64) bool {
+	for _, camera := range cameras {
+		if camera.ID == cameraID {
+			return true
+		}
+	}
+	return false
+}
+
+func camerasFromRecords(records resourceview.StoreRecords) []Camera {
+	spaces := map[int64]resourceview.BusinessSpace{}
+	for _, space := range records.Spaces {
+		spaces[space.ID] = space
+	}
+	relationSpaces := map[int64][]resourceview.BusinessSpace{}
+	for _, relation := range records.Relations {
+		space, ok := spaces[relation.AreaID]
+		if !ok || space.ParentID == consultingAreaContainerID {
+			continue
+		}
+		relationSpaces[relation.DeviceID] = append(relationSpaces[relation.DeviceID], space)
+	}
+
+	cameras := make([]Camera, 0)
+	for _, device := range records.Devices {
+		if !isEligibleCamera(device) {
+			continue
+		}
+		camera := Camera{ID: device.ID, Name: strings.TrimSpace(device.Name)}
+		if space := preferredSpace(relationSpaces[device.ID]); space != nil {
+			camera.SpaceName = strings.TrimSpace(space.Name)
+			camera.SpaceType = spaceType(*space, spaces)
+		}
+		if channelNo := nvrChannelNo(device.HardwareID); channelNo > 0 && records.LegacyCameraSnapshots[channelNo] != "" {
+			camera.ThumbnailURL = fmt.Sprintf("/api/store-space-resource-view/stores/%d/cameras/%d/snapshot", records.Tenant.ID, device.ID)
+		}
+		cameras = append(cameras, camera)
+	}
+	sort.Slice(cameras, func(i, j int) bool {
+		if cameras[i].SpaceType != cameras[j].SpaceType {
+			return cameras[i].SpaceType < cameras[j].SpaceType
+		}
+		if cameras[i].SpaceName != cameras[j].SpaceName {
+			return cameras[i].SpaceName < cameras[j].SpaceName
+		}
+		return cameras[i].ID < cameras[j].ID
+	})
+	return cameras
+}
+
+func isEligibleCamera(device resourceview.BusinessDevice) bool {
+	return device.Category == "camera" && device.Provider == "HikVisionNvrChannel" && device.Status == 1 && device.DeletedAt == nil
+}
+
+func preferredSpace(spaces []resourceview.BusinessSpace) *resourceview.BusinessSpace {
+	if len(spaces) == 0 {
+		return nil
+	}
+	sort.SliceStable(spaces, func(i, j int) bool { return spaces[i].ID < spaces[j].ID })
+	return &spaces[0]
+}
+
+func spaceType(space resourceview.BusinessSpace, spaces map[int64]resourceview.BusinessSpace) string {
+	if space.Level == 3 {
+		return "治疗室"
+	}
+	parent, ok := spaces[space.ParentID]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(parent.Name)
+}
+
+func nvrChannelNo(hardwareID string) int {
+	parts := strings.Split(strings.TrimSpace(hardwareID), "-")
+	if len(parts) != 2 || !strings.HasPrefix(parts[0], "NVRCHANNEL:") {
+		return 0
+	}
+	channelNo, err := strconv.Atoi(parts[1])
+	if err != nil || channelNo <= 0 {
+		return 0
+	}
+	return channelNo
+}
+
+func cityLabel(cityID int64) string {
+	if cityID <= 0 {
+		return "未分城市"
+	}
+	return fmt.Sprintf("城市 %d", cityID)
+}

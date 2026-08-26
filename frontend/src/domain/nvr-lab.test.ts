@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { buildNVRLabHourlyPlayback, buildNVRLabPlaybackFromStart, buildNVRLabPlaybackSession, parseNVRLabRoute, validateNVRLabPlayback } from "./nvr-lab";
+import { buildNVRLabHourlyPlayback, buildNVRLabPlaybackFromStart, buildNVRLabPlaybackSession, nvrMonitorRoutePath, parseNVRLabRoute, parseNVRMonitorRoute, validateNVRLabPlayback } from "./nvr-lab";
 
 describe("parseNVRLabRoute", () => {
   it("only accepts the fixed 10001 experiment routes", () => {
     expect(parseNVRLabRoute("/erzhuang-project/h5/nvr-lab/10001")).toEqual({ name: "home" });
     expect(parseNVRLabRoute("/erzhuang-project/h5/nvr-lab/10001/cameras/111")).toEqual({ name: "camera", cameraId: 111 });
     expect(parseNVRLabRoute("/erzhuang-project/h5/nvr-lab/10019")).toBeNull();
+  });
+});
+
+describe("parseNVRMonitorRoute", () => {
+  it("accepts normal organization monitor routes", () => {
+    expect(parseNVRMonitorRoute("/erzhuang-project/h5/orgs/10019/monitor")).toEqual({ name: "home", externalOrgId: "10019" });
+    expect(parseNVRMonitorRoute("/erzhuang-project/h5/orgs/10019/monitor/cameras/111")).toEqual({ name: "camera", externalOrgId: "10019", cameraId: 111 });
+    expect(nvrMonitorRoutePath({ name: "camera", externalOrgId: "10019", cameraId: 111 })).toBe("/h5/orgs/10019/monitor/cameras/111");
   });
 });
 
