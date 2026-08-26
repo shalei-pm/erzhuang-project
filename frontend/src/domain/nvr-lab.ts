@@ -9,6 +9,12 @@ export type NVRLabPlaybackRange = {
   endTime: number;
 };
 
+export type NVRLabPlaybackSession = {
+  playbackWindow: NVRLabPlaybackRange;
+  startTime: number;
+  endTime: number;
+};
+
 export type NVRLabCamera = {
   id: number;
   name: string;
@@ -76,6 +82,11 @@ export function buildNVRLabPlaybackFromStart(startAt: string, now = new Date()):
   const endTime = Math.floor(end.getTime() / 1000);
   if (validateNVRLabPlayback(startTime, endTime)) return null;
   return { startAt: formatDateTimeInput(start), endAt: formatDateTimeInput(end), startTime, endTime };
+}
+
+export function buildNVRLabPlaybackSession(playbackWindow: NVRLabPlaybackRange, startTime = playbackWindow.startTime): NVRLabPlaybackSession | null {
+  if (!Number.isFinite(startTime) || startTime < playbackWindow.startTime || startTime >= playbackWindow.endTime) return null;
+  return { playbackWindow, startTime, endTime: playbackWindow.endTime };
 }
 
 export function nvrLabCameraTitle(camera: NVRLabCamera): string {

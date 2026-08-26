@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildNVRLabHourlyPlayback, buildNVRLabPlaybackFromStart, parseNVRLabRoute, validateNVRLabPlayback } from "./nvr-lab";
+import { buildNVRLabHourlyPlayback, buildNVRLabPlaybackFromStart, buildNVRLabPlaybackSession, parseNVRLabRoute, validateNVRLabPlayback } from "./nvr-lab";
 
 describe("parseNVRLabRoute", () => {
   it("only accepts the fixed 10001 experiment routes", () => {
@@ -36,5 +36,20 @@ describe("validateNVRLabPlayback", () => {
     });
     expect(buildNVRLabHourlyPlayback("2026-08-26", 11, new Date("2026-08-26T10:18:45"))).toBeNull();
     expect(buildNVRLabPlaybackFromStart("2026-08-26T10:18", new Date("2026-08-26T10:18:45"))).toBeNull();
+  });
+
+  it("keeps the selected hour as the slider window when seeking within playback", () => {
+    const window = {
+      startAt: "2026-08-20T10:00",
+      endAt: "2026-08-20T11:00",
+      startTime: 1_000,
+      endTime: 4_600,
+    };
+
+    expect(buildNVRLabPlaybackSession(window, 2_800)).toEqual({
+      playbackWindow: window,
+      startTime: 2_800,
+      endTime: 4_600,
+    });
   });
 });

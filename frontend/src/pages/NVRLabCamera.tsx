@@ -8,6 +8,7 @@ import {
   NVR_LAB_MAX_PLAYBACK_SECONDS,
   buildNVRLabHourlyPlayback,
   buildNVRLabPlaybackFromStart,
+  buildNVRLabPlaybackSession,
   nvrLabCameraSubtitle,
   nvrLabCameraTitle,
   type NVRLabCamera,
@@ -111,15 +112,19 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
     if (nextMode === "live") void requestSession("live");
   }
 
-  function playPlayback(range: NVRLabPlaybackRange) {
+  function playPlayback(playbackWindow: NVRLabPlaybackRange, startTime = playbackWindow.startTime) {
+    const nextSession = buildNVRLabPlaybackSession(playbackWindow, startTime);
+    if (!nextSession) return;
     setMessage("");
     setPlayerStatus({ stage: "connecting", message: "正在连接视频流" });
-    setActivePlaybackRange(range);
-    setPlaybackCursorUnix(range.startTime);
+    activePlaybackRangeRef.current = nextSession.playbackWindow;
+    playbackCursorRef.current = nextSession.startTime;
+    setActivePlaybackRange(nextSession.playbackWindow);
+    setPlaybackCursorUnix(nextSession.startTime);
     setPlaybackPlaying(false);
     setPlaybackStartedAtMs(null);
     setPlaybackElapsedSeconds(0);
-    void requestSession("playback", range.startTime, range.endTime);
+    void requestSession("playback", nextSession.startTime, nextSession.endTime);
   }
 
   function retrySession() {
@@ -128,7 +133,7 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
       return;
     }
     const retryRange = activePlaybackRange || playbackRange;
-    if (retryRange) playPlayback(retryRange);
+    if (retryRange) playPlayback(retryRange, playbackCursorRef.current ?? retryRange.startTime);
   }
 
   const handlePlaybackStateChange = useCallback((playing: boolean) => {
@@ -144,7 +149,7 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
   const seekPlayback = useCallback((startTime: number) => {
     const range = activePlaybackRangeRef.current;
     if (!range || startTime < range.startTime || startTime >= range.endTime) return;
-    playPlayback({ ...range, startTime, startAt: formatPlaybackStartAt(startTime) });
+    playPlayback(range, startTime);
   }, []);
 
   useEffect(() => {
@@ -258,11 +263,6 @@ function hourLabel(hour: number): string {
 
 function pad2(value: number): string {
   return `${value}`.padStart(2, "0");
-}
-
-function formatPlaybackStartAt(unix: number): string {
-  const value = new Date(unix * 1000);
-  return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}T${pad2(value.getHours())}:${pad2(value.getMinutes())}`;
 }
 
 function playbackQueryValue(key: "start_at"): string {
