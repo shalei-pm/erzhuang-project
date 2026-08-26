@@ -6095,3 +6095,20 @@ git pull --ff-only
 - 验证：`CGO_ENABLED=0 go test ./internal/nvrsnapshot -count=1 -timeout=30s`、`go vet ./internal/nvrsnapshot`、`go mod verify` 与 `git diff --check` 通过。未设置 CGO 的本机 Go 1.22 测试仍受 macOS `dyld missing LC_UUID` 影响；后续 Linux/Wharf 应补 `go test -race ./internal/nvrsnapshot`。
 - 审查：一轮规格审查和一轮质量审查均曾发现问题并修复；最终规格与质量复审均通过。
 - 下一步：提交并仅同步 GitHub 后，才实现独立 one-shot 命令和可构建的 runner 镜像；在用户明确批准后，用测试 `10001` 单摄像头做无持久化真实 WSS -> JPEG 验证。通过前禁止 DDL、OSS 写入和批量初始化。
+
+### 2026-08-26 NVR 缩略图 spike runner 与独立镜像完成（未发布）
+
+- 新增 `cmd/nvr-snapshot-spike`：仅执行一个正数 `--camera-id` 的直播抓图技术闸门；默认和最大端到端时限均为 20 秒，拒绝回放参数、数据库、OSS、文件写入与批处理。
+- 授权只从现有 `K8S_SECRET_NVR_STREAM_AUTHORIZATION` 读取，未配置时回退 `NVR_STREAM_AUTHORIZATION`；复用 `internal/nvrlab.NewHTTPAuthorizationClient` 取得短期 WSS URL，再交给现有内存内 RTP/H.265 -> ffmpeg JPEG 捕获路径。
+- 成功输出仅含 `camera_id`、图片类型、宽高和字节数；失败仅含 `camera_id` 与稳定错误码。命令不会打印或持久化 Authorization、JWT、WSS URL、上游正文或媒体字节，返回前会清除 JPEG 内存。
+- 新增 `Dockerfile.nvr-snapshot-spike`：独立构建二进制，运行层只安装 `ffmpeg` 和 CA；未修改 Web Dockerfile 或其入口。
+- 完成主会话规格审查：曾发现 timeout 可超过 20 秒和连接失败码未纳入设计集合，均已修复。稳定码集合现包含 `wss_connect_failed`。
+- 本机 Go 1.22.12 验证通过：`gofmt`、`CGO_ENABLED=0 go test ./cmd/nvr-snapshot-spike ./internal/nvrsnapshot -count=1 -timeout=30s`、`go build ./cmd/nvr-snapshot-spike`、`go vet ./cmd/nvr-snapshot-spike ./internal/nvrsnapshot`、`git diff --check`。
+- `go test ./...` 在本机沙箱仅因既有 `internal/nvrlab` / `internal/nvrmonitor` 的 `httptest` 无法监听 `::1` 端口而中止；本轮 runner 定向包和 `cmd/server` 均已通过。仍需在公司 Linux 镜像构建中补全仓测试与 `go test -race ./internal/nvrsnapshot`。
+- 当前状态：仅本地未发布代码，尚未构建镜像、推 GitLab、访问真实 WSS、执行 DDL、写入 MySQL/OSS 或触发批量初始化。下一步先完成最终代码质量审查和 GitHub 备份，再由用户明确批准测试 `10001` 的单摄像头无副作用真实验证。
+
+### 2026-08-26 runner 最终复审与验证收口
+
+- 最终代码质量复审发现并关闭：独立镜像遗漏 `internal/resourceview` 依赖、单横线/双横线混用可绕过重复 `camera-id` 校验、ffmpeg deadline 错误分类不准确、以及失败 JPEG 和读取临时缓冲未清零。
+- 最终本机验证通过：`gofmt`、`CGO_ENABLED=0 go test ./cmd/nvr-snapshot-spike ./internal/nvrsnapshot -count=1 -timeout=30s`、`go build -o /tmp/nvr-snapshot-spike ./cmd/nvr-snapshot-spike`、`go vet ./cmd/nvr-snapshot-spike ./internal/nvrsnapshot`、`go mod verify` 和 `git diff --check`。
+- Docker CLI 在当前开发机不存在，`Dockerfile.nvr-snapshot-spike` 尚无本机镜像构建证据；不得将其表述为已构建。提交后由公司 Linux/Wharf 或具备 Docker 的隔离构建环境执行独立镜像构建，并补全仓 Go 测试与 `go test -race ./internal/nvrsnapshot`。

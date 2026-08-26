@@ -441,14 +441,22 @@ func (c *WebSocketJPEGCapture) captureJPEG(ctx context.Context, annexBMedia []by
 	}()
 
 	var output []byte
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			wipeBytes(output)
+		}
+	}()
 	for !readFinished || !writeFinished {
 		select {
 		case result := <-readDone:
 			readFinished = true
 			if result.tooLarge {
+				wipeBytes(result.data)
 				return JPEG{}, ErrorThumbnailInvalid
 			}
 			if result.err != nil {
+				wipeBytes(result.data)
 				return JPEG{}, ErrorDecodeFailed
 			}
 			output = result.data
@@ -461,6 +469,9 @@ func (c *WebSocketJPEGCapture) captureJPEG(ctx context.Context, annexBMedia []by
 				return JPEG{}, ErrorDecodeFailed
 			}
 		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return JPEG{}, ErrorMediaTimeout
+			}
 			return JPEG{}, ErrorDecodeFailed
 		}
 	}
@@ -469,7 +480,12 @@ func (c *WebSocketJPEGCapture) captureJPEG(ctx context.Context, annexBMedia []by
 		return JPEG{}, ErrorDecodeFailed
 	}
 	waited = true
-	return validateJPEG(output)
+	jpeg, code := validateJPEG(output)
+	if code != "" {
+		return JPEG{}, code
+	}
+	succeeded = true
+	return jpeg, ""
 }
 
 var ffmpegArguments = []string{
@@ -480,10 +496,12 @@ var ffmpegArguments = []string{
 func readBoundedJPEG(reader io.Reader) ([]byte, bool, error) {
 	var output bytes.Buffer
 	buffer := make([]byte, 32<<10)
+	defer wipeBytes(buffer)
 	for {
 		read, err := reader.Read(buffer)
 		if read > 0 {
 			if read > maxJPEGBytes-output.Len() {
+				wipeBytes(output.Bytes())
 				return nil, true, nil
 			}
 			_, _ = output.Write(buffer[:read])
@@ -492,6 +510,7 @@ func readBoundedJPEG(reader io.Reader) ([]byte, bool, error) {
 			return output.Bytes(), false, nil
 		}
 		if err != nil {
+			wipeBytes(output.Bytes())
 			return nil, false, err
 		}
 	}
@@ -503,15 +522,22 @@ func validateJPEG(data []byte) (JPEG, ErrorCode) {
 	}
 	decoded, err := jpeg.Decode(bytes.NewReader(data))
 	if err != nil {
+		wipeBytes(data)
 		return JPEG{}, ErrorDecodeFailed
 	}
 	bounds := decoded.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
 	if width <= 0 || height <= 0 {
+		wipeBytes(data)
 		return JPEG{}, ErrorDecodeFailed
 	}
 	if width > maxThumbnailEdge || height > maxThumbnailEdge || len(data) > maxJPEGBytes {
+		wipeBytes(data)
 		return JPEG{}, ErrorThumbnailInvalid
 	}
 	return JPEG{Bytes: data, Width: width, Height: height, ContentType: "image/jpeg"}, ""
+}
+
+func wipeBytes(data []byte) {
+	clear(data[:cap(data)])
 }

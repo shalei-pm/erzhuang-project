@@ -250,6 +250,18 @@ func TestWebSocketJPEGCaptureValidatesJPEGOutput(t *testing.T) {
 	}
 }
 
+func TestValidateJPEGClearsRejectedImageBytes(t *testing.T) {
+	data := append(make([]byte, 0, 32), []byte("not a JPEG")...)
+	if _, code := validateJPEG(data); code != ErrorDecodeFailed {
+		t.Fatalf("validateJPEG() code = %q, want %q", code, ErrorDecodeFailed)
+	}
+	for index, value := range data[:cap(data)] {
+		if value != 0 {
+			t.Fatalf("rejected JPEG byte %d = %d, want 0", index, value)
+		}
+	}
+}
+
 func TestWebSocketJPEGCaptureReadsStdoutConcurrentlyWithStdin(t *testing.T) {
 	readStarted := make(chan struct{})
 	command := &fakeFFmpegCommand{output: testJPEG(t, 640, 360)}
@@ -320,7 +332,7 @@ func TestWebSocketJPEGCaptureCleansFFmpegResourcesOnEveryFailure(t *testing.T) {
 			context: func() (context.Context, context.CancelFunc) {
 				return context.WithTimeout(context.Background(), 20*time.Millisecond)
 			},
-			want: ErrorDecodeFailed, wantStarted: true, wantKilled: true,
+			want: ErrorMediaTimeout, wantStarted: true, wantKilled: true,
 		},
 	}
 	for _, tt := range tests {
@@ -350,8 +362,8 @@ func TestWebSocketJPEGCaptureWaitsForBlockedStdinWriterOnCancellation(t *testing
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 
-	if _, code := capture.Capture(ctx, "wss://temporary.example.invalid/stream"); code != ErrorDecodeFailed {
-		t.Fatalf("Capture() code = %q, want %q", code, ErrorDecodeFailed)
+	if _, code := capture.Capture(ctx, "wss://temporary.example.invalid/stream"); code != ErrorMediaTimeout {
+		t.Fatalf("Capture() code = %q, want %q", code, ErrorMediaTimeout)
 	}
 	assertCommandResourcesClosed(t, conn, command, true, true)
 	if !command.stdin.writeFinished {

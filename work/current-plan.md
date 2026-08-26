@@ -581,3 +581,14 @@
 - [ ] 完成真实单摄像头解码验证后，由 DBA/运维审批并执行自有表 `tb_nvr_camera_snapshots` 的测试库 DDL；Web 服务不得自行建表。
 - [ ] DDL 与独立 Job 最小权限就绪后，执行 `10001 / camera_id=111` 的 20 秒、并发 1 持久化技术闸门。失败即停止，不进入 44 路或全量批处理。
 - [ ] 技术闸门通过后才执行严格串行 Job；`10001` 批量、全量测试、生产执行均需逐级单独确认。
+
+## 2026-08-26 增量：单摄像头无副作用 spike runner
+
+- [x] 实现并测试 `internal/nvrsnapshot` 的 WSS/RTP/H.265 到受限 JPEG 捕获底座。
+- [x] 实现独立 `cmd/nvr-snapshot-spike` 与 `Dockerfile.nvr-snapshot-spike`，不改 Web 镜像、不引入 DB/OSS/文件写入。
+- [x] 授权仅复用既有 NVR Secret；运行参数仅允许单一正数 `--camera-id`，直播模式，默认且最大 20 秒。
+- [x] 主会话规格审查完成并修复：20 秒上限、稳定 `wss_connect_failed` 错误码。
+- [x] 本机定向 Go 测试、`go vet`、独立编译、格式化和 diff 检查通过。
+- [x] 完成最终代码质量审查并关闭独立镜像依赖、参数绕过、超时分类和媒体内存清理问题。
+- [ ] 提交并仅同步 GitHub 备份；禁止推 GitLab、Wharf 或部署。
+- [ ] 获得用户明确批准后，使用测试 `10001` 的一个已知可直播摄像头进行无持久化真实 WSS -> JPEG 验证。

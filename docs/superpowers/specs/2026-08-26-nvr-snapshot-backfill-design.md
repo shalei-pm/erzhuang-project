@@ -71,7 +71,7 @@ The runner is a dedicated command, packaged as a separate one-shot container ima
 - The runner uses a backend H.265/RTP demuxer based on the verified NVRPlayer packet format, writes a short Annex-B H.265 stream to ffmpeg, and accepts the first decodable JPEG.
 - A camera has a 20-second end-to-end deadline. Any failure is classified, persisted, and processing continues.
 
-The JPEG is resized to a maximum long edge of `640` pixels at quality `80`; an output larger than `1 MiB` is rejected. Failure codes are limited to `authorization_failed`, `wss_connect_timeout`, `media_timeout`, `demux_failed`, `decode_failed`, `thumbnail_invalid`, `oss_upload_failed`, and `database_write_failed`.
+The JPEG is resized to a maximum long edge of `640` pixels at quality `80`; an output larger than `1 MiB` is rejected. Failure codes are limited to `authorization_failed`, `wss_connect_failed`, `wss_connect_timeout`, `media_timeout`, `demux_failed`, `decode_failed`, `thumbnail_invalid`, `oss_upload_failed`, and `database_write_failed`.
 
 This is intentionally not implemented with headless Chromium. The supplied SDK proves the stream format and Canvas behaviour, but its live path depends on browser WebCodecs H.265 support. A native backend demuxer plus ffmpeg is more appropriate for a server-side, one-time data operation.
 
