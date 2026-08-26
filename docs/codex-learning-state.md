@@ -6113,3 +6113,8 @@ git pull --ff-only
 - 最终本机验证通过：`gofmt`、`CGO_ENABLED=0 go test ./cmd/nvr-snapshot-spike ./internal/nvrsnapshot -count=1 -timeout=30s`、`go build -o /tmp/nvr-snapshot-spike ./cmd/nvr-snapshot-spike`、`go vet ./cmd/nvr-snapshot-spike ./internal/nvrsnapshot`、`go mod verify` 和 `git diff --check`。
 - Docker CLI 在当前开发机不存在，`Dockerfile.nvr-snapshot-spike` 尚无本机镜像构建证据；不得将其表述为已构建。提交后由公司 Linux/Wharf 或具备 Docker 的隔离构建环境执行独立镜像构建，并补全仓 Go 测试与 `go test -race ./internal/nvrsnapshot`。
 - 代码版本：`c53d631 feat: add nvr snapshot spike runner` 已仅推送 GitHub `origin/codex/containerize-single-image`；未推公司 GitLab、未触发 Wharf、未部署测试或正式环境。
+
+### 2026-08-26 主会话执行方式纠偏
+
+- 用户明确目标是完成全量缩略图初始化。对其既已确认的方案，主会话不再对无副作用技术验证、常规代码提交或 GitHub 备份重复索要确认；仅在生产写入/删除、权限扩大、显著外部成本、范围变化或公司平台权限动作时给出具体影响说明。
+- 本机检查结果：未注入 NVR 授权变量，符合该值只存在于测试 K8s Secret 的安全边界。真实单摄像头验证的正确执行载体是复用现有测试 Secret 的临时 Job，不是让用户配置实例或提供 token。
