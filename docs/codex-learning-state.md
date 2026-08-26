@@ -6086,3 +6086,12 @@ git pull --ff-only
 - `go build ./...` 通过，说明全仓当前可编译。
 - `go test ./...` 未能作为全仓通过证据：除纯协议包外，多数既有测试二进制在本机启动时被 macOS 动态加载器以 `missing LC_UUID load command` 中止。该失败发生在测试进程启动，且本轮新增协议包实际测试通过；后续需要在公司 Linux/Wharf 构建环境再次执行全仓测试，不能将本机结果记为全部测试失败或通过。
 - 本轮仍未连接真实 WSS、未抓图、未写 MySQL/OSS、未执行 DDL/Job、未推送 GitLab 或发布环境。下一步是提交并仅同步已验证的纯协议层代码到 GitHub，然后再实现不持久化的单摄像头解码闸门。
+
+### 2026-08-26 NVR 缩略图单摄像头解码闸门实现完成
+
+- 新增 `internal/nvrsnapshot/capture.go` 与纯 fake 单测：真实 `nhooyr.io/websocket` WSS dialer、二进制 RTP/H.265 输入、VPS/SPS/PPS 缓存、marker 封口的完整关键帧 access unit、短生命周期 ffmpeg JPEG 转换及受限输出校验。
+- 安全边界：短期 WSS URL 只在内存中交给 dialer；错误码严格白名单化；不记录 token、URL、媒体或上游正文。读取/写入 MySQL、OSS、Web 路由、K8s Job 与 Dockerfile 均未引入。
+- 可靠性：FU 分片强制同一 RTP timestamp；参数集不完整时继续等候后续关键帧；stdin/stdout 并发处理且取消时等待全部 I/O goroutine 退出；JPEG 必须可解码、最长边不超过 640、体积不超过 1 MiB。
+- 验证：`CGO_ENABLED=0 go test ./internal/nvrsnapshot -count=1 -timeout=30s`、`go vet ./internal/nvrsnapshot`、`go mod verify` 与 `git diff --check` 通过。未设置 CGO 的本机 Go 1.22 测试仍受 macOS `dyld missing LC_UUID` 影响；后续 Linux/Wharf 应补 `go test -race ./internal/nvrsnapshot`。
+- 审查：一轮规格审查和一轮质量审查均曾发现问题并修复；最终规格与质量复审均通过。
+- 下一步：提交并仅同步 GitHub 后，才实现独立 one-shot 命令和可构建的 runner 镜像；在用户明确批准后，用测试 `10001` 单摄像头做无持久化真实 WSS -> JPEG 验证。通过前禁止 DDL、OSS 写入和批量初始化。

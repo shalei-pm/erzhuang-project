@@ -577,6 +577,7 @@
 - [x] 实施计划：`docs/superpowers/plans/2026-08-26-nvr-snapshot-backfill-implementation.md`。
 - [x] 直属 DBA 子 agent 已完成只读评审；主会话接受其对象 Key、无外键与最小权限建议，并保留失败状态/错误码的产品约束。
 - [x] 已完成：不触库、不写 OSS 的协议技术闸门已完成 RTP/H.265 FU 重组纯函数与测试，直属规格审查和代码质量审查均通过；已使用本机 Go 1.22.12 执行 `gofmt` 与 `go test ./internal/nvrsnapshot`，并通过 `go build ./...`。全仓测试须在公司 Linux/Wharf 环境复验，因本机 macOS dyld 会在启动多数既有测试二进制时中止。
+- [x] 已完成：实现可替换的单摄像头原生解码路径，采用真实 Go WSS dialer、RTP/H.265 marker access-unit 聚合和受限 ffmpeg JPEG 管道；仅以 fake WebSocket、fake ffmpeg 做确定性测试。真实 WSS/JPEG 技术闸门仍不写 MySQL/OSS。独立 runner 命令与 Dockerfile 必须等同一提交可构建后再引入，不能提前留下失败镜像。
 - [ ] 完成真实单摄像头解码验证后，由 DBA/运维审批并执行自有表 `tb_nvr_camera_snapshots` 的测试库 DDL；Web 服务不得自行建表。
 - [ ] DDL 与独立 Job 最小权限就绪后，执行 `10001 / camera_id=111` 的 20 秒、并发 1 持久化技术闸门。失败即停止，不进入 44 路或全量批处理。
 - [ ] 技术闸门通过后才执行严格串行 Job；`10001` 批量、全量测试、生产执行均需逐级单独确认。

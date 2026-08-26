@@ -19,6 +19,28 @@ func TestDepacketizerReturnsAnnexBForSingleNAL(t *testing.T) {
 	}
 }
 
+func TestDepacketizerExposesMarkerAndTimestampWithoutChangingFeedRTP(t *testing.T) {
+	d := NewDepacketizer()
+	packet := rtpTimestampPacket(7, 0x10203040, true, []byte{0x42, 0x01, 0xaa})
+
+	result, code := d.FeedRTPWithMetadata(packet)
+	if code != "" {
+		t.Fatalf("FeedRTPWithMetadata() code = %q", code)
+	}
+	if !result.Marker || result.Timestamp != 0x10203040 {
+		t.Fatalf("metadata = %+v, want marker and timestamp", result)
+	}
+	want := []byte{0, 0, 0, 1, 0x42, 0x01, 0xaa}
+	if !bytes.Equal(result.NAL, want) {
+		t.Fatalf("NAL = %x, want %x", result.NAL, want)
+	}
+
+	got, code := NewDepacketizer().FeedRTP(packet)
+	if code != "" || !bytes.Equal(got, want) {
+		t.Fatalf("FeedRTP() = %x, %q; want %x, empty", got, code, want)
+	}
+}
+
 func TestDepacketizerRejectsUnsupportedAggregationPacketsAndRecovers(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -291,6 +313,25 @@ func TestDepacketizerRejectsInterruptedFU(t *testing.T) {
 	}
 }
 
+func TestDepacketizerRejectsFUTimestampMismatchAndRecovers(t *testing.T) {
+	d := NewDepacketizer()
+	start := rtpTimestampPacket(10, 100, false, []byte{0x62, 0x01, 0x80 | 19, 0xaa})
+	if got, code := d.FeedRTP(start); got != nil || code != "" {
+		t.Fatalf("FU start = %x, %q", got, code)
+	}
+
+	end := rtpTimestampPacket(11, 101, true, []byte{0x62, 0x01, 0x40 | 19, 0xbb})
+	if got, code := d.FeedRTP(end); got != nil || code != ErrorDemuxFailed {
+		t.Fatalf("timestamp-mismatched FU = %x, %q; want nil, %q", got, code, ErrorDemuxFailed)
+	}
+
+	got, code := d.FeedRTP(rtpTimestampPacket(12, 102, true, h265NAL(19, 0xcc)))
+	want := []byte{0, 0, 0, 1, 0x26, 0x01, 0xcc}
+	if code != "" || !bytes.Equal(got, want) {
+		t.Fatalf("recovered FeedRTP() = %x, %q; want %x, empty", got, code, want)
+	}
+}
+
 func TestDepacketizerRejectsInvalidRTPHeaderAndPayloadType(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -334,5 +375,17 @@ func rtpPacket(sequence uint16, payload []byte) []byte {
 func rtpMarkerPacket(sequence uint16, payload []byte) []byte {
 	packet := rtpPacket(sequence, payload)
 	packet[1] |= 0x80
+	return packet
+}
+
+func rtpTimestampPacket(sequence uint16, timestamp uint32, marker bool, payload []byte) []byte {
+	packet := rtpPacket(sequence, payload)
+	packet[4] = byte(timestamp >> 24)
+	packet[5] = byte(timestamp >> 16)
+	packet[6] = byte(timestamp >> 8)
+	packet[7] = byte(timestamp)
+	if marker {
+		packet[1] |= 0x80
+	}
 	return packet
 }

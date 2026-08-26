@@ -26,7 +26,17 @@ const (
 // Payload aliases the input packet and must be consumed immediately.
 type RTPPacket struct {
 	SequenceNumber uint16
+	Timestamp      uint32
+	Marker         bool
 	Payload        []byte
+}
+
+// DepacketizedNAL is a completed Annex-B NAL together with the RTP access
+// unit metadata carried by the packet that completed it.
+type DepacketizedNAL struct {
+	NAL       []byte
+	Timestamp uint32
+	Marker    bool
 }
 
 // ParseRTP accepts only RTP v2 packets with the fixed 12-byte header emitted
@@ -52,6 +62,8 @@ func ParseRTP(packet []byte) (RTPPacket, ErrorCode) {
 
 	return RTPPacket{
 		SequenceNumber: uint16(packet[2])<<8 | uint16(packet[3]),
+		Timestamp:      uint32(packet[4])<<24 | uint32(packet[5])<<16 | uint32(packet[6])<<8 | uint32(packet[7]),
+		Marker:         packet[1]&0x80 != 0,
 		Payload:        packet[rtpHeaderSize:],
 	}, ""
 }
@@ -64,6 +76,7 @@ type Depacketizer struct {
 	nextSeq     uint16
 	fuIndicator [2]byte
 	fuType      byte
+	fuTimestamp uint32
 	buffer      []byte
 	maxBytes    int
 }
@@ -85,15 +98,27 @@ func NewDepacketizerWithMaxBytes(maxBytes int) *Depacketizer {
 // FeedRTP converts one RTP packet into a complete Annex-B H.265 NAL. A nil
 // NAL and an empty code means that an FU is still being assembled.
 func (d *Depacketizer) FeedRTP(packet []byte) ([]byte, ErrorCode) {
+	result, code := d.FeedRTPWithMetadata(packet)
+	return result.NAL, code
+}
+
+// FeedRTPWithMetadata converts one RTP packet into a completed Annex-B H.265
+// NAL and preserves the timestamp and marker needed to assemble access units.
+// A nil NAL and an empty code means that an FU is still being assembled.
+func (d *Depacketizer) FeedRTPWithMetadata(packet []byte) (DepacketizedNAL, ErrorCode) {
 	rtp, code := ParseRTP(packet)
 	if code != "" {
 		d.reset()
-		return nil, code
+		return DepacketizedNAL{}, code
 	}
-	return d.feedH265(rtp.SequenceNumber, rtp.Payload)
+	nal, code := d.feedH265(rtp.SequenceNumber, rtp.Timestamp, rtp.Payload)
+	if code != "" {
+		return DepacketizedNAL{}, code
+	}
+	return DepacketizedNAL{NAL: nal, Timestamp: rtp.Timestamp, Marker: rtp.Marker}, ""
 }
 
-func (d *Depacketizer) feedH265(sequence uint16, payload []byte) ([]byte, ErrorCode) {
+func (d *Depacketizer) feedH265(sequence uint16, timestamp uint32, payload []byte) ([]byte, ErrorCode) {
 	if len(payload) < 2 {
 		d.reset()
 		return nil, ErrorDemuxFailed
@@ -147,6 +172,7 @@ func (d *Depacketizer) feedH265(sequence uint16, payload []byte) ([]byte, ErrorC
 		d.nextSeq = sequence + 1
 		d.fuIndicator = [2]byte{payload[0], payload[1]}
 		d.fuType = fuType
+		d.fuTimestamp = timestamp
 		if !end {
 			return nil, ""
 		}
@@ -157,7 +183,7 @@ func (d *Depacketizer) feedH265(sequence uint16, payload []byte) ([]byte, ErrorC
 		d.reset()
 		return nil, ErrorDemuxFailed
 	}
-	if payload[0] != d.fuIndicator[0] || payload[1] != d.fuIndicator[1] || fuType != d.fuType {
+	if payload[0] != d.fuIndicator[0] || payload[1] != d.fuIndicator[1] || fuType != d.fuType || timestamp != d.fuTimestamp {
 		d.reset()
 		return nil, ErrorDemuxFailed
 	}
@@ -195,6 +221,7 @@ func (d *Depacketizer) reset() {
 	d.nextSeq = 0
 	d.fuIndicator = [2]byte{}
 	d.fuType = 0
+	d.fuTimestamp = 0
 	d.buffer = nil
 }
 
