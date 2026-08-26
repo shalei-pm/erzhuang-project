@@ -3838,6 +3838,24 @@ td:nth-child(10) {
   object-fit: cover;
 }
 
+.nvr-lab-page .h5-camera-frame,
+.nvr-lab-page .h5-camera-placeholder {
+  background: #e2e8f0;
+}
+
+.nvr-lab-page .h5-camera-placeholder {
+  position: relative;
+  padding: 0;
+}
+
+.nvr-lab-page .h5-camera-placeholder::before {
+  content: "";
+  width: 42%;
+  height: 32%;
+  border: 2px solid #94a3b8;
+  border-radius: 2px;
+}
+
 .h5-camera-placeholder {
   display: flex;
   align-items: center;

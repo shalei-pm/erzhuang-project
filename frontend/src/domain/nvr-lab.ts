@@ -21,6 +21,7 @@ export type NVRLabCamera = {
   name: string;
   space_type?: string;
   space_name?: string;
+  thumbnail_url?: string;
 };
 
 export type NVRLabCameraListResponse = {

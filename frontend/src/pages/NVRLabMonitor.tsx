@@ -88,7 +88,7 @@ export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, on
         <main className="h5-camera-wall">
           {visibleCameras.map((camera) => (
             <button key={camera.id} type="button" className="h5-camera-bubble" onClick={() => onOpenCamera(camera.id)} aria-label={`查看${nvrLabCameraTitle(camera)}`}>
-              <span className="h5-camera-frame"><span className="h5-camera-placeholder" aria-label="暂无截图" /></span>
+              <NVRMonitorThumbnail thumbnailURL={camera.thumbnail_url} />
               <span className="h5-camera-title">{nvrLabCameraTitle(camera)}</span>
               <span className="h5-camera-subtitle">{nvrLabCameraSubtitle(camera)}</span>
             </button>
@@ -96,5 +96,20 @@ export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, on
         </main>
       ) : null}
     </div>
+  );
+}
+
+export function NVRMonitorThumbnail({ thumbnailURL }: { thumbnailURL?: string }) {
+  const [failed, setFailed] = useState(false);
+  const src = thumbnailURL?.trim();
+
+  return (
+    <span className="h5-camera-frame">
+      {src && !failed ? (
+        <img src={src} alt="摄像头最近截图" loading="lazy" onError={() => setFailed(true)} />
+      ) : (
+        <span className="h5-camera-placeholder" role="img" aria-label="暂无截图" />
+      )}
+    </span>
   );
 }

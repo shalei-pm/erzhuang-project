@@ -8,6 +8,7 @@ export default defineConfig({
     include: [
       "src/api.test.ts",
       "src/components/**/*.test.{ts,tsx}",
+      "src/pages/**/*.test.{ts,tsx}",
       "src/domain/channel-recognition.test.ts",
       "src/domain/h5-monitor-active-tab.test.ts",
       "src/domain/nvr-lab.test.ts",
