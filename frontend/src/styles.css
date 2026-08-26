@@ -3520,32 +3520,6 @@ td:nth-child(10) {
   font-size: 13px;
 }
 
-.nvr-lab-mode-tabs {
-  display: flex;
-  gap: 24px;
-  justify-content: center;
-  padding: 4px 0 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.nvr-lab-mode-tabs button {
-  min-height: 40px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 14px;
-  box-shadow: none;
-}
-
-.nvr-lab-mode-tabs button.active {
-  border-bottom-color: var(--brand);
-  color: var(--brand);
-  font-weight: 700;
-}
-
 .nvr-lab-hourly-picker {
   display: grid;
   gap: 10px;
@@ -4174,6 +4148,48 @@ td:nth-child(10) {
 .h5-player-control-center > span {
   color: rgba(255, 255, 255, 0.78);
   font-size: 12px;
+}
+
+.h5-player-controls .nvr-lab-control-tabs {
+  display: inline-flex;
+  align-items: stretch;
+  min-width: 152px;
+  min-height: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.h5-player-controls .nvr-lab-control-tabs button {
+  width: auto;
+  min-width: 0;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.h5-player-controls .nvr-lab-control-tabs button + button {
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.h5-player-controls .nvr-lab-control-tabs button:hover:not(:disabled),
+.h5-player-controls .nvr-lab-control-tabs button:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.h5-player-controls .nvr-lab-control-tabs button.active,
+.h5-player-controls .nvr-lab-control-tabs button[aria-pressed="true"] {
+  background: rgba(59, 130, 246, 0.42);
+  color: #fff;
+  font-weight: 650;
 }
 
 .h5-player-controls button {

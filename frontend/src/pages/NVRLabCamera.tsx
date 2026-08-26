@@ -111,16 +111,12 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
       </header>
       <div className="h5-viewer">
         <div className="h5-viewer-player">
-          <NVRLabPlayer session={session} onRetry={retrySession} onStatus={setPlayerStatus} />
+          <NVRLabPlayer session={session} mode={mode} onModeChange={switchMode} onRetry={retrySession} onStatus={setPlayerStatus} />
         </div>
         {message ? <div className="h5-error">{message}</div> : null}
         <div className="h5-player-status-panel">
           <div className="h5-player-status-head"><div><strong>{playerStatus.message}</strong><span>{mode === "live" ? "实时视频" : "录像"}</span></div></div>
         </div>
-        <nav className="nvr-lab-mode-tabs" aria-label="视频模式">
-          <button type="button" className={mode === "live" ? "active" : ""} onClick={() => switchMode("live")}>实时视频</button>
-          <button type="button" className={mode === "playback" ? "active" : ""} onClick={() => switchMode("playback")}>录像</button>
-        </nav>
         {mode === "playback" ? (
           <NVRLabHourlyPlaybackPicker startAt={playbackStartAt} onStartAtChange={setPlaybackStartAt} onPlay={playPlayback} />
         ) : null}
