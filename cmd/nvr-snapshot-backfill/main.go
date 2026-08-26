@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -23,7 +25,7 @@ func run(args []string) int {
 	flags.SetOutput(os.Stderr)
 	tenantID := flags.Int64("tenant-id", 0, "")
 	cameraID := flags.Int64("camera-id", 0, "")
-	resumeFailed := flags.Bool("resume-failed", false, "")
+	force := flags.Bool("force", false, "")
 	timeout := flags.Duration("timeout-per-camera", 20*time.Second, "")
 	interval := flags.Duration("request-interval", 2*time.Second, "")
 	if flags.Parse(args) != nil || flags.NArg() != 0 || *tenantID <= 0 || *cameraID < 0 || *timeout <= 0 || *timeout > 20*time.Second || *interval < 2*time.Second {
@@ -46,27 +48,19 @@ func run(args []string) int {
 		return 1
 	}
 	defer db.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	// A full, deliberately throttled run may exceed two hours. Each camera
+	// remains individually bounded; SIGTERM stops the Job cleanly between work.
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	repo := nvrsnapshot.NewMySQLRepository(db)
-	release, err := repo.AcquireJobLock(ctx)
-	if err != nil {
-		fmt.Fprintln(os.Stdout, "error_code=job_locked")
-		return 1
-	}
-	defer release()
 	authorizer := spikeAuthorizer{client: nvrlab.NewHTTPAuthorizationClient(&http.Client{Timeout: 20 * time.Second}, authorization)}
 	capture := nvrsnapshot.NewWebSocketJPEGCapture(nvrsnapshot.NhooyrWebSocketDialer{}, nvrsnapshot.ExecCommandFactory{})
-	mode := nvrsnapshot.SelectionMissingOnly
-	if *resumeFailed {
-		mode = nvrsnapshot.SelectionResumeFailed
-	}
-	summary, err := nvrsnapshot.NewBackfillService(repo, nvrsnapshot.NewCaptureService(authorizer, capture), objects).Run(ctx, nvrsnapshot.BackfillOptions{Selection: nvrsnapshot.Selection{TenantID: *tenantID, CameraID: *cameraID, Mode: mode}, Timeout: *timeout, RequestInterval: *interval})
+	repo := nvrsnapshot.NewMySQLRepository(db)
+	summary, err := nvrsnapshot.NewBackfillService(repo, nvrsnapshot.NewCaptureService(authorizer, capture), objects).Run(ctx, nvrsnapshot.BackfillOptions{Selection: nvrsnapshot.Selection{TenantID: *tenantID, CameraID: *cameraID}, Timeout: *timeout, RequestInterval: *interval, Force: *force})
 	if err != nil {
-		fmt.Fprintf(os.Stdout, "selected=%d succeeded=%d failed=%d error_code=backfill_failed\n", summary.Selected, summary.Succeeded, summary.Failed)
+		fmt.Fprintf(os.Stdout, "selected=%d skipped=%d succeeded=%d failed=%d error_code=backfill_failed\n", summary.Selected, summary.Skipped, summary.Succeeded, summary.Failed)
 		return 1
 	}
-	fmt.Fprintf(os.Stdout, "selected=%d succeeded=%d failed=%d\n", summary.Selected, summary.Succeeded, summary.Failed)
+	fmt.Fprintf(os.Stdout, "selected=%d skipped=%d succeeded=%d failed=%d\n", summary.Selected, summary.Skipped, summary.Succeeded, summary.Failed)
 	return 0
 }
 

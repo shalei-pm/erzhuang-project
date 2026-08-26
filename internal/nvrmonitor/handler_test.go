@@ -113,8 +113,7 @@ func TestStreamSessionRejectsCameraOutsideTenantEligibleSet(t *testing.T) {
 
 func TestSnapshotServesBackfilledImageOnlyToAuthorizedStore(t *testing.T) {
 	handler := newTestHandlerWithSnapshots(t, map[string]bool{"10001": true}, fakeSnapshotStore{
-		available: map[int64]bool{111: true},
-		data:      map[int64]string{111: "jpeg-data"},
+		data: map[int64]string{111: "jpeg-data"},
 	})
 	request := httptest.NewRequest(http.MethodGet, "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot", nil)
 	response := httptest.NewRecorder()
@@ -127,15 +126,14 @@ func TestSnapshotServesBackfilledImageOnlyToAuthorizedStore(t *testing.T) {
 	if response.Body.String() != "jpeg-data" || response.Header().Get("Content-Type") != "image/jpeg" {
 		t.Fatalf("unexpected snapshot response: headers=%#v body=%q", response.Header(), response.Body.String())
 	}
-	if response.Header().Get("Cache-Control") != "private, max-age=604800, immutable" {
+	if response.Header().Get("Cache-Control") != "private, max-age=3600" {
 		t.Fatalf("Cache-Control = %q", response.Header().Get("Cache-Control"))
 	}
 }
 
 func TestSnapshotDoesNotLeakToUnauthorizedStore(t *testing.T) {
 	handler := newTestHandlerWithSnapshots(t, map[string]bool{"10001": false}, fakeSnapshotStore{
-		available: map[int64]bool{111: true},
-		data:      map[int64]string{111: "jpeg-data"},
+		data: map[int64]string{111: "jpeg-data"},
 	})
 	request := httptest.NewRequest(http.MethodGet, "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot", nil)
 	response := httptest.NewRecorder()

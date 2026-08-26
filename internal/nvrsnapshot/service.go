@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/assets"
 )
 
 const (
@@ -18,6 +20,7 @@ var ErrCircuitOpen = errors.New("nvr snapshot circuit opened")
 
 type ObjectStore interface {
 	Save(ctx context.Context, key string, body io.Reader, contentType string) error
+	Open(ctx context.Context, key string) (io.ReadCloser, string, error)
 }
 
 type CameraCapture interface {
@@ -28,10 +31,12 @@ type BackfillOptions struct {
 	Selection       Selection
 	Timeout         time.Duration
 	RequestInterval time.Duration
+	Force           bool
 }
 
 type Summary struct {
 	Selected  int
+	Skipped   int
 	Succeeded int
 	Failed    int
 	Failures  map[ErrorCode]int
@@ -41,12 +46,11 @@ type BackfillService struct {
 	repository Repository
 	capture    CameraCapture
 	objects    ObjectStore
-	now        func() time.Time
 	sleep      func(context.Context, time.Duration) error
 }
 
 func NewBackfillService(repository Repository, capture CameraCapture, objects ObjectStore) *BackfillService {
-	return &BackfillService{repository: repository, capture: capture, objects: objects, now: time.Now, sleep: sleepContext}
+	return &BackfillService{repository: repository, capture: capture, objects: objects, sleep: sleepContext}
 }
 
 func (s *BackfillService) Run(ctx context.Context, options BackfillOptions) (Summary, error) {
@@ -71,12 +75,24 @@ func (s *BackfillService) Run(ctx context.Context, options BackfillOptions) (Sum
 	}
 	summary := Summary{Selected: len(candidates), Failures: map[ErrorCode]int{}}
 	consecutive := 0
-	for index, candidate := range candidates {
-		if index > 0 {
+	captured := false
+	for _, candidate := range candidates {
+		if !options.Force {
+			exists, err := s.objectExists(ctx, candidate)
+			if err != nil {
+				return summary, err
+			}
+			if exists {
+				summary.Skipped++
+				continue
+			}
+		}
+		if captured {
 			if err := s.sleep(ctx, options.RequestInterval); err != nil {
 				return summary, err
 			}
 		}
+		captured = true
 		code, err := s.processCandidate(ctx, candidate, options.Timeout)
 		if err != nil {
 			return summary, err
@@ -101,33 +117,35 @@ func (s *BackfillService) Run(ctx context.Context, options BackfillOptions) (Sum
 }
 
 func (s *BackfillService) processCandidate(ctx context.Context, candidate Candidate, timeout time.Duration) (ErrorCode, error) {
-	attemptedAt := s.now().UTC()
 	captureCtx, cancel := context.WithTimeout(ctx, timeout)
 	jpeg, code := s.capture.Capture(captureCtx, candidate.CameraID, StreamRequest{Mode: StreamModeLive})
 	cancel()
 	defer wipeBytes(jpeg.Bytes)
 	if code != "" {
-		return code, s.repository.UpsertSnapshot(ctx, failureSnapshot(candidate, attemptedAt, code))
+		return code, nil
 	}
 	if !validBackfillJPEG(jpeg) {
-		code = ErrorThumbnailInvalid
-		return code, s.repository.UpsertSnapshot(ctx, failureSnapshot(candidate, attemptedAt, code))
+		return ErrorThumbnailInvalid, nil
 	}
 	key := snapshotObjectKey(candidate.TenantID, candidate.CameraID)
 	if err := s.objects.Save(ctx, key, bytes.NewReader(jpeg.Bytes), jpeg.ContentType); err != nil {
-		code = ErrorOSSUploadFailed
-		return code, s.repository.UpsertSnapshot(ctx, failureSnapshot(candidate, attemptedAt, code))
-	}
-	capturedAt := s.now().UTC()
-	snapshot := Snapshot{TenantID: candidate.TenantID, CameraID: candidate.CameraID, Status: SnapshotStatusSucceeded, ObjectKey: key, ContentType: jpeg.ContentType, Width: jpeg.Width, Height: jpeg.Height, ByteSize: len(jpeg.Bytes), CapturedAt: &capturedAt, AttemptedAt: attemptedAt}
-	if err := s.repository.UpsertSnapshot(ctx, snapshot); err != nil {
-		return "", err
+		return ErrorOSSUploadFailed, nil
 	}
 	return SnapshotStatusSucceeded, nil
 }
 
-func failureSnapshot(candidate Candidate, attemptedAt time.Time, code ErrorCode) Snapshot {
-	return Snapshot{TenantID: candidate.TenantID, CameraID: candidate.CameraID, Status: code, ErrorCode: code, AttemptedAt: attemptedAt}
+func (s *BackfillService) objectExists(ctx context.Context, candidate Candidate) (bool, error) {
+	reader, _, err := s.objects.Open(ctx, snapshotObjectKey(candidate.TenantID, candidate.CameraID))
+	if errors.Is(err, assets.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := reader.Close(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func validBackfillJPEG(jpeg JPEG) bool {

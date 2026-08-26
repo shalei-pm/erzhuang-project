@@ -1,9 +1,10 @@
-# Temporary test Job template. Operations replaces the image and existing
-# Secret references during submission; do not add these values to the Web Pod.
+# One-shot, serial NVR thumbnail backfill. It only reads candidate cameras and
+# stores successful JPEGs in existing private OSS. Keep a single fixed Job name
+# so Kubernetes rejects a concurrent submission while this run is active.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: erzhuang-nvr-snapshot-backfill-10001
+  name: erzhuang-nvr-snapshot-backfill
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600

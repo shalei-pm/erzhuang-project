@@ -43,7 +43,7 @@
 - 测试库与线上库当前按结构一致口径管理。开发过程中如果需要调整线上表结构，Codex 只产出可审查 SQL、影响说明、验证 SQL 和回滚建议；由用户提交给运维，运维在正式库执行。
 - 禁止把线上或测试数据库密码写入仓库、文档、命令行参数、临时脚本、长期 TablePro 连接配置或截图。
 - 2026-08-18 新口径：已在测试库确认原 `db_groupbuy` 的四张资源查看表同步到二壮自有库 `db_pm_erzhuang`，用户确认线上库也已同步。3.0 已改为复用主库连接；测试环境验收通过后，可由运维清理不再使用的独立业务库 Secret。
-- NVR 缩略图回填自有表 DDL 位于 `db/nvr_camera_snapshots.sql`。必须由 DBA/运维分别在测试和正式库执行，Web 服务不得自行建表；Job 账号只获来源表 `SELECT` 及自有表 `SELECT, INSERT, UPDATE`，Web 账号仅获自有表 `SELECT`。
+- NVR 缩略图回填不使用数据库表或 DDL。一次性 Job 只读 `tb_crm_iot_device` 候选摄像头，成功 JPEG 写入既有私有 OSS 的 `nvr-camera-snapshots/{tenant_id}/{camera_id}.jpg`。Web 重复现有监控授权后按该确定性 Key 读取；默认发现对象即跳过，只有 `--force` 才允许重抓覆盖。历史 `db/nvr_camera_snapshots.sql` 已废止，不得执行。
 
 GitLab 推送认证：
 

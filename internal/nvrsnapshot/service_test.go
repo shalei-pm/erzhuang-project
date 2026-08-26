@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/assets"
 )
 
 func TestBackfillServiceRunsSeriallyWithRequestSpacing(t *testing.T) {
@@ -13,14 +16,10 @@ func TestBackfillServiceRunsSeriallyWithRequestSpacing(t *testing.T) {
 	capture := &fakeCameraCapture{jpeg: JPEG{Bytes: []byte{1}, ContentType: "image/jpeg", Width: 1, Height: 1}}
 	service := NewBackfillService(repo, capture, fakeObjectStore{})
 	var sleeps int
-	service.now = func() time.Time { return time.Unix(1, 0) }
 	service.sleep = func(context.Context, time.Duration) error { sleeps++; return nil }
-	summary, err := service.Run(context.Background(), BackfillOptions{Selection: Selection{TenantID: 10001, Mode: SelectionMissingOnly}})
+	summary, err := service.Run(context.Background(), BackfillOptions{Selection: Selection{TenantID: 10001}})
 	if err != nil || summary.Succeeded != 2 || sleeps != 1 || capture.calls != 2 {
 		t.Fatalf("Run() = %#v, %v; sleeps=%d calls=%d", summary, err, sleeps, capture.calls)
-	}
-	if len(repo.snapshots) != 2 || repo.snapshots[0].Status != SnapshotStatusSucceeded {
-		t.Fatalf("snapshots = %#v", repo.snapshots)
 	}
 }
 
@@ -29,28 +28,34 @@ func TestBackfillServicePersistsFailuresAndTripsCircuit(t *testing.T) {
 	capture := &fakeCameraCapture{code: ErrorWSSConnectFailed}
 	service := NewBackfillService(repo, capture, fakeObjectStore{})
 	service.sleep = func(context.Context, time.Duration) error { return nil }
-	summary, err := service.Run(context.Background(), BackfillOptions{Selection: Selection{TenantID: 10001, Mode: SelectionMissingOnly}})
+	summary, err := service.Run(context.Background(), BackfillOptions{Selection: Selection{TenantID: 10001}})
 	if !errors.Is(err, ErrCircuitOpen) || summary.Failed != 3 || capture.calls != 3 {
 		t.Fatalf("Run() = %#v, %v; calls=%d", summary, err, capture.calls)
 	}
-	for _, snapshot := range repo.snapshots {
-		if snapshot.Status != ErrorWSSConnectFailed || snapshot.ErrorCode != ErrorWSSConnectFailed {
-			t.Fatalf("failure snapshot = %#v", snapshot)
-		}
+}
+
+func TestBackfillServiceSkipsExistingObjectUnlessForceRequested(t *testing.T) {
+	repo := &fakeSnapshotRepository{candidates: []Candidate{{TenantID: 10001, CameraID: 1}}}
+	capture := &fakeCameraCapture{jpeg: JPEG{Bytes: []byte{1}, ContentType: "image/jpeg", Width: 1, Height: 1}}
+	objects := fakeObjectStore{existing: map[string]bool{snapshotObjectKey(10001, 1): true}}
+	service := NewBackfillService(repo, capture, objects)
+
+	summary, err := service.Run(context.Background(), BackfillOptions{Selection: Selection{TenantID: 10001}})
+	if err != nil || summary.Skipped != 1 || capture.calls != 0 {
+		t.Fatalf("default Run() = %#v, %v; calls=%d", summary, err, capture.calls)
+	}
+	summary, err = service.Run(context.Background(), BackfillOptions{Selection: Selection{TenantID: 10001}, Force: true})
+	if err != nil || summary.Succeeded != 1 || capture.calls != 1 {
+		t.Fatalf("forced Run() = %#v, %v; calls=%d", summary, err, capture.calls)
 	}
 }
 
 type fakeSnapshotRepository struct {
 	candidates []Candidate
-	snapshots  []Snapshot
 }
 
 func (r *fakeSnapshotRepository) ListCandidates(context.Context, Selection) ([]Candidate, error) {
 	return r.candidates, nil
-}
-func (r *fakeSnapshotRepository) UpsertSnapshot(_ context.Context, snapshot Snapshot) error {
-	r.snapshots = append(r.snapshots, snapshot)
-	return nil
 }
 
 type fakeCameraCapture struct {
@@ -64,6 +69,12 @@ func (c *fakeCameraCapture) Capture(context.Context, int64, StreamRequest) (JPEG
 	return c.jpeg, c.code
 }
 
-type fakeObjectStore struct{}
+type fakeObjectStore struct{ existing map[string]bool }
 
 func (fakeObjectStore) Save(context.Context, string, io.Reader, string) error { return nil }
+func (s fakeObjectStore) Open(_ context.Context, key string) (io.ReadCloser, string, error) {
+	if s.existing[key] {
+		return io.NopCloser(strings.NewReader("jpeg")), "image/jpeg", nil
+	}
+	return nil, "", assets.ErrNotFound
+}

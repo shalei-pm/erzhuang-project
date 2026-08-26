@@ -1,5 +1,9 @@
 # NVR Snapshot One-Time Backfill Design
 
+> **Superseded on 2026-08-26.** This document describes the discarded
+> database-table approach. The active, no-DBA design is
+> `2026-08-26-nvr-snapshot-backfill-oss-design.md`.
+
 **Date:** 2026-08-26
 
 ## Goal

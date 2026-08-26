@@ -436,12 +436,14 @@
 ## 2026-08-26 NVR 缩略图采用一次性后端回填，而非页面功能或定时服务
 
 - 背景：NVR 摄像头列表需要默认缩略图，但目前没有工控机静态截图接口。用户不接受常驻浏览器队列、单摄像头人工维护、Web 实例新配置或周期性刷新。
-- 结论：使用独立的一次性后端 Job，严格串行处理符合 `camera + HikVisionNvrChannel + status=1 + not deleted` 口径的摄像头。Job 读 `tb_crm_*`，只写私有 OSS 与二壮自有表 `tb_nvr_camera_snapshots`；Web 只做权限受控读取，优先新图、再回退既有安全旧图、最后显示灰色占位。
+- 结论（2026-08-26 更新）：使用独立的一次性后端 Job，严格串行处理符合 `camera + HikVisionNvrChannel + status=1 + not deleted` 口径的摄像头。Job 只读 `tb_crm_iot_device`，只写既有私有 OSS 的确定性对象 Key `nvr-camera-snapshots/{tenant_id}/{camera_id}.jpg`，不写 MySQL、不建表；Web 只做权限受控读取，缺图时显示灰色占位。旧“自有快照表”方案已废止。
 - 原因：将高风险媒体抓取与常驻 Web 服务隔离，避免业务用户操作、周期成本和错误映射；已完成的条目可由数据库状态续跑。
-- 前置：表结构由 DBA/运维在测试和正式库执行；先以测试 `10001` 单个已知可直播摄像头验证服务端 WSS/RTP/H.265 到 ffmpeg JPEG。技术闸门未通过前，不进行 44 路或全量批处理。
+- 前置：不需要表结构变更。先以测试 `10001` 单个已知可直播摄像头验证服务端 WSS/RTP/H.265 到 ffmpeg JPEG；技术闸门未通过前，不进行 44 路或全量批处理。
 - 日期：2026-08-26
 
-## 2026-08-26 NVR 缩略图数据模型经直属 DBA 评审后定稿
+## 2026-08-26 NVR 缩略图数据模型草案（已废止）
+
+> 已被无 DBA 的 OSS-only 方案替代，不得按本节执行 DDL 或数据库写入。
 
 - 背景：主会话直属 DBA 子 agent 已对回填 DDL、最小权限和回滚做只读评审。
 - 结论：以业务摄像头全局主键 `camera_id` 作为唯一键，保留 `tenant_id` 用于机构查询与校验；OSS 对象 Key 使用 `ascii_bin`，不保存完整 URL；不建立到同步 `tb_crm_*` 表的外键。保留 `status`、`attempted_at`、`error_code`，以支持失败分类和显式续跑，但不保存上游错误全文。

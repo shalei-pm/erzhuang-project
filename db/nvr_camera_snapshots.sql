@@ -1,6 +1,10 @@
--- NVR default-thumbnail backfill owned table.
--- Run through the company DBA change process in test and production separately.
--- The Web service and one-shot runner must never create or alter this table.
+-- SUPERSEDED: do not execute this file.
+--
+-- The NVR thumbnail backfill uses no MySQL table and needs no DBA work.
+-- Completion is represented solely by a private OSS object at:
+-- nvr-camera-snapshots/{tenant_id}/{camera_id}.jpg
+--
+-- The historical DDL below is retained only to document the discarded design.
 
 create table tb_nvr_camera_snapshots (
   id bigint unsigned not null auto_increment,

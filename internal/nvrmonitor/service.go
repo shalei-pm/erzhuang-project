@@ -21,10 +21,9 @@ type AuthorizationClient interface {
 }
 
 // SnapshotStore is an optional, private thumbnail source populated by the
-// one-shot NVR backfill Job. It deliberately does not participate in stream
-// authorization or capture.
+// one-shot NVR backfill Job. Object existence is the source of truth: no
+// database row is needed to expose a successfully captured thumbnail.
 type SnapshotStore interface {
-	ListAvailable(ctx context.Context, tenantID int64) (map[int64]bool, error)
 	Open(ctx context.Context, tenantID int64, cameraID int64) (io.ReadCloser, string, error)
 }
 
@@ -52,7 +51,7 @@ func (s *Service) ListStores(ctx context.Context) (MonitorStoresResponse, error)
 	}
 	byCity := map[string][]StoreInfo{}
 	for _, record := range records {
-		cameras := camerasFromRecords(record, nil)
+		cameras := camerasFromRecords(record, false)
 		if len(cameras) == 0 {
 			continue
 		}
@@ -88,13 +87,12 @@ func (s *Service) GetCameras(ctx context.Context, externalOrgID string) (CameraL
 	if err != nil {
 		return CameraListResponse{}, err
 	}
-	availableSnapshots := s.listAvailableSnapshots(ctx, records.Tenant.ID)
 	return CameraListResponse{
 		ExternalOrgID: strconv.FormatInt(records.Tenant.ID, 10),
 		TenantID:      records.Tenant.ID,
 		StoreName:     strings.TrimSpace(records.Tenant.Name),
 		City:          cityLabel(records.Tenant.CityID),
-		Cameras:       camerasFromRecords(records, availableSnapshots),
+		Cameras:       camerasFromRecords(records, s.snapshots != nil),
 	}, nil
 }
 
@@ -103,7 +101,7 @@ func (s *Service) OpenSnapshot(ctx context.Context, externalOrgID string, camera
 	if err != nil {
 		return nil, "", err
 	}
-	if !containsCamera(camerasFromRecords(records, nil), cameraID) {
+	if !containsCamera(camerasFromRecords(records, false), cameraID) {
 		return nil, "", ErrCameraNotFound
 	}
 	if s.snapshots == nil {
@@ -183,20 +181,7 @@ func containsCamera(cameras []Camera, cameraID int64) bool {
 	return false
 }
 
-func (s *Service) listAvailableSnapshots(ctx context.Context, tenantID int64) map[int64]bool {
-	if s.snapshots == nil {
-		return nil
-	}
-	available, err := s.snapshots.ListAvailable(ctx, tenantID)
-	if err != nil {
-		// The read path remains compatible while the DBA-owned table is not yet
-		// present. Existing legacy thumbnails stay available as a fallback.
-		return nil
-	}
-	return available
-}
-
-func camerasFromRecords(records resourceview.StoreRecords, availableSnapshots map[int64]bool) []Camera {
+func camerasFromRecords(records resourceview.StoreRecords, snapshotsConfigured bool) []Camera {
 	spaces := map[int64]resourceview.BusinessSpace{}
 	for _, space := range records.Spaces {
 		spaces[space.ID] = space
@@ -220,7 +205,7 @@ func camerasFromRecords(records resourceview.StoreRecords, availableSnapshots ma
 			camera.SpaceName = strings.TrimSpace(space.Name)
 			camera.SpaceType = spaceType(*space, spaces)
 		}
-		if availableSnapshots[device.ID] {
+		if snapshotsConfigured {
 			camera.ThumbnailURL = fmt.Sprintf("/api/h5/nvr-monitor/orgs/%d/cameras/%d/snapshot", records.Tenant.ID, device.ID)
 		} else if channelNo := nvrChannelNo(device.HardwareID); channelNo > 0 && records.LegacyCameraSnapshots[channelNo] != "" {
 			camera.ThumbnailURL = fmt.Sprintf("/api/store-space-resource-view/stores/%d/cameras/%d/snapshot", records.Tenant.ID, device.ID)

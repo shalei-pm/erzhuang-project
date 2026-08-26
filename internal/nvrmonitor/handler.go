@@ -118,7 +118,9 @@ func (h *Handler) getSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer reader.Close()
-	w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
+	// Keep thumbnails private, but allow a later deliberate recapture to become
+	// visible without holding an immutable browser cache for a week.
+	w.Header().Set("Cache-Control", "private, max-age=3600")
 	if strings.TrimSpace(contentType) != "" {
 		w.Header().Set("Content-Type", contentType)
 	}

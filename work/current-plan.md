@@ -578,8 +578,8 @@
 - [x] 直属 DBA 子 agent 已完成只读评审；主会话接受其对象 Key、无外键与最小权限建议，并保留失败状态/错误码的产品约束。
 - [x] 已完成：不触库、不写 OSS 的协议技术闸门已完成 RTP/H.265 FU 重组纯函数与测试，直属规格审查和代码质量审查均通过；已使用本机 Go 1.22.12 执行 `gofmt` 与 `go test ./internal/nvrsnapshot`，并通过 `go build ./...`。全仓测试须在公司 Linux/Wharf 环境复验，因本机 macOS dyld 会在启动多数既有测试二进制时中止。
 - [x] 已完成：实现可替换的单摄像头原生解码路径，采用真实 Go WSS dialer、RTP/H.265 marker access-unit 聚合和受限 ffmpeg JPEG 管道；仅以 fake WebSocket、fake ffmpeg 做确定性测试。真实 WSS/JPEG 技术闸门仍不写 MySQL/OSS。独立 runner 命令与 Dockerfile 必须等同一提交可构建后再引入，不能提前留下失败镜像。
-- [ ] 完成真实单摄像头解码验证后，由 DBA/运维审批并执行自有表 `tb_nvr_camera_snapshots` 的测试库 DDL；Web 服务不得自行建表。
-- [ ] DDL 与独立 Job 最小权限就绪后，执行 `10001 / camera_id=111` 的 20 秒、并发 1 持久化技术闸门。失败即停止，不进入 44 路或全量批处理。
+- [x] 放弃需要 DBA 的自有表方案：回填改为只读候选摄像头、成功图写入私有 OSS `nvr-camera-snapshots/{tenant_id}/{camera_id}.jpg`，不执行 DDL、不写 MySQL。
+- [ ] 使用既有测试 MySQL/OSS/NVR Secret 的独立 Job 执行 `10001 / camera_id=111` 的 20 秒、并发 1 技术闸门。失败即停止，不进入 44 路或全量批处理。
 - [ ] 技术闸门通过后才执行严格串行 Job；`10001` 批量、全量测试、生产执行均需逐级单独确认。
 
 ## 2026-08-26 增量：单摄像头无副作用 spike runner
@@ -589,19 +589,18 @@
 - [x] 授权仅复用既有 NVR Secret；运行参数仅允许单一正数 `--camera-id`，直播模式，默认且最大 20 秒。
 - [x] 主会话规格审查完成并修复：20 秒上限、稳定 `wss_connect_failed` 错误码。
 - [x] 本机定向 Go 测试、`go vet`、独立编译、格式化和 diff 检查通过。
-- [x] DBA 复审完成；DDL、验证与回滚 SQL 已固化为 `db/nvr_camera_snapshots.sql`，待公司 DBA 流程分别执行测试/正式环境。
-- [x] 回填核心已实现：业务表候选只读、自有快照表幂等写入、严格串行、最少 2 秒间隔、三次连接类失败熔断。
-- [ ] 接入独立回填 CLI、全程 MySQL 命名锁、临时 K8s Job 和私有 OSS 写入。
-- [x] 已接入独立回填 CLI、全程 MySQL 命名锁、临时 K8s Job 模板和运行时 OSS 写入边界；待公司测试环境构建/执行。
+- [x] 旧 DDL 草案已标记废止；当前执行设计为 `docs/superpowers/specs/2026-08-26-nvr-snapshot-backfill-oss-design.md`。
+- [x] 回填核心已实现：业务表候选只读、确定性 OSS 对象幂等跳过、严格串行、最少 2 秒间隔、三次连接类失败熔断。
+- [x] 已接入独立回填 CLI、固定名临时 K8s Job 模板和运行时 OSS 写入边界；不使用 MySQL 命名锁，待公司测试环境构建/执行。
 - [x] 完成最终代码质量审查并关闭独立镜像依赖、参数绕过、超时分类和媒体内存清理问题。
 - [x] 提交 `c53d631` 并仅同步 GitHub 备份；未推 GitLab、Wharf 或部署。
 - [ ] 获得用户明确批准后，使用测试 `10001` 的一个已知可直播摄像头进行无持久化真实 WSS -> JPEG 验证。
 
-## 2026-08-26 增量：3.2.2 回填快照受控读取
+## 2026-08-26 增量：3.2.3 OSS 回填快照受控读取
 
-- [x] NVR 摄像头列表优先读取 `tb_nvr_camera_snapshots` 中 `status='succeeded'` 且对象 Key、内容类型均符合约束的结果；仍保留已验证的单录像机旧截图和灰色占位回退。
-- [x] 新图片路由复用 NVR 门店监控授权，并在读取数据库行后按确定性私有 OSS Key 代理；不下发 Key、签名 URL 或媒体数据。
-- [x] 快照表未执行 DDL、查询失败或对象不存在时不影响摄像头列表和直播/回放，仅回退旧图/占位。
+- [x] NVR 摄像头列表通过受控路由读取确定性 OSS Key；对象不存在时前端灰色占位，不查询或依赖快照表。
+- [x] 新图片路由复用 NVR 门店监控授权，按确定性私有 OSS Key 代理；不下发 Key、签名 URL 或媒体数据。
+- [x] 对象不存在或打开失败时不影响摄像头列表和直播/回放，仅显示占位。
 - [x] 独立回填 CLI 新增参数下限和缺少运行时 Secret 的失败关闭测试。
 - [x] 本机验证：完整 `go test ./...`、`go build ./cmd/server`、定向 `go vet`、`git diff --check` 通过；完整测试的 localhost 权限仅用于既有 `httptest`。
 - [x] 已推送 GitLab 测试分支 `58da8b9` 并由 Wharf 自动部署；Chrome 验证测试页版本 `3.2.2 (container)`，资源列表与 `10001` 的 44 路 NVR 摄像头列表正常。

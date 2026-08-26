@@ -1,5 +1,9 @@
 # NVR Snapshot One-Time Backfill Implementation Plan
 
+> **Superseded on 2026-08-26.** This plan contains the discarded MySQL-table
+> implementation. The active no-DBA design is
+> `2026-08-26-nvr-snapshot-backfill-oss-design.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Use an isolated, strict-serial backend task to capture one private OSS thumbnail for each eligible NVR camera and display it only to users permitted to view its store.
