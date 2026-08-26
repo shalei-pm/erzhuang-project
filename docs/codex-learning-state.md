@@ -6056,3 +6056,11 @@ git pull --ff-only
 - 权限：管理员与编辑运维查看全部已配置门店；普通查看用户仅可在已授权门店范围内看到入口并观看。
 - 回滚：本期保留旧萤石代码与数据配置作为版本级回滚能力，但不在新界面暴露旧入口；稳定后再另行评估清理。
 - 状态：正在形成全量路由、数据、权限、验收和回滚设计，未经用户确认不改业务代码或发布。
+
+### 2026-08-26 已确认：NVR 默认缩略图一次性后端回填
+
+- 用户确认不将缩略图变成页面功能、人工维护入口、浏览器常驻队列、定时刷新任务或 Web 实例配置项。
+- 设计与实施计划：`docs/superpowers/specs/2026-08-26-nvr-snapshot-backfill-design.md`、`docs/superpowers/plans/2026-08-26-nvr-snapshot-backfill-implementation.md`。
+- 目标架构：独立 one-shot Job 使用现有 MySQL/OSS/NVR 授权 Secret 抓取一帧，读取同步业务表，只写私有 OSS 与待 DBA 执行的自有表 `tb_nvr_camera_snapshots`；Web 缩略图请求继续按门店 `monitor:view` 权限校验。
+- 关键未知：浏览器 NVRPlayer 已证明 Canvas 端播放，但未证明服务端可将 WSS RTP/H.265 原生解码为 JPEG。必须先在测试门店 `10001` 对一个已知可直播摄像头做 20 秒、并发 1 的技术闸门；失败即停止批处理。
+- 运行顺序：DBA 测试 DDL -> 单摄像头闸门 -> 用户确认的 `10001` 串行批处理 -> 用户确认的全量测试 -> 独立生产审批和执行。正常 Web 发布与临时 Job 生命周期彼此隔离。
