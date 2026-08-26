@@ -6017,4 +6017,5 @@ git pull --ff-only
 
 - 产品调整：NVR 实验页参考既有 2.x 监控观看语义，把“实时视频 / 录像”从播放器下方的独立导航移入播放器底部控制栏。
 - 实现：`NVRLabPlayer` 接收父页面的当前模式与切换回调，在共享控制栏中央渲染双态切换；页面外 `.nvr-lab-mode-tabs` 已移除。直播会话与按小时创建回放会话的既有行为未改变，旧萤石 H5 Monitor 未改。
-- 本地验证：Vitest `10 files / 59 tests` 通过，`npm run build` 通过。Chrome 本地页面验收确认：桌面底栏中心双态控件与两侧控制按钮对齐；切至录像后出现日期和 24 个小时段、无页面外旧 Tab；切回实时视频后小时段隐藏。待提交并发布测试环境。
+- 本地验证：Vitest `10 files / 59 tests` 通过，`npm run build` 通过。Chrome 本地页面验收确认：桌面底栏中心双态控件与两侧控制按钮对齐；切至录像后出现日期和 24 个小时段、无页面外旧 Tab；切回实时视频后小时段隐藏。
+- 提交与发布：`ca3c938 feat: move nvr mode switch into player bar` 已推送 GitHub 备份与 GitLab `codex/containerize-single-image`。待 Wharf `752` 自动构建/部署完成后进行测试环境验收；未触碰正式 `main`。

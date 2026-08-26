@@ -50,7 +50,8 @@
 - [x] 移除页面外 `.nvr-lab-mode-tabs`，避免出现两个模式入口；控制栏中的切换具有 `aria-pressed` 状态。
 - [x] 前端回归：Vitest 10 个文件 / 59 项测试与生产构建通过。
 - [x] Chrome 本地页面验收：桌面底栏中央显示模式双态控件，左右控制按钮不挤压；切至录像显示 24 个小时段且页面外无残留 Tab，切回实时视频后小时段隐藏。
-- [ ] 待提交、同步 GitHub 备份和发布 GitLab 测试分支。
+- [x] 已提交 `ca3c938 feat: move nvr mode switch into player bar`，并同步 GitHub 备份与 GitLab 测试分支。
+- [ ] 待 Wharf `752` 自动构建/部署完成后，以 Chrome 验收测试环境。
 
 ## 当前状态摘要
 
