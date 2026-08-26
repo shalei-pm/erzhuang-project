@@ -6078,3 +6078,11 @@ git pull --ff-only
 - 主会话已做两阶段审查。首次规格审查打回无限 FU 缓存、分片中断状态与边界测试问题；首次质量审查打回 AP/PACI、FU 元数据校验和单 NAL 上限问题。修复后的规格复审和质量复审均通过。
 - 安全策略：未支持的 AP(48)/PACI(50)，以及 FU 内部伪装的 48/49/50 类型一律返回 `demux_failed`；FU 和普通 NAL 同受 4 MiB 默认内存上限；异常后可恢复处理下一条合法 NAL。
 - 验证状态：子 agent 真实尝试 `go test ./internal/nvrsnapshot`，开发机返回 `command not found: go`，且不存在 `gofmt`。因此代码尚未提交、推送、发布或声称测试通过；待具备 Go 1.22 工具链后先格式化并运行该包单测。
+
+### 2026-08-26 NVR 缩略图协议层本机工具链与验证更新
+
+- 已将经 Go 官方 SHA-256 清单核验的 `go1.22.12 darwin/arm64` 安装至本机用户目录 `~/.local/go1.22.12`；未写入仓库、容器、K8s 或任何运行时环境。
+- 已对 `internal/nvrsnapshot/depacketizer.go` 与 `internal/nvrsnapshot/depacketizer_test.go` 执行 `gofmt`，并通过定向测试：`go test ./internal/nvrsnapshot`。
+- `go build ./...` 通过，说明全仓当前可编译。
+- `go test ./...` 未能作为全仓通过证据：除纯协议包外，多数既有测试二进制在本机启动时被 macOS 动态加载器以 `missing LC_UUID load command` 中止。该失败发生在测试进程启动，且本轮新增协议包实际测试通过；后续需要在公司 Linux/Wharf 构建环境再次执行全仓测试，不能将本机结果记为全部测试失败或通过。
+- 本轮仍未连接真实 WSS、未抓图、未写 MySQL/OSS、未执行 DDL/Job、未推送 GitLab 或发布环境。下一步是提交并仅同步已验证的纯协议层代码到 GitHub，然后再实现不持久化的单摄像头解码闸门。
