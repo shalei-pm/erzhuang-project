@@ -1131,10 +1131,6 @@ function clampUnix(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function pad2(value: number): string {
-  return `${value}`.padStart(2, "0");
-}
-
 function errMessage(err: unknown, fallback: string): string {
   if (err instanceof H5ApiError) {
     if (err.status === 403) return "暂无访问权限";

@@ -10,7 +10,7 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 )
 
-const maxPlaybackWindow = 30 * time.Minute
+const maxPlaybackWindow = time.Hour
 
 type AuthorizationClient interface {
 	CreateStreamURL(ctx context.Context, cameraID int64, request StreamSessionRequest) (string, error)

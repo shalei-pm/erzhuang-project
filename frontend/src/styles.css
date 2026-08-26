@@ -3546,37 +3546,61 @@ td:nth-child(10) {
   font-weight: 700;
 }
 
-.nvr-lab-playback-form {
+.nvr-lab-hourly-picker {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: end;
-  padding: 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-  background: var(--surface);
+  gap: 10px;
 }
 
-.nvr-lab-playback-form label {
-  display: grid;
-  gap: 6px;
-  color: var(--text-muted);
+.nvr-lab-hourly-picker .h5-date-picker {
+  box-shadow: var(--shadow-panel);
+}
+
+.nvr-lab-hourly-range,
+.nvr-lab-hourly-error {
+  margin: 0;
+  padding: 0 2px;
   font-size: 12px;
+  line-height: 1.5;
 }
 
-.nvr-lab-playback-form input {
+.nvr-lab-hourly-range {
+  color: var(--text-muted);
+}
+
+.nvr-lab-hourly-error {
+  color: var(--danger);
+}
+
+.nvr-lab-hour-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.nvr-lab-hour-grid button {
   min-width: 0;
   min-height: 34px;
-  padding: 0 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
+  padding: 0 10px;
+  border-color: var(--border-subtle);
+  background: var(--surface);
   color: var(--text-main);
-  font: inherit;
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
 }
 
-.nvr-lab-playback-form button {
-  min-height: 34px;
-  padding: 0 14px;
+.nvr-lab-hour-grid button:hover,
+.nvr-lab-hour-grid button:focus-visible {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: var(--brand);
+}
+
+.nvr-lab-hour-grid button.is-selected {
+  border-color: var(--brand);
+  background: #eff6ff;
+  color: var(--brand);
+  font-weight: 650;
 }
 
 .nvr-lab-playback-diagnostics {
@@ -4812,6 +4836,15 @@ td:nth-child(10) {
 
   .h5-date-confirm {
     width: 100%;
+  }
+
+  .nvr-lab-hour-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .nvr-lab-hour-grid button {
+    padding: 0 8px;
   }
 
   .h5-player-controls {

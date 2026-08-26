@@ -1,5 +1,13 @@
 export type NVRLabMode = "live" | "playback";
 export type NVRLabRoute = { name: "home" } | { name: "camera"; cameraId: number } | null;
+export const NVR_LAB_MAX_PLAYBACK_SECONDS = 60 * 60;
+
+export type NVRLabPlaybackRange = {
+  startAt: string;
+  endAt: string;
+  startTime: number;
+  endTime: number;
+};
 
 export type NVRLabCamera = {
   id: number;
@@ -44,8 +52,30 @@ export function validateNVRLabPlayback(startTime: number, endTime: number): stri
     return "请选择完整的回放时间范围";
   }
   if (endTime <= startTime) return "结束时间必须晚于开始时间";
-  if (endTime - startTime > 30 * 60) return "单次回放最长支持 30 分钟";
+  if (endTime - startTime > NVR_LAB_MAX_PLAYBACK_SECONDS) return "单次回放最长支持 1 小时";
   return "";
+}
+
+export function buildNVRLabHourlyPlayback(date: string, hour: number, now = new Date()): NVRLabPlaybackRange | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(hour) || hour < 0 || hour > 23) return null;
+  return buildNVRLabPlaybackFromStart(`${date}T${pad2(hour)}:00`, now);
+}
+
+export function buildNVRLabPlaybackFromStart(startAt: string, now = new Date()): NVRLabPlaybackRange | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(startAt)) return null;
+  const start = new Date(`${startAt}:00`);
+  if (Number.isNaN(start.getTime())) return null;
+  start.setSeconds(0, 0);
+
+  const latest = new Date(now);
+  latest.setSeconds(0, 0);
+  if (start.getTime() >= latest.getTime()) return null;
+
+  const end = new Date(Math.min(start.getTime() + NVR_LAB_MAX_PLAYBACK_SECONDS * 1000, latest.getTime()));
+  const startTime = Math.floor(start.getTime() / 1000);
+  const endTime = Math.floor(end.getTime() / 1000);
+  if (validateNVRLabPlayback(startTime, endTime)) return null;
+  return { startAt: formatDateTimeInput(start), endAt: formatDateTimeInput(end), startTime, endTime };
 }
 
 export function nvrLabCameraTitle(camera: NVRLabCamera): string {
@@ -67,4 +97,12 @@ export function nvrLabCameraTab(camera: NVRLabCamera): NVRLabTabKey {
 export function nvrLabRoutePath(route: Exclude<NVRLabRoute, null>): string {
   const base = (import.meta.env.BASE_URL || "/erzhuang-project/").replace(/\/$/, "");
   return route.name === "home" ? `${base}/h5/nvr-lab/10001` : `${base}/h5/nvr-lab/10001/cameras/${route.cameraId}`;
+}
+
+function formatDateTimeInput(date: Date): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
+function pad2(value: number): string {
+  return `${value}`.padStart(2, "0");
 }

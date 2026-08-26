@@ -88,10 +88,20 @@ func TestCreateSessionRejectsCameraOutsideEligibleSet(t *testing.T) {
 	}
 }
 
-func TestCreateSessionRejectsPlaybackLongerThanThirtyMinutes(t *testing.T) {
+func TestCreateSessionAllowsPlaybackForExactlyOneHour(t *testing.T) {
+	client := &fakeAuthorizationClient{url: "wss://example.test/session"}
+	service := NewService(fakeRepository{records: map[int64]resourceview.StoreRecords{ExperimentTenantID: sampleRecords()}}, client)
+
+	_, err := service.CreateSession(context.Background(), ExperimentTenantID, 111, StreamSessionRequest{Mode: ModePlayback, StartTime: 100, EndTime: 3700})
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+}
+
+func TestCreateSessionRejectsPlaybackLongerThanOneHour(t *testing.T) {
 	service := NewService(fakeRepository{records: map[int64]resourceview.StoreRecords{ExperimentTenantID: sampleRecords()}}, &fakeAuthorizationClient{})
 
-	_, err := service.CreateSession(context.Background(), ExperimentTenantID, 111, StreamSessionRequest{Mode: ModePlayback, StartTime: 100, EndTime: 1901})
+	_, err := service.CreateSession(context.Background(), ExperimentTenantID, 111, StreamSessionRequest{Mode: ModePlayback, StartTime: 100, EndTime: 3701})
 	if !errors.Is(err, ErrInvalidPlaybackWindow) {
 		t.Fatalf("CreateSession() error = %v, want ErrInvalidPlaybackWindow", err)
 	}
