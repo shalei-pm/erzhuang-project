@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import NVRPlayer from "../vendor/nvr-player/nvr-player.js";
 import { H5PlayerControls } from "./H5PlayerControls";
-import type { NVRLabMode, NVRLabStreamSession } from "../domain/nvr-lab";
+import type { NVRLabStreamSession } from "../domain/nvr-lab";
 
 export type NVRLabPlayerStatus = {
   stage: "idle" | "connecting" | "connected" | "first-frame" | "error";
@@ -10,13 +10,11 @@ export type NVRLabPlayerStatus = {
 
 type NVRLabPlayerProps = {
   session: NVRLabStreamSession | null;
-  mode: NVRLabMode;
-  onModeChange: (mode: NVRLabMode) => void;
   onStatus?: (status: NVRLabPlayerStatus) => void;
   onRetry: () => void;
 };
 
-export function NVRLabPlayer({ session, mode, onModeChange, onStatus, onRetry }: NVRLabPlayerProps) {
+export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playerRef = useRef<NVRPlayer | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
@@ -129,16 +127,7 @@ export function NVRLabPlayer({ session, mode, onModeChange, onStatus, onRetry }:
             <H5PlayerControls
               state={{ playing, muted, loading: status.stage === "connecting", failed: status.stage === "error", fullscreen, landscape }}
               visible={controlsVisible}
-              center={
-                <nav className="nvr-lab-control-tabs" aria-label="视频模式">
-                  <button type="button" className={mode === "live" ? "active" : ""} aria-pressed={mode === "live"} onClick={() => onModeChange("live")}>
-                    实时视频
-                  </button>
-                  <button type="button" className={mode === "playback" ? "active" : ""} aria-pressed={mode === "playback"} onClick={() => onModeChange("playback")}>
-                    录像
-                  </button>
-                </nav>
-              }
+              center={<span>{session?.mode === "playback" ? "录像" : "实时视频"}</span>}
               onTogglePlay={() => void togglePlay()}
               onToggleSound={() => void toggleSound()}
               onScreenshot={screenshot}

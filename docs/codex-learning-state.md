@@ -6013,9 +6013,9 @@ git pull --ff-only
 - 实际播放：切换到“昨天”后点击 `11:00 - 12:00`，无需第二次确认即创建回放会话，`camera_id=111` 首帧成功。页面和控制台无 error，页面未出现 token、完整 WSS URL 或 Authorization。
 - 稳定性证据：在持续回放中相隔 5 秒读取 Canvas，CSS 尺寸均为 `1358 x 763.875`，画布绘图缓冲区均为 `1920 x 1088`。原先挤占播放器的右侧统计节点已不存在，已消除本页布局重排导致的抖动来源；如仍出现画面抖动，应单独按上游流帧率、编码和网络问题继续定位。
 
-### 2026-08-26 进行中：3.1.10 NVR 播放器内模式切换
+### 2026-08-26 进行中：3.1.11 NVR 页面底栏模式切换
 
-- 产品调整：NVR 实验页参考既有 2.x 监控观看语义，把“实时视频 / 录像”从播放器下方的独立导航移入播放器底部控制栏。
-- 实现：`NVRLabPlayer` 接收父页面的当前模式与切换回调，在共享控制栏中央渲染双态切换；页面外 `.nvr-lab-mode-tabs` 已移除。直播会话与按小时创建回放会话的既有行为未改变，旧萤石 H5 Monitor 未改。
-- 本地验证：Vitest `10 files / 59 tests` 通过，`npm run build` 通过。Chrome 本地页面验收确认：桌面底栏中心双态控件与两侧控制按钮对齐；切至录像后出现日期和 24 个小时段、无页面外旧 Tab；切回实时视频后小时段隐藏。
-- 提交与发布：`ca3c938 feat: move nvr mode switch into player bar` 已推送 GitHub 备份与 GitLab `codex/containerize-single-image`。待 Wharf `752` 自动构建/部署完成后进行测试环境验收；未触碰正式 `main`。
+- 纠正：此前错误地将“底部 bar”实现为播放器内部控制栏。已在 Chrome 直接查看 2.x 真实观看页，并核对 `H5MonitorChannel`：`h5-bottom-tabs` 是独立、固定在视口底部的页面级导航，播放器控制栏不承载模式切换。
+- 实现：NVR 页改为同一层级结构，`NVRLabCamera` 负责模式状态与 `nav.h5-bottom-tabs`；`NVRLabPlayer` 恢复为单一播放器组件。直播和按小时发起回放的已有行为不变，旧萤石 H5 Monitor 不改。
+- 本地验证：Vitest `10 files / 59 tests` 与 `npm run build` 通过。Chrome 验收确认 `h5-bottom-tabs` 的计算样式为 `position: fixed`；点击“录像”后底栏选中且 24 个小时段出现；播放器内部无模式切换控件。
+- 待完成：以新的修正 commit 覆盖测试环境，并从已登录 Chrome 复验实际部署页面。

@@ -1,15 +1,14 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { NVRLabPlayer } from "./NVRLabPlayer";
+import { NVRLabCamera } from "../pages/NVRLabCamera";
 
 describe("NVRLabPlayer", () => {
   it("does not render the signed stream URL into the page", () => {
     const markup = renderToStaticMarkup(
       createElement(NVRLabPlayer, {
         session: { mode: "playback", url: "wss://example.test/session?token=private-token" },
-        mode: "playback",
-        onModeChange: () => undefined,
         onRetry: () => undefined,
       }),
     );
@@ -22,8 +21,6 @@ describe("NVRLabPlayer", () => {
     const markup = renderToStaticMarkup(
       createElement(NVRLabPlayer, {
         session: { mode: "playback", url: "wss://example.test/session?token=private-token" },
-        mode: "playback",
-        onModeChange: () => undefined,
         onRetry: () => undefined,
       }),
     );
@@ -37,8 +34,6 @@ describe("NVRLabPlayer", () => {
     const markup = renderToStaticMarkup(
       createElement(NVRLabPlayer, {
         session: { mode: "live", url: "wss://example.test/session" },
-        mode: "live",
-        onModeChange: () => undefined,
         onRetry: () => undefined,
       }),
     );
@@ -47,20 +42,25 @@ describe("NVRLabPlayer", () => {
     expect(markup).toContain('aria-label="开启声音"');
   });
 
-  it("renders the live and playback switcher inside the player controls", () => {
+  it("renders the live and playback switcher as the shared page bottom bar", () => {
+    vi.stubGlobal("window", { location: { search: "" } });
     const markup = renderToStaticMarkup(
-      createElement(NVRLabPlayer, {
-        session: { mode: "live", url: "wss://example.test/session" },
-        mode: "live",
-        onModeChange: () => undefined,
-        onRetry: () => undefined,
+      createElement(NVRLabCamera, {
+        cameraId: 111,
+        auth: null,
+        loggingOut: false,
+        authMessage: "",
+        onLogout: () => undefined,
+        onAuthRequired: () => undefined,
+        onBack: () => undefined,
       }),
     );
 
-    expect(markup).toContain('class="nvr-lab-control-tabs"');
-    expect(markup).toContain('aria-label="视频模式"');
-    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).toContain('class="h5-bottom-tabs"');
+    expect(markup).toContain('aria-label="播放模式"');
+    expect(markup).not.toContain('class="nvr-lab-control-tabs"');
     expect(markup).toContain("实时视频");
     expect(markup).toContain("录像");
+    vi.unstubAllGlobals();
   });
 });

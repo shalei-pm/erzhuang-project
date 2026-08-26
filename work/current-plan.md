@@ -43,15 +43,13 @@
 - [x] 前端回归：Vitest 10 个文件 / 58 项测试与生产构建通过；`b9f027c fix: simplify nvr playback controls` 已推送 GitLab 测试分支和 GitHub 备份。
 - [x] Wharf `752` 自动部署后，Chrome 插件测试：无定位按钮、无诊断面板、今天后续 11 个小时 disabled；点击“昨天 11:00 - 12:00”直接回放并首帧成功。5 秒间隔两次采样的 Canvas CSS 尺寸均为 `1358 x 763.875`，控制台无 error。
 
-## 2026-08-26 增量：3.1.10 NVR 播放器内模式切换
+## 2026-08-26 增量：3.1.11 NVR 页面底栏模式切换
 
-- [x] 产品确认：参考 2.x 的播放模式语义，NVR 实验页的“实时视频 / 录像”不再作为播放器下方的独立页面 Tab，而在播放器底部控制栏中切换。
-- [x] 实现：`NVRLabCamera` 持有的模式状态和切换行为不变；`NVRLabPlayer` 在共享 `H5PlayerControls` 的中央渲染双态控件。切至实时视频立即创建直播会话；切至录像仅显示日期和小时段，仍由点击小时发起回放。
-- [x] 移除页面外 `.nvr-lab-mode-tabs`，避免出现两个模式入口；控制栏中的切换具有 `aria-pressed` 状态。
+- [x] 纠正：已在 Chrome 查看真实 2.x 观看页和源码。模式切换是位于 `main.h5-viewer` 之后的固定页面底栏 `h5-bottom-tabs`，不是播放器控制栏。
+- [x] 实现：恢复 `NVRLabPlayer` 的单一播放器职责；`NVRLabCamera` 按 2.x 层级渲染 `main.h5-viewer` 和 `nav.h5-bottom-tabs`。切至实时视频立即创建直播会话；切至录像仅显示日期和小时段，仍由点击小时发起回放。
 - [x] 前端回归：Vitest 10 个文件 / 59 项测试与生产构建通过。
-- [x] Chrome 本地页面验收：桌面底栏中央显示模式双态控件，左右控制按钮不挤压；切至录像显示 24 个小时段且页面外无残留 Tab，切回实时视频后小时段隐藏。
-- [x] 已提交 `ca3c938 feat: move nvr mode switch into player bar`，并同步 GitHub 备份与 GitLab 测试分支。
-- [ ] 待 Wharf `752` 自动构建/部署完成后，以 Chrome 验收测试环境。
+- [x] Chrome 本地验收：`h5-bottom-tabs` 计算样式为 `position: fixed`；点击录像后该项选中、24 个小时段出现，播放器内部无模式切换控件。
+- [ ] 待提交并发布 GitLab 测试分支，随后在测试环境再次验收。
 
 ## 当前状态摘要
 

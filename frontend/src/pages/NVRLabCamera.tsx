@@ -103,16 +103,16 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
     <div className="h5-page h5-channel-page nvr-lab-page">
       <SystemTopBar backAction={{ label: "返回监控列表", onClick: onBack }} auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
       {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
-      <header className="h5-viewer-header">
-        <div className="h5-viewer-title">
-          <h1>{camera ? nvrLabCameraTitle(camera) : "摄像头监控"}</h1>
-          <span>{camera ? nvrLabCameraSubtitle(camera) : "工控机取流实验"}</span>
-        </div>
-      </header>
-      <div className="h5-viewer">
-        <div className="h5-viewer-player">
-          <NVRLabPlayer session={session} mode={mode} onModeChange={switchMode} onRetry={retrySession} onStatus={setPlayerStatus} />
-        </div>
+      <main className="h5-viewer">
+        <header className="h5-viewer-header">
+          <div className="h5-viewer-title">
+            <h1>{camera ? nvrLabCameraTitle(camera) : "摄像头监控"}</h1>
+            <span>{camera ? nvrLabCameraSubtitle(camera) : "工控机取流实验"}</span>
+          </div>
+        </header>
+        <section className="h5-viewer-player" aria-label="监控画面">
+          <NVRLabPlayer session={session} onRetry={retrySession} onStatus={setPlayerStatus} />
+        </section>
         {message ? <div className="h5-error">{message}</div> : null}
         <div className="h5-player-status-panel">
           <div className="h5-player-status-head"><div><strong>{playerStatus.message}</strong><span>{mode === "live" ? "实时视频" : "录像"}</span></div></div>
@@ -120,7 +120,15 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
         {mode === "playback" ? (
           <NVRLabHourlyPlaybackPicker startAt={playbackStartAt} onStartAtChange={setPlaybackStartAt} onPlay={playPlayback} />
         ) : null}
-      </div>
+      </main>
+      <nav className="h5-bottom-tabs" aria-label="播放模式">
+        <button type="button" className={mode === "live" ? "active" : ""} onClick={() => switchMode("live")}>
+          实时视频
+        </button>
+        <button type="button" className={mode === "playback" ? "active" : ""} onClick={() => switchMode("playback")}>
+          录像
+        </button>
+      </nav>
     </div>
   );
 }
