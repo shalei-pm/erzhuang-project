@@ -5991,3 +5991,10 @@ git pull --ff-only
 - 边界：小时段不代表录像存在；选择日期或时段不建立会话，只有“定位回放”会调用短期会话接口。今天的当前小时截断到当前分钟，未来起点显示中文提示。
 - 本地验证：前端 Vitest `10 files / 58 tests` 通过，`npm run build` 通过。Chrome 插件已在本地预览实际检查桌面布局、日期控件、24 个小时段、未来时段阻止和“昨天 11:00 - 12:00”的正确范围；本地 API 返回 HTTP 500 属于未接公司后端的预览环境，不影响控件验证。
 - 已知限制：本机没有 `go` 和 `gofmt`，本轮 Go 单测与编译不能在本机执行，须由 Wharf 测试构建补验；发布后仍需 Chrome 插件对测试站 `3.1.8 (container)` 做真实会话、回放首帧与脱敏状态验收。
+
+### 2026-08-26 3.1.8 测试发布与 Chrome 验收
+
+- 提交与分支：`c76b560 feat: add hourly nvr playback locator` 已从 `codex/nvr-hourly-playback` 快进合并至 `codex/containerize-single-image`，并推送 GitLab 测试分支与 GitHub 同名备份分支；推送使用临时 `GIT_ASKPASS` 读取本机安全 token 文件，脚本已删除。
+- 部署：Wharf `752` 自动构建/部署后，Chrome 测试页已呈现新共享日期选择器和 24 个小时段，证明测试实例运行本轮前端与一小时后端限制代码。未手动触发部署，未修改正式 `main`。
+- Chrome 实测：录像页无 `datetime-local`；点击未来 `23:00 - 次日 00:00` 被阻止并显示中文提示；选“昨天”与 `11:00 - 12:00` 后，页面范围为 `2026/08/25 11:00 - 2026/08/25 12:00`。点击“定位回放”后，`camera_id=111` 显示“画面已开始播放”，媒体包、WASM、解码输入与 Canvas 渲染帧均递增，控制台无 error；页面/诊断未暴露 token、完整 WSS URL 或 Authorization。
+- 验收边界：本轮已通过桌面 Chrome 的日期、小时段、会话创建与回放首帧验收。Chrome 插件会话不支持切换到真实 iPhone/微信 viewport，因此移动端直播兼容性仍须以真机单独验收；旧萤石 H5 Monitor 与正式环境均未改。
