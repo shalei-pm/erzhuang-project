@@ -100,6 +100,8 @@
 
 ### 当前进行中
 
+- 2026-08-26 工控机 NVR 监控全量替换：用户已确认正常 H5 入口全量切换、未配置门店隐藏、管理员/编辑运维全量可见、普通查看按 `monitor:view` 门店范围过滤；技术实施由主会话负责，必须保留 `MONITOR_PLAYBACK_MODE=nvr|legacy` 运行时回滚和 Git 稳定 commit 回滚。设计与实施计划分别位于 `docs/superpowers/specs/2026-08-26-nvr-monitor-full-rollout-design.md`、`docs/superpowers/plans/2026-08-26-nvr-monitor-full-rollout-implementation.md`；尚未开始业务代码改造。
+
 - 建立文件化项目记忆机制：
   - `docs/codex-learning-state.md`：长期状态、发布记录、关键上下文。
   - `docs/decisions.md`：产品/技术决策台账。
