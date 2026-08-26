@@ -604,4 +604,5 @@
 - [x] 快照表未执行 DDL、查询失败或对象不存在时不影响摄像头列表和直播/回放，仅回退旧图/占位。
 - [x] 独立回填 CLI 新增参数下限和缺少运行时 Secret 的失败关闭测试。
 - [x] 本机验证：完整 `go test ./...`、`go build ./cmd/server`、定向 `go vet`、`git diff --check` 通过；完整测试的 localhost 权限仅用于既有 `httptest`。
-- [ ] 待执行：推送测试分支并核验 3.2.2 仍可正常查看监控；待 DBA 测试 DDL 后才可验证实际新图展示。
+- [x] 已推送 GitLab 测试分支 `58da8b9` 并由 Wharf 自动部署；Chrome 验证测试页版本 `3.2.2 (container)`，资源列表与 `10001` 的 44 路 NVR 摄像头列表正常。
+- [ ] 待 DBA 测试 DDL 后执行临时 Job，才可验证实际新图展示。
