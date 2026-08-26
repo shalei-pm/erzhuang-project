@@ -26,6 +26,9 @@ export function displayImageUrl(value: string | undefined, options: { apiBase: s
   if (/^\/api\/store-space\/channel-snapshots\/[^/]+$/.test(value)) {
     return apiPathFromBase(options.apiBase, stripApiPrefix(value, "store-space"));
   }
+  if (/^\/api\/store-space-resource-view\/stores\/\d+\/cameras\/\d+\/snapshot$/.test(value)) {
+    return apiPathFromBase(options.apiBase, value.replace(/^\/api/, ""));
+  }
   if (value.startsWith("/api/")) {
     return apiPathFromBase(options.apiBase, value.replace(/^\/api\/[^/]+/, ""));
   }

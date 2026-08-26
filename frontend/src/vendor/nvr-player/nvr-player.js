@@ -47,6 +47,7 @@ class NVRPlayer {
         this.forceWasm      = options.forceWasm === true;
         this.wasmWorkerUrl  = options.wasmWorkerUrl || '/erzhuang-project/nvr-player/wasm/systemTransform-worker.js';
         this._isRunning     = false;
+        this._isPaused      = false;
 
         // WebSocket
         this.ws       = null;
@@ -440,6 +441,7 @@ class NVRPlayer {
 
     _renderFrame(frame) {
         if (!this._isRunning) { frame.close(); return; }
+        if (this._isPaused) { frame.close(); return; }
         this.lastOutputTime = Date.now();
         // 自动对齐 canvas 绘图缓冲区到视频帧实际分辨率，避免 CSS 拉伸模糊
         if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
@@ -698,6 +700,24 @@ class NVRPlayer {
         document.addEventListener('touchstart', this._audioGestureHandler);
     }
 
+    // Must be invoked directly from an application's unmute gesture. Browser
+    // autoplay policies do not reliably treat a document-level listener as the
+    // original user action once a control stops propagation.
+    enableAudio() {
+        this._audioGestureReady = true;
+        if (!this.audioContext) {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.nextAudioTime = this.audioContext.currentTime;
+            this.gainNode = this.audioContext.createGain();
+            this.gainNode.connect(this.audioContext.destination);
+        }
+        this.gainNode.gain.value = this.currentVolume / 100;
+        if (this.audioContext.state === 'suspended') {
+            return this.audioContext.resume();
+        }
+        return Promise.resolve();
+    }
+
     _decodePCMA(pcmaData) {
         const pcm = new Int16Array(pcmaData.length);
         for (let i = 0; i < pcmaData.length; i++) {
@@ -805,6 +825,7 @@ class NVRPlayer {
      */
     async play(url) {
         this._isRunning = true;
+        this._isPaused = false;
         this._hasRenderedFirstFrame = false;
         this._resetDiagnostics();
         this.wsUrl   = url;
@@ -832,6 +853,7 @@ class NVRPlayer {
 
     stop() {
         this._isRunning = false;
+        this._isPaused = false;
         this._hasRenderedFirstFrame = false;
 
         // 先清除重连定时器，再关闭 ws，防止 onclose 触发新的重连
@@ -893,8 +915,10 @@ class NVRPlayer {
     }
 
     setSpeed(rate) { this._sendCommand('speed',  { rate }); }
-    pause()        { this._sendCommand('pause'); }
-    resume()       { this._sendCommand('resume'); }
+    // Live streams do not guarantee upstream pause support. Keep receiving and
+    // decoding the signed session but gate local canvas output deterministically.
+    pause()        { this._isPaused = true; }
+    resume()       { this._isPaused = false; }
 }
 
 export default NVRPlayer;

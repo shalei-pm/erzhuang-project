@@ -1615,6 +1615,16 @@ td:nth-child(10) {
   color: #a8b1bc;
 }
 
+.resource-snapshot-image {
+  display: block;
+  width: 64px;
+  height: 40px;
+  border: 1px solid #dfe5ec;
+  border-radius: 4px;
+  background: #eef1f4;
+  object-fit: cover;
+}
+
 .resource-snapshot-placeholder span {
   position: relative;
   display: block;
@@ -3199,6 +3209,10 @@ td:nth-child(10) {
 .h5-viewer {
   display: grid;
   gap: 12px;
+}
+
+.nvr-lab-page .h5-viewer {
+  margin-top: 18px;
 }
 
 .h5-viewer-header {

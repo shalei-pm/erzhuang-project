@@ -2,18 +2,56 @@
 
 ## 公司 GitLab 自动发布
 
-公司环境已经接入 GitLab + K8s 自动发布。后续涉及公司线上环境时，以本节为默认发布流程；个人 Lighthouse 流程只作为练习、排查或备用验证路径。
+公司环境已经接入 GitLab + K8s 自动发布。后续二壮项目发布只走本节流程。韩国 Lighthouse 发布链路已经终止，且该服务器上关于二壮项目的库表已经完全删除；不得再作为发布、回滚、排查或备用验证路径。
 
 固定信息：
 
 - GitLab remote：`gitlab`
 - GitLab 仓库：`https://gitlab.sy.soyoung.com/pm/shalei-pm/erzhuang-project.git`
-- 发布分支：`codex/containerize-single-image`
-- 自动发布：GitLab 分支推送后约每 5 分钟自动构建和发布
-- 公司公网入口：`https://lite.sy.soyoung.com/erzhuang-project/`
-- 公司健康检查：`https://lite.sy.soyoung.com/erzhuang-project/health`
+- 测试发布分支：`codex/containerize-single-image`
+- 测试 Wharf pipeline：`https://wharf.sy.soyoung.com/dev/app/pm/erzhuang-project/build?page=1&pageSize=20&pipeline_id=752`
+- 正式发布分支：`main`
+- 正式 Wharf pipeline：`https://wharf.sy.soyoung.com/dev/app/pm/erzhuang-project/build?page=1&pageSize=20&pipeline_id=771`
+- 当前迁移目标：从历史测试环境发布切到公司正式环境发布；正式环境是在 GitLab `main` 分支提交代码后自动触发 Wharf pipeline `771` 构建，构建成功后还需要在 Wharf 点部署并走审批，审批通过并部署成功才算正式发布完成。
+- 测试入口：`https://lite.sy.soyoung.com/erzhuang-project/`
+- 测试健康检查：`https://lite.sy.soyoung.com/erzhuang-project/health`
+- 线上入口：`http://lite.soyoung.com/erzhuang-project`
+- 线上健康检查：`http://lite.soyoung.com/erzhuang-project/health`
+- 线上发布：对接主干分支代码、主干实例机器和线上数据库；不得把测试分支发布等同于线上发布。
+- 本机 GitLab HTTPS token 文件：`/Users/sylar/.codex/secrets/gitlab-erzhuang-project.token`
 
-标准流程：
+环境隔离口径：
+
+- `*.sy.soyoung.com` 默认是内网可见测试环境。
+- 测试 `https://lite.sy.soyoung.com/erzhuang-project` 对接测试分支代码、测试实例机器、测试数据库。
+- 线上 `http://lite.soyoung.com/erzhuang-project` 对接主干分支代码、主干实例机器、线上数据库。
+- 主会话在执行“发布到公司”时，必须先区分测试还是正式；当前项目目标已经切到正式环境，因此不能再机械套用测试分支发布。
+- 若要发布线上，当前已知发布链路为：代码提交到 GitLab `main`，自动触发 Wharf pipeline `771` 构建；构建成功后在 Wharf 点部署，走审批；审批通过并部署成功后访问 `http://lite.soyoung.com/erzhuang-project` 验收。
+- 若只需要测试环境验证，则继续使用 `codex/containerize-single-image`，触发 Wharf pipeline `752`，访问 `https://lite.sy.soyoung.com/erzhuang-project` 验收。
+
+数据库环境口径：
+
+- 二壮运行库测试环境：host `polar-dev.rwlb.rds.aliyuncs.com`，port `3306`，db `db_pm_erzhuang`，user `u_pm_erzhuang_rw`，密码由 K8s Secret 或安全渠道管理，禁止写入仓库。
+- 二壮运行库正式环境：host `polar-ops.rwlb.rds.aliyuncs.com`，port `3306`，db `db_pm_erzhuang`，user `u_pm_erzhuang_rw`，密码由 K8s Secret 或安全渠道管理，禁止写入仓库。
+- 运行时应通过 `K8S_SECRET_MYSQL_DSN` 或 `MYSQL_DSN` 注入上述连接；不得把 DSN、账号密码写入 Dockerfile、前端变量、文档或命令历史。
+- 3.0「门店空间资源查看」复用二壮运行库 MySQL 连接，只读查询已同步到 `db_pm_erzhuang` 的 `tb_crm_*` 资源表；不再配置独立业务库 DSN。
+
+数据库客户端与 DDL 操作边界：
+
+- TablePro 等本机数据库客户端只允许直连测试库 `polar-dev.rwlb.rds.aliyuncs.com:3306/db_pm_erzhuang` 做开发、排查和只读验收。
+- 线上库 `polar-ops.rwlb.rds.aliyuncs.com:3306/db_pm_erzhuang` 不通过本机客户端访问；线上数据库只允许由线上代码、K8s/运维链路或公司批准的后台通道访问。
+- 测试库与线上库当前按结构一致口径管理。开发过程中如果需要调整线上表结构，Codex 只产出可审查 SQL、影响说明、验证 SQL 和回滚建议；由用户提交给运维，运维在正式库执行。
+- 禁止把线上或测试数据库密码写入仓库、文档、命令行参数、临时脚本、长期 TablePro 连接配置或截图。
+- 2026-08-18 新口径：已在测试库确认原 `db_groupbuy` 的四张资源查看表同步到二壮自有库 `db_pm_erzhuang`，用户确认线上库也已同步。3.0 已改为复用主库连接；测试环境验收通过后，可由运维清理不再使用的独立业务库 Secret。
+
+GitLab 推送认证：
+
+- 公司 GitLab 推送默认使用临时 `GIT_ASKPASS` 读取上述 token 文件，用户名使用 `oauth2`。
+- 不要把 token 内容打印到终端、拼进命令、写进仓库、写进文档或保存到长期脚本。
+- 临时 askpass 脚本只放 `/private/tmp`，权限设为 `700`，推送完成后立即删除。
+- 如果 `git push gitlab codex/containerize-single-image` 在非交互环境报 `could not read Username`，不要再让用户手输；直接使用本节 token 文件和临时 askpass。
+
+测试发布标准流程：
 
 ```sh
 git fetch gitlab
@@ -24,9 +62,22 @@ cd frontend && npm run build && npm test
 git push gitlab codex/containerize-single-image
 ```
 
+正式发布标准流程：
+
+```sh
+git fetch gitlab
+# 按公司允许的方式让已验证代码提交到 GitLab main：
+# 可以是本地切到 main 后提交/合并并推送，也可以是分支 MR 合并到 main
+go test ./...
+cd frontend && npm run build && npm test
+# main 更新后观察 Wharf pipeline 771 构建
+# 构建成功后，在 Wharf 点部署并走审批
+```
+
 注意：
 
 - `codex/containerize-single-image` 是公司受保护分支，不要 force push。
+- `main` 是正式发布分支，也不要 force push；正式环境不是“构建成功即上线”，还需要 Wharf 手动部署和审批。
 - 合并时保留公司分支上的 Dockerfile、数据库、K8s 运行配置和路径前缀设置；不要用个人 Lighthouse 配置覆盖公司配置。
 - 公司运行时密钥必须通过 K8s Secret 或运行时环境变量注入，不要提交到仓库、Dockerfile、文档或前端 `VITE_*`。
 - 公司数据库当前应保持为运维配置的 MySQL，资产存储应保持为 OSS。发布后 `/health` 应返回 `database:"mysql"`、`asset_store:"oss"`。
@@ -36,38 +87,56 @@ git push gitlab codex/containerize-single-image
 公司发布失败或版本未更新时，优先排查：
 
 1. GitLab 分支是否已经是最新 commit。
-2. 公司流水线是否从 `codex/containerize-single-image` 构建。
+2. 公司流水线是否从正确分支构建：测试看 `codex/containerize-single-image` / pipeline `752`，正式看 `main` / pipeline `771`。
 3. 流水线是否使用仓库 Dockerfile，而不是另一个外部构建脚本。
 4. 构建缓存或镜像缓存是否导致旧静态资源未更新。
 5. 页面静态资源和 API 请求路径是否仍使用 `/erzhuang-project/` 前缀。
 
 ## 发布术语速查
 
-默认规则：除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，所有已确认准备发布的代码都先提交并推送到 GitHub `origin/main` 作为主代码备份，再按目标环境执行公司或韩国服务器发布。
+默认规则：GitHub 的代码备份能力依然保留；除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，已确认准备发布的代码仍应同步到 GitHub 作为主代码备份。二壮项目的实际发布只走公司 GitLab/K8s。韩国 Lighthouse/TAT 发布已经废止，历史说明仅作为早期学习记录，不是当前操作手册。
 
-用户说“发布到公司”时，固定执行公司 GitLab 自动发布链路：
+用户说“发布到公司”时，必须先确认目标是测试还是正式。历史默认含义曾是测试环境，但 2026-08-14 起项目正在切到公司正式环境，不得再默认把测试发布当成最终发布。
+
+用户说“发布测试环境”时，固定执行公司 GitLab 测试自动发布链路：
 
 1. 将当前已确认代码 merge 到公司 GitLab 固定分支 `codex/containerize-single-image`。
 2. 推送到 remote `gitlab`。
-3. 等待公司 GitLab / K8s 自动发布，通常约 5 分钟。
+3. 等待 Wharf pipeline `752` / K8s 自动发布，通常约 5 分钟。
 4. 验证 `https://lite.sy.soyoung.com/erzhuang-project/health` 和页面版本号。
 
 注意：
 
+- 测试环境不以 Wharf 页面“部署”按钮作为常规步骤。该按钮可用于排障或用户明确要求的人工补救；正常情况下，GitLab 推送已触发构建并由 K8s 自动部署。
+- 构建成功后先等待最多约 5 分钟，再核对测试实例的最近部署 commit 和页面版本。页面短暂保持旧版本时，不得仅据此重复手工部署。
+- GitLab 分支更新、构建触发或 `/health` 入口可达都不等于页面已更新；测试发布完成必须至少由 Wharf 实例部署记录或已登录页面的实际版本号确认。
 - 不操作韩国 Lighthouse。
 - 不 force push 公司受保护分支。
 - 公司分支如包含 Dockerfile、K8s 环境变量、数据库连接等运维调整，应保留公司配置，只合入业务代码和必要文档。
+- 不操作线上主干实例、线上数据库或线上域名，除非用户明确提出线上发布并完成发布前确认。
 
-用户说“发布到韩国服务器”时，固定执行 GitHub + 韩国 Lighthouse 链路：
+用户说“发布线上/生产/主干/正式环境”时，不能套用测试发布流程。当前已知正式流程：
 
-1. 将当前已确认代码推送到 GitHub `origin/main`。
-2. 通过腾讯云 TAT 触发韩国 Lighthouse 服务器执行 `cd /opt/apps/erzhuang-project && ./scripts/deploy.sh`。
-3. 服务器从 GitHub 拉取最新 `main`，执行测试、构建、重启服务。
-4. 验证 `http://127.0.0.1:18081/health` 和公网 `/erzhuang/` 入口。
+1. 从 GitLab `main` 构建，Wharf pipeline `771`。
+2. 代码提交到 `main` 后自动触发正式构建，不直接把测试分支当正式。
+3. 构建成功后需要在 Wharf 点部署，并完成审批。
+4. 审批通过且部署成功后，线上入口 `http://lite.soyoung.com/erzhuang-project` 对接主干实例和线上数据库。
+5. 发布前确认正式实例环境变量、SSO、网关、Cookie、回调路径、本次版本回滚 commit/tag 和线上验证清单。
 
-如果用户同时要求“公司”和“韩国服务器”，需要记录两个环境最终 commit，避免用户用页面版本号反馈问题时对不上。
+正式环境切换前置清单：
 
-本项目的服务器发布目标是个人腾讯云 Lighthouse：
+- 代码分支：正式环境从 GitLab `main` 构建；不要默认使用测试分支 `codex/containerize-single-image`。
+- 实例：确认正式实例名称、命名空间、Pod/容器名和 Wharf/K8s 页面入口。
+- 数据库：确认正式 `K8S_SECRET_MYSQL_DSN` 指向 `polar-ops.rwlb.rds.aliyuncs.com:3306/db_pm_erzhuang`；确认测试 `K8S_SECRET_MYSQL_DSN` 指向 `polar-dev.rwlb.rds.aliyuncs.com:3306/db_pm_erzhuang`；确认四张 `tb_crm_*` 资源表已同步且 3.0 只读 API 可用，不再保留独立业务库连接。
+- 资产：确认正式 OSS bucket/endpoint/access key 已配置且不是测试桶，执行 smoke 前需明确是否有写副作用。
+- SSO：确认 `lite.soyoung.com` 的 APISIX SSO 已保护 `/erzhuang-project/`，支持 `/erzhuang-project/_/auth/callback` 与 `/erzhuang-project/logout`；如设置 `SSO_EXPECTED_SUB`，应与正式 token 的 `sub` 一致。
+- 前端：确认前端 `BASE_URL` 仍是 `/erzhuang-project/`，公司域名判断包含 `lite.soyoung.com`，页面静态资源仍从 `/erzhuang-project/assets/...` 加载。
+- 回滚：确认可回滚到 2.x 稳定 tag `v2.31-stable-before-resource-view-3` 或正式环境当前稳定 commit；回滚版本必须兼容线上 MySQL/OSS，不能依赖旧 Supabase/PostgreSQL。
+- 验收：正式发布后至少验证 health、SSO 登录、退出登录、用户管理只读/写权限、门店列表、H5 Monitor 样本门店、3.0 资源查看列表和详情。
+
+用户说“发布到韩国服务器”时，应先提醒：该链路已废止，韩国服务器上的二壮项目库表已经完全删除，不具备二壮项目发布和回滚条件。
+
+以下韩国 Lighthouse 信息仅为历史学习记录，不用于当前二壮项目发布：
 
 - 部署目录：`/opt/apps/erzhuang-project`
 - systemd 服务：`erzhuang-project.service`
@@ -78,6 +147,8 @@ git push gitlab codex/containerize-single-image
 - 服务器内部拉取 GitHub deploy key：`~/.ssh/erzhuang_project_deploy_key`
 
 ## 发布当前 main
+
+本节为历史 Lighthouse 练习链路记录，当前二壮项目不得使用该链路发布。
 
 在服务器执行：
 
@@ -100,7 +171,9 @@ cd /opt/apps/erzhuang-project
 
 ## Codex 通过 TAT 发布
 
-主会话可以直接通过腾讯云 TAT 触发服务器发布，不需要用户手动登录服务器。
+本节为历史 Lighthouse 练习链路记录，当前二壮项目不得使用 TAT 发布、回滚或诊断韩国服务器。
+
+以下内容只说明早期个人练习时的 TAT 用法。当前二壮项目不得通过腾讯云 TAT 触发韩国服务器发布。
 
 固定目标：
 

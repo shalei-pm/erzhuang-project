@@ -107,9 +107,19 @@ export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) 
     setPlaying(true);
   }
 
-  function toggleSound() {
+  async function toggleSound() {
     const nextMuted = !muted;
-    playerRef.current?.setVolume(nextMuted ? 0 : 80);
+    const player = playerRef.current;
+    if (!player) return;
+    if (!nextMuted) {
+      try {
+        await player.enableAudio();
+      } catch {
+        setStatus({ stage: "error", message: "当前浏览器无法开启声音" });
+        return;
+      }
+    }
+    player.setVolume(nextMuted ? 0 : 80);
     setMuted(nextMuted);
   }
 
@@ -144,7 +154,7 @@ export function NVRLabPlayer({ session, onStatus, onRetry }: NVRLabPlayerProps) 
               visible={controlsVisible}
               center={<span>{session?.mode === "playback" ? "录像" : "实时视频"}</span>}
               onTogglePlay={() => void togglePlay()}
-              onToggleSound={toggleSound}
+              onToggleSound={() => void toggleSound()}
               onScreenshot={screenshot}
               onToggleLandscape={() => setLandscape((value) => !value)}
               onToggleFullscreen={() => void toggleFullscreen()}

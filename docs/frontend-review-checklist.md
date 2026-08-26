@@ -7,6 +7,8 @@
 - `npm run build` 通过。
 - 页面底部版本号可见。
 - 浏览器控制台无明显运行时报错。
+- 浏览器调试优先使用 Chrome 插件能力：先检查是否可通过 `[@chrome](plugin://chrome@openai-bundled)`、Chrome 插件或 `node_repl` 读取当前页 DOM、控制台、网络和截图；插件不可用时再降级到 Computer Use。
+- 如果降级到 Computer Use 或手工截图，需要在结论里说明原因。
 - 关键接口失败时有用户可理解提示。
 - 错误提示不出现裸英文技术文案，例如 `validation failed`。
 - 图片缩略图如果 URL 可代表内容版本，应支持浏览器缓存或前端内存缓存；刷新图片时通过新 URL 失效旧缓存。

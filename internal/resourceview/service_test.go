@@ -103,6 +103,41 @@ func TestBuildStoreDetailCreatesThreeLevelSpaceTreeAndDeviceTree(t *testing.T) {
 	}
 }
 
+func TestBuildStoreDetailShowsLegacySnapshotOnlyWithMonitorAccess(t *testing.T) {
+	records := StoreRecords{
+		Tenant: BusinessTenant{ID: 10001, Name: "单录像机门店"},
+		Devices: []BusinessDevice{
+			{ID: 70, TenantID: 10001, HardwareID: "NVRCHANNEL:22-10", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1},
+		},
+		LegacyCameraSnapshots: map[int]string{10: "/api/store-space/channel-snapshots/0123456789abcdef0123456789abcdef.jpg"},
+	}
+
+	withAccess := BuildStoreDetail(records, MonitorAccess{CanViewMonitor: true})
+	if got := withAccess.Cameras[0].ThumbnailURL; got != "/api/store-space-resource-view/stores/10001/cameras/70/snapshot" {
+		t.Fatalf("thumbnail url = %q", got)
+	}
+
+	withoutAccess := BuildStoreDetail(records, MonitorAccess{})
+	if got := withoutAccess.Cameras[0].ThumbnailURL; got != "" {
+		t.Fatalf("thumbnail must be withheld without monitor access, got %q", got)
+	}
+}
+
+func TestBuildStoreDetailLeavesMissingLegacySnapshotEmpty(t *testing.T) {
+	records := StoreRecords{
+		Tenant: BusinessTenant{ID: 10001, Name: "单录像机门店"},
+		Devices: []BusinessDevice{
+			{ID: 70, TenantID: 10001, HardwareID: "NVRCHANNEL:22-10", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1},
+		},
+		LegacyCameraSnapshots: map[int]string{},
+	}
+
+	detail := BuildStoreDetail(records, MonitorAccess{CanViewMonitor: true})
+	if got := detail.Cameras[0].ThumbnailURL; got != "" {
+		t.Fatalf("thumbnail url = %q, want empty", got)
+	}
+}
+
 func TestBuildStoreDetailReportsMappingIssues(t *testing.T) {
 	records := StoreRecords{
 		Tenant: BusinessTenant{ID: 10030, Name: "北京保利实验室门店", Status: 1, CityID: 1},

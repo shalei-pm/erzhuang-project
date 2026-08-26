@@ -97,7 +97,59 @@ func (r *MySQLRepository) getStoreRecordsForTenant(ctx context.Context, tenant B
 	if err != nil {
 		return StoreRecords{}, err
 	}
-	return StoreRecords{Tenant: tenant, Devices: devices, Spaces: spaces, Relations: relations}, nil
+	legacyCameraSnapshots, err := r.listLegacyCameraSnapshots(ctx, tenant.ID)
+	if err != nil {
+		return StoreRecords{}, err
+	}
+	return StoreRecords{Tenant: tenant, Devices: devices, Spaces: spaces, Relations: relations, LegacyCameraSnapshots: legacyCameraSnapshots}, nil
+}
+
+// listLegacyCameraSnapshots only returns old 2.x thumbnails for stores that had
+// exactly one recorder. A business camera is later matched strictly by channel
+// number, so ambiguous multi-recorder stores deliberately get no fallback image.
+func (r *MySQLRepository) listLegacyCameraSnapshots(ctx context.Context, tenantID int64) (map[int]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+	select c.channel_no, coalesce(snapshot.thumbnail_path, '')
+	from tb_stores s
+	join tb_video_recorders r on r.store_id = s.id
+	join tb_video_channels c on c.recorder_id = r.id
+	left join tb_channel_snapshots snapshot on snapshot.id = (
+		select latest.id
+		from tb_channel_snapshots latest
+		where latest.channel_id = c.id
+		order by latest.created_at desc, latest.id desc
+		limit 1
+	)
+	where s.external_org_id = ?
+	  and (select count(*) from tb_video_recorders only_recorder where only_recorder.store_id = s.id) = 1
+	  and c.is_active = 1
+	  and c.channel_no > 0
+	order by c.channel_no asc, c.id asc`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	snapshots := map[int]string{}
+	for rows.Next() {
+		var channelNo sql.NullInt64
+		var thumbnailPath sql.NullString
+		if err := rows.Scan(&channelNo, &thumbnailPath); err != nil {
+			return nil, err
+		}
+		if !channelNo.Valid || channelNo.Int64 <= 0 || !thumbnailPath.Valid {
+			continue
+		}
+		name := legacySnapshotName(thumbnailPath.String)
+		if name == "" {
+			continue
+		}
+		channel := int(channelNo.Int64)
+		if _, exists := snapshots[channel]; !exists {
+			snapshots[channel] = name
+		}
+	}
+	return snapshots, rows.Err()
 }
 
 func (r *MySQLRepository) listDevices(ctx context.Context, tenantID int64) ([]BusinessDevice, error) {

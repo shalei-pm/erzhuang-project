@@ -76,12 +76,45 @@ func (s *Service) GetStore(ctx context.Context, tenantID int64, access MonitorAc
 	return BuildStoreDetail(records, access), nil
 }
 
+func (s *Service) LegacySnapshotName(ctx context.Context, tenantID, cameraID int64, access MonitorAccess) (string, error) {
+	if s == nil || s.repo == nil {
+		return "", errors.New("resource view repository is not configured")
+	}
+	if !access.CanViewMonitor {
+		return "", ErrNotFound
+	}
+	records, err := s.repo.GetStoreRecords(ctx, tenantID)
+	if err != nil {
+		return "", err
+	}
+	for _, camera := range buildCameras(resourceViewDevices(normalizedDevices(records.Devices)), nil, nil) {
+		if camera.ID != cameraID || camera.ChannelNo == nil {
+			continue
+		}
+		if name := records.LegacyCameraSnapshots[*camera.ChannelNo]; name != "" {
+			return name, nil
+		}
+		break
+	}
+	return "", ErrNotFound
+}
+
 func BuildStoreDetail(records StoreRecords, access MonitorAccess) StoreDetail {
 	spaces := normalizedSpaces(records.Spaces)
 	allDevices := normalizedDevices(records.Devices)
 	devices := resourceViewDevices(allDevices)
 	relations := applicableCameraRelations(cameraRelevantRelations(normalizedRelations(records.Relations), allDevices), spaces)
 	cameras := buildCameras(devices, relations, spaces)
+	if access.CanViewMonitor {
+		for index := range cameras {
+			if cameras[index].ChannelNo == nil {
+				continue
+			}
+			if name := records.LegacyCameraSnapshots[*cameras[index].ChannelNo]; name != "" {
+				cameras[index].ThumbnailURL = legacySnapshotURL(records.Tenant.ID, cameras[index].ID)
+			}
+		}
+	}
 	bindings := buildValidBindings(spaces, cameras, relations)
 	spaces = enrichSpaces(spaces, bindings)
 	issues := buildIssues(devices, spaces, relations, cameras, bindings)
@@ -218,6 +251,34 @@ func parseNVRChannelHardwareID(value string) *int {
 		return nil
 	}
 	return &no
+}
+
+func legacySnapshotURL(tenantID, cameraID int64) string {
+	return fmt.Sprintf("/api/store-space-resource-view/stores/%d/cameras/%d/snapshot", tenantID, cameraID)
+}
+
+func legacySnapshotName(value string) string {
+	value = strings.TrimSpace(value)
+	const marker = "/api/store-space/channel-snapshots/"
+	if index := strings.Index(value, marker); index >= 0 {
+		value = value[index+len(marker):]
+	}
+	if index := strings.LastIndex(value, "/"); index >= 0 {
+		value = value[index+1:]
+	}
+	if len(value) < len("0.jpg") || strings.ContainsAny(value, `\\`) {
+		return ""
+	}
+	base := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(value, ".jpg"), ".png"), ".webp")
+	if len(base) != 32 || len(base) == len(value) {
+		return ""
+	}
+	for _, char := range base {
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+			return ""
+		}
+	}
+	return value
 }
 
 func normalizedSpaces(input []BusinessSpace) []Space {

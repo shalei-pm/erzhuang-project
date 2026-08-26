@@ -123,7 +123,7 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
                     <td className="resource-recorder-cell">{row.recorderIdentifier}</td>
                     <td>{row.channelNo ?? "-"}</td>
                     <td className="resource-snapshot-cell">
-                      <SnapshotPlaceholder />
+                      <SnapshotPreview src={row.camera.thumbnailUrl} />
                     </td>
                     <BindingPathCells paths={row.bindingPaths} />
                     <td>
@@ -192,4 +192,10 @@ function SnapshotPlaceholder() {
       <span aria-hidden="true" />
     </div>
   );
+}
+
+function SnapshotPreview({ src }: { src?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) return <SnapshotPlaceholder />;
+  return <img className="resource-snapshot-image" src={src} alt="摄像头最近截图" onError={() => setFailed(true)} />;
 }

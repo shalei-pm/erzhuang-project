@@ -37,4 +37,16 @@ describe("NVRLabPlayer", () => {
     expect(markup).toContain("WASM 输出帧");
     expect(markup).not.toContain("private-token");
   });
+
+  it("renders the sound and local pause controls for a playable session", () => {
+    const markup = renderToStaticMarkup(
+      createElement(NVRLabPlayer, {
+        session: { mode: "live", url: "wss://example.test/session" },
+        onRetry: () => undefined,
+      }),
+    );
+
+    expect(markup).toContain('aria-label="播放"');
+    expect(markup).toContain('aria-label="开启声音"');
+  });
 });

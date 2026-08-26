@@ -27,5 +27,6 @@ export default class NVRPlayer {
   stop(): void;
   pause(): void;
   resume(): void;
+	  enableAudio(): Promise<void>;
   setVolume(volume: number): void;
 }

@@ -1,6 +1,49 @@
 # Codex Learning State
 
-最后更新：2026-08-13
+最后更新：2026-08-18
+
+## 2026-08-21 NVR 回放实验最新结论
+
+- 测试分支最新实验提交：`5cb5f52`，测试页面版本 `3.1.6`，路由仅限 `10001`：`/erzhuang-project/h5/nvr-lab/10001/cameras/111`。
+- 已用 Chrome 在已登录测试环境真实验收 `camera_id=111`（治疗室4）回放：`2025-08-20 12:25:40` 至 `2025-08-20 12:38:24`。
+- 结果：鉴权和 WSS 建连成功；34 秒内收到媒体包 `0`；WASM runtime 已就绪；转封装、解码、Canvas 渲染均 `0`。二壮播放器没有收到可解码的数据，尚不能播放。
+- 判断：当前由接口方处理或确认，优先核实该摄像头该窗口是否有录像，以及 WSS 连接后是否要求额外播放/订阅协议消息。不要继续修改旧萤石 H5 Monitor，也不要把问题归因于浏览器兼容性。
+
+## 2026-08-25 NVR 原始 WSS 对照验证
+
+- 使用运维提供的 `camera_id=584` 回放参数实时换取短期 token，并使用独立 Node WebSocket 客户端直接连接，不使用二壮页面、NVRPlayer、WASM 或浏览器解码。
+- 20 秒结果：鉴权成功、WSS 建连成功、收到 `923` 条消息，其中二进制数据约 `5,310,364` 字节，未发生连接错误或服务端关闭。
+- 结论：该类 WSS 地址、鉴权服务和上游流服务的通用链路可正常下发媒体数据。`camera_id=111` 的零媒体包问题不再应归因于 WSS 地址格式或播放器，优先排查 111 的录像可用性、摄像头/设备映射及该会话的上游回放任务。
+- 安全：本次未输出、记录或保留长期 Authorization、短期 token、完整 WSS 地址或媒体内容。
+
+## 2026-08-25 原始 NVRPlayer 播放对照验证
+
+- 为避免把“原始 WSS 收到字节”误推导为“播放器必然可播放”，使用运维提供的原始 `NVRPlayer-SDK` 以同一 `camera_id=584` 与同一回放窗口做本机隔离播放测试。临时页面只监听 `127.0.0.1`，由本机后端实时签发短期会话。
+- 8 秒结果：WSS 建连成功，收到 `329` 条消息、约 `1,872,064` 字节，SDK `onFirstFrame` 回调已触发，未见播放器错误。
+- 结论：NVRPlayer/WASM 的通用播放链路可实际播放 584 的回放数据。111 的失败发生在播放器之前：该会话没有下发媒体包。此结论不等于“播放器与所有未来摄像头无关”，而是排除了当前 111 问题由通用播放器实现导致的可能。
+- 安全：临时服务、短期 token 和媒体数据均在验证结束后清理，不进入仓库或项目配置。
+
+## 2026-08-25 camera_id=72 原始播放器复验
+
+- 使用与 584 相同的回放时间窗和原始 NVRPlayer SDK，仅将 `camera_id` 改为 `72`。
+- 9 秒结果：WSS 建连成功，收到 `477` 条消息、约 `2,209,212` 字节，`onFirstFrame` 已触发，无播放器错误。
+- 结论：72 与 584 均能通过该 WSS 鉴权和原始 SDK 实际播放，进一步确认当前 111 的零媒体包是摄像头/录像会话级问题，而不是通用播放器问题。
+
+## 2026-08-25 10001 `camera_id=111` 直播核验
+
+- 代码事实：NVR 实验页将 `tb_crm_iot_device.id` 直接用作鉴权接口的 `camera_id`；当前没有单独的流服务 ID 字段或映射。
+- 测试同步库只读查看：`tb_crm_iot_device.id=111` 是有效海康摄像头通道，`hardware_id=NVRCHANNEL:22-56`，名称“治疗室4-客流测试”。
+- Chrome 已登录测试环境实测：`/erzhuang-project/h5/nvr-lab/10001/cameras/111` 显示“实时视频 / 画面已开始播放”，并已创建 `1920x1080` 播放器 Canvas。
+- 页面刷新后再次打开同一路径，连续 10 秒维持“画面已开始播放”，未见页面错误，确认不是一次性残留状态。
+- 结论：当前服务接受 `111` 作为取流参数，无法支持“页面拿错普通设备 ID”这一假设。此前 111 的历史回放零媒体包仍须按录像可用性或服务端回放会话处理，不能与直播成功混为一谈。
+- 安全：本次仅只读检查测试库和已登录页面；未保存、输出或写入 Authorization、短期 token、WSS URL 或媒体数据。
+
+## 2026-08-25 10001 `camera_id=111` 2026 年回放通过
+
+- 使用已登录 Chrome 测试环境，在 NVR 实验页对 `camera_id=111` 发起 `2026-08-25 11:03:38` 至 `11:10:18` 的回放。
+- 35 秒验收：接收媒体包 `219`、WASM 初始化 `1`、WASM 输出帧 `149`、解码输入帧 `74`、Canvas 渲染帧 `71`，页面状态“画面已开始播放”，未见页面错误。
+- 结论：10001 的 `111` 已完成测试环境桌面端直播与该回放窗口的首帧/持续渲染验收。此前 2025 时间窗的零媒体包是该窗口数据或服务端回放会话的差异，不是通用播放器、ID 映射或当前回放功能故障。
+- 保留边界：iPhone Safari、微信内直播、长时播放、断线重连和正式环境均未验收；不得据此替换旧萤石 H5 Monitor 或发布正式环境。
 
 ## 当前项目记忆快照（主会话优先读取）
 
@@ -24,7 +67,9 @@
 
 - 最新版本文件：`VERSION=2.31.8`。
 - 最新公司 GitLab 发布提交：`7311bda fix: fallback h5 player for unsupported h265 mse`，已推送到 `gitlab/codex/containerize-single-image` 并触发公司 K8s 自动发布；公网无登录态 `curl /health` 当前会被 APISIX 302 到 SSO，线上版本和播放结果需由已登录浏览器验证。
-- 当前 3.0 开发状态：3.0 主流程从二壮自维护门店/录像机/通道/设计图/AI 识别，转为读取公司业务库的只读资源查看。设计文档已落地：`docs/superpowers/specs/2026-08-13-store-space-resource-view-3-design.md`；实现计划已落地：`docs/superpowers/plans/2026-08-13-store-space-resource-view-3-implementation.md`。本地分支 `codex/store-space-resource-view-3` 已完成后端只读 API 和前端只读列表/详情初版，用户已在镜像/公司环境配置 `K8S_SECRET_BUSINESS_MYSQL_DSN`，尚未发布公司环境。
+- 当前 3.0 开发状态：3.0 主流程从二壮自维护门店/录像机/通道/设计图/AI 识别，转为读取公司业务库的只读资源查看。设计文档已落地：`docs/superpowers/specs/2026-08-13-store-space-resource-view-3-design.md`；实现计划已落地：`docs/superpowers/plans/2026-08-13-store-space-resource-view-3-implementation.md`。本地分支 `codex/store-space-resource-view-3` 已完成后端只读 API 和前端只读列表/详情初版；测试环境已验证代码发布但因环境隔离无法访问正式业务库，下一步目标是公司正式环境 cutover。
+- 2026-08-14 发布链路新口径：GitLab 仓库不变；测试环境使用 `codex/containerize-single-image` + Wharf pipeline `752` + `https://lite.sy.soyoung.com/erzhuang-project`；正式环境使用 GitLab `main` + Wharf pipeline `771` + `http://lite.soyoung.com/erzhuang-project`。正式环境是在 `main` 分支提交代码后自动触发 pipeline `771` 构建，构建成功后还需要在 Wharf 点部署并走审批，审批通过并部署成功才算正式上线完成。
+- 2026-08-18 数据库访问新口径：本机 TablePro 只用于连接测试库 `polar-dev.rwlb.rds.aliyuncs.com:3306/db_pm_erzhuang` 做开发和只读核查；线上库 `polar-ops.rwlb.rds.aliyuncs.com:3306/db_pm_erzhuang` 不通过客户端直连，只由线上代码或公司批准链路访问。涉及线上表结构调整时，Codex 产出 SQL/影响说明/验证 SQL/回滚建议，由运维在正式库执行。
 - 2.x 稳定备份已完成：tag `v2.31-stable-before-resource-view-3` 指向 `7311bda / VERSION=2.31.8`，说明文档为 `docs/handoffs/2026-08-13-2x-stable-backup-before-resource-view-3.md`。
 - 旧 PostgreSQL runtime、pgx 依赖、pg-mysql 迁移入口和旧库回滚连接已从运行时代码中删除。后续不要再以“可切回 Postgres”作为安全阀。
 - 韩国 Lighthouse 发布链路已终止；该服务器上关于二壮项目的所有库表已经完全删除。后续二壮项目发布、回滚、验收和排查只走公司 GitLab/K8s + MySQL/OSS，不再使用韩国服务器。
@@ -50,7 +95,7 @@
 - 门店列表统计口径修复：`2.31.0` MySQL `ListStores` 的右上角 summary 改为按当前搜索/城市筛选条件汇总全量 filtered dataset，不再用当前页 `items` 汇总，保证分页切换不改变统计。
 - 3.0 方案梳理：已确认模块名为「门店空间资源查看」；只展示有启用工控机的门店；空间类型使用业务库自己的三层结构 `level=1/2/3`；详情展示空间视角、设备视角、异常项；设计图标注、AI 通道识别、人工确认和门店/录像机/通道写入口不进入 3.0 主流程；H5 Monitor 暂不改。
 - 3.0 前 2.x 封版：已创建 `v2.31-stable-before-resource-view-3`，并写入 handoff 文档，后续回滚优先用 `git revert` 而不是 reset/force push。
-- 3.0 后端初版：新增 `internal/resourceview`，提供业务库四表只读聚合、空间树、设备树、异常项和 API `GET /api/store-space-resource-view/stores`、`GET /api/store-space-resource-view/stores/{tenantId}`；`cmd/server` 支持 `BUSINESS_MYSQL_DSN` / `K8S_SECRET_BUSINESS_MYSQL_DSN`，未配置时返回 `resource_view_not_configured`。
+- 3.0 后端当前版本：新增 `internal/resourceview`，提供已同步 `tb_crm_*` 四表的只读聚合、空间树、设备树、异常项和 API `GET /api/store-space-resource-view/stores`、`GET /api/store-space-resource-view/stores/{tenantId}`；3.0.3 起复用二壮主 MySQL，不再支持独立业务库 DSN。
 - 3.0 前端初版：新增资源查看 API 类型、domain helper、`ResourceStoreList`、`ResourceStoreDetail`；后台主页面切为「门店空间资源查看」，展示工控机/NVR/摄像头/空间/绑定/异常统计，详情含空间视角、设备视角、异常项；旧新增、编辑、删除、扫描、识别、确认、设计图上传/标注入口已从主页面隐藏。
 
 ### 当前进行中
@@ -75,7 +120,7 @@
 
 - 旧 PostgreSQL/Supabase 数据和资源的正式保留、归档、删除时间表，需要产品负责人、公司安全/运维/相关研发确认后执行；主会话不能独自推动删除外部数据源。
 - 是否彻底下线旧 `designplan` 独立路由和旧 `tb_design_plan_*` 兼容表，需要先确认当前前端/用户流程是否仍依赖。
-- 3.0 业务库待确认：`tb_crm_consulting_room.dict_id` 字典来源、`province_id/city_id` 城市字典来源、`tb_crm_iot_area_device_relation.function_type` 取值口径、设备/空间状态枚举、工控机与 NVR 是否存在显式关系；`K8S_SECRET_BUSINESS_MYSQL_DSN` 已由用户配置到镜像/公司环境，仍需发布后验证网络白名单和只读权限。
+- 3.0 业务数据待确认：`tb_crm_consulting_room.dict_id` 字典来源、`province_id/city_id` 城市字典来源、`tb_crm_iot_area_device_relation.function_type` 取值口径、设备/空间状态枚举、工控机与 NVR 是否存在显式关系；测试数据已确认存在 `security_camera`、`cart_camera` 和多种非摄像头用途，3.0.3 仅将摄像头用途纳入摄像头映射。
 - 是否从当前全局角色权限升级到更通用的机构/门店/资源范围授权。当前已决定先做普通查看用户的监控门店范围权限，并提前按 scope 模型考虑未来扩展。
 - 门店删除当前仍沿用硬删除/外键级联语义；正式环境是否改成软删除和审计，需要 DBA/产品确认。
 - 资产访问审计、长期安全审计、截图/PDF 访问日志的正式落地方案仍待治理。
@@ -85,7 +130,7 @@
 
 - 后端：Go 1.22，`net/http`，入口 `cmd/server/main.go`。
 - 数据库：公司 MySQL，核心表为 `tb_` 前缀，连接变量 `MYSQL_DSN` 或 `K8S_SECRET_MYSQL_DSN`。
-- 3.0 业务库：计划新增只读业务库连接变量 `BUSINESS_MYSQL_DSN` 或 `K8S_SECRET_BUSINESS_MYSQL_DSN`，仅用于读取 `db_groupbuy` 业务表；不得把连接串、账号或密码写入仓库。
+- 3.0 资源查看：复用二壮 `MYSQL_DSN` / `K8S_SECRET_MYSQL_DSN`，只读查询同步到 `db_pm_erzhuang` 的 `tb_crm_*` 资源表；不得写入这些同步表或把连接串、账号、密码写入仓库。
 - 3.0 本地开发分支：`codex/store-space-resource-view-3`。主会话按技术负责人拆分：Backend 只读资源聚合、Frontend 只读资源查看、主会话 Review/发布控制。
 - 资产：公司 OSS，运行时 `ASSET_STORE=oss`；前端访问路径保持后端代理稳定。
 - 前端：Vite + React + TypeScript + Ant Design，入口 `frontend/src/App.tsx`。
@@ -93,6 +138,14 @@
 - AI：通道截图识别和设计图识别支持 OpenAI/GPT 与 MiniMax，运行时 provider 可通过后端配置读取；当前线上曾验证 MiniMax / MiniMax-M3。
 - 登录：公司 APISIX SSO，`sy_sso_token` cookie，后端验签并用企业邮箱匹配 `tb_users`。
 - 公司发布：推送 `gitlab/codex/containerize-single-image`，公司 GitLab/K8s 自动构建发布，入口 `https://lite.sy.soyoung.com/erzhuang-project/`。
+- 公司环境隔离：
+  - `*.sy.soyoung.com` 默认是内网可见测试环境。
+  - 测试入口：`https://lite.sy.soyoung.com/erzhuang-project`，对接测试分支 `codex/containerize-single-image`、测试实例机器和测试数据库，Wharf pipeline `752`。
+  - 线上入口：`http://lite.soyoung.com/erzhuang-project`，对接 GitLab `main`、主干实例机器和线上数据库，Wharf pipeline `771`。
+  - 当前目标已经切到公司正式环境；后续“发布到公司”必须先确认测试还是正式，正式发布按 GitLab `main` 提交触发构建、Wharf 点部署、审批通过后上线处理。
+  - 二壮运行库测试环境：host `polar-dev.rwlb.rds.aliyuncs.com`，port `3306`，db `db_pm_erzhuang`，user `u_pm_erzhuang_rw`，密码由 K8s Secret/安全渠道管理。
+  - 二壮运行库正式环境：host `polar-ops.rwlb.rds.aliyuncs.com`，port `3306`，db `db_pm_erzhuang`，user `u_pm_erzhuang_rw`，密码由 K8s Secret/安全渠道管理。
+- 3.0 资源查看与二壮运行库共用 `db_pm_erzhuang` 主连接；数据表仍按只读边界使用，测试验收完成后可清理不再使用的独立业务库 Secret。
 - GitHub 代码备份：GitHub 仍保留为主代码备份和历史留存；除非用户明确说明“不要同步 GitHub”或“只推公司 GitLab”，已确认准备发布的代码仍应同步 GitHub。GitHub 不再代表线上发布完成。
 - GitLab 推送认证：本机 token 文件为 `/Users/sylar/.codex/secrets/gitlab-erzhuang-project.token`。发布到公司时默认用临时 `GIT_ASKPASS` 读取该文件，用户名 `oauth2`；禁止打印 token、写入命令、写入仓库、写入文档或保留长期 askpass，用完删除临时脚本。
 - 历史个人练习发布：GitHub `main` + 韩国 Lighthouse + `scripts/deploy.sh` + systemd/nginx。该链路已终止，且韩国服务器上的二壮项目库表已删除；只保留为历史学习记录。
@@ -124,12 +177,246 @@
 
 ### 下一步建议
 
-1. 完成 3.0 本地最终验证：后端、前端、构建、敏感信息和写 SQL 扫描。
-2. 用户确认后发布到公司 GitLab/K8s，让新镜像读取已配置的 `K8S_SECRET_BUSINESS_MYSQL_DSN`。
-3. 发布后验证启动日志 `business resource view enabled`、3.0 API 真实数据、列表/详情信息密度、异常项口径和 H5 Monitor 入口权限。
-4. 用户确认体验后，进入 3.0 正式使用。
+1. 完成正式环境 cutover 前检查：正式实例信息、`main` 提交流程、pipeline `771` 构建、Wharf 部署审批、正式 Secret、SSO/网关、回滚点和验收脚本。
+2. 代码侧补正式域名 `lite.soyoung.com` 的 SSO 域名判断，并评估/修复正式登录资料同步可能遇到的 MySQL collation mismatch。
+3. 正式发布时把已验证代码提交到 GitLab `main`，等待 Wharf pipeline `771` 构建成功，再在 Wharf 点部署并走审批。
+4. 审批通过且部署成功后验证 `http://lite.soyoung.com/erzhuang-project`：health、SSO 登录/退出、用户管理、门店列表、H5 Monitor、3.0 资源查看真实数据和数据库来源。
+
+## 2026-08-14 公司正式环境发布链路与数据库口径更新
+
+- 背景：此前主会话长期使用的公司地址 `https://lite.sy.soyoung.com/erzhuang-project` 实际是测试环境。用户确认现在要切到公司正式环境。
+- GitLab 仓库：`https://gitlab.sy.soyoung.com/pm/shalei-pm/erzhuang-project.git`，不变。
+- 测试环境：
+  - 分支：`codex/containerize-single-image`
+  - Wharf pipeline：`https://wharf.sy.soyoung.com/dev/app/pm/erzhuang-project/build?page=1&pageSize=20&pipeline_id=752`
+  - 入口：`https://lite.sy.soyoung.com/erzhuang-project`
+  - 二壮运行库：`polar-dev.rwlb.rds.aliyuncs.com:3306/db_pm_erzhuang`
+- 正式环境：
+  - 分支：GitLab `main`
+  - Wharf pipeline：`https://wharf.sy.soyoung.com/dev/app/pm/erzhuang-project/build?page=1&pageSize=20&pipeline_id=771`
+  - 流程：在 `main` 分支提交代码后自动触发构建；构建成功后在 Wharf 点部署并走审批；审批通过且部署成功后才进入线上验收。
+  - 入口：`http://lite.soyoung.com/erzhuang-project`
+  - 二壮运行库：`polar-ops.rwlb.rds.aliyuncs.com:3306/db_pm_erzhuang`
+- 数据库用户：二壮运行库测试和正式均使用 `u_pm_erzhuang_rw`；密码不得写入仓库、文档、命令或回复，后续只通过 K8s Secret/安全渠道配置。
+- 操作边界：
+  - 当前只更新项目记忆和发布手册，不执行 `main` 提交、Wharf 部署或正式发布。
+  - 后续正式发布需要把已验证代码提交到 GitLab `main`，观察 pipeline `771` 构建，构建成功后在 Wharf 点部署并走审批，再在正式域名完成验收。
+
+## 2026-08-18 测试/线上数据库访问方式补充
+
+- 用户确认：
+  - TablePro 可以直接访问测试库，用于开发期查询和只读验收。
+  - 线上库不能通过客户端访问，只能由线上代码访问。
+  - 测试库与线上库目前按表结构一致口径管理。
+  - 后续如开发涉及线上表结构调整，需要由 Codex/DBA 专项整理表操作 SQL 和说明，交给运维执行正式库变更。
+- 安全边界：
+  - 仓库、文档和最终回复不记录数据库密码或完整 DSN。
+  - 本机客户端不保存线上连接，不直连线上库。
+  - 当前要先用测试库确认运维同步进 `db_pm_erzhuang` 的资源查看表是否已有数据。
+
+### 2026-08-18 TablePro 测试库资源表同步核查
+
+- 工具：TablePro，本机只连测试库 `polar-dev.rwlb.rds.aliyuncs.com:3306/db_pm_erzhuang`。
+- 操作：仅执行只读查询，未执行写入、导出或表结构变更。
+- 表存在性查询：
+  - `tb_crm_admin_tenant`：存在。
+  - `tb_crm_consulting_room`：存在。
+  - `tb_crm_iot_device`：存在。
+  - `tb_crm_iot_area_device_relation`：未出现在 `information_schema.tables`。
+  - 进一步按 `%relation%`、`%area%device%`、`%iot%area%` 模糊查表名，未返回任何行。
+- 精确行数：
+  - `tb_crm_admin_tenant`：85。
+  - `tb_crm_iot_device`：7546。
+  - `tb_crm_consulting_room`：3523。
+- `tb_crm_iot_device.category` 分布：
+  - `bt_gateway`：732。
+  - `button`：633。
+  - `camera`：3807。
+  - `edge`：70。
+  - `nvr`：81。
+  - `pad`：800。
+  - `tv`：1423。
+- 有工控机门店数：`tenants_with_edge=67`。
+- 结论：测试库已经同步了门店、设备、空间三张核心表，且有足够数据支撑“有工控机门店列表”；但缺少空间-摄像头绑定关系表 `tb_crm_iot_area_device_relation`，当前还不足以支撑 3.0 详情页完整展示“空间/床位 -> 摄像头”的绑定关系。
+- 原待同步事项已完成：关系表已同步到测试和线上二壮库。下一步改为收敛 3.0 数据源至项目主库，并以真实数据完成 API、异常项和前端信息密度验收。
+- 2026-08-18 业务库维护研发补充确认关系表 DDL：`tb_crm_iot_area_device_relation.area_id` 就是 `tb_crm_consulting_room.id`，`device_id` 关联 `tb_crm_iot_device.id`。查询摄像头时才筛 `category='camera'`，因为关系表可能包含其他设备类型。该表以 `(device_id, area_id, function_type)` 唯一，`function_type` 是绑定用途维度；在拿到真实数据和枚举口径前，3.0 不以它过滤绑定关系，也不把 `device_id + area_id` 视为唯一。
+- 同步完成复核：TablePro 测试连接确认关系表实际行数 `5632`。其中摄像头关系 `2586` 条，覆盖 `1725` 个空间、`1876` 台摄像头；`area_id` 孤儿关系为 `0`，`device_id` 孤儿关系为 `4`。`function_type` 分布为 `security_camera=2006`、`cart_camera=584`、`pad=709`、`business_tv=589`、`live_tv=589`、`help_button=582`、`bt_gateway=573`；摄像头关系来自前两类。用户确认该表已同时同步至线上二壮库。
+- 数据源决策更新：3.0 不再需要跨库访问原业务库，下一次开发将改为复用二壮主库的只读查询；仍不允许向同步表写入。
+
+### 2026-08-18 3.0.3 主库收敛实现完成，待测试环境验收
+
+- 实现：`cmd/server/main.go` 删除独立业务库 DSN 和第二条 MySQL 连接；主库成功建立后将同一 `*sql.DB` 注入 `resourceview.NewMySQLRepository`。
+- 真实数据修正：关系表同时含摄像头、PAD、电视、蓝牙网关等关系。repository 和 service 只把 `category='camera'` 或缺失设备但用途以 `camera` 结尾的关系纳入摄像头映射；PAD、电视、网关不再被误报为缺失摄像头。
+- 异常保留：摄像头用途的缺失设备关系继续产生 `missing_camera`；测试库已知有 4 条此类设备孤儿关系。
+- 本地验证：`CGO_ENABLED=0` 下 `go test ./internal/resourceview`、`go test ./internal/app`、`go test ./cmd/server` 通过；后端 `go build` 通过；前端 `npm test` 41 项通过、`npm run build` 通过，仅有既有 chunk-size warning。
+- 下一步：提交并发布 GitLab 测试分支 `codex/containerize-single-image`，用已登录测试浏览器验收资源列表、详情、异常项和 H5 Monitor 入口；验收通过后才进入正式 `main` 发布流程。
+
+### 2026-08-18 3.0.4 测试环境同步表字段兼容修复，待重新验收
+
+- 首次测试发布：GitLab 测试 pipeline `752` 的构建 `167892` 成功，测试页面显示 `3.0.3 (container)`。
+- 发现：资源列表请求失败，页面显示 `Error 1054 (42S22): Unknown column 'ip' in 'field list'`，导致前端列表和汇总显示为 0；这不表示同步数据为空。
+- 根因：3.0 初版 repository 错把源业务表的字段假设写成 `ip`、`heartbeat_at`、`sort_order`。已提供的同步表 DDL 使用 `ip_addr`、`last_heartbeat_time`、`order_num`。
+- 修复：3.0.4 只改只读查询的字段名和排序子句，IP/心跳/空间排序的接口语义保持不变；新增源码级回归检查，防止旧字段名再次进入同步表 SQL。
+- 发布：commit `28ac15a fix: align resource view with synced mysql schema` 已同步 GitHub 备份和 GitLab 测试分支；Wharf pipeline `752` 构建 `167894` 成功。
+- 测试验收：测试页显示 `3.0.4 (container)`；资源列表返回 `67` 家有工控机门店、`67` 台工控机、`75` 台 NVR、`3465` 个摄像头、`1874` 条绑定关系。真实门店 `10001 北京保利总部店` 的设备视角显示工控机、NVR 和带空间名称的摄像头通道；异常项也正常展示未绑定空间摄像头。
+- 发布门禁：当前仅完成测试环境自动验收，等待用户确认业务展示口径后再把同一 commit 进入正式 `main`；不得把本次测试构建当作正式发布。
+
+### 2026-08-18 3.0.5 首页统计展示收敛，测试环境验收通过
+
+- 产品确认：首页保留摄像头、空间、已绑定、未绑定的覆盖率口径；空间暂时按三层空间节点统计。首页不展示“异常”，异常项只在门店详情中用于排查。
+- 实现：移除顶部汇总“异常”及表格“异常”列，空态跨列数同步调整；后端异常计算和详情页异常项均保留。
+- 发布：commit `ae63860 feat: simplify resource list metrics` 已同步 GitHub 与 GitLab 测试分支；Wharf pipeline `752` 构建 `167897` 成功。
+- 验收：测试页确认版本 `3.0.5`，真实门店列表包含 67 家门店，顶部与表格均无“异常”字段，摄像头、空间、已绑定、未绑定数据保持显示。
+- 状态：正式环境未改动，等待用户确认 3.0 整体测试验收通过后，才以冻结 commit 发布到 GitLab `main`。
+
+### 2026-08-14 正式环境发布流程补充确认
+
+- 用户再次确认：正式环境不是推测试分支，也不是构建成功自动上线。
+- 准确流程：
+  1. 在 GitLab `main` 分支上提交代码。
+  2. 自动触发 Wharf pipeline `771` 构建。
+  3. 构建成功后，在 Wharf 页面点部署。
+  4. 部署进入审批流程。
+  5. 审批通过且部署成功后，访问 `http://lite.soyoung.com/erzhuang-project` 验收。
+- 主会话规则：以后说“发布正式/线上/生产”时，需要报告构建、部署点击、审批和线上验收四个状态，不能只说“已推 main”或“构建成功”。
+
+### 2026-08-14 正式 main 2.31.8 冒烟构建触发
+
+- 目标：为了验证公司正式环境配置是否正确，将 3.0 前最后稳定 2.x 版本发布到 GitLab `main`；3.x 继续保留在测试环境 `codex/containerize-single-image`。
+- 2.x 稳定 tag：`v2.31-stable-before-resource-view-3`，指向 `7311bda fix: fallback h5 player for unsupported h265 mse`，版本 `2.31.8`。
+- 实施方式：
+  - 使用临时 worktree `/private/tmp/erzhuang-main-v2318`，避免污染当前工作区未提交的项目记忆文档。
+  - 从 `gitlab/main` 当前提交 `1387669` 创建临时发布分支。
+  - 将运行相关文件恢复为 `v2.31-stable-before-resource-view-3` 内容，同时保留 `main` 上已有文档，避免项目记忆倒退。
+  - 提交作者按 GitLab hook 要求设置为 `凯撒（沙磊） <shalei@soyoung.com>`。
+- 推送结果：
+  - GitLab `main` 已从 `1387669` 更新到 `c95545a8d2dbaeb43df7d365b1279e577b9d3319`。
+  - 提交信息：`release: restore 2.31.8 on main`。
+  - GitLab hook 返回：作者信息正确，代码规范检查通过。
+- 发布状态：
+  - 已完成：提交到 `main`，触发 Wharf pipeline `771` 正式构建。
+  - 已完成：构建成功后已在 Wharf 点部署并走审批。
+  - 已完成：部署审批通过后，正式域名 `http://lite.soyoung.com/erzhuang-project` 已显示版本 `2.31.8 (container)`。
+- 推送前验证：
+  - `go test -c ./cmd/server` 通过。
+  - `go test -c ./internal/app` 通过。
+  - `go test -c ./internal/storespace` 通过。
+  - `go test -c ./internal/h5monitor` 通过。
+  - `go build ./cmd/server` 通过。
+  - `frontend npm test` 通过，5 files / 40 tests。
+  - `frontend npm run build` 通过，只有既有 Vite chunk size warning。
+  - 运行代码扫描未发现 `resourceview`、`store-space-resource-view`、`ResourceStore` 残留。
+- 下一步：
+  - 继续在正式环境验证 health、SSO、门店列表、H5 Monitor 和用户管理等关键路径。
+  - 若正式环境 2.31.8 基础链路稳定，再决定是否把 3.0 从测试环境推进到正式发布流程。
+
+### 2026-08-17 正式环境 2.31.8 页面版本验收
+
+- 用户反馈：部署审批通过后访问 `http://lite.soyoung.com/erzhuang-project`，页面显示 `2.31.8 (container)`。
+- 结论：正式环境从 GitLab `main` 提交、Wharf pipeline `771` 构建、Wharf 部署审批到正式域名展示版本号的链路已跑通。
+- 当前状态：
+  - 正式环境运行 2.31.8，用于验证正式环境 MySQL/OSS/SSO/网关基础配置。
+  - 测试环境保留 3.x，继续作为「门店空间资源查看」验证环境。
+- 仍需补充验收：
+  - 退出登录是否符合正式域名行为。
+  - 门店详情、系统设置/用户管理是否可打开，角色与权限保存是否正常。
+
+### 2026-08-17 正式环境 2.31.8 核心 API 冒烟通过
+
+- 用户在正式域名 `http://lite.soyoung.com/erzhuang-project` 已登录浏览器执行核心接口冒烟。
+- 结果：
+  - `GET /erzhuang-project/health`：200，返回 `database=mysql`、`asset_store=oss`。
+  - `GET /erzhuang-project/api/auth/me`：200，返回 authenticated user 和 4 个权限。
+  - `GET /erzhuang-project/api/store-space/stores?page=1&page_size=20`：200，返回 20 条，正式库总数 `total=71`。
+  - `GET /erzhuang-project/api/h5/orgs/10030/monitor`：200，返回北京保利实验室门店，`groups` 数量 1。
+- 结论：
+  - 正式环境基础链路已验证通过：网关/SSO、二壮正式 MySQL、OSS 配置声明、门店列表 API、H5 Monitor 样本门店 API 均可用。
+  - 正式库门店数为 71，不同于此前测试环境 54，说明正式环境确实对接正式数据口径。
+- 仍需补充：
+  - 正式域名退出登录。
+  - 门店详情页面。
+  - 系统设置/用户管理页面。
+  - H5 Monitor 实际播放页首帧。
+
+### 2026-08-17 正式环境退出登录修复
+
+- 问题：正式环境 `http://lite.soyoung.com/erzhuang-project` 点击退出登录后，会短暂显示项目未登录页，然后又恢复登录态。
+- 根因：2.31.7 统一退出修复只把 `lite.sy.soyoung.com` 识别为公司 SSO 域名；正式域名 `lite.soyoung.com` 未被识别，前端只跳 `/erzhuang-project/logout` 清本项目 cookie，没有带 `redirect=<SSO logouttogether>` 去清公司 SSO 上游登录态。APISIX 随后又基于仍有效的上游 SSO session 补发登录态。
+- 修复提交：GitLab `main` 已推送 `960ade206e76eacaa6f47c174ac86f1eb9dcbcd9`，提交信息 `fix: logout from production sso domain`。
+- 修复内容：
+  - 前端公司 SSO 域名识别增加 `lite.soyoung.com`。
+  - 正式域名退出地址改为 `/erzhuang-project/logout?redirect=<security-test logouttogether>`。
+  - `from_host=lite.soyoung.com`，`from_uri=http://lite.soyoung.com/erzhuang-project/`，匹配当前正式入口协议。
+  - 后端补正式域名 logout 回归测试，确认清 host-only、`lite.soyoung.com` 和 `soyoung.com` cookie 后再跳统一退出。
+- 推送状态：
+  - GitLab `main` 从 `c95545a` 更新到 `960ade2`。
+  - GitLab hook 返回作者信息正确、代码规范检查通过。
+  - 已触发正式 Wharf pipeline `771` 构建；仍需构建成功后点部署并走审批。
+- 发布前验证：
+  - `frontend npm test` 通过，5 files / 40 tests。
+  - `frontend npm run build` 通过，只有既有 Vite chunk size warning。
+  - `go test -c ./internal/app` 通过。
+  - `go build ./cmd/server` 通过。
+- 待线上验证：
+  - Wharf pipeline `771` 构建成功。
+  - 点部署并审批通过。
+  - 页面底部更新到 `2.31.8 (...)` 对应新构建。
+  - 点击退出登录后应进入公司统一退出流程，不再自动恢复登录态。
+
+### 2026-08-17 正式退出登录修复构建失败与补丁
+
+- 现象：`960ade2 fix: logout from production sso domain` 触发的正式 Wharf pipeline `771` 镜像构建失败，通知显示 child build failed。
+- 根因：`960ade2` 新增的正式域名后端测试期望清除 `soyoung.com` 父域 cookie；但 `authCookieClearDomains("lite.soyoung.com")` 旧逻辑按最后 3 段生成父域，得到的仍是 `lite.soyoung.com`，Linux 镜像内 `go test ./...` 会失败。本机此前只跑 `go test -c` 编译门禁，未执行测试，因此没有提前暴露。
+- 修复提交：GitLab `main` 已推送 `b097c3d2840e51e3e41e2a89169cb76336d1a5ba`，提交信息 `fix: clear production sso parent cookie`。
+- 修复内容：`authCookieClearDomains` 明确适配公司域名：
+  - `*.sy.soyoung.com` 清 `sy.soyoung.com`。
+  - `*.soyoung.com` 清 `soyoung.com`。
+- 推送状态：
+  - GitLab `main` 从 `960ade2` 更新到 `b097c3d`。
+  - GitLab hook 返回作者信息正确、代码规范检查通过。
+  - 已重新触发正式 Wharf pipeline `771` 构建。
+- 本地验证：
+  - `go test -c ./internal/app` 通过。
+  - `go build ./cmd/server` 通过。
+  - `frontend npm test` 通过，5 files / 40 tests。
+  - `frontend npm run build` 通过，只有既有 Vite chunk size warning。
+- 待线上验证：
+  - Wharf pipeline `771` 构建是否通过。
+  - 构建成功后点部署并审批。
+  - 正式环境复验退出登录。
+  - 系统设置/用户管理是否可打开，角色与权限保存是否正常。
+  - 3.0 业务库只读连接仍是独立 DSN，不与二壮运行库混用。
 
 ## 2026-07-08 普通查看用户监控门店范围权限本地验收
+
+## 2026-08-13 3.0 门店空间资源查看公司发布记录
+
+- 发布目标：二壮 3.0「门店空间资源查看」。
+- 发布分支：`gitlab/codex/containerize-single-image`。
+- 发布 commit：`36a6619 merge: store resource view 3`。
+- 版本：`3.0.0`。
+- GitHub 备份：`origin/codex/containerize-single-image` 已同步到 `36a6619`。
+- 公司 GitLab：`refs/heads/codex/containerize-single-image` 已更新到 `36a6619f441f896714e12abbd2ae3e7227da414c`，等待公司 K8s 自动构建发布。
+- 发布内容：
+  - 新增业务库只读资源查看 API：`GET /api/store-space-resource-view/stores`、`GET /api/store-space-resource-view/stores/{tenantId}`。
+  - 新增 `internal/resourceview` 聚合业务库门店、空间、工控机、NVR、摄像头、绑定关系和异常项。
+  - `cmd/server` 支持 `BUSINESS_MYSQL_DSN` / `K8S_SECRET_BUSINESS_MYSQL_DSN`；用户已在镜像/公司环境配置后者，仓库不保存真实 DSN。
+  - 后台主页面切换为只读「门店空间资源查看」，隐藏旧新增、编辑、删除、扫描、识别、确认、设计图上传/标注入口。
+  - H5 Monitor 路由和播放页未改。
+- 发布前验证：
+  - `cd frontend && npm test` 通过，41 tests。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk size warning。
+  - `CGO_ENABLED=0 ... go test ./internal/resourceview` 通过。
+  - `go test -c ./internal/resourceview`、`go test -c ./internal/app`、`go test -c ./cmd/server` 通过。
+  - `go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - 新增 3.0 代码未发现真实业务库账号、主机、密码或 DSN；`internal/resourceview` 不提供业务库写接口。
+- 线上待验证：
+  - 公司构建/实例部署成功通知。
+  - 已登录浏览器访问 `/erzhuang-project/health`，页面版本应为 `3.0.0 (...)`，health 仍应返回 `database=mysql`、`asset_store=oss`。
+  - `GET /erzhuang-project/api/store-space-resource-view/stores?page=1&page_size=20` 返回 200，且不是 `resource_view_not_configured`。
+  - 首页显示「门店空间资源查看」并有真实业务库门店数据。
+  - 门店详情能打开空间视角、设备视角、异常项。
+  - “查看监控”入口仍按 `can_view_monitor` / `monitor_url` 显示；H5 Monitor 播放页不受影响。
 
 - 范围：
   - 普通查看用户按门店授权查看监控。
@@ -5409,3 +5696,288 @@ git pull --ff-only
   - 列表应显示“编辑运维”。
   - 再次打开编辑弹窗，角色下拉应保持“编辑运维”。
   - 可再调用 `/api/auth/me` 验证该用户重新登录后权限含 `editor`、`store:read`、`store:write`。
+
+## 2026-08-13 3.0.1 公司发布后 BackOff / 首页 404 热修复
+
+- 背景：
+  - 3.0「门店空间资源查看」发布后，用户访问 `https://lite.sy.soyoung.com/erzhuang-project/` 看到 `404 page not found`。
+  - 随后公司告警提示 Pod `erzhuang-project-erzhuang-project-7fb4d69c77-gbz92` 进入 `BackOff`，说明问题核心是容器启动失败/重启退避，不只是前端路由。
+- 根因判断：
+  - 3.0 新增 `K8S_SECRET_BUSINESS_MYSQL_DSN` 业务库只读连接，启动阶段如果 `PingContext` 失败会 `log.Fatalf`，导致整站退出。
+  - Dockerfile 已复制前端产物到 `/app/frontend/dist`，但运行镜像未内置 `FRONTEND_DIR` 默认值；若 K8s 未显式注入该变量，Go 服务不会注册 `/erzhuang-project/` 前端静态路由，根路径会 404。
+- 修复：
+  - `Dockerfile` 增加：
+    - `APP_BASE_PATH=/erzhuang-project`
+    - `FRONTEND_DIR=/app/frontend/dist`
+  - `cmd/server/main.go` 将业务库资源视图连接失败从 `fatal` 改为降级日志：主系统、登录、系统设置、旧 H5 Monitor 和静态首页不再被 3.0 新只读数据源拖垮。
+  - `VERSION` 升至 `3.0.1`。
+- 版本：
+  - Commit：`06e67bf fix: restore company static startup defaults`
+  - 公司 GitLab 固定分支 `codex/containerize-single-image` 已推到 `06e67bfb269b788a58cd1ea6ab0c6a51a41d7e82`。
+  - GitHub 备份分支 `codex/containerize-single-image` 已同步。
+- 本地验证：
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go test -c ./cmd/server -o /private/tmp/server.test` 通过。
+  - `GOCACHE=/Users/sylar/erzhuang-project/.cache/go-build GOTMPDIR=/Users/sylar/erzhuang-project/.cache/go-tmp ./.tools/go/bin/go build -o /private/tmp/server-check ./cmd/server` 通过。
+  - `cd frontend && npm run build` 通过；仍有既有 Vite chunk 体积 warning。
+- 线上观察：
+  - 未登录访问 `https://lite.sy.soyoung.com/erzhuang-project/health` 返回 APISIX/SSO `302`，说明网关入口仍存在。
+  - 由于 Codex 无用户公司登录态，最终页面可用性需用户在已登录浏览器确认。
+- 后续验证脚本：
+  - 在已登录公司浏览器控制台请求：
+    - `/erzhuang-project/health`
+    - `/erzhuang-project/api/auth/me`
+    - `/erzhuang-project/api/store-space-resource-view/stores?page=1&page_size=20`
+- 后续经验：
+  - 新增次级数据源不能在启动失败时拖垮整个应用，除非该数据源是核心必需依赖。
+  - 生产镜像内置静态目录时，应在 Dockerfile 内提供对应默认环境变量，减少 K8s 配置遗漏造成的首页 404。
+
+## 2026-08-13 3.0.2 公司发布后资源查看未配置排查
+
+- 现象：
+  - 用户刷新公司页面后，前端已显示 `版本 3.0.2 (container)`，3.0「门店空间资源查看」页面可以打开。
+  - 资源查看 API 仍返回 `store space resource view is not configured` / `code=resource_view_not_configured`。
+- 已确认：
+  - Wharf 当前实例镜像为 `ded1832e`，Pod `erzhuang-project-erzhuang-project-6996887974-zh9bb` 运行中，重启次数 0。
+  - 当前容器日志明确显示：`business resource view disabled: database setup failed: context deadline exceeded`。
+  - 容器内 `K8S_SECRET_BUSINESS_MYSQL_DSN` 存在；未设置非 Secret 版 `BUSINESS_MYSQL_DSN`，符合公司 Secret 注入口径。
+  - 容器内 DNS 可解析业务库 RDS 域名到内网地址，`nc -vz <business-rds>:3306` 显示 TCP 端口 open。
+  - 对同镜像临时启动一个只读诊断进程，并给业务库 DSN 附加短 `timeout/readTimeout/writeTimeout` 后，Go MySQL driver 连续报 `read tcp <pod-ip>:<port>-><business-rds-ip>:3306: i/o timeout`，最终 `driver: bad connection`。
+- 当前结论：
+  - 3.0.2 代码和镜像已实际运行，前端版本不是旧缓存问题。
+  - `resource_view_not_configured` 的直接原因不是业务库 DSN 未配置，而是后端启动阶段无法完成业务库 MySQL 握手/登录，`resourceview.Service` 按降级策略未启用。
+  - TCP 四层连通不等于 MySQL 协议可用；当前证据不是前端或资源查看 SQL 查询错误。
+  - 2026-08-14 用户补充确认：我们此前运行的是公司测试环境，而该业务库表必须在正式环境才能访问；因此测试 Pod 无法完成正式业务库 MySQL 握手/读取属于环境隔离导致的预期现象，不应继续当成代码 bug 修。
+- 伴随发现：
+  - 同一容器日志出现 `auth: profile sync failed ... Illegal mix of collations ... for operation '<>'`，这是二壮运行库登录资料同步的独立 collation 问题，需要另开小修复处理；它不是 3.0 资源查看未配置的直接原因。
+- 下一步：
+  - 不再要求测试环境强行访问正式业务库表。
+  - 等正式环境发布链路、正式实例和正式数据库/SSO 配置确认后，在正式 Pod 网络内验证业务库只读 DSN 是否能完成 MySQL 握手、认证和 `select 1`。
+  - 正式环境连通后，启动日志应出现 `business resource view enabled`；再验证 `/erzhuang-project/api/store-space-resource-view/stores?page=1&page_size=20` 返回真实业务库资源数据。
+
+## 2026-08-18 3.0.6 测试环境门店列表操作列错位修复
+
+- 现象：3.0.5 移除首页“异常”列后，门店资源列表的“详情 / 查看监控”按钮溢出表格右边界。
+- 根因：`ResourceStoreList` 已从 12 列缩减为 11 列，但资源列表 CSS 仍把操作列宽度配置在第 12 列；实际第 11 列仅为 72px。
+- 修复：将第 11 列设为 168px 并保留右侧内边距；第 1、2、5-10 列继续使用 72px，门店名称和机构 ID 的现有宽度策略不变。
+- 版本与发布：`3.0.6`，commit `238dd0a fix: align resource list action column` 已同步 GitHub 与 GitLab 测试分支；Wharf pipeline `752` 构建 `167902` 成功，耗时 1 分 48 秒。
+- 本地验证：`cd frontend && npm test -- --run`（5 files / 41 tests passed）；`cd frontend && npm run build` 通过，保留既有大 chunk warning。
+- 浏览器验收：通过 Chrome 插件打开本地 mock 预览，首行“详情 / 查看监控”两个按钮完整位于第 11 列内，表格不再向右溢出。
+- 测试环境验收：测试实例已在 `2026-08-18 21:52:49` 自动部署 commit `238dd0a4`；测试入口随后显示 `3.0.6 (container)`，真实数据首行的两个操作按钮均位于表格内。
+- 流程纠正：本次一度将 Wharf 的“部署”按钮误判为测试环境必经步骤。实际测试链路仍是 GitLab 推送后自动构建、自动部署；以后构建成功后应等待最多约 5 分钟并核对实例最近部署 commit 和页面版本，不能仅因页面短暂显示旧版本就手动重复部署。
+
+## 2026-08-19 3.0.7 资源列表更新时间与确认口径调整（待发布）
+
+- 需求：资源列表恢复旧版“更新时间”；“已确认”不再表示人工确认，而是门店级覆盖率状态。
+- 已实现：
+  - 后端列表项目新增 `updated_at`，取该门店摄像头-空间绑定关系表 `tb_crm_iot_area_device_relation.created_at` 的最大值。该字段由业务库在关系记录变更时更新；无绑定关系时返回空，前端显示 `-`。
+  - 后端新增 `cameras_fully_bound`。仅当 `camera_count > 0` 且 `unbound_camera_count == 0` 时为 true；任意未绑定摄像头或无摄像头门店均不是“已确认”。
+  - 前端在序号格恢复旧版“已确认”水印，并恢复“更新时间”列；操作列改为第 12 列并保持 168px 宽度。
+- 本地验证：`frontend npm test -- --run`（5 files / 41 tests）与 `frontend npm run build` 通过；Chrome 插件以 mock 数据在 1440px 宽度验收，表格无横向溢出、更新时间正常显示、双操作按钮保持同一行。
+- 后端验证：`go test -c ./internal/resourceview` 编译通过；执行测试二进制仍受本机已知 macOS `missing LC_UUID load command` 限制，未能本机运行断言。
+- 发布状态：已提交 `cbda79e feat: show resource mapping completion`，已同步 GitHub 备份与 GitLab 测试分支；Wharf pipeline `752` 构建 `167904` 成功（1 分 38 秒）并自动部署。
+- 测试环境验收：Wharf 实例当前版本 `cbda79ec`、状态“运行中”；`https://lite.sy.soyoung.com/erzhuang-project/` 已显示 `3.0.7 (container)`，表头含“更新时间”，20 行真实资源数据正常加载，表格无横向溢出，浏览器无页面错误。首屏门店均有未绑定摄像头，因此未显示“已确认”，符合新口径。
+
+## 2026-08-19 3.0.8 摄像头空间绑定详情表（待发布测试）
+
+- 需求：将机构详情从空间树、设备树、异常项三 Tab 改为摄像头逐行核对的空间绑定关系表；监控查看流程不改。
+- 已实现：
+  - 前端以摄像头为一行，展示录像机编号、通道号、摄像头 ID、最近截图占位、绑定状态、空间层级 1/2/3、床位。
+  - 使用 `parent_id` 向上回溯空间父子链，不使用业务数据中不稳定的 `level` 作为展示层级。
+  - 同一摄像头的多条绑定关系在同一行按路径逐条保留；缺少绑定时状态为“未绑定”、四个空间字段统一显示 `-`。
+  - 近期截图字段暂无 3.0 只读 API 数据源，明确显示 `-`；未接回旧萤石抓图链路，也没有提供无效的重新截图操作。
+- 本地验证：`cd frontend && npm test -- --run` 通过（5 files / 41 tests）；`cd frontend && npm run build` 通过，仍有既有的大 chunk 提示。
+- Chrome 验收：本地 mock 详情页已确认不再显示旧三 Tab；9 列表头、顶部机构/绑定完成度信息、空截图占位和“查看监控”入口均正常。内容容器宽度 1440px 时表格未发生列重叠，表格框保留横向滚动能力供更长真实数据使用。
+- 待发布：升版 `3.0.8` 后提交到 GitHub 备份与 GitLab `codex/containerize-single-image`，等待 Wharf pipeline `752` 自动构建部署；部署后使用真实门店 `10001` 复核路径、未绑定行和页面版本。
+
+- 发布完成：commit `7db9670 feat: show camera space bindings` 已同步 GitHub 和 GitLab 测试分支；测试环境由 Wharf 自动部署，页面显示 `3.0.8 (container)`。
+- 测试环境真实验收：门店 `10001` 详情不再显示旧三 Tab，渲染 55 条摄像头行，顶部与列表一致显示已绑定 39、未绑定 16、状态待确认；9 列绑定表与横向容器正常。
+- 观察待讨论：真实数据部分摄像头缺少 NVR/通道字段，页面按约定显示 `-`；部分父子空间同名，导致层级 1/2 显示同名。二者均保留原始业务数据，不在前端猜测或改写，后续确定区域筛选与字段展示口径时一起决策。
+
+## 2026-08-19 3.0.9 NVRCHANNEL 录像机与通道展示修正（待发布测试）
+
+- 用户确认业务字段规则：摄像头 `hardware_id` 为 `NVRCHANNEL:<nvr设备ID>-<通道号>` 时，前半段是 NVR 在设备库中的 ID，后半段是通道号；例如 `NVRCHANNEL:22-10` 应展示录像机编号 `22`、通道号 `10`。
+- 修复：详情前端优先解析该规则，解析失败后才回退既有 NVR 关联和 `channel_no`。原始 `hardware_id` 不再直接当作录像机编号显示。
+- 已补单测覆盖该规则；待完成前端测试、构建和测试环境真实样本复核后发布。
+
+- 发布完成：`d135c55 fix: parse NVR camera channel identifiers` 已同步 GitHub 和 GitLab 测试分支；Wharf 自动部署后测试页面显示 `3.0.9 (container)`。
+- 真实验收：机构 `10001` 详情中确认一条真实 `NVRCHANNEL:22-10` 记录已展示为录像机编号 `22`、通道号 `10`，修复生效。
+- 后续体验项：有多条绑定路径时，空间列内的多行文字在 DOM 文本中连续；视觉上仍通过 grid 换行展示，但可在下一轮决定是否增加更清晰的路径分隔或空间 ID 消歧。本次不扩大为该改动。
+
+## 2026-08-19 3.0.10 有效海康摄像头范围（待发布测试）
+
+- 产品口径：资源查看的摄像头只统计 `category='camera' AND provider='HikVisionNvrChannel' AND status=1 AND deleted_at IS NULL`。非海康 provider、停用或软删除 camera 全部排除。
+- 实现：repository 只读取有效摄像头与其关系；service 对直接输入的设备记录再次执行同一筛选，确保列表、详情、已绑定/未绑定、已确认和异常计算不会出现口径漂移。
+- 异常边界：缺失设备但 `function_type` 以 `camera` 结尾的关系仍作为数据异常线索保留，但不计入有效摄像头数量。
+- 本地验证：项目内置 Go 工具链执行 `go test ./internal/resourceview` 通过；`go build ./cmd/server` 通过；前端 `npm test -- --run` 通过（5 files / 41 tests），`npm run build` 通过，仅保留既有大 chunk warning。
+- 发布状态：`36d2b03 feat: limit resource view to active hikvision channels` 已同步 GitHub 与 GitLab `codex/containerize-single-image` 测试分支；远端分支 SHA 已核对。测试健康入口返回 `200`。
+- 待测试环境验收：确认页面版本为 `3.0.10 (container)`，首页统计按新范围收敛，真实详情没有非海康/停用 camera，且 `NVRCHANNEL:22-10` 仍显示录像机 `22`、通道 `10`。当前终端未连接已登录 Chrome，首页 HTTP 请求受 SSO `302` 保护，需在已登录浏览器确认页面结果。
+
+## 2026-08-19 3.0.11 摄像头空间类型与名称（待发布测试）
+
+- 产品规则：摄像头关联空间的 `parent_id=2387` 代表诊室区域容器，直接关联到该类空间的关系不作为有效绑定；例如设备 `70` 关联 `2665`、`2667` 时，忽略 `2665.parent_id=2387`，保留 `2667.parent_id=2665`。
+- 实现：服务层在摄像头关系筛选后统一排除容器关系，影响详情关系、摄像头绑定状态、门店已绑定/未绑定和已确认口径。关联空间父级不存在时不排除，前端以 `-` 展示空间类型。
+- 前端：详情表从四列空间路径收敛为“空间类型 / 空间名称”，分别读取关联空间父级和自身的名称；多条关系保持 API 关系记录顺序。
+- 展示补充：关联空间自身 `level=3` 时，空间类型固定显示“治疗室”；这是前端呈现规则，不修改数据库、API 原始值或绑定口径。
+- 测试：后端新增容器关系过滤回归并通过 `go test ./internal/resourceview`；资源查看 domain 测试已加入默认 Vitest 清单。前端共 `6 files / 47 tests` 通过，生产构建通过，仅保留既有大 chunk warning。
+- 发布状态：`3c96f0b feat: show camera space type and name` 已同步 GitHub 与 GitLab `codex/containerize-single-image`；测试环境自动部署完成，用户已确认实际页面更新为 `3.0.11`。本次存在构建/部署传播延迟，不能仅以 GitLab 分支更新或健康入口可达宣称发布完成。
+- 待业务验收：详情为 7 列，容器关系未展示，真实空间父子名称正确，首页统计与详情绑定状态一致。
+
+## 2026-08-19 3.0.12 资源详情表紧凑展示（待发布测试）
+
+- 问题：真实测试页的 7 列表格仍采用浏览器自动列宽分配，录像机/通道与摄像头 ID 之间产生大面积留白；最近截图仅显示 `-`；较长空间名称被省略号截断。
+- 修复：通过 `colgroup` 与固定表格布局锁定录像机、通道、摄像头、截图、状态和空间类型列，剩余宽度给空间名称；空截图改为固定尺寸的默认缩略占位；空间名称在本列换行完整展示。
+- 边界：只改变前端呈现，不变更摄像头-空间关联、统计、业务库或截图接口。
+- 本地验证：前端 `6 files / 47 tests` 通过，Go 全量测试通过，生产构建通过；本机未运行后端，不能加载真实门店数据。
+- 发布状态：`f51b48f fix: compact resource binding table` 已同步 GitHub 与 GitLab `codex/containerize-single-image`。截至记录时可见 Wharf 部署通知仍为上一版 `3c96f0b`，本轮等待自动部署与实际页面版本确认。
+
+## 2026-08-19 3.0.13 摄像头列表字段收敛与父空间补载（待发布测试）
+
+- 产品确认的详情列顺序为：摄像头 ID、录像机编号、通道号、最近截图、空间类型、空间名称、绑定状态、操作；表格标题为“摄像头列表”。
+- 无截图时仅显示低对比灰色图片图标，不显示“暂无截图”等文字。操作列保留“刷新截图”按钮，但当前禁用并提示“截图服务待接入”，不调用旧萤石通道抓图接口，也不对业务库产生写操作。
+- 后端只读空间查询补载本门店空间的直接父节点。这样即使同步数据中父空间不在原 `tenant_id` 结果集中，前端仍可通过 `parent_id -> parent.name` 展示空间类型；`level=3` 显示为“治疗室”的既有展示规则不变。
+- 本地验证：`go test ./...`、`go build ./cmd/server`、前端 `npm test -- --run`（6 files / 47 tests）和 `npm run build` 全部通过。前端构建仅保留既有大 chunk warning。
+- 发布状态：`d550dc8 feat: refine camera binding list` 已同步 GitHub 备份与 GitLab `codex/containerize-single-image` 测试分支，已触发 Wharf `752` 自动构建。临时 GitLab `GIT_ASKPASS` 脚本已在推送后删除。
+- 待部署验收：必须以 Wharf 部署记录和页面 `3.0.13 (container)` 做真实验收，重点检查父空间类型、表格列宽及禁用截图按钮。
+
+## 2026-08-19 3.0.14 摄像头列表空间类型筛选（待发布测试）
+
+- 默认“全部”按绑定状态排序：已绑定摄像头在上，未绑定摄像头在下；同一状态内保持既有录像机、通道、摄像头 ID 的稳定顺序。
+- 筛选器按当前门店真实存在的空间类型动态生成，默认选中“全部”，外观使用紧凑的分段 Tab。避免把业务库中新增或非固定的空间类型排除在筛选范围外。
+- 选中某空间类型时，仅展示该类型的绑定关系，并按命中空间名称正序排列；一台摄像头有多条关系时，表内仅保留命中类型的关系，避免出现与当前筛选不一致的空间名称。
+- 门店切换时若旧筛选类型不在新门店中存在，页面自动回退到“全部”，不显示误导性的空表。
+- 本地验证：Go 全量测试、Go 构建、前端 `npm test -- --run`（6 files / 49 tests）和 `npm run build` 通过；仅保留既有前端大 chunk warning。
+- 发布状态：`6eda789 feat: filter camera bindings by space type` 已同步 GitHub 备份与 GitLab `codex/containerize-single-image` 测试分支，已触发 Wharf `752` 自动构建；临时 GitLab 认证脚本已在推送后删除。
+- 待部署验收：测试页显示 `3.0.14 (container)` 后，确认前三列紧凑、后五列均分；默认已绑定行位于未绑定行之前；选择任一空间类型后仅显示命中关系且空间名称正序。
+
+## 2026-08-19 3.0.15 门店类型摄像头统计与未绑定筛选（待发布测试）
+
+- 机构列表移除“空间”数量列，替换为“面诊室”和“治疗室”。两列均统计绑定到对应展示空间类型的去重摄像头数，不统计空间实体数量。
+- 后端在资源查看摘要中增加 `consultation_camera_count`、`treatment_camera_count`，列表分页、搜索、城市筛选和详情摘要统一使用该口径。空间类型规则与详情一致：`level=3` 展示为“治疗室”，其余取直接父空间名称。
+- 详情筛选器显示“全部 总摄像头数”、每个空间类型的去重摄像头数，以及独立的“未绑定”数量；未绑定项可点击，便于直接核对缺口。
+- 已新增后端回归：一台摄像头多条同类型关系只计一次；前端回归覆盖未绑定筛选。`go test ./...`、`go build ./cmd/server`、前端 49 项测试和生产构建通过。
+- 发布状态：`55184fa feat: show camera counts by space type` 已同步 GitHub 备份与 GitLab `codex/containerize-single-image` 测试分支，已触发 Wharf `752` 自动构建；临时 GitLab 认证脚本已在推送后删除。
+- 待部署验收：测试页显示 `3.0.15 (container)` 后，检查机构列表“面诊室 / 治疗室”均为摄像头数而非空间数；详情 Tab 的全部、各类型、未绑定数字与筛选后的行数一致。
+
+## 2026-08-19 3.0.16 摄像头操作列对齐（待发布测试）
+
+- 详情表“操作”表头和“刷新截图”按钮统一右对齐，右侧保留 20px 内边距，避免按钮悬在列中或紧贴表格边框。
+- 本地验证：前端 `npm test -- --run`（6 files / 49 tests）和 `npm run build` 通过；仅保留既有大 chunk warning。
+- 发布状态：`60376fb fix: align camera actions` 已同步 GitHub 备份与 GitLab `codex/containerize-single-image` 测试分支，已触发 Wharf `752` 自动构建；临时 GitLab 认证脚本已在推送后删除。
+- 待部署验收：测试页显示 `3.0.16 (container)` 后，确认操作列右对齐、右边距自然，且不影响其他列的均分布局。
+
+## 2026-08-20 监控查看 3.0 改造预研：10001 灰度
+
+- 产品方向：资源列表和详情页已完成 3.0 化；摄像头取图接口暂不开发，也不暂时回填萤石云录像机编号。下一阶段改造监控查看，先仅灰度北京保利总部店 `external_org_id=10001`，其他门店保持现有萤石云链路和页面功能不变。
+- 当前实现事实：H5 Monitor 页面/路由、SSO/门店范围鉴权、频道分组、直播、录像片段、回放、URL 释放、用户并发限制、播放器控制和诊断都围绕 `internal/h5monitor` 与 `ezuikit-flv` 萤石云实现；不能把改造理解为仅替换播放 URL。
+- 初步架构方向：保留前端布局、路由、权限与控制面板，后端在 H5 Monitor 之下引入可按门店选择的取流提供方。`10001` 通过运行时灰度配置走新工控机/业务取流提供方，其他门店继续走萤石云。浏览器只调用二壮 API，不直连公司工控机接口或携带内部凭据。
+- 回滚边界：不应在新提供方失败时静默回退萤石云，避免隐藏问题、重复开流或绕过新链路验证；关闭 `10001` 灰度配置应可立即恢复旧链路。
+- 待确认：新接口的直播、录像片段、回放、释放能力；鉴权与超时；返回 URL/协议（FLV/HLS/WebRTC 等）；10001 摄像头/NVR/通道/工控机的精确入参映射；是否支持音频、质量切换与截图。未获得这些信息前，不改业务代码或播放器。
+
+### 2026-08-20 新工控机取流接口补充（敏感凭据不入库）
+
+- 业务映射澄清：新链路不使用录像机编号。根据业务空间位置通过 `tb_crm_iot_area_device_relation.area_id -> device_id` 找到摄像头/设备 ID，再向流鉴权接口申请该设备的短时 token；不传起止时间为直播，传起止时间为回放。
+- 已知接口形态：服务端以 `camera_id`、`stream_type`、可选 `start_time/end_time` 请求公司鉴权服务，获得 token；浏览器以该 token 连接公司 `wss` 流地址。用户提供的 Authorization、token 和带 token 的 URL 均属于敏感凭据，禁止写入仓库、项目文档、命令历史、日志或最终回复；如为真实长期凭据，应由接口方轮换并改由 K8s Secret 注入。
+- 关键未知：WSS 返回的是 FLV、fMP4、MPEG-TS、裸 H.264/H.265、WebRTC 信令还是其他私有二进制协议，目前无法从 URL 或 JWT 推断。必须用新鲜短时 token 做只读协议探针，记录首个控制消息/二进制帧特征、编解码和关闭语义后才能选择播放器。
+- 体验边界：当前 H5 Monitor 的录像片段时间轴依赖“分段查询”。新接口目前只确认“给定起止时间即回放”，尚未确认录像存在性/分段接口；若没有该能力，不能宣称完整保留旧回放时间轴，应先由产品明确接受简化回放，或要求接口方补齐分段查询。
+
+### 2026-08-20 NVRPlayer-SDK 调研（未接入）
+
+- 已阅读用户提供的 `NVRPlayer-SDK` 快照。它不是通用 FLV/HLS 播放器：直播路径为 `RTP over WebSocket -> H.265 FU-A 重组 -> WebCodecs -> canvas`；回放路径先用 `SystemTransform` WASM 将海康私有封装转出 H.264/H.265 帧，再仍由 WebCodecs 渲染到 canvas。音频为 G.711 A-law + Web Audio。
+- 接口最小验证：流鉴权接口可成功签发短时 token；使用文档外推的 WSS 升级请求返回 `400 token invalid`。这只说明“鉴权 token 到 WSS 的完整契约尚未核实”，不代表设备或流服务不可用。新 SDK README 也说明其预期输入应由业务后端直接下发已签名 `wsUrl`，因此后续应向接口方取得该正式响应，不能自行拼接或猜测 token-to-URL 规则。
+- 复核：已严格按接口方提供的 `camera_id=111`、`stream_type=2`、`start_time=123`、`end_time=456` 示例调用，鉴权为 `200/code=0`，但由本机该次调用签发的 token 连接 WSS 时为 `400 token invalid`。随后接口方提供一条新签发的实际 WSS 地址，标准 Upgrade 握手成功返回 `101 Switching Protocols`。结论：WSS 流服务与 URL 拼接方式有效；待查的是二壮将来调用鉴权服务时为何未签出同类可用 token（服务凭据、环境、请求参数或隐含条件），不能把单次本机签发失败误判为 WSS 服务不可用。
+- 运维修正：回放 `start_time/end_time` 必须传 Unix 秒级时间戳，不能传占位数字或格式化日期字符串。2026-08-20 已用运维提供的真实时间戳完成全链路复验：鉴权接口 `200/code=0`，将本次新签发 token 拼入 WSS 后标准 Upgrade 返回 `101 Switching Protocols`。至此二壮后端获取短时 token、前端 WSS 直连的最小合同已验证可用；token、Authorization 与媒体内容均未写入仓库、文档或日志。
+- 重要实现风险：SDK 以 URL 中 `startTime/endTime` 判断回放，而当前已知 WSS URL 只含 token；二壮接入时必须显式传递 `isReplay/forceWasm`，不能依赖该字符串判断。SDK 还会把完整 `wsUrl`（含 token）写到浏览器控制台，且断线重连会无上限复用旧 URL；引入前必须移除敏感日志，并改为由二壮受控刷新播放地址。
+- 移动端结论：直播依赖 H.265 WebCodecs，README 已明确 Safari 不支持；iOS 上所有浏览器均受 WebKit 限制。回放虽使用 WASM 转封装，但其输出仍调用 `VideoDecoder`，因此“回放不受 Safari 影响”的 README 结论不能直接采信，必须真机验证。Android Chrome/Edge 也需按设备与 HEVC 硬件能力验证，不能承诺全量兼容。
+- 运行依赖：回放 Worker 当前硬编码加载 `static.soyoung.com/sy-pre` 下的版本化资源；该地址在调研时返回 200，但正式接入不能依赖预发路径或外部可变资源。应由拥有方确认源码/许可证/维护责任，并在二壮静态资源或受控公司 CDN 固定版本部署 WASM、worker 和主 SDK。
+- 官方方案对照：萤石官方 GitHub 的 `EZUIKit-flv`、`EZUIKit-JavaScript-npm`、`@ezuikit/player-hls` 均仍活跃，其中 HLS SDK 提供 H.265 软解跨浏览器兜底。但它们分别接受 FLV、HLS/m3u8 或萤石 `ezopen` 地址，不能直接播放当前私有 WSS/RTP/海康回放流。只有工控机侧提供 HLS、FLV 或 WebRTC 等标准输出时，才应优先采用官方 SDK；否则 NVRPlayer 是当前协议唯一已知参考实现，而不是可替换成萤石 SDK 的同类组件。
+- 当前状态：仅完成资料与只读协议验证，未复制 SDK、未改监控代码、未部署。下一步先取得后端真实 `wsUrl` 合同、token 生命周期、回放/片段/释放语义，并决定是否将移动端直播作为首期硬门槛。
+- 产品确认：iPhone 与微信内打开直播是首期基础要求。接口方随后确认工控机/NVR 无法输出 HLS、FLV 或 WebRTC 等其他格式，因此不能把“硬件提供标准输出”作为前提。当前 NVRPlayer 的 H.265/WebCodecs 直播路径只能作为桌面协议调试工具；首期 iOS 兼容必须在浏览器侧软解，或由独立软件网关在不改变硬件的前提下完成协议/编码转换后再验证。
+
+### 2026-08-21 10001 NVR 实验页设计已确认
+
+- 用户确认实验页必须复用测试环境 2.x H5 Monitor 的视觉与交互：门店标题、区域 Tab、圆形摄像头墙、播放详情 16:9 区域、控制条与底部“实时视频 / 录像”Tab；不得做成独立后台调试面板。
+- 实验页只服务 `10001`、只限管理员、使用业务库只读摄像头关系；旧萤石 H5 Monitor 不改，不自动回退。
+- 默认验证样本为 `camera_id=111`，测试库显示其映射为治疗室4、NVR `22`、通道 `56`；业务库不能判断录像是否存在，回放需由实际取流服务验证。
+- 已提交设计规范：`docs/superpowers/specs/2026-08-21-nvr-lab-10001-design.md`，commit `4ade1ea docs: define 10001 nvr lab`。设计中明确：回放第一版只有起止时间输入，不伪造录像片段列表；iPhone Safari/微信真机通过前，实验页不得替换旧监控页。
+
+### 2026-08-21 新取流鉴权凭据模型已由接口方确认
+
+- `stream_type=2` 同时用于直播和回放：直播只传 `camera_id`、`stream_type`；回放额外传 Unix 秒级 `start_time`、`end_time`。
+- `Authorization` 是长期服务端凭据，不会过期；测试与正式使用同一凭据值，但必须分别以各自 K8s Secret 注入，不能由前端持有或由代码、Dockerfile、日志、项目文档保存。
+- 每次用户发起播放时，二壮后端携带该长期凭据实时请求鉴权服务；返回的 WSS token/地址才是短期数据，只用于当前播放会话，不持久化、不写日志、不放入浏览器诊断信息。
+- 推荐运行时变量名：`NVR_STREAM_AUTHORIZATION`，可兼容读取 `K8S_SECRET_NVR_STREAM_AUTHORIZATION`。变量名是二壮实现约定，实际 Secret 名称由运维/K8s 管理。
+
+### 2026-08-21 10001 NVR 实验页第一轮实现（待发布测试）
+
+- 已实现独立路由：`/h5/nvr-lab/10001` 和 `/h5/nvr-lab/10001/cameras/{cameraId}`；前端无导航入口，后端固定只接受租户 `10001`，并由 APISIX 登录态后的 `admin` 角色守卫。
+- 后端只读使用现有资源视图仓储，严格筛选 `category='camera' AND provider='HikVisionNvrChannel' AND status=1 AND deleted_at IS NULL`；每次播放实时调用鉴权服务，直播不带时间，回放使用最多 30 分钟的 Unix 秒级起止时间。
+- 安全处理：长期鉴权值仅运行时读取 `K8S_SECRET_NVR_STREAM_AUTHORIZATION`（兼容 `NVR_STREAM_AUTHORIZATION`）；会话响应为 `Cache-Control: no-store`。短期 WSS 地址只留在 React 内存，不写日志、诊断、localStorage 或 sessionStorage。
+- 已将 NVRPlayer 与 WASM 运行时固定在本仓库静态资源中，移除预发 CDN、WSS URL 控制台输出和自动复用旧地址重连；回放显式使用 WASM，不再从 URL 推断。
+- 本地验证：前端 `npm test` 共 8 个文件、52 个断言通过，`npm run build` 通过（仅保留既有大 chunk warning）。本机当前没有 Go 二进制，新增的 `internal/nvrlab` 单测、全量 Go 测试与构建尚未执行，发布前必须在带 Go 的环境补跑。
+- 待发布测试：确认测试 K8s Secret 已配置后发布到 `codex/containerize-single-image`，使用管理员在 `camera_id=111` 验证桌面直播和回放首帧、受控重新连接，以及 iPhone Safari/微信内直播。iOS 未通过前不替换旧萤石 H5 Monitor。
+- 发布记录：提交 `647b5a6 feat: add 10001 nvr streaming lab` 已于 2026-08-21 推送 GitLab `codex/containerize-single-image`，触发 Wharf `752` 测试自动构建；已同步 GitHub 同名备份分支。尚待构建、自动部署与实际页面/首帧验收，未发布正式 `main`。
+
+### 2026-08-21 10001 NVR 实验页测试发布与配置核验
+
+- 初次测试构建 `168403`（commit `647b5a6`）失败。Wharf 日志确认根因是 `internal/nvrlab/service_test.go` 把 `CameraListResponse` 当作数组使用，导致 `go test ./...` 编译失败；Kaniko 的 `/tmp/digest` 是构建失败后的伴随信息，不是根因。
+- 最小修复 `ab3f4d5 test: fix nvr lab camera list assertion` 已推送。Wharf 构建 `168473` 成功，完成完整 Go 测试和镜像构建；测试实例已自动升级并运行该 commit。
+- Chrome 已登录验收：`/erzhuang-project/h5/nvr-lab/10001` 路由已进入新实验页，不再回落到主列表。
+- 当前阻塞：测试实例未绑定 `K8S_SECRET_NVR_STREAM_AUTHORIZATION`（兼容名 `NVR_STREAM_AUTHORIZATION`），后端不会创建 NVR 实验服务，页面会显示“取流实验页暂未配置”。该值必须通过测试环境 K8s Secret 注入，不能写入普通变量、仓库或文档。
+- 下一步：配置 Secret 后滚动重启测试实例，再以管理员身份用 `camera_id=111` 验收列表、桌面直播、回放与重新连接；iPhone Safari/微信验证仍是扩大灰度的硬门槛。
+
+### 2026-08-21 NVR Secret 配置后二次验收
+
+- 用户完成测试实例部署后，Chrome 复验实验首页正常加载北京保利总部店的 44 路有效摄像头，区域筛选包含“面诊室 / 治疗室 / 其他”；说明管理员守卫、资源只读查询和 NVR Secret 启用均已生效。
+- 默认 `camera_id=111` 正确解析为“治疗室4 / 治疗室”。进入直播详情时，后端播放会话接口返回稳定错误 `nvr_stream_authorization_failed`（HTTP 502），前端展示“取流鉴权失败，请稍后重试”；尚未建立 WSS 连接，因而没有首帧可验收。
+- 浏览器控制台未发现 token、完整 WSS 地址或播放器异常日志。当前错误分类有意不包含上游响应详情，故尚不能从页面区分长期 Authorization 格式错误、鉴权服务拒绝、响应合同变化或测试集群网络问题。
+- 待处理：先由配置方核对 Secret 值为接口方的长期服务端 Authorization 原样值，不加 `Bearer` 前缀、引号或短期 WSS token；若仍失败，补充仅记录/返回安全状态分类（HTTP 状态、超时、响应结构）后再发布定位，禁止记录凭据、token、WSS URL 或上游正文。
+
+### 2026-08-21 NVR 鉴权失败根因收敛
+
+- 为在不暴露敏感数据的前提下完成定位，先后发布 `3.1.1`（`229ce06`，服务端安全分类）和 `3.1.2`（`7e822f8`，安全响应码）；由于 Chrome 插件不能读取请求响应体且测试实例未绑定可查询的容器日志源，最终发布 `3.1.3`（`2933125`）仅在管理员实验页展示已有安全错误码。
+- Wharf 构建 `168529` 成功，测试实例已自动运行 `2933125`。同一直播请求的页面结果为 `nvr_stream_authorization_upstream_http_422`。
+- 已确认失败边界：二壮后端已读取 Secret 并成功请求到公司鉴权服务；鉴权服务以 HTTP 422 拒绝当前入参。失败发生在短期会话签发之前，WSS 连接、NVRPlayer 解码、首帧和移动端均尚未开始，不应归因于播放器。
+- 待接口方确认：针对北京保利总部店的真实可用 `camera_id`、直播是否确实只传 `camera_id + stream_type=2`、以及 HTTP 422 的字段级校验规则。对外反馈仅提供请求口径与 HTTP 422，不提供长期 Authorization、token、WSS URL 或上游正文。
+
+### 2026-08-21 鉴权参数对照结论
+
+- 使用同一长期服务端凭据做四组只读对照：`camera_id=111/584` 分别请求直播（只传 `stream_type=2`）和回放（同样的 Unix 秒起止时间）。
+- 两个摄像头的无时间直播请求均返回 HTTP 422，均未签发 token；两个摄像头的带时间请求均返回 HTTP 200、`code=0` 且签发 token。
+- 结论：当前测试实例的 Secret 已被读取且不是本次失败原因。失败由上游接口对无时间 `stream_type=2` 请求的校验导致；`camera_id=111` 也不是导致 HTTP 422 的充分原因。
+- 待接口方书面确认：直播的正确 `stream_type`、是否需要额外参数或服务端生成的默认时间，以及 HTTP 422 的校验规则。在合同确认前，二壮不伪造时间窗口、不猜测其他 stream type，也不修改旧萤石播放链路。
+
+### 2026-08-21 直播 stream_type=1 直接对照
+
+- 用户建议验证直播是否应使用 `stream_type=1`。未改代码、未部署，直接对 `camera_id=584` 发起无时间参数的只读请求。
+- 结果仍为 HTTP `422`。请求响应体和任何短期 token 均未保存或输出。
+- 结论：`stream_type=1` 不解决当前直播鉴权失败；此前对 `stream_type=2` 的实现保持不变。需要接口方给出 HTTP 422 的字段级校验规则或一条可工作的直播请求样例。
+
+### 2026-08-21 回放鉴权复验
+
+- 对 `camera_id=584` 使用 `stream_type=2` 与 Unix 秒级起止时间直接做只读鉴权请求，结果为 HTTP `200`。
+- 结论：回放会话签发链路可用。后续需用实际有录像的时间窗在隔离实验页验证 WSS 建连和播放器首帧；这不改变直播目前仍被 HTTP 422 阻塞的事实。
+
+### 2026-08-21 10001 测试环境回放首帧验收
+
+- Chrome 已登录测试环境打开 10001 NVR 实验页，摄像头列表共 44 路。对当前白名单中的 `camera_id=82`（走廊）与 `camera_id=111`（治疗室4）分别输入 2025-08-20 12:25 至 12:38 的回放时间范围。
+- 两次均通过后端签发回放会话并建立 WSS，页面稳定显示“视频流已连接，等待画面”；等待超过 30 秒没有首帧。Chrome 没有 WASM worker、WebSocket 或静态资源错误。
+- `camera_id=584` 虽可在鉴权接口签发会话，但不在 10001 当前实验页白名单，页面后端会拒绝，因此不能作为该页验收样本。
+- 当前不能宣称回放可播放。下一步需要接口方提供 10001 白名单摄像头中确认有录像的摄像头和 Unix 时间窗，或增加不暴露媒体/token 的接收帧、WASM 转封装与渲染计数诊断，以区分“无录像数据”和“播放器解码失败”。
+- 用户随后指定精确时间窗 `1755663940` 至 `1755664704`。测试页的 `datetime-local` 控件可接受并传入对应的秒级值；对 `camera_id=111` 连续约 33 秒仍只有“视频流已连接，等待画面”，没有首帧。
+- 结论更新：分钟级输入精度不是本次失败原因。故障边界收敛至回放媒体是否实际下发，或媒体已下发后的 WASM 转封装/解码阶段。
+
+## 2026-08-26 3.0 摄像头列表复用 2.x 截图的映射边界
+
+- 目标：在不接入新抓图能力、不修改业务同步数据的前提下，让 3.0 摄像头绑定列表尽量显示 2.x 已有的最近截图。
+- 已确认：业务 NVR ID/序列号与旧录像机序列号不保证相同，禁止使用 NVR 序列号推断映射。
+- 第一版范围：仅覆盖旧系统中该门店恰有一台有效录像机的门店。机构 ID 一致后，以通道号映射业务摄像头与旧视频通道，再取该旧通道 `created_at desc, id desc` 的最新 `tb_channel_snapshots.thumbnail_path`。
+- 排除：旧门店无录像机、存在多台旧录像机、通道缺失/重复、无截图或用户无该门店监控权限时不返回旧截图，继续使用灰色占位；不建映射表、不复制 OSS 资产、不触发萤石或工控机抓图。
+- 下一步：先以测试库统计单录像机门店及可命中截图覆盖率；实现时补单录像机命中、无截图、多录像机拒绝、无旧门店、无监控权限测试，再发布测试环境验收。
+
+### 2026-08-26 实现记录：3.1.7 截图复用与播放器控制修复
+
+- 已实现旧截图只读查询：按 `tb_stores.external_org_id -> tb_video_recorders -> tb_video_channels -> tb_channel_snapshots` 查询；只在旧门店录像机总数等于 `1` 时按通道号读取最新缩略图。多录像机、无图、无通道或路径不合法均不返回。
+- 资源详情返回的是受控应用 URL。该图片端点先校验 `store:read` 和门店监控范围，再从现有 OSS 截图存储读取；前端不接触对象路径、签名 URL 或密钥。
+- 已修复 NVR 实验页：标题栏与播放器增加间距；“开启声音”直接在点击手势中创建/恢复 Web Audio；直播暂停改为停止本地 Canvas 输出，恢复后继续渲染接收中的新帧。
+- 本地验证：前端 `npm test -- --run` 为 8 files / 54 tests 全通过，`npm run build` 通过。当前机器没有 Go 与 gofmt，后端编译/测试由 Wharf 构建补验。
+- 待发布验收：测试实例健康检查和 `3.1.7 (container)`；至少一条单录像机截图命中、一条多录像机占位；Chrome 验证声音、暂停与恢复。当前会话未暴露 Chrome 插件能力，未以 Computer Use 模拟点击替代。

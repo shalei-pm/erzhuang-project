@@ -56,10 +56,11 @@ type BusinessAreaDeviceRelation struct {
 }
 
 type StoreRecords struct {
-	Tenant    BusinessTenant
-	Devices   []BusinessDevice
-	Spaces    []BusinessSpace
-	Relations []BusinessAreaDeviceRelation
+	Tenant                BusinessTenant
+	Devices               []BusinessDevice
+	Spaces                []BusinessSpace
+	Relations             []BusinessAreaDeviceRelation
+	LegacyCameraSnapshots map[int]string
 }
 
 type MonitorAccess struct {
@@ -157,10 +158,11 @@ type Device struct {
 
 type Camera struct {
 	Device
-	ChannelNo  *int     `json:"channel_no,omitempty"`
-	NVRID      int64    `json:"nvr_id,omitempty"`
-	NVRName    string   `json:"nvr_name,omitempty"`
-	SpacePaths []string `json:"space_paths"`
+	ChannelNo    *int     `json:"channel_no,omitempty"`
+	NVRID        int64    `json:"nvr_id,omitempty"`
+	NVRName      string   `json:"nvr_name,omitempty"`
+	SpacePaths   []string `json:"space_paths"`
+	ThumbnailURL string   `json:"thumbnail_url,omitempty"`
 }
 
 type Space struct {
