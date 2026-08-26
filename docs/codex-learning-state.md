@@ -6125,3 +6125,4 @@ git pull --ff-only
 - Job 除 K8s `parallelism=1` 外必须持有全程 MySQL 命名锁，且相邻授权请求至少间隔 2 秒；连续授权/WSS 失败需熔断停止，避免接口风控和错误扩大。
 - Job 与 Web 使用分离最小数据库权限；`database_write_failed` 只能作为 Job 非零退出/汇总错误，不能伪造为已持久化的摄像头失败状态。
 - 已实现并通过 `internal/nvrsnapshot` 定向测试的核心回填服务：候选查询精确限制在有效 `HikVisionNvrChannel` 摄像头，缺图初始化与显式失败续跑分离；每路 20 秒、默认相邻请求至少 2 秒、连续三次鉴权/WSS 连接类失败熔断。该阶段仍未连接真实 MySQL、OSS 或 WSS。
+- `0f3ace5` 已仅同步 GitHub：回填核心、DDL 和 DBA 验收材料。`286445b` 已仅同步 GitHub：独立回填 CLI、全程 MySQL 命名锁及临时测试 Job 模板；均未推 GitLab 或执行。当前待完成 Web 受控读取路径、测试环境独立镜像构建、DBA 执行测试 DDL 和测试 Job 实际运行。
