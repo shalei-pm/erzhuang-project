@@ -96,7 +96,7 @@
 - [x] 前端回归：Vitest `10 files / 62 tests` 和生产构建通过。
 - [ ] 本机没有 `go`/`gofmt`；等待测试 Wharf 构建完成 Go 编译与后端测试门禁。
 - [x] 已提交 `f1625a4` 并同步 GitHub 与 GitLab 测试分支，Wharf `752` 自动构建已触发；构建/部署结果尚未确认。
-- [ ] 测试实例设置 `MONITOR_PLAYBACK_MODE=nvr` 后，完成多城市、多角色、直播/回放、旧深链接和 `nvr -> legacy` 回滚演练。
+- [ ] 已核对 GitLab 测试分支 HEAD 为 `f1625a4`；等待 Wharf 确认构建/自动部署后，设置 `MONITOR_PLAYBACK_MODE=nvr`，完成多城市、多角色、直播/回放、旧深链接和 `nvr -> legacy` 回滚演练。
 - [ ] 测试验收通过后，才进入正式环境 Secret、`main`、pipeline `771` 与审批流程。
 
 ## 当前状态摘要
