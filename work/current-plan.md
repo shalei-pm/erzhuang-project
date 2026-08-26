@@ -40,7 +40,8 @@
 - [x] 根因确认：回放诊断作为播放器横向 flex 子元素，且每 250ms 更新，导致 Canvas 宽度反复参与布局计算并引发画面抖动。
 - [x] 实现：NVR 页日期控件只显示日期/日历；未来小时 disabled；点击小时直接创建会话；移除播放页诊断 UI 与高频诊断状态订阅。
 - [x] Chrome 本地预览：无定位按钮、无诊断面板；今天未来小时 disabled；点击小时立即请求回放。
-- [ ] 完整前端回归、测试环境 Chrome 验收、GitLab/GitHub 同步和 Wharf `752` 自动部署。
+- [x] 前端回归：Vitest 10 个文件 / 58 项测试与生产构建通过；`b9f027c fix: simplify nvr playback controls` 已推送 GitLab 测试分支和 GitHub 备份。
+- [x] Wharf `752` 自动部署后，Chrome 插件测试：无定位按钮、无诊断面板、今天后续 11 个小时 disabled；点击“昨天 11:00 - 12:00”直接回放并首帧成功。5 秒间隔两次采样的 Canvas CSS 尺寸均为 `1358 x 763.875`，控制台无 error。
 
 ## 当前状态摘要
 
