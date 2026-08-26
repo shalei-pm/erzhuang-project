@@ -50,6 +50,14 @@ func TestBackfillServiceSkipsExistingObjectUnlessForceRequested(t *testing.T) {
 	}
 }
 
+func TestBackfillServiceRejectsAmbiguousAllTenantSelection(t *testing.T) {
+	service := NewBackfillService(&fakeSnapshotRepository{}, &fakeCameraCapture{}, fakeObjectStore{})
+	_, err := service.Run(context.Background(), BackfillOptions{Selection: Selection{AllTenants: true, CameraID: 1}})
+	if err == nil {
+		t.Fatal("Run() accepted an all-tenant selection with a camera filter")
+	}
+}
+
 type fakeSnapshotRepository struct {
 	candidates []Candidate
 }

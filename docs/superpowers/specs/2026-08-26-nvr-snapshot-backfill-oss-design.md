@@ -46,7 +46,8 @@ return 404, which the existing UI converts to the neutral thumbnail placeholder.
 2. Confirm the protected image route renders a real JPEG on the 10001 monitor
    page.
 3. Run the remaining 10001 cameras.
-4. Run all eligible test-environment cameras once the first store is stable.
+4. Run all eligible test-environment cameras once the first store is stable,
+   using the explicit `--all-tenants` flag.
 5. Record only selected/skipped/succeeded/failed totals and failure-code counts.
 
 The ordinary NVR monitor, its authorization service, and existing store scope

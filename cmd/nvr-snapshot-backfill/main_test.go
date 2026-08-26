@@ -9,6 +9,8 @@ func TestRunRejectsInvalidBackfillArguments(t *testing.T) {
 	}{
 		{name: "missing tenant", args: nil},
 		{name: "negative camera", args: []string{"--tenant-id=10001", "--camera-id=-1"}},
+		{name: "all tenants with camera", args: []string{"--all-tenants", "--camera-id=111"}},
+		{name: "all tenants with tenant", args: []string{"--all-tenants", "--tenant-id=10001"}},
 		{name: "timeout above limit", args: []string{"--tenant-id=10001", "--timeout-per-camera=21s"}},
 		{name: "interval below limit", args: []string{"--tenant-id=10001", "--request-interval=1s"}},
 		{name: "unexpected positional argument", args: []string{"--tenant-id=10001", "unexpected"}},

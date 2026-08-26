@@ -25,10 +25,15 @@ func run(args []string) int {
 	flags.SetOutput(os.Stderr)
 	tenantID := flags.Int64("tenant-id", 0, "")
 	cameraID := flags.Int64("camera-id", 0, "")
+	allTenants := flags.Bool("all-tenants", false, "")
 	force := flags.Bool("force", false, "")
 	timeout := flags.Duration("timeout-per-camera", 20*time.Second, "")
 	interval := flags.Duration("request-interval", 2*time.Second, "")
-	if flags.Parse(args) != nil || flags.NArg() != 0 || *tenantID <= 0 || *cameraID < 0 || *timeout <= 0 || *timeout > 20*time.Second || *interval < 2*time.Second {
+	if flags.Parse(args) != nil {
+		return 2
+	}
+	validSelection := (*allTenants && *tenantID == 0 && *cameraID == 0) || (!*allTenants && *tenantID > 0 && *cameraID >= 0)
+	if flags.NArg() != 0 || !validSelection || *timeout <= 0 || *timeout > 20*time.Second || *interval < 2*time.Second {
 		return 2
 	}
 	dsn := envValue("K8S_SECRET_MYSQL_DSN", "MYSQL_DSN")
@@ -55,7 +60,8 @@ func run(args []string) int {
 	authorizer := spikeAuthorizer{client: nvrlab.NewHTTPAuthorizationClient(&http.Client{Timeout: 20 * time.Second}, authorization)}
 	capture := nvrsnapshot.NewWebSocketJPEGCapture(nvrsnapshot.NhooyrWebSocketDialer{}, nvrsnapshot.ExecCommandFactory{})
 	repo := nvrsnapshot.NewMySQLRepository(db)
-	summary, err := nvrsnapshot.NewBackfillService(repo, nvrsnapshot.NewCaptureService(authorizer, capture), objects).Run(ctx, nvrsnapshot.BackfillOptions{Selection: nvrsnapshot.Selection{TenantID: *tenantID, CameraID: *cameraID}, Timeout: *timeout, RequestInterval: *interval, Force: *force})
+	selection := nvrsnapshot.Selection{TenantID: *tenantID, CameraID: *cameraID, AllTenants: *allTenants}
+	summary, err := nvrsnapshot.NewBackfillService(repo, nvrsnapshot.NewCaptureService(authorizer, capture), objects).Run(ctx, nvrsnapshot.BackfillOptions{Selection: selection, Timeout: *timeout, RequestInterval: *interval, Force: *force})
 	if err != nil {
 		fmt.Fprintf(os.Stdout, "selected=%d skipped=%d succeeded=%d failed=%d error_code=backfill_failed\n", summary.Selected, summary.Skipped, summary.Succeeded, summary.Failed)
 		return 1

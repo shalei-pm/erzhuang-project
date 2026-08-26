@@ -8,8 +8,9 @@ const (
 )
 
 type Selection struct {
-	TenantID int64
-	CameraID int64
+	TenantID   int64
+	CameraID   int64
+	AllTenants bool
 }
 
 type Candidate struct {
