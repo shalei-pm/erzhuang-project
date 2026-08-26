@@ -10,10 +10,12 @@ type DateTimeParts = {
 export type PlaybackDatePickerProps = {
   value: string;
   onChange: (dateTime: string) => void;
-  onConfirm: (dateTime: string) => void;
+  onConfirm?: (dateTime: string) => void;
+  showTime?: boolean;
+  showConfirm?: boolean;
 };
 
-export function PlaybackDatePicker({ value, onChange, onConfirm }: PlaybackDatePickerProps) {
+export function PlaybackDatePicker({ value, onChange, onConfirm, showTime = true, showConfirm = true }: PlaybackDatePickerProps) {
   const [open, setOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const selectedParts = parseDateTimeParts(value);
@@ -30,10 +32,12 @@ export function PlaybackDatePicker({ value, onChange, onConfirm }: PlaybackDateP
     const next = `${date}T${timePart(value)}`;
     onChange(next);
     setViewMonth(startOfMonth(dateFromInput(date)));
+    if (!showTime) setOpen(false);
   }
 
   function selectCalendarDate(date: string) {
     onChange(formatDateTimeValue({ ...selectedParts, date }));
+    if (!showTime) setOpen(false);
   }
 
   function selectTime(part: "hour" | "minute", nextValue: number) {
@@ -42,7 +46,7 @@ export function PlaybackDatePicker({ value, onChange, onConfirm }: PlaybackDateP
 
   function commitSelection() {
     setOpen(false);
-    onConfirm(value);
+    onConfirm?.(value);
   }
 
   const calendarDays = monthCalendarDays(viewMonth);
@@ -72,17 +76,17 @@ export function PlaybackDatePicker({ value, onChange, onConfirm }: PlaybackDateP
       </div>
       <div className="h5-date-time-field">
         <button type="button" className={`h5-date-time-trigger ${open ? "is-open" : ""}`} onClick={() => setOpen((current) => !current)} aria-expanded={open}>
-          <span>回放时间</span>
-          <strong>{formatDateTimeLabel(value)}</strong>
+          <span>{showTime ? "回放时间" : "回放日期"}</span>
+          <strong>{showTime ? formatDateTimeLabel(value) : selectedParts.date.replaceAll("-", "/")}</strong>
         </button>
         {open ? (
-          <div className="h5-date-popover" role="dialog" aria-label="选择回放时间">
+          <div className="h5-date-popover" role="dialog" aria-label={showTime ? "选择回放时间" : "选择回放日期"}>
             <div className="h5-date-popover-head">
               <button type="button" onClick={() => setViewMonth((month) => addMonths(month, -1))} aria-label="上个月">‹</button>
               <strong>{currentMonthLabel}</strong>
               <button type="button" onClick={() => setViewMonth((month) => addMonths(month, 1))} aria-label="下个月">›</button>
             </div>
-            <div className="h5-date-popover-body">
+            <div className={`h5-date-popover-body ${showTime ? "" : "is-date-only"}`}>
               <div className="h5-calendar-grid" aria-label="选择日期">
                 {["一", "二", "三", "四", "五", "六", "日"].map((weekday) => <span key={weekday} className="h5-calendar-weekday">{weekday}</span>)}
                 {calendarDays.map((day) => {
@@ -92,19 +96,23 @@ export function PlaybackDatePicker({ value, onChange, onConfirm }: PlaybackDateP
                   return <button key={dateText} type="button" className={`${inMonth ? "" : "is-muted"} ${selected ? "is-selected" : ""}`} disabled={day > today} onClick={() => selectCalendarDate(dateText)}>{day.getDate()}</button>;
                 })}
               </div>
-              <div className="h5-time-columns" aria-label="选择时间">
-                <TimeColumn label="时" values={range(0, 23)} active={selectedParts.hour} onSelect={(next) => selectTime("hour", next)} />
-                <TimeColumn label="分" values={range(0, 59)} active={selectedParts.minute} onSelect={(next) => selectTime("minute", next)} />
+              {showTime ? (
+                <div className="h5-time-columns" aria-label="选择时间">
+                  <TimeColumn label="时" values={range(0, 23)} active={selectedParts.hour} onSelect={(next) => selectTime("hour", next)} />
+                  <TimeColumn label="分" values={range(0, 59)} active={selectedParts.minute} onSelect={(next) => selectTime("minute", next)} />
+                </div>
+              ) : null}
+            </div>
+            {showConfirm ? (
+              <div className="h5-date-popover-actions">
+                <button type="button" onClick={() => setOpen(false)}>取消</button>
+                <button type="button" className="primary" onClick={commitSelection}>确定</button>
               </div>
-            </div>
-            <div className="h5-date-popover-actions">
-              <button type="button" onClick={() => setOpen(false)}>取消</button>
-              <button type="button" className="primary" onClick={commitSelection}>确定</button>
-            </div>
+            ) : null}
           </div>
         ) : null}
       </div>
-      <button type="button" className="h5-date-confirm" onClick={() => onConfirm(value)}>定位回放</button>
+      {showConfirm ? <button type="button" className="h5-date-confirm" onClick={() => onConfirm?.(value)}>定位回放</button> : null}
     </div>
   );
 }

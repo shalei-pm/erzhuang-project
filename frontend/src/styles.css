@@ -3555,22 +3555,6 @@ td:nth-child(10) {
   box-shadow: var(--shadow-panel);
 }
 
-.nvr-lab-hourly-range,
-.nvr-lab-hourly-error {
-  margin: 0;
-  padding: 0 2px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.nvr-lab-hourly-range {
-  color: var(--text-muted);
-}
-
-.nvr-lab-hourly-error {
-  color: var(--danger);
-}
-
 .nvr-lab-hour-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3603,18 +3587,12 @@ td:nth-child(10) {
   font-weight: 650;
 }
 
-.nvr-lab-playback-diagnostics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  margin-top: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--surface-muted);
+.nvr-lab-hour-grid button:disabled {
+  border-color: var(--border-subtle);
+  background: var(--surface-subtle);
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .h5-auth-message {
@@ -4452,6 +4430,10 @@ td:nth-child(10) {
   display: grid;
   grid-template-columns: minmax(232px, 1fr) 136px;
   gap: 14px;
+}
+
+.h5-date-popover-body.is-date-only {
+  grid-template-columns: minmax(232px, 1fr);
 }
 
 .h5-calendar-grid {

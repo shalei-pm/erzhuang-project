@@ -122,7 +122,7 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
           <button type="button" className={mode === "playback" ? "active" : ""} onClick={() => switchMode("playback")}>录像</button>
         </nav>
         {mode === "playback" ? (
-          <NVRLabHourlyPlaybackPicker startAt={playbackStartAt} range={playbackRange} onStartAtChange={setPlaybackStartAt} onConfirm={playPlayback} />
+          <NVRLabHourlyPlaybackPicker startAt={playbackStartAt} onStartAtChange={setPlaybackStartAt} onPlay={playPlayback} />
         ) : null}
       </div>
     </div>
@@ -131,65 +131,44 @@ export function NVRLabCamera({ cameraId, auth, loggingOut, authMessage, onLogout
 
 export function NVRLabHourlyPlaybackPicker({
   startAt,
-  range,
   onStartAtChange,
-  onConfirm,
+  onPlay,
+  now = new Date(),
 }: {
   startAt: string;
-  range: NVRLabPlaybackRange | null;
   onStartAtChange: (value: string) => void;
-  onConfirm: (range: NVRLabPlaybackRange) => void;
+  onPlay: (range: NVRLabPlaybackRange) => void;
+  now?: Date;
 }) {
-  const [selectionMessage, setSelectionMessage] = useState("");
   const selectedDate = startAt.slice(0, 10);
   const selectedHour = Number.parseInt(startAt.slice(11, 13), 10);
 
   function updateStart(nextStartAt: string) {
-    setSelectionMessage("");
     onStartAtChange(nextStartAt);
   }
 
   function selectHour(hour: number) {
-    const next = buildNVRLabHourlyPlayback(selectedDate, hour);
-    if (!next) {
-      setSelectionMessage("请选择当前时刻之前的回放时间");
-      return;
-    }
+    const next = buildNVRLabHourlyPlayback(selectedDate, hour, now);
+    if (!next) return;
     updateStart(next.startAt);
-  }
-
-  function confirm(nextStartAt: string) {
-    const next = buildNVRLabPlaybackFromStart(nextStartAt);
-    if (!next) {
-      setSelectionMessage("请选择当前时刻之前的回放时间");
-      return;
-    }
-    setSelectionMessage("");
-    onConfirm(next);
+    onPlay(next);
   }
 
   return (
     <section className="nvr-lab-hourly-picker" aria-label="按小时定位回放">
-      <PlaybackDatePicker value={startAt} onChange={updateStart} onConfirm={confirm} />
-      <p className="nvr-lab-hourly-range">回放范围：{range ? formatRange(range) : "请选择当前时刻之前的回放时间"}</p>
-      {selectionMessage ? <p className="nvr-lab-hourly-error">{selectionMessage}</p> : null}
+      <PlaybackDatePicker value={startAt} onChange={updateStart} showTime={false} showConfirm={false} />
       <div className="nvr-lab-hour-grid" aria-label="固定小时段">
-        {Array.from({ length: 24 }, (_, hour) => (
-          <button key={hour} type="button" className={hour === selectedHour ? "is-selected" : undefined} onClick={() => selectHour(hour)}>
-            {hourLabel(hour)}
-          </button>
-        ))}
+        {Array.from({ length: 24 }, (_, hour) => {
+          const range = buildNVRLabHourlyPlayback(selectedDate, hour, now);
+          return (
+            <button key={hour} type="button" className={hour === selectedHour ? "is-selected" : undefined} disabled={!range} onClick={() => selectHour(hour)}>
+              {hourLabel(hour)}
+            </button>
+          );
+        })}
       </div>
     </section>
   );
-}
-
-function formatRange(range: NVRLabPlaybackRange): string {
-  return `${formatDateTime(range.startAt)} - ${formatDateTime(range.endAt)}`;
-}
-
-function formatDateTime(value: string): string {
-  return value.replace("T", " ").replaceAll("-", "/");
 }
 
 function hourLabel(hour: number): string {
