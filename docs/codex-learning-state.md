@@ -6018,4 +6018,5 @@ git pull --ff-only
 - 纠正：此前错误地将“底部 bar”实现为播放器内部控制栏。已在 Chrome 直接查看 2.x 真实观看页，并核对 `H5MonitorChannel`：`h5-bottom-tabs` 是独立、固定在视口底部的页面级导航，播放器控制栏不承载模式切换。
 - 实现：NVR 页改为同一层级结构，`NVRLabCamera` 负责模式状态与 `nav.h5-bottom-tabs`；`NVRLabPlayer` 恢复为单一播放器组件。直播和按小时发起回放的已有行为不变，旧萤石 H5 Monitor 不改。
 - 本地验证：Vitest `10 files / 59 tests` 与 `npm run build` 通过。Chrome 验收确认 `h5-bottom-tabs` 的计算样式为 `position: fixed`；点击“录像”后底栏选中且 24 个小时段出现；播放器内部无模式切换控件。
-- 待完成：以新的修正 commit 覆盖测试环境，并从已登录 Chrome 复验实际部署页面。
+- 提交与发布：`48102a7 fix: use page bottom bar for nvr modes` 已推送 GitHub 备份与 GitLab `codex/containerize-single-image`；Wharf `752` 已自动部署，未触碰正式 `main`。
+- 测试环境 Chrome 验收：`camera_id=82` 直播画面正常；`h5-bottom-tabs` 固定在页面视口底部；点击录像后底栏选中、日期和 24 个小时段出现；播放器内部的模式导航数量为 `0`。本轮原先错误的 `ca3c938` 内部控制栏实现已被此版本覆盖。

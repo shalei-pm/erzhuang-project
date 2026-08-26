@@ -49,7 +49,8 @@
 - [x] 实现：恢复 `NVRLabPlayer` 的单一播放器职责；`NVRLabCamera` 按 2.x 层级渲染 `main.h5-viewer` 和 `nav.h5-bottom-tabs`。切至实时视频立即创建直播会话；切至录像仅显示日期和小时段，仍由点击小时发起回放。
 - [x] 前端回归：Vitest 10 个文件 / 59 项测试与生产构建通过。
 - [x] Chrome 本地验收：`h5-bottom-tabs` 计算样式为 `position: fixed`；点击录像后该项选中、24 个小时段出现，播放器内部无模式切换控件。
-- [ ] 待提交并发布 GitLab 测试分支，随后在测试环境再次验收。
+- [x] 已提交 `48102a7 fix: use page bottom bar for nvr modes`，并同步 GitHub 备份与 GitLab 测试分支。
+- [x] Wharf `752` 自动部署后，Chrome 测试环境验收：直播画面正常；页面级底栏固定展示；点击录像后选中态、日期和 24 个小时段正常出现；播放器内部无模式入口。
 
 ## 当前状态摘要
 
