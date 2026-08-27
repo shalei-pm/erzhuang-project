@@ -6148,3 +6148,9 @@ git pull --ff-only
 - 已确认测试 Pod 提供受控 WebShell；因此将既有 `nvr-snapshot-backfill` 二进制与 `ffmpeg` 纳入正常 Web 镜像，但保持 Web 的 `ENTRYPOINT` 不变。回填只能通过受控终端显式执行，不会随 Web 启动、部署或请求自动运行。
 - 该执行路径仅复用 Pod 已有的 MySQL、OSS 和 NVR 授权环境变量；命令不打印 Secret、不写 MySQL，仅写既有私有 OSS 对象。
 - 本机 `GOOS=linux` 回填命令构建及 `git diff --check` 通过；定向 Go 测试在 macOS 测试二进制启动时仍受既有 `dyld missing LC_UUID` 限制。Wharf Dockerfile 将在 Linux 构建阶段执行 `go test ./...`，构建成功后再通过 Pod WebShell 做 `10001/camera 111` 的一次性验证。
+
+### 2026-08-27 3.2.6 构建期依赖纠偏
+
+- `8b2f0e3` 在 Wharf 测试流水线两次均以 `retry exceeded workflow deadline` 结束，未提供 Go 编译或 Docker 指令失败日志。该提交唯一新增的构建期外部依赖是 Alpine 的 `apk add ffmpeg`；项目历史也已记录公司构建环境不应依赖公网系统包源。
+- 因此将 `ffmpeg` 从正常 Web 镜像的构建阶段移除，保留回填二进制但不改变 Web `ENTRYPOINT`。测试 Pod 更新后，只有在受控 WebShell 中显式执行单路回填前，才临时检查并安装 `ffmpeg`；这不会更改 Deployment、Secret、流水线或 MySQL，也不会随着 Pod 重启持久化。
+- 先通过正常 GitLab 推送触发一次自动测试构建。只有确认 `3.2.6` 已自动部署，才在 Pod 内继续 `10001/camera 111` 的低频单路验证。

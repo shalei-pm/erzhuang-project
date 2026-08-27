@@ -33,8 +33,7 @@ WORKDIR /app
 ENV APP_BASE_PATH=/erzhuang-project
 ENV FRONTEND_DIR=/app/frontend/dist
 
-RUN command -v pdftoppm \
-    && apk add --no-cache ffmpeg
+RUN command -v pdftoppm
 
 COPY --from=go-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=go-builder /out/erzhuang-project /app/erzhuang-project
