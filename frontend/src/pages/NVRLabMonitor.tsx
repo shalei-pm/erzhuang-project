@@ -87,7 +87,7 @@ export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, on
       {!loading && !message ? (
         <main className="h5-camera-wall">
           {visibleCameras.map((camera) => (
-            <button key={camera.id} type="button" className="h5-camera-bubble" onClick={() => onOpenCamera(camera.id)} aria-label={`查看${nvrLabCameraTitle(camera)}`}>
+            <button key={camera.id} type="button" className="h5-camera-bubble" data-camera-id={camera.id} onClick={() => onOpenCamera(camera.id)} aria-label={`查看${nvrLabCameraTitle(camera)}`}>
               <NVRMonitorThumbnail thumbnailURL={camera.thumbnail_url} />
               <span className="h5-camera-title">{nvrLabCameraTitle(camera)}</span>
               <span className="h5-camera-subtitle">{nvrLabCameraSubtitle(camera)}</span>
