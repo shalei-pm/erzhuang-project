@@ -116,6 +116,9 @@ func TestListStoresOnlyReturnsStoresWithEligibleCameras(t *testing.T) {
 	if len(response.Cities) != 1 || len(response.Cities[0].Stores) != 1 {
 		t.Fatalf("stores = %#v", response)
 	}
+	if got := response.Cities[0].City; got != "北京" {
+		t.Fatalf("city = %q, want 北京", got)
+	}
 	if got := response.Cities[0].Stores[0].AvailableCameraCount; got != 1 {
 		t.Fatalf("AvailableCameraCount = %d, want 1", got)
 	}
@@ -132,7 +135,7 @@ func TestGetCamerasOnlyReturnsEligibleCameraAndApplicableSpace(t *testing.T) {
 		t.Fatalf("cameras = %#v, want one", response.Cameras)
 	}
 	camera := response.Cameras[0]
-	if camera.ID != 111 || camera.SpaceType != "治疗室" || camera.SpaceName != "产研中心1-2" {
+	if response.City != "北京" || camera.ID != 111 || camera.SpaceType != "治疗室" || camera.SpaceName != "产研中心1-2" {
 		t.Fatalf("camera = %#v", camera)
 	}
 	if camera.ThumbnailURL == "" {

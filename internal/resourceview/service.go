@@ -147,7 +147,7 @@ func BuildStoreDetail(records StoreRecords, access MonitorAccess) StoreDetail {
 		StoreName:      strings.TrimSpace(records.Tenant.Name),
 		HospitalName:   strings.TrimSpace(records.Tenant.HospitalName),
 		CityID:         records.Tenant.CityID,
-		CityName:       cityName(records.Tenant.CityID),
+		CityName:       CityName(records.Tenant.CityID),
 		Summary:        summary,
 		Edges:          devicesByCategory(devices, "edge"),
 		NVRs:           devicesByCategory(devices, "nvr"),
@@ -221,7 +221,7 @@ func cityOptions(details []StoreDetail) []CityOption {
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	options := make([]CityOption, 0, len(ids))
 	for _, cityID := range ids {
-		options = append(options, CityOption{CityID: cityID, Name: cityName(cityID), Count: counts[cityID]})
+		options = append(options, CityOption{CityID: cityID, Name: CityName(cityID), Count: counts[cityID]})
 	}
 	return options
 }
@@ -848,7 +848,7 @@ func onlineText(status int) string {
 	return "离线"
 }
 
-func cityName(cityID int64) string {
+func CityName(cityID int64) string {
 	if cityID == 0 {
 		return ""
 	}

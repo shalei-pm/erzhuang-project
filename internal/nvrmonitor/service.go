@@ -302,5 +302,5 @@ func cityLabel(cityID int64) string {
 	if cityID <= 0 {
 		return "未分城市"
 	}
-	return fmt.Sprintf("城市 %d", cityID)
+	return resourceview.CityName(cityID)
 }

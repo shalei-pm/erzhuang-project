@@ -73,8 +73,8 @@ func TestCityNameUsesStaticDistrictAliases(t *testing.T) {
 		{cityID: 0, want: ""},
 	}
 	for _, test := range tests {
-		if got := cityName(test.cityID); got != test.want {
-			t.Errorf("cityName(%d) = %q, want %q", test.cityID, got, test.want)
+		if got := CityName(test.cityID); got != test.want {
+			t.Errorf("CityName(%d) = %q, want %q", test.cityID, got, test.want)
 		}
 	}
 }
