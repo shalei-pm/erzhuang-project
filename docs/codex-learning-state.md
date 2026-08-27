@@ -6198,4 +6198,5 @@ git pull --ff-only
 - 已按产品确认的 Figma `07 · Illustrated Scene` 最终稿裁出七张静态默认图：面诊室、治疗室、前台接待、候诊休息、走廊出入口、公共功能区和未绑定；仅用于缺少真实截图时的展示兜底。
 - 资源详情与 NVR 监控接口均下发 `thumbnail_kind`。分类只读取已展示的空间类型、空间名称和三级空间语义，不修改业务库、二壮 MySQL、OSS、取流或权限链路。
 - 前端始终优先真实缩略图；无图或真实图加载失败时切换对应默认图。NVR 和保留的旧版 H5 监控页均复用该规则；资源详情缩略图移除图片自身边框和圆角，仍按 `64 x 40` 固定展示。
-- 本地前端验证：Vitest `12 files / 67 tests`、`npm --prefix frontend run build` 通过。当前开发机未安装 Go 工具链，新增的 Go 定向测试待 Wharf Linux 构建补验；尚未推送 GitLab 或发布测试环境。
+- 本地前端验证：Vitest `12 files / 68 tests`、`npm --prefix frontend run build` 通过。当前开发机未安装 Go 工具链，新增的 Go 定向测试由 Wharf Linux 构建补验。
+- 测试发布：`7197908 feat: add camera placeholder illustrations` 已同步 GitHub 和 GitLab 测试分支；Wharf `752` 构建 `169439` 于 2026-08-27 15:50 启动、2 分 9 秒后成功，自动部署记录 `415574` 显示已部署到阿里云测试集群。Chrome 已确认测试页版本为 `3.2.14 (container)`，`10001` 资源详情的 44 路真实图保持优先展示，默认图静态资源可从测试域名的项目子路径访问。
