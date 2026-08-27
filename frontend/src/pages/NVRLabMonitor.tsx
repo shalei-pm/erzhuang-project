@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { nvrLabApi, NVRLabApiError } from "../api-nvr-lab";
+import { nvrLabApi, NVRLabApiError, nvrLabThumbnailURL } from "../api-nvr-lab";
 import { SystemTopBar } from "../components/SystemTopBar";
 import { NVRMonitorStoreSwitcher } from "../components/NVRMonitorStoreSwitcher";
 import {
@@ -101,7 +101,7 @@ export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, on
 
 export function NVRMonitorThumbnail({ thumbnailURL }: { thumbnailURL?: string }) {
   const [failed, setFailed] = useState(false);
-  const src = thumbnailURL?.trim();
+  const src = nvrLabThumbnailURL(thumbnailURL);
 
   return (
     <span className="h5-camera-frame">

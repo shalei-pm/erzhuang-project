@@ -2,6 +2,12 @@ import type { NVRLabCameraListResponse, NVRLabMode, NVRLabStreamSession, NVRMoni
 
 const API_BASE = apiBase();
 
+export function nvrLabThumbnailURL(value: string | undefined): string {
+  const trimmed = value?.trim() || "";
+  if (!trimmed.startsWith("/api/")) return trimmed;
+  return `${API_BASE}${trimmed.slice("/api".length)}`;
+}
+
 export class NVRLabApiError extends Error {
   status: number;
   code: string;
