@@ -103,11 +103,12 @@ export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, on
 export function NVRMonitorThumbnail({ thumbnailURL, thumbnailKind }: { thumbnailURL?: string; thumbnailKind?: string }) {
   const [failed, setFailed] = useState(false);
   const verifiedSource = nvrLabThumbnailURL(thumbnailURL);
-  const src = !failed && verifiedSource ? verifiedSource : cameraPlaceholderURL(thumbnailKind);
+  const hasVerifiedSource = !failed && Boolean(verifiedSource);
+  const src = hasVerifiedSource ? verifiedSource : cameraPlaceholderURL(thumbnailKind);
 
   return (
     <span className="h5-camera-frame">
-      <img src={src} alt={verifiedSource && !failed ? "摄像头最近截图" : "摄像头默认缩略图"} loading="lazy" onError={() => setFailed(true)} />
+      <img className={hasVerifiedSource ? undefined : "is-camera-placeholder"} src={src} alt={hasVerifiedSource ? "摄像头最近截图" : "摄像头默认缩略图"} loading="lazy" onError={() => setFailed(true)} />
     </span>
   );
 }

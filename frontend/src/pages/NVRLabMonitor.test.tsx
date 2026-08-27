@@ -21,5 +21,6 @@ describe("NVRMonitorThumbnail", () => {
 
     expect(html).toContain('src="/erzhuang-project/camera-placeholders/treatment.png"');
     expect(html).toContain('alt="摄像头默认缩略图"');
+    expect(html).toContain('class="is-camera-placeholder"');
   });
 });
