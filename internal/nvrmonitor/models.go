@@ -39,11 +39,12 @@ type MonitorStoresResponse struct {
 }
 
 type Camera struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	SpaceType    string `json:"space_type,omitempty"`
-	SpaceName    string `json:"space_name,omitempty"`
-	ThumbnailURL string `json:"thumbnail_url,omitempty"`
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	SpaceType     string `json:"space_type,omitempty"`
+	SpaceName     string `json:"space_name,omitempty"`
+	ThumbnailKind string `json:"thumbnail_kind,omitempty"`
+	ThumbnailURL  string `json:"thumbnail_url,omitempty"`
 }
 
 type CameraListResponse struct {

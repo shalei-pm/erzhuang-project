@@ -255,6 +255,7 @@ export type ResourceCamera = ResourceDevice & {
   nvrId: number;
   nvrName?: string;
   spacePaths: string[];
+  thumbnailKind?: string;
   thumbnailUrl?: string;
 };
 
@@ -784,6 +785,8 @@ type BackendResourceCamera = BackendResourceDevice & {
   nvrName?: string;
   space_paths?: string[];
   spacePaths?: string[];
+  thumbnail_kind?: string;
+  thumbnailKind?: string;
   thumbnail_url?: string;
   thumbnailUrl?: string;
 };
@@ -2799,6 +2802,7 @@ function mapResourceCamera(camera: BackendResourceCamera): ResourceCamera {
     nvrId: camera.nvr_id ?? camera.nvrId ?? 0,
     nvrName: camera.nvr_name ?? camera.nvrName,
     spacePaths: camera.space_paths ?? camera.spacePaths ?? [],
+    thumbnailKind: camera.thumbnail_kind ?? camera.thumbnailKind,
     thumbnailUrl: toDisplayImageUrl(camera.thumbnail_url ?? camera.thumbnailUrl),
   };
 }

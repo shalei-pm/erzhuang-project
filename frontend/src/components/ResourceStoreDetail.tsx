@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { ResourceStoreDetail as ResourceStoreDetailType } from "../api";
 import { formatDateTime } from "../domain/format";
+import { cameraPlaceholderURL } from "../domain/camera-placeholder";
 import {
   buildCameraBindingRows,
   cameraBindingSpaceTypeCounts,
@@ -123,7 +124,7 @@ export function ResourceStoreDetail({ store, onOpenMonitor }: ResourceStoreDetai
                     <td className="resource-recorder-cell">{row.recorderIdentifier}</td>
                     <td>{row.channelNo ?? "-"}</td>
                     <td className="resource-snapshot-cell">
-                      <SnapshotPreview src={row.camera.thumbnailUrl} />
+                      <SnapshotPreview src={row.camera.thumbnailUrl} thumbnailKind={row.camera.thumbnailKind} />
                     </td>
                     <BindingPathCells paths={row.bindingPaths} />
                     <td>
@@ -186,16 +187,8 @@ function PathCell({ paths, field }: { paths: CameraBindingPath[]; field: keyof C
   );
 }
 
-function SnapshotPlaceholder() {
-  return (
-    <div className="resource-snapshot-placeholder" role="img" aria-label="暂无截图">
-      <span aria-hidden="true" />
-    </div>
-  );
-}
-
-function SnapshotPreview({ src }: { src?: string }) {
+function SnapshotPreview({ src, thumbnailKind }: { src?: string; thumbnailKind?: string }) {
   const [failed, setFailed] = useState(false);
-  if (!src || failed) return <SnapshotPlaceholder />;
-  return <img className="resource-snapshot-image" src={src} alt="摄像头最近截图" onError={() => setFailed(true)} />;
+  const source = !failed && src ? src : cameraPlaceholderURL(thumbnailKind);
+  return <img className="resource-snapshot-image" src={source} alt={!failed && src ? "摄像头最近截图" : "摄像头默认缩略图"} onError={() => setFailed(true)} />;
 }

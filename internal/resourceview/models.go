@@ -158,11 +158,12 @@ type Device struct {
 
 type Camera struct {
 	Device
-	ChannelNo    *int     `json:"channel_no,omitempty"`
-	NVRID        int64    `json:"nvr_id,omitempty"`
-	NVRName      string   `json:"nvr_name,omitempty"`
-	SpacePaths   []string `json:"space_paths"`
-	ThumbnailURL string   `json:"thumbnail_url,omitempty"`
+	ChannelNo     *int     `json:"channel_no,omitempty"`
+	NVRID         int64    `json:"nvr_id,omitempty"`
+	NVRName       string   `json:"nvr_name,omitempty"`
+	SpacePaths    []string `json:"space_paths"`
+	ThumbnailKind string  `json:"thumbnail_kind,omitempty"`
+	ThumbnailURL  string   `json:"thumbnail_url,omitempty"`
 }
 
 type Space struct {

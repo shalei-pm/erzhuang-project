@@ -239,10 +239,11 @@ func camerasFromRecords(records resourceview.StoreRecords, snapshotsConfigured b
 		if !isEligibleCamera(device) {
 			continue
 		}
-		camera := Camera{ID: device.ID, Name: strings.TrimSpace(device.Name)}
+		camera := Camera{ID: device.ID, Name: strings.TrimSpace(device.Name), ThumbnailKind: "unassigned"}
 		if space := preferredSpace(relationSpaces[device.ID]); space != nil {
 			camera.SpaceName = strings.TrimSpace(space.Name)
 			camera.SpaceType = spaceType(*space, spaces)
+			camera.ThumbnailKind = resourceview.CameraThumbnailKind(camera.SpaceType, camera.SpaceName, space.Level)
 		}
 		if snapshotsConfigured {
 			camera.ThumbnailURL = SnapshotURL(records.Tenant.ID, device.ID)

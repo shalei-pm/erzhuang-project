@@ -16,10 +16,10 @@ describe("NVRMonitorThumbnail", () => {
     expect(html).toContain('alt="摄像头最近截图"');
   });
 
-  it("renders the neutral placeholder when no safe thumbnail is available", () => {
-    const html = renderToStaticMarkup(createElement(NVRMonitorThumbnail, {}));
+  it("renders the classified illustration when no safe thumbnail is available", () => {
+    const html = renderToStaticMarkup(createElement(NVRMonitorThumbnail, { thumbnailKind: "treatment" }));
 
-    expect(html).toContain("h5-camera-placeholder");
-    expect(html).not.toContain("<img");
+    expect(html).toContain('src="/erzhuang-project/camera-placeholders/treatment.png"');
+    expect(html).toContain('alt="摄像头默认缩略图"');
   });
 });

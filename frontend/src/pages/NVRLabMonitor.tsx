@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { nvrLabApi, NVRLabApiError, nvrLabThumbnailURL } from "../api-nvr-lab";
 import { SystemTopBar } from "../components/SystemTopBar";
 import { NVRMonitorStoreSwitcher } from "../components/NVRMonitorStoreSwitcher";
+import { cameraPlaceholderURL } from "../domain/camera-placeholder";
 import {
   nvrLabCameraSubtitle,
   nvrLabCameraTab,
@@ -88,7 +89,7 @@ export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, on
         <main className="h5-camera-wall">
           {visibleCameras.map((camera) => (
             <button key={camera.id} type="button" className="h5-camera-bubble" data-camera-id={camera.id} onClick={() => onOpenCamera(camera.id)} aria-label={`查看${nvrLabCameraTitle(camera)}`}>
-              <NVRMonitorThumbnail thumbnailURL={camera.thumbnail_url} />
+              <NVRMonitorThumbnail thumbnailURL={camera.thumbnail_url} thumbnailKind={camera.thumbnail_kind} />
               <span className="h5-camera-title">{nvrLabCameraTitle(camera)}</span>
               <span className="h5-camera-subtitle">{nvrLabCameraSubtitle(camera)}</span>
             </button>
@@ -99,17 +100,14 @@ export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, on
   );
 }
 
-export function NVRMonitorThumbnail({ thumbnailURL }: { thumbnailURL?: string }) {
+export function NVRMonitorThumbnail({ thumbnailURL, thumbnailKind }: { thumbnailURL?: string; thumbnailKind?: string }) {
   const [failed, setFailed] = useState(false);
-  const src = nvrLabThumbnailURL(thumbnailURL);
+  const verifiedSource = nvrLabThumbnailURL(thumbnailURL);
+  const src = !failed && verifiedSource ? verifiedSource : cameraPlaceholderURL(thumbnailKind);
 
   return (
     <span className="h5-camera-frame">
-      {src && !failed ? (
-        <img src={src} alt="摄像头最近截图" loading="lazy" onError={() => setFailed(true)} />
-      ) : (
-        <span className="h5-camera-placeholder" role="img" aria-label="暂无截图" />
-      )}
+      <img src={src} alt={verifiedSource && !failed ? "摄像头最近截图" : "摄像头默认缩略图"} loading="lazy" onError={() => setFailed(true)} />
     </span>
   );
 }

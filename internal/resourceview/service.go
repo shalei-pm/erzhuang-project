@@ -421,6 +421,7 @@ func buildCameras(devices []Device, relations []AreaDeviceRelation, spaces []Spa
 	}
 	spaceByID := spacesByID(spaces)
 	pathsByCameraID := map[int64][]string{}
+	spacesByCameraID := map[int64][]Space{}
 	seenSpaceByCamera := map[int64]map[int64]struct{}{}
 	for _, relation := range relations {
 		if _, ok := spaceByID[relation.AreaID]; ok {
@@ -432,6 +433,7 @@ func buildCameras(devices []Device, relations []AreaDeviceRelation, spaces []Spa
 			}
 			seenSpaceByCamera[relation.DeviceID][relation.AreaID] = struct{}{}
 			pathsByCameraID[relation.DeviceID] = append(pathsByCameraID[relation.DeviceID], spacePath(spaceByID, relation.AreaID))
+			spacesByCameraID[relation.DeviceID] = append(spacesByCameraID[relation.DeviceID], spaceByID[relation.AreaID])
 		}
 	}
 	for cameraID := range pathsByCameraID {
@@ -448,6 +450,7 @@ func buildCameras(devices []Device, relations []AreaDeviceRelation, spaces []Spa
 			ChannelNo:  parseNVRChannelHardwareID(device.HardwareID),
 			NVRID:      device.ParentID,
 			SpacePaths: append([]string{}, pathsByCameraID[device.ID]...),
+			ThumbnailKind: cameraThumbnailKind(spacesByCameraID[device.ID], spaceByID),
 		}
 		if nvr, ok := nvrs[device.ParentID]; ok {
 			camera.NVRName = nvr.Name
@@ -456,6 +459,78 @@ func buildCameras(devices []Device, relations []AreaDeviceRelation, spaces []Spa
 	}
 	sort.Slice(cameras, func(i, j int) bool { return cameras[i].ID < cameras[j].ID })
 	return cameras
+}
+
+// CameraThumbnailKind classifies an otherwise missing camera image using the
+// business space that camera is assigned to. It is intentionally presentation
+// metadata only: no business data is altered by this mapping.
+func CameraThumbnailKind(spaceType, spaceName string, level int) string {
+	if level == 3 || containsAny([]string{spaceType, spaceName}, "治疗", "床位") {
+		return "treatment"
+	}
+	if containsAny([]string{spaceType, spaceName}, "面诊", "咨询") {
+		return "consultation"
+	}
+	if containsAny([]string{spaceType, spaceName}, "前台", "接待", "导诊", "收银") {
+		return "reception"
+	}
+	if containsAny([]string{spaceType, spaceName}, "候诊", "等候", "休息", "大厅") {
+		return "waiting"
+	}
+	if containsAny([]string{spaceType, spaceName}, "走廊", "过道", "通道", "入口", "出口") {
+		return "corridor"
+	}
+	return "utility"
+}
+
+func cameraThumbnailKind(spaces []Space, spaceByID map[int64]Space) string {
+	if len(spaces) == 0 {
+		return "unassigned"
+	}
+	bestKind := "utility"
+	bestPriority := 0
+	for _, space := range spaces {
+		spaceType := ""
+		if parent, ok := spaceByID[space.ParentID]; ok {
+			spaceType = parent.Name
+		}
+		kind := CameraThumbnailKind(spaceType, space.Name, space.Level)
+		if priority := thumbnailKindPriority(kind); priority > bestPriority {
+			bestKind = kind
+			bestPriority = priority
+		}
+	}
+	return bestKind
+}
+
+func thumbnailKindPriority(kind string) int {
+	switch kind {
+	case "treatment":
+		return 6
+	case "consultation":
+		return 5
+	case "reception":
+		return 4
+	case "waiting":
+		return 3
+	case "corridor":
+		return 2
+	case "utility":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func containsAny(values []string, keywords ...string) bool {
+	for _, value := range values {
+		for _, keyword := range keywords {
+			if strings.Contains(strings.TrimSpace(value), keyword) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type relationKey struct {

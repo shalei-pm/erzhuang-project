@@ -1619,9 +1619,9 @@ td:nth-child(10) {
   display: block;
   width: 64px;
   height: 40px;
-  border: 1px solid #dfe5ec;
-  border-radius: 4px;
-  background: #eef1f4;
+  border: 0;
+  border-radius: 0;
+  background: #f6f8fa;
   object-fit: cover;
 }
 

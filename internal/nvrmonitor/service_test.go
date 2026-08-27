@@ -135,11 +135,25 @@ func TestGetCamerasOnlyReturnsEligibleCameraAndApplicableSpace(t *testing.T) {
 		t.Fatalf("cameras = %#v, want one", response.Cameras)
 	}
 	camera := response.Cameras[0]
-	if response.City != "北京" || camera.ID != 111 || camera.SpaceType != "治疗室" || camera.SpaceName != "产研中心1-2" {
+	if response.City != "北京" || camera.ID != 111 || camera.SpaceType != "治疗室" || camera.SpaceName != "产研中心1-2" || camera.ThumbnailKind != "treatment" {
 		t.Fatalf("camera = %#v", camera)
 	}
 	if camera.ThumbnailURL == "" {
 		t.Fatalf("camera = %#v, want legacy thumbnail url", camera)
+	}
+}
+
+func TestGetCamerasMarksUnboundCameraForUnassignedThumbnail(t *testing.T) {
+	records := nvrMonitorRecords()
+	records.Relations = nil
+	service := NewService(fakeRepository{stores: map[int64]resourceview.StoreRecords{10001: records}}, &fakeAuthorizationClient{})
+
+	response, err := service.GetCameras(context.Background(), "10001")
+	if err != nil {
+		t.Fatalf("GetCameras() error = %v", err)
+	}
+	if len(response.Cameras) != 1 || response.Cameras[0].ThumbnailKind != "unassigned" {
+		t.Fatalf("cameras = %#v, want unassigned thumbnail", response.Cameras)
 	}
 }
 

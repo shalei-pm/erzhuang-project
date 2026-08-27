@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { h5Api, H5ApiError } from "../api-h5";
 import { H5StoreSwitcher } from "../components/H5StoreSwitcher";
 import { SystemTopBar } from "../components/SystemTopBar";
+import { cameraPlaceholderURL, legacyCameraThumbnailKind } from "../domain/camera-placeholder";
 import { h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from "../domain/h5-channel-display";
 import { h5MonitorTabs, readH5MonitorActiveTab, storeH5MonitorActiveTab, type H5MonitorTabKey } from "../domain/h5-monitor-active-tab";
 import type { AuthState } from "../domain/auth";
@@ -243,15 +244,18 @@ export function H5Monitor({
 
 function CameraBubble({ channel, onClick }: { channel: H5MonitorChannel; onClick: () => void }) {
   const displayText = h5ChannelDisplayText(channel);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const verifiedThumbnailURL = channel.thumbnail_url
+    ? displayImageURL(channel.thumbnail_url)
+    : "";
+  const thumbnailURL = !thumbnailFailed && verifiedThumbnailURL
+    ? verifiedThumbnailURL
+    : cameraPlaceholderURL(legacyCameraThumbnailKind({ areaType: channel.area_type, category: channel.category, sceneType: channel.scene_type }));
 
   return (
     <button className="h5-camera-bubble" onClick={onClick} aria-label={`查看${displayText.title}`}>
       <span className="h5-camera-frame">
-        {channel.thumbnail_url ? (
-          <img src={displayImageURL(channel.thumbnail_url)} alt={displayText.title} loading="lazy" />
-        ) : (
-          <span className="h5-camera-placeholder">暂无画面</span>
-        )}
+        <img src={thumbnailURL} alt={!thumbnailFailed && verifiedThumbnailURL ? displayText.title : "摄像头默认缩略图"} loading="lazy" onError={() => setThumbnailFailed(true)} />
       </span>
       <span className="h5-camera-title">{displayText.title}</span>
       <span className="h5-camera-subtitle">{displayText.subtitle}</span>

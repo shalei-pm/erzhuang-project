@@ -408,6 +408,39 @@ func TestBuildStoreDetailCountsCamerasOncePerDisplayedSpaceType(t *testing.T) {
 	}
 }
 
+func TestBuildStoreDetailClassifiesCameraThumbnailKinds(t *testing.T) {
+	records := StoreRecords{
+		Tenant: BusinessTenant{ID: 10058, Name: "缩略图分类门店", Status: 1},
+		Devices: []BusinessDevice{
+			{ID: 10, TenantID: 10058, Category: "camera", Provider: "HikVisionNvrChannel", Status: 1},
+			{ID: 11, TenantID: 10058, Category: "camera", Provider: "HikVisionNvrChannel", Status: 1},
+			{ID: 12, TenantID: 10058, Category: "camera", Provider: "HikVisionNvrChannel", Status: 1},
+		},
+		Spaces: []BusinessSpace{
+			{ID: 1, TenantID: 10058, Name: "面诊区", Status: 1},
+			{ID: 2, TenantID: 10058, ParentID: 1, Name: "面诊室 A", Level: 2, Status: 1},
+			{ID: 3, TenantID: 10058, Name: "产研中心", Status: 1},
+			{ID: 4, TenantID: 10058, ParentID: 3, Name: "床位 1", Level: 3, Status: 1},
+		},
+		Relations: []BusinessAreaDeviceRelation{
+			{ID: 1, AreaID: 2, DeviceID: 10, FunctionType: "camera"},
+			{ID: 2, AreaID: 4, DeviceID: 11, FunctionType: "camera"},
+		},
+	}
+
+	detail := BuildStoreDetail(records, MonitorAccess{})
+	if len(detail.Cameras) != 3 {
+		t.Fatalf("cameras = %#v", detail.Cameras)
+	}
+	kinds := map[int64]string{}
+	for _, camera := range detail.Cameras {
+		kinds[camera.ID] = camera.ThumbnailKind
+	}
+	if kinds[10] != "consultation" || kinds[11] != "treatment" || kinds[12] != "unassigned" {
+		t.Fatalf("thumbnail kinds = %#v", kinds)
+	}
+}
+
 func TestBuildStoreDetailDeduplicatesIdenticalRelations(t *testing.T) {
 	records := StoreRecords{
 		Tenant: BusinessTenant{ID: 10036, Name: "重复绑定门店", Status: 1},
