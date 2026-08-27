@@ -156,6 +156,26 @@ func TestGetCamerasProvidesPrivateSnapshotEndpointWhenStoreConfigured(t *testing
 	}
 }
 
+func TestHasSnapshotAndSnapshotURL(t *testing.T) {
+	service := NewServiceWithSnapshotStore(
+		fakeRepository{},
+		&fakeAuthorizationClient{},
+		fakeSnapshotStore{data: map[int64]string{111: "jpeg-data"}},
+	)
+	if !service.HasSnapshot(context.Background(), 10001, 111) {
+		t.Fatal("HasSnapshot() = false, want true")
+	}
+	if service.HasSnapshot(context.Background(), 10001, 112) {
+		t.Fatal("HasSnapshot() = true for missing object")
+	}
+	if service.HasSnapshot(context.Background(), 0, 111) {
+		t.Fatal("HasSnapshot() = true for invalid tenant")
+	}
+	if got, want := SnapshotURL(10001, 111), "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot"; got != want {
+		t.Fatalf("SnapshotURL() = %q, want %q", got, want)
+	}
+}
+
 func TestCreateSessionRejectsCameraOutsideEligibleSet(t *testing.T) {
 	service := NewService(fakeRepository{stores: map[int64]resourceview.StoreRecords{10001: nvrMonitorRecords()}}, &fakeAuthorizationClient{})
 

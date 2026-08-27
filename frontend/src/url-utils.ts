@@ -29,6 +29,9 @@ export function displayImageUrl(value: string | undefined, options: { apiBase: s
   if (/^\/api\/store-space-resource-view\/stores\/\d+\/cameras\/\d+\/snapshot$/.test(value)) {
     return apiPathFromBase(options.apiBase, value.replace(/^\/api/, ""));
   }
+  if (/^\/api\/h5\/nvr-monitor\/orgs\/\d+\/cameras\/\d+\/snapshot$/.test(value)) {
+    return apiPathFromBase(options.apiBase, value.replace(/^\/api/, ""));
+  }
   if (value.startsWith("/api/")) {
     return apiPathFromBase(options.apiBase, value.replace(/^\/api\/[^/]+/, ""));
   }

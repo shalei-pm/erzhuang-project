@@ -11,8 +11,14 @@ import (
 )
 
 type Service struct {
-	repo Repository
+	repo                Repository
+	snapshotURLResolver CameraSnapshotURLResolver
 }
+
+// CameraSnapshotURLResolver returns a private application URL only when a
+// current NVR snapshot already exists. Resource view deliberately does not
+// know where the image is stored or initiate a capture itself.
+type CameraSnapshotURLResolver func(ctx context.Context, tenantID int64, cameraID int64) string
 
 const (
 	consultingAreaContainerID int64 = 2387
@@ -22,6 +28,13 @@ const (
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func (s *Service) UseCameraSnapshotURLResolver(resolver CameraSnapshotURLResolver) {
+	if s == nil {
+		return
+	}
+	s.snapshotURLResolver = resolver
 }
 
 func (s *Service) ListStores(ctx context.Context, filters StoreFilters, access func(int64) MonitorAccess) (StoreListResult, error) {
@@ -73,7 +86,16 @@ func (s *Service) GetStore(ctx context.Context, tenantID int64, access MonitorAc
 	if err != nil {
 		return StoreDetail{}, err
 	}
-	return BuildStoreDetail(records, access), nil
+	detail := BuildStoreDetail(records, access)
+	if !access.CanViewMonitor || s.snapshotURLResolver == nil {
+		return detail, nil
+	}
+	for index := range detail.Cameras {
+		if snapshotURL := s.snapshotURLResolver(ctx, detail.TenantID, detail.Cameras[index].ID); snapshotURL != "" {
+			detail.Cameras[index].ThumbnailURL = snapshotURL
+		}
+	}
+	return detail, nil
 }
 
 func (s *Service) LegacySnapshotName(ctx context.Context, tenantID, cameraID int64, access MonitorAccess) (string, error) {

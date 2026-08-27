@@ -121,6 +121,23 @@ func (s *Service) OpenSnapshot(ctx context.Context, externalOrgID string, camera
 	return reader, contentType, nil
 }
 
+// HasSnapshot is a storage-only existence check for another authenticated
+// project view. Camera eligibility and access checks remain at its own route.
+func (s *Service) HasSnapshot(ctx context.Context, tenantID int64, cameraID int64) bool {
+	if s == nil || s.snapshots == nil || tenantID <= 0 || cameraID <= 0 {
+		return false
+	}
+	reader, _, err := s.snapshots.Open(ctx, tenantID, cameraID)
+	if err != nil {
+		return false
+	}
+	return reader.Close() == nil
+}
+
+func SnapshotURL(tenantID int64, cameraID int64) string {
+	return fmt.Sprintf("/api/h5/nvr-monitor/orgs/%d/cameras/%d/snapshot", tenantID, cameraID)
+}
+
 func (s *Service) SaveSnapshot(ctx context.Context, externalOrgID string, cameraID int64, body io.Reader) error {
 	records, err := s.storeRecords(ctx, externalOrgID)
 	if err != nil {
@@ -228,7 +245,7 @@ func camerasFromRecords(records resourceview.StoreRecords, snapshotsConfigured b
 			camera.SpaceType = spaceType(*space, spaces)
 		}
 		if snapshotsConfigured {
-			camera.ThumbnailURL = fmt.Sprintf("/api/h5/nvr-monitor/orgs/%d/cameras/%d/snapshot", records.Tenant.ID, device.ID)
+			camera.ThumbnailURL = SnapshotURL(records.Tenant.ID, device.ID)
 		} else if channelNo := nvrChannelNo(device.HardwareID); channelNo > 0 && records.LegacyCameraSnapshots[channelNo] != "" {
 			camera.ThumbnailURL = fmt.Sprintf("/api/store-space-resource-view/stores/%d/cameras/%d/snapshot", records.Tenant.ID, device.ID)
 		}

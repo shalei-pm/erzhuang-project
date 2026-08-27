@@ -3176,7 +3176,7 @@ function toStoreSpaceChannelConfirmationPayload(patch: Partial<VideoChannel>) {
 }
 
 function toDisplayImageUrl(value?: string) {
-  const apiBase = value?.startsWith("/api/store-space/") ? STORE_SPACE_API_BASE : API_BASE;
+  const apiBase = value?.startsWith("/api/store-space/") ? STORE_SPACE_API_BASE : value?.startsWith("/api/h5/nvr-monitor/") ? APP_API_BASE : API_BASE;
   return displayImageUrl(value, { apiBase, mockPlanImage: MOCK_PLAN_IMAGE });
 }
 

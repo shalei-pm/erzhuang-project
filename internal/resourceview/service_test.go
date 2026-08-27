@@ -1,10 +1,31 @@
 package resourceview
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
 )
+
+type serviceRepositoryStub struct {
+	records StoreRecords
+}
+
+func (r serviceRepositoryStub) ListStores(context.Context, StoreFilters) ([]StoreRecords, error) {
+	return []StoreRecords{r.records}, nil
+}
+
+func (r serviceRepositoryStub) ListNVRMonitorStores(context.Context) ([]StoreRecords, error) {
+	return []StoreRecords{r.records}, nil
+}
+
+func (r serviceRepositoryStub) GetStoreRecords(context.Context, int64) (StoreRecords, error) {
+	return r.records, nil
+}
+
+func (r serviceRepositoryStub) GetNVRMonitorStoreRecords(context.Context, int64) (StoreRecords, error) {
+	return r.records, nil
+}
 
 func TestStoreListItemRequiresEveryCameraToHaveAValidBinding(t *testing.T) {
 	updatedAt := time.Date(2026, time.August, 19, 14, 30, 0, 0, time.FixedZone("CST", 8*60*60))
@@ -135,6 +156,52 @@ func TestBuildStoreDetailLeavesMissingLegacySnapshotEmpty(t *testing.T) {
 	detail := BuildStoreDetail(records, MonitorAccess{CanViewMonitor: true})
 	if got := detail.Cameras[0].ThumbnailURL; got != "" {
 		t.Fatalf("thumbnail url = %q, want empty", got)
+	}
+}
+
+func TestGetStoreReusesNVRSnapshotOnlyForAuthorizedMonitorAccess(t *testing.T) {
+	records := StoreRecords{
+		Tenant: BusinessTenant{ID: 10001, Name: "单录像机门店"},
+		Devices: []BusinessDevice{
+			{ID: 70, TenantID: 10001, HardwareID: "NVRCHANNEL:22-10", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1},
+			{ID: 71, TenantID: 10001, HardwareID: "NVRCHANNEL:22-11", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1},
+		},
+		LegacyCameraSnapshots: map[int]string{10: "legacy-10.jpg", 11: "legacy-11.jpg"},
+	}
+	service := NewService(serviceRepositoryStub{records: records})
+	resolverCalls := 0
+	service.UseCameraSnapshotURLResolver(func(_ context.Context, tenantID int64, cameraID int64) string {
+		resolverCalls++
+		if tenantID == 10001 && cameraID == 70 {
+			return "/api/h5/nvr-monitor/orgs/10001/cameras/70/snapshot"
+		}
+		return ""
+	})
+
+	detail, err := service.GetStore(context.Background(), 10001, MonitorAccess{CanViewMonitor: true})
+	if err != nil {
+		t.Fatalf("GetStore() error = %v", err)
+	}
+	if resolverCalls != 2 {
+		t.Fatalf("resolver calls = %d, want 2", resolverCalls)
+	}
+	if got := detail.Cameras[0].ThumbnailURL; got != "/api/h5/nvr-monitor/orgs/10001/cameras/70/snapshot" {
+		t.Fatalf("camera 70 thumbnail = %q", got)
+	}
+	if got := detail.Cameras[1].ThumbnailURL; got != "/api/store-space-resource-view/stores/10001/cameras/71/snapshot" {
+		t.Fatalf("camera 71 thumbnail = %q, want legacy fallback", got)
+	}
+
+	resolverCalls = 0
+	detail, err = service.GetStore(context.Background(), 10001, MonitorAccess{})
+	if err != nil {
+		t.Fatalf("GetStore() without access error = %v", err)
+	}
+	if resolverCalls != 0 {
+		t.Fatalf("resolver must not run without monitor access, got %d calls", resolverCalls)
+	}
+	if got := detail.Cameras[0].ThumbnailURL; got != "" {
+		t.Fatalf("thumbnail must be withheld without monitor access, got %q", got)
 	}
 }
 
