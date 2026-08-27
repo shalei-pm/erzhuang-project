@@ -6228,3 +6228,9 @@ git pull --ff-only
 - 修复：完整解析 RTP 头；支持 RTP aggregation packet；按 RTP marker 聚合同一 timestamp 的 H.265 access unit；校验 FU-A 序列连续性，丢弃丢包残帧；解码器遇到坏帧时保留已知参数集并自动等下一关键帧恢复。所有诊断留在内存，不输出流地址、token 或媒体内容。
 - 回归：新增 RTP extension、同一 access unit 多 NAL 聚合、FU 分片序号缺口三项单测。前端全量 `13 files / 76 tests`、生产构建和 `git diff --check` 均通过；当前机器未安装 Go 工具链，本轮未运行 Go 检查，且未修改 Go 代码。
 - 测试发布：`a17f552 fix: stabilize h265 rtp access unit decoding` 已同步 GitHub 与 GitLab 测试分支，等待自动发布后用 Chrome 复测测试环境 `10042/2088` 成功获得 `1920x1080` 首帧，页面为“画面已开始播放”，无播放器错误态或控制台警告。未发布正式环境。
+
+### 2026-08-27 3.2.19 NVR WebSocket 断连分类
+
+- 测试门店 `10047` 摄像头 `6052`（面诊室1）复现“视频流已断开”。播放器已建立取流会话，但 WebSocket 在首帧前被服务端以关闭码 `1011` 终止，页面安全分类为“视频流服务异常，请稍后重新连接”。
+- 结论：该问题不属于浏览器解码、二壮权限或页面路由；`1011` 表示流服务处理该摄像头会话时发生服务端异常。接口方需按 `camera_id=6052` 排查 NVR 映射、工控机取流可达性与转发服务日志。诊断过程中未记录或输出 WSS 地址、token、认证头或媒体内容。
+- 测试发布：`c8413b2 fix: classify nvr websocket disconnects` 已同步 GitHub 和 GitLab 测试分支；Chrome 实页在自动部署后复测确认关闭分类。前端全量 `13 files / 77 tests` 与生产构建通过，未发布正式环境。
