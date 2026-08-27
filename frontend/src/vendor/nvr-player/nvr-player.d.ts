@@ -14,8 +14,25 @@ export type NVRPlayerDiagnostics = {
   wasmOutputFrames: number;
   decoderInputFrames: number;
   renderedFrames: number;
+  markerPackets: number;
+  accessUnits: number;
+  multiNALAccessUnits: number;
+  droppedAccessUnits: number;
+  malformedFuPackets: number;
+  decoderErrors: number;
+  lastDecoderError: string;
   closeCode: number | null;
 };
+
+export type RTPPacket = {
+  payloadType: number;
+  marker: boolean;
+  sequenceNumber: number;
+  timestamp: number;
+  payload: Uint8Array;
+};
+
+export function parseRTPPacket(data: ArrayBuffer | Uint8Array): RTPPacket | null;
 
 export type NVRPlayerOptions = {
   autoReconnect?: boolean;

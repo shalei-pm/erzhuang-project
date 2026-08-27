@@ -10,6 +10,45 @@
 
 // 模块级常量，避免每帧重复分配
 const START_CODE = new Uint8Array([0, 0, 0, 1]);
+const MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Parse an RTP packet without assuming a fixed 12-byte header. Some NVRs add
+ * CSRC, header extensions, or padding; treating those bytes as H.265 payload
+ * corrupts the decoder input.
+ */
+export function parseRTPPacket(data) {
+    const v = data instanceof Uint8Array ? data : new Uint8Array(data);
+    if (v.length < 12 || (v[0] >>> 6) !== 2) return null;
+
+    const hasPadding = (v[0] & 0x20) !== 0;
+    const hasExtension = (v[0] & 0x10) !== 0;
+    const csrcCount = v[0] & 0x0F;
+    let payloadOffset = 12 + csrcCount * 4;
+    if (payloadOffset > v.length) return null;
+
+    if (hasExtension) {
+        if (payloadOffset + 4 > v.length) return null;
+        const extensionWords = (v[payloadOffset + 2] << 8) | v[payloadOffset + 3];
+        payloadOffset += 4 + extensionWords * 4;
+        if (payloadOffset > v.length) return null;
+    }
+
+    let payloadEnd = v.length;
+    if (hasPadding) {
+        const paddingLength = v[payloadEnd - 1];
+        if (paddingLength === 0 || paddingLength > payloadEnd - payloadOffset) return null;
+        payloadEnd -= paddingLength;
+    }
+
+    return {
+        payloadType: v[1] & 0x7F,
+        marker: (v[1] & 0x80) !== 0,
+        sequenceNumber: (v[2] << 8) | v[3],
+        timestamp: (((v[4] << 24) | (v[5] << 16) | (v[6] << 8) | v[7]) >>> 0),
+        payload: v.slice(payloadOffset, payloadEnd)
+    };
+}
 
 class NVRPlayer {
     /**
@@ -66,6 +105,7 @@ class NVRPlayer {
 
         // H.265 RTP 相关
         this.fuBuffer          = null;
+        this.accessUnit         = null;
         this.h265Params        = null;    // Map<nalType, Uint8Array>，使用 Map 防止重复累积
         this.h265ParamSets     = null;
         this.VIDEO_PAYLOAD_TYPE = 96;
@@ -124,10 +164,8 @@ class NVRPlayer {
         this.decoder = new VideoDecoder({
             output: (frame) => this._renderFrame(frame),
             error: (e) => {
-                this.decodeErrorCount++;
-                // 重置所有解码状态，重建解码器，等待下一个关键帧恢复
-                this._resetDecoderState();
-                try { this._createDecoder(); } catch (_) {}
+                this._recordDecoderError(e);
+                this._recoverDecoder();
             }
         });
     }
@@ -136,15 +174,38 @@ class NVRPlayer {
      * 重置所有解码相关的状态变量（不包含 decoder 对象本身）。
      * 重连、流重启、解码器错误时均调用此方法。
      */
-    _resetDecoderState() {
+    _resetDecoderState({ preserveParams = false } = {}) {
         this.decoderConfigured  = false;
         this.waitingForKeyFrame = true;
         this.needKeyFrame       = false;
         this.fuBuffer           = null;
-        this.h265Params         = null;
-        this.h265ParamSets      = null;
+        this.accessUnit         = null;
+        if (!preserveParams) {
+            this.h265Params     = null;
+            this.h265ParamSets  = null;
+        }
         this.baseRtpTimestamp   = null;
         this.frameIndex         = 0;
+    }
+
+    _recordDecoderError(error) {
+        this.decodeErrorCount++;
+        this.diagnostics.decoderErrors++;
+        const message = error instanceof Error ? error.message : String(error || "unknown decoder error");
+        this.diagnostics.lastDecoderError = message.slice(0, 160);
+        this._publishDiagnostics(true);
+    }
+
+    /** Recover from a bad encoded frame without requiring a fresh stream URL. */
+    _recoverDecoder() {
+        if (!this._isRunning) return;
+        this._resetDecoderState({ preserveParams: true });
+        try {
+            this._createDecoder();
+            if (this.h265Params?.size >= 3) this._configureDecoderWithParams(this.h265Params);
+        } catch (_) {
+            // _createDecoder already reported unsupported browser failures.
+        }
     }
 
     /**
@@ -190,7 +251,10 @@ class NVRPlayer {
             if (!this._isRunning) return;
             if (this.decoder?.state === 'configured' && this.decoder.decodeQueueSize > 0) {
                 if (Date.now() - this.lastOutputTime > 3000) {
-                    this.decoder.flush().catch(() => {});
+                    this.decoder.flush().catch((error) => {
+                        this._recordDecoderError(error);
+                        this._recoverDecoder();
+                    });
                     this.lastOutputTime = Date.now();
                 }
             }
@@ -214,6 +278,13 @@ class NVRPlayer {
             wasmOutputFrames: 0,
             decoderInputFrames: 0,
             renderedFrames: 0,
+            markerPackets: 0,
+            accessUnits: 0,
+            multiNALAccessUnits: 0,
+            droppedAccessUnits: 0,
+            malformedFuPackets: 0,
+            decoderErrors: 0,
+            lastDecoderError: "",
             closeCode: null
         };
         this._lastDiagnosticsAt = 0;
@@ -471,11 +542,11 @@ class NVRPlayer {
     _decodeH265(data) {
         if (this.useWasm) { this._decodeH265Wasm(data); return; }
         if (!this.decoder) return;
-        const view = new Uint8Array(data);
-        if (!this._isRTP(view)) return;
+        const rtp = this._parseRTP(data);
+        if (!rtp) return;
         this.diagnostics.rtpPackets++;
         this._publishDiagnostics();
-        this._decodeRTP(data);
+        this._decodeRTP(rtp);
     }
 
     _decodeH265Wasm(data) {
@@ -498,9 +569,7 @@ class NVRPlayer {
         this.transformWorker.postMessage({ type: 'create', buf: header.buffer, len: header.length, packType: 11 });
     }
 
-    _decodeRTP(data) {
-        const rtp = this._parseRTP(data);
-        if (!rtp) return;
+    _decodeRTP(rtp) {
 
         // 音频分支
         if (rtp.payloadType === this.AUDIO_PAYLOAD_TYPE) {
@@ -523,9 +592,18 @@ class NVRPlayer {
         this.diagnostics.videoPayloadPackets++;
         this._publishDiagnostics();
 
-        const nal = this._parseFU(rtp.payload);
-        if (!nal) return;
+        const nalUnits = this._parseH265Payload(rtp.payload, rtp);
+        if (!nalUnits) return;
 
+        for (const nal of nalUnits) this._collectH265NAL(nal, rtp.timestamp);
+        if (rtp.marker) {
+            this.diagnostics.markerPackets++;
+            this._publishDiagnostics();
+            this._flushAccessUnit(rtp.timestamp);
+        }
+    }
+
+    _collectH265NAL(nal, rtpTimestamp) {
         const nalType = (nal[0] >> 1) & 0x3F;
 
         // 参数集（VPS=32, SPS=33, PPS=34）
@@ -554,51 +632,77 @@ class NVRPlayer {
 
         if (!this.decoderConfigured) return;
 
-        const isKey = nalType >= 16 && nalType <= 20;
+        const isKey = nalType >= 16 && nalType <= 21;
         if (isKey) {
             this.diagnostics.keyFrameNALUnits++;
             this._publishDiagnostics();
         }
 
-        // 等待关键帧
-        if (this.waitingForKeyFrame || this.needKeyFrame) {
-            if (!isKey) return;
-            this.waitingForKeyFrame = false;
-            this.needKeyFrame       = false;
-            this.frameIndex         = 0;
-            this.decodeErrorCount   = 0;
+        if (this.accessUnit && this.accessUnit.timestamp !== rtpTimestamp) {
+            // A marker packet was lost. Do not send a partial frame to WebCodecs.
+            this.diagnostics.droppedAccessUnits++;
+            this.accessUnit = null;
         }
 
-        if (isKey || (nalType >= 1 && nalType <= 9)) {
-            this._decodeNAL(nal, isKey, rtp.timestamp);
+        if (!this.accessUnit) this.accessUnit = { timestamp: rtpTimestamp, nals: [], bytes: 0, isKey: false };
+        if (this.accessUnit.bytes + nal.length > MAX_ACCESS_UNIT_BYTES) {
+            this.diagnostics.droppedAccessUnits++;
+            this.accessUnit = null;
+            this._publishDiagnostics(true);
+            return;
         }
+        this.accessUnit.nals.push(nal);
+        this.accessUnit.bytes += nal.length;
+        this.accessUnit.isKey = this.accessUnit.isKey || isKey;
     }
 
-    _decodeNAL(nal, isKey, rtpTimestamp) {
-        if (!this.decoder || this.decoder.state !== 'configured') return;
+    _flushAccessUnit(markerTimestamp) {
+        const accessUnit = this.accessUnit;
+        this.accessUnit = null;
+        if (!accessUnit || accessUnit.timestamp !== markerTimestamp || accessUnit.nals.length === 0) return;
 
-        let frameData;
-        if (isKey && this.h265ParamSets) {
-            const { vps, sps, pps } = this.h265ParamSets;
-            const total = 4 * 4 + vps.length + sps.length + pps.length + nal.length;
-            frameData   = new Uint8Array(total);
-            let offset  = 0;
-            for (const part of [vps, sps, pps, nal]) {
-                frameData.set(START_CODE, offset); offset += 4;
-                frameData.set(part, offset);       offset += part.length;
+        this.diagnostics.accessUnits++;
+        if (accessUnit.nals.length > 1) this.diagnostics.multiNALAccessUnits++;
+        this._publishDiagnostics();
+
+        if (this.waitingForKeyFrame || this.needKeyFrame) {
+            if (!accessUnit.isKey) {
+                this.diagnostics.droppedAccessUnits++;
+                this._publishDiagnostics();
+                return;
             }
-        } else {
-            frameData = new Uint8Array(4 + nal.length);
-            frameData.set(START_CODE, 0);
-            frameData.set(nal, 4);
+            this.waitingForKeyFrame = false;
+            this.needKeyFrame = false;
+            this.frameIndex = 0;
+            this.decodeErrorCount = 0;
         }
 
-        if (this.baseRtpTimestamp === null) this.baseRtpTimestamp = rtpTimestamp;
-        const ts = Math.floor((rtpTimestamp - this.baseRtpTimestamp) * 1000 / 90);
+        this._decodeAccessUnit(accessUnit);
+    }
+
+    _decodeAccessUnit(accessUnit) {
+        if (!this.decoder || this.decoder.state !== 'configured') return;
+
+        let parts = accessUnit.nals;
+        if (accessUnit.isKey && this.h265ParamSets) {
+            const { vps, sps, pps } = this.h265ParamSets;
+            parts = [vps, sps, pps, ...parts];
+        }
+        const total = parts.reduce((sum, part) => sum + START_CODE.length + part.length, 0);
+        const frameData = new Uint8Array(total);
+        let offset = 0;
+        for (const part of parts) {
+            frameData.set(START_CODE, offset); offset += START_CODE.length;
+            frameData.set(part, offset); offset += part.length;
+        }
+
+        if (this.baseRtpTimestamp === null) this.baseRtpTimestamp = accessUnit.timestamp;
+        const elapsedTicks = (accessUnit.timestamp - this.baseRtpTimestamp) >>> 0;
+        const ts = Math.floor(elapsedTicks * 1000 / 90);
 
         this.diagnostics.decoderInputFrames++;
         this._publishDiagnostics();
-        this._safeDecode(isKey ? 'key' : 'delta', ts, frameData);
+        this._safeDecode(accessUnit.isKey ? 'key' : 'delta', ts, frameData);
         this.frameIndex++;
     }
 
@@ -610,26 +714,52 @@ class NVRPlayer {
         try {
             this.decoder.decode(new EncodedVideoChunk({ type, timestamp, data }));
         } catch (e) {
-            this.onError(e);
-            this._resetDecoderState();
-            try { this._createDecoder(); } catch (_) {}
+            this._recordDecoderError(e);
+            this._recoverDecoder();
         }
     }
 
     // ─── RTP / FU 解析 ────────────────────────────────────────────────────────
 
     _parseRTP(data) {
-        const v = new Uint8Array(data);
-        if (v.length < 12) return null;
-        return {
-            payloadType:    v[1] & 0x7F,
-            sequenceNumber: (v[2] << 8) | v[3],
-            timestamp:      (v[4] << 24) | (v[5] << 16) | (v[6] << 8) | v[7],
-            payload:        v.slice(12)
-        };
+        return parseRTPPacket(data);
     }
 
-    _parseFU(payload) {
+    _parseH265Payload(payload, rtp) {
+        if (payload.length < 2) return null;
+        const nalType = (payload[0] >> 1) & 0x3F;
+        if (nalType === 48) return this._parseAggregationPacket(payload);
+        if (nalType === 49) {
+            const nal = this._parseFU(payload, rtp);
+            return nal ? [nal] : null;
+        }
+        this.fuBuffer = null;
+        return [payload];
+    }
+
+    _parseAggregationPacket(payload) {
+        const nals = [];
+        let offset = 2;
+        while (offset + 2 <= payload.length) {
+            const length = (payload[offset] << 8) | payload[offset + 1];
+            offset += 2;
+            if (length === 0 || offset + length > payload.length) {
+                this.diagnostics.malformedFuPackets++;
+                this._publishDiagnostics(true);
+                return null;
+            }
+            nals.push(payload.slice(offset, offset + length));
+            offset += length;
+        }
+        if (offset !== payload.length || nals.length === 0) {
+            this.diagnostics.malformedFuPackets++;
+            this._publishDiagnostics(true);
+            return null;
+        }
+        return nals;
+    }
+
+    _parseFU(payload, rtp) {
         if (payload.length < 2) return null;
         const nalType = (payload[0] >> 1) & 0x3F;
 
@@ -642,31 +772,42 @@ class NVRPlayer {
             const fuType = fuHeader & 0x3F;
 
             if (S === 1) {
-                // 新分片序列开始，丢弃旧残留缓冲
                 const header = new Uint8Array([(fuType << 1) | (payload[0] & 0x81), payload[1]]);
-                this.fuBuffer = [header, payload.slice(3)];
+                this.fuBuffer = {
+                    timestamp: rtp.timestamp,
+                    nextSequenceNumber: (rtp.sequenceNumber + 1) & 0xFFFF,
+                    chunks: [header, payload.slice(3)]
+                };
+                if (E === 1) return this._completeFU();
                 return null;
             }
 
-            // 未收到起始包就来了中间/结束包（丢包场景），等待下一轮
-            if (!this.fuBuffer) return null;
-
-            this.fuBuffer.push(payload.slice(3));
-
-            if (E === 1) {
-                const total = this.fuBuffer.reduce((s, a) => s + a.length, 0);
-                const nal   = new Uint8Array(total);
-                let offset  = 0;
-                for (const chunk of this.fuBuffer) { nal.set(chunk, offset); offset += chunk.length; }
+            if (!this.fuBuffer || this.fuBuffer.timestamp !== rtp.timestamp || this.fuBuffer.nextSequenceNumber !== rtp.sequenceNumber) {
                 this.fuBuffer = null;
-                return nal;
+                this.diagnostics.malformedFuPackets++;
+                this._publishDiagnostics(true);
+                return null;
             }
+
+            this.fuBuffer.chunks.push(payload.slice(3));
+            this.fuBuffer.nextSequenceNumber = (rtp.sequenceNumber + 1) & 0xFFFF;
+
+            if (E === 1) return this._completeFU();
             return null;
         }
 
-        // 非分片 NAL：清理残留 FU 缓存（防止后续 FU 序列拼接到错误缓冲）
+        return null;
+    }
+
+    _completeFU() {
+        if (!this.fuBuffer) return null;
+        const chunks = this.fuBuffer.chunks;
+        const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const nal = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) { nal.set(chunk, offset); offset += chunk.length; }
         this.fuBuffer = null;
-        return payload;
+        return nal;
     }
 
     _isRTP(data) {
