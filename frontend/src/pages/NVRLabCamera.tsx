@@ -41,6 +41,7 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
   const [playbackPlaying, setPlaybackPlaying] = useState(false);
   const [playbackStartedAtMs, setPlaybackStartedAtMs] = useState<number | null>(null);
   const [playbackElapsedSeconds, setPlaybackElapsedSeconds] = useState(0);
+  const [snapshotBackfillState, setSnapshotBackfillState] = useState<"waiting" | "uploading" | "succeeded" | "failed">("waiting");
   const activePlaybackRangeRef = useRef<NVRLabPlaybackRange | null>(null);
   const playbackCursorRef = useRef<number | null>(null);
   const modeRef = useRef<NVRLabMode>("live");
@@ -48,6 +49,7 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
   const playbackSegment: PlaybackSegmentTiming | null = activePlaybackRange
     ? { start_time: activePlaybackRange.startTime, end_time: activePlaybackRange.endTime }
     : null;
+  const snapshotBackfillEnabled = new URLSearchParams(window.location.search).get("snapshot_backfill") === "1";
 
   useEffect(() => {
     activePlaybackRangeRef.current = activePlaybackRange;
@@ -147,6 +149,20 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
     setPlaybackStartedAtMs(playing ? Date.now() : null);
   }, []);
 
+  const uploadFirstFrameSnapshot = useCallback(async (image: Blob | null) => {
+    if (!image || image.type !== "image/jpeg" || image.size === 0) {
+      setSnapshotBackfillState("failed");
+      return;
+    }
+    setSnapshotBackfillState("uploading");
+    try {
+      await nvrLabApi.uploadSnapshot(externalOrgId, cameraId, image);
+      setSnapshotBackfillState("succeeded");
+    } catch {
+      setSnapshotBackfillState("failed");
+    }
+  }, [cameraId, externalOrgId]);
+
   const seekPlayback = useCallback((startTime: number) => {
     const range = activePlaybackRangeRef.current;
     if (!range || startTime < range.startTime || startTime >= range.endTime) return;
@@ -177,7 +193,7 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
     <div className="h5-page h5-channel-page nvr-lab-page">
       <SystemTopBar backAction={{ label: "返回监控列表", onClick: onBack }} auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
       {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
-      <main className="h5-viewer">
+      <main className="h5-viewer" data-snapshot-backfill-state={snapshotBackfillEnabled ? snapshotBackfillState : undefined}>
         <header className="h5-viewer-header">
           <div className="h5-viewer-title">
             <h1>{camera ? nvrLabCameraTitle(camera) : "摄像头监控"}</h1>
@@ -193,6 +209,8 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
             onStatus={setPlayerStatus}
             onPlaybackStateChange={handlePlaybackStateChange}
             onSeekPlayback={seekPlayback}
+            captureOnFirstFrame={snapshotBackfillEnabled && mode === "live"}
+            onSnapshotCapture={snapshotBackfillEnabled ? uploadFirstFrameSnapshot : undefined}
           />
         </section>
         {message ? <div className="h5-error">{message}</div> : null}

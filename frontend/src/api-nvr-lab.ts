@@ -38,6 +38,22 @@ export const nvrLabApi = {
       body: JSON.stringify(payload),
     });
   },
+
+  async uploadSnapshot(externalOrgId: string, cameraId: number, image: Blob): Promise<void> {
+    const response = await fetch(`${API_BASE}/h5/nvr-monitor/orgs/${encodeURIComponent(externalOrgId)}/cameras/${encodeURIComponent(String(cameraId))}/snapshot`, {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "image/jpeg" },
+      body: image,
+    });
+    if (!response.ok) {
+      const contentType = response.headers.get("content-type") || "";
+      const data = contentType.includes("application/json") ? await response.json() : {};
+      const body = typeof data === "object" && data ? (data as Record<string, unknown>) : {};
+      throw new NVRLabApiError(response.status, String(body.error || `HTTP ${response.status}`), String(body.code || ""));
+    }
+  },
 };
 
 function apiBase(): string {

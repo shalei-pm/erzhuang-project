@@ -16,6 +16,8 @@ type NVRLabPlayerProps = {
   onStatus?: (status: NVRLabPlayerStatus) => void;
   onPlaybackStateChange?: (playing: boolean) => void;
   onSeekPlayback?: (startTime: number) => void;
+  captureOnFirstFrame?: boolean;
+  onSnapshotCapture?: (image: Blob | null) => void;
   onRetry: () => void;
 };
 
@@ -26,11 +28,14 @@ export function NVRLabPlayer({
   onStatus,
   onPlaybackStateChange,
   onSeekPlayback,
+  captureOnFirstFrame = false,
+  onSnapshotCapture,
   onRetry,
 }: NVRLabPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playerRef = useRef<NVRPlayer | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
+  const firstFrameCaptureRef = useRef(false);
   const [status, setStatus] = useState<NVRLabPlayerStatus>({ stage: "idle", message: "播放器准备中" });
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
@@ -55,6 +60,10 @@ export function NVRLabPlayer({
         setPlaying(true);
         onPlaybackStateChange?.(true);
         report({ stage: "first-frame", message: "画面已开始播放" });
+        if (captureOnFirstFrame && !firstFrameCaptureRef.current) {
+          firstFrameCaptureRef.current = true;
+          canvasRef.current?.toBlob((image) => onSnapshotCapture?.(image), "image/jpeg", 0.82);
+        }
       },
       onDisconnected: () => {
         setPlaying(false);
@@ -68,6 +77,7 @@ export function NVRLabPlayer({
       },
     });
     playerRef.current = player;
+    firstFrameCaptureRef.current = false;
     setPlaying(false);
     onPlaybackStateChange?.(false);
     setMuted(true);
@@ -80,7 +90,7 @@ export function NVRLabPlayer({
       onPlaybackStateChange?.(false);
       if (playerRef.current === player) playerRef.current = null;
     };
-  }, [session, onPlaybackStateChange, onStatus]);
+  }, [captureOnFirstFrame, onPlaybackStateChange, onSnapshotCapture, onStatus, session]);
 
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(Boolean(document.fullscreenElement));

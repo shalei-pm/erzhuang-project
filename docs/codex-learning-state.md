@@ -6154,3 +6154,10 @@ git pull --ff-only
 - `8b2f0e3` 在 Wharf 测试流水线两次均以 `retry exceeded workflow deadline` 结束，未提供 Go 编译或 Docker 指令失败日志。该提交唯一新增的构建期外部依赖是 Alpine 的 `apk add ffmpeg`；项目历史也已记录公司构建环境不应依赖公网系统包源。
 - 因此将 `ffmpeg` 从正常 Web 镜像的构建阶段移除，保留回填二进制但不改变 Web `ENTRYPOINT`。测试 Pod 更新后，只有在受控 WebShell 中显式执行单路回填前，才临时检查并安装 `ffmpeg`；这不会更改 Deployment、Secret、流水线或 MySQL，也不会随着 Pod 重启持久化。
 - 先通过正常 GitLab 推送触发一次自动测试构建。只有确认 `3.2.6` 已自动部署，才在 Pod 内继续 `10001/camera 111` 的低频单路验证。
+
+### 2026-08-27 3.2.7 浏览器 Canvas 缩略图回填
+
+- 为规避测试 Pod 缺少 `ffmpeg` 且外部 APK 源不可用，回填改为一次性浏览器执行：播放器确认首帧后，由前端自身将 Canvas 导出为受限 JPEG，再上传至既有私有 OSS 的确定性 Key `nvr-camera-snapshots/{tenant_id}/{camera_id}.jpg`。
+- 上传仅在摄像头详情 URL 显式带 `snapshot_backfill=1` 时启用；正常直播、回放、下载截图和监控列表没有自动上传行为。
+- 服务端上传路由要求调用者同时具备 `store:write` 权限和该门店监控访问范围，严格校验候选摄像头、JPEG MIME/文件签名及 2 MiB 上限；不写 MySQL、不建表、不修改 Deployment、Secret 或流水线。
+- 执行策略：先对 `10001` 单摄像头确认 OSS 写入与列表读取，再以单标签页串行、每路间隔至少 2 秒完成其余摄像头；失败仅记录统计，不做高频重试。

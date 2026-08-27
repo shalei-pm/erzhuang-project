@@ -119,6 +119,17 @@ func (a nvrMonitorAuthorizer) CanViewStore(r *http.Request, externalOrgID string
 	return a.handler.store.CanUserViewMonitorStore(r.Context(), user, externalOrgID)
 }
 
+func (a nvrMonitorAuthorizer) CanBackfillSnapshot(r *http.Request, externalOrgID string) (bool, error) {
+	user, err := a.handler.currentAuthUser(r)
+	if err != nil {
+		return false, nvrMonitorAuthError(err)
+	}
+	if !hasPermission(user.permissions(), PermissionStoreWrite) {
+		return false, nil
+	}
+	return a.handler.store.CanUserViewMonitorStore(r.Context(), user, externalOrgID)
+}
+
 func (a nvrMonitorAuthorizer) FilterStores(r *http.Request, response nvrmonitor.MonitorStoresResponse) (nvrmonitor.MonitorStoresResponse, error) {
 	user, err := a.handler.currentAuthUser(r)
 	if err != nil {

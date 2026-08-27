@@ -1,6 +1,7 @@
 package nvrmonitor
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,15 @@ func (a fakeAuthorizer) FilterStores(_ *http.Request, response MonitorStoresResp
 		}
 	}
 	return filtered, nil
+}
+
+type fakeSnapshotBackfillAuthorizer struct {
+	fakeAuthorizer
+	allowBackfill bool
+}
+
+func (a fakeSnapshotBackfillAuthorizer) CanBackfillSnapshot(_ *http.Request, externalOrgID string) (bool, error) {
+	return a.allowBackfill && a.allow[externalOrgID], nil
 }
 
 func newTestHandler(t *testing.T, allow map[string]bool) http.Handler {
@@ -142,5 +152,56 @@ func TestSnapshotDoesNotLeakToUnauthorizedStore(t *testing.T) {
 
 	if response.Code != http.StatusForbidden || response.Body.String() == "jpeg-data" {
 		t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+	}
+}
+
+func TestSnapshotBackfillWritesOnlyValidatedJPEGForAuthorizedEditor(t *testing.T) {
+	snapshots := &fakeWritableSnapshotStore{fakeSnapshotStore: fakeSnapshotStore{data: map[int64]string{}}}
+	service := NewServiceWithSnapshotStore(fakeRepository{stores: map[int64]resourceview.StoreRecords{10001: nvrMonitorRecords()}}, &fakeAuthorizationClient{}, snapshots)
+	mux := http.NewServeMux()
+	RegisterRoutesWithAuthorizer(mux, service, fakeSnapshotBackfillAuthorizer{fakeAuthorizer: fakeAuthorizer{allow: map[string]bool{"10001": true}}, allowBackfill: true})
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot", bytes.NewReader([]byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00}))
+	request.Header.Set("Content-Type", "image/jpeg")
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if snapshots.savedCameraID != 111 || snapshots.savedTenantID != 10001 || snapshots.savedContentType != "image/jpeg" {
+		t.Fatalf("snapshot write = %#v", snapshots)
+	}
+}
+
+func TestSnapshotBackfillRejectsViewer(t *testing.T) {
+	snapshots := &fakeWritableSnapshotStore{fakeSnapshotStore: fakeSnapshotStore{data: map[int64]string{}}}
+	service := NewServiceWithSnapshotStore(fakeRepository{stores: map[int64]resourceview.StoreRecords{10001: nvrMonitorRecords()}}, &fakeAuthorizationClient{}, snapshots)
+	mux := http.NewServeMux()
+	RegisterRoutesWithAuthorizer(mux, service, fakeSnapshotBackfillAuthorizer{fakeAuthorizer: fakeAuthorizer{allow: map[string]bool{"10001": true}}})
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot", strings.NewReader("not-a-jpeg"))
+	request.Header.Set("Content-Type", "image/jpeg")
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden || snapshots.savedCameraID != 0 {
+		t.Fatalf("status = %d write = %#v", response.Code, snapshots)
+	}
+}
+
+func TestSnapshotBackfillRejectsInvalidPayloadBeforeWriting(t *testing.T) {
+	snapshots := &fakeWritableSnapshotStore{fakeSnapshotStore: fakeSnapshotStore{data: map[int64]string{}}}
+	service := NewServiceWithSnapshotStore(fakeRepository{stores: map[int64]resourceview.StoreRecords{10001: nvrMonitorRecords()}}, &fakeAuthorizationClient{}, snapshots)
+	mux := http.NewServeMux()
+	RegisterRoutesWithAuthorizer(mux, service, fakeSnapshotBackfillAuthorizer{fakeAuthorizer: fakeAuthorizer{allow: map[string]bool{"10001": true}}, allowBackfill: true})
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot", strings.NewReader("not-a-jpeg"))
+	request.Header.Set("Content-Type", "image/jpeg")
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest || snapshots.savedCameraID != 0 {
+		t.Fatalf("status = %d write = %#v", response.Code, snapshots)
 	}
 }

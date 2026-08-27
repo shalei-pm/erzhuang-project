@@ -32,8 +32,16 @@ func (s *AssetSnapshotStore) Open(ctx context.Context, tenantID int64, cameraID 
 	return reader, contentType, err
 }
 
+func (s *AssetSnapshotStore) Save(ctx context.Context, tenantID int64, cameraID int64, body io.Reader) error {
+	if s == nil || s.assets == nil || tenantID <= 0 || cameraID <= 0 || body == nil {
+		return ErrSnapshotNotFound
+	}
+	return s.assets.Save(ctx, snapshotObjectKey(tenantID, cameraID), body, "image/jpeg")
+}
+
 func snapshotObjectKey(tenantID int64, cameraID int64) string {
 	return "nvr-camera-snapshots/" + strconv.FormatInt(tenantID, 10) + "/" + strconv.FormatInt(cameraID, 10) + ".jpg"
 }
 
 var _ SnapshotStore = (*AssetSnapshotStore)(nil)
+var _ SnapshotWriter = (*AssetSnapshotStore)(nil)

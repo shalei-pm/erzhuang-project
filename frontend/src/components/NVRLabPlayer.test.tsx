@@ -80,4 +80,18 @@ describe("NVRLabPlayer", () => {
     expect(markup).toContain("录像");
     vi.unstubAllGlobals();
   });
+
+  it("only enables the one-shot canvas capture when explicitly requested", () => {
+    const markup = renderToStaticMarkup(
+      createElement(NVRLabPlayer, {
+        session: { mode: "live", url: "wss://example.test/session" },
+        captureOnFirstFrame: true,
+        onSnapshotCapture: () => undefined,
+        onRetry: () => undefined,
+      }),
+    );
+
+    expect(markup).toContain('aria-label="NVR 视频画面"');
+    expect(markup).not.toContain("snapshot_backfill");
+  });
 });

@@ -27,6 +27,13 @@ type SnapshotStore interface {
 	Open(ctx context.Context, tenantID int64, cameraID int64) (io.ReadCloser, string, error)
 }
 
+// SnapshotWriter persists a browser-captured JPEG under the same private,
+// deterministic key used by SnapshotStore. It deliberately has no database
+// dependency: object existence is the backfill record.
+type SnapshotWriter interface {
+	Save(ctx context.Context, tenantID int64, cameraID int64, body io.Reader) error
+}
+
 type Service struct {
 	repository    resourceview.Repository
 	authorization AuthorizationClient
@@ -112,6 +119,21 @@ func (s *Service) OpenSnapshot(ctx context.Context, externalOrgID string, camera
 		return nil, "", ErrSnapshotNotFound
 	}
 	return reader, contentType, nil
+}
+
+func (s *Service) SaveSnapshot(ctx context.Context, externalOrgID string, cameraID int64, body io.Reader) error {
+	records, err := s.storeRecords(ctx, externalOrgID)
+	if err != nil {
+		return err
+	}
+	if !containsCamera(camerasFromRecords(records, false), cameraID) {
+		return ErrCameraNotFound
+	}
+	writer, ok := s.snapshots.(SnapshotWriter)
+	if !ok || writer == nil {
+		return ErrNotConfigured
+	}
+	return writer.Save(ctx, records.Tenant.ID, cameraID, body)
 }
 
 func (s *Service) CreateSession(ctx context.Context, externalOrgID string, cameraID int64, request StreamSessionRequest) (StreamSessionResponse, error) {

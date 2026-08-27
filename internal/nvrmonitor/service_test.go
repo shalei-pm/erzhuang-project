@@ -50,6 +50,21 @@ type fakeSnapshotStore struct {
 	err  error
 }
 
+type fakeWritableSnapshotStore struct {
+	fakeSnapshotStore
+	savedTenantID    int64
+	savedCameraID    int64
+	savedContentType string
+}
+
+func (s *fakeWritableSnapshotStore) Save(_ context.Context, tenantID int64, cameraID int64, body io.Reader) error {
+	_, _ = io.ReadAll(body)
+	s.savedTenantID = tenantID
+	s.savedCameraID = cameraID
+	s.savedContentType = "image/jpeg"
+	return nil
+}
+
 func (s fakeSnapshotStore) Open(_ context.Context, _ int64, cameraID int64) (io.ReadCloser, string, error) {
 	if s.err != nil {
 		return nil, "", s.err

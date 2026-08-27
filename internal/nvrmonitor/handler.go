@@ -1,9 +1,11 @@
 package nvrmonitor
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +15,15 @@ type Authorizer interface {
 	CanViewStore(r *http.Request, externalOrgID string) (bool, error)
 	FilterStores(r *http.Request, response MonitorStoresResponse) (MonitorStoresResponse, error)
 }
+
+// SnapshotBackfillAuthorizer is intentionally optional so the normal monitor
+// read APIs retain their existing authorization contract. Production wiring
+// implements it and rejects browser uploads from view-only accounts.
+type SnapshotBackfillAuthorizer interface {
+	CanBackfillSnapshot(r *http.Request, externalOrgID string) (bool, error)
+}
+
+const maxSnapshotUploadBytes = 2 << 20
 
 type Handler struct {
 	service    *Service
@@ -28,6 +39,7 @@ func RegisterRoutesWithAuthorizer(mux *http.ServeMux, service *Service, authoriz
 	mux.HandleFunc("GET /api/h5/nvr-monitor/stores", handler.listStores)
 	mux.HandleFunc("GET /api/h5/nvr-monitor/orgs/{externalOrgId}/cameras", handler.listCameras)
 	mux.HandleFunc("GET /api/h5/nvr-monitor/orgs/{externalOrgId}/cameras/{cameraId}/snapshot", handler.getSnapshot)
+	mux.HandleFunc("POST /api/h5/nvr-monitor/orgs/{externalOrgId}/cameras/{cameraId}/snapshot", handler.saveSnapshot)
 	mux.HandleFunc("POST /api/h5/nvr-monitor/orgs/{externalOrgId}/cameras/{cameraId}/stream-session", handler.createSession)
 }
 
@@ -129,6 +141,38 @@ func (h *Handler) getSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) saveSnapshot(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	externalOrgID := strings.TrimSpace(r.PathValue("externalOrgId"))
+	if !h.ensureCanBackfillSnapshot(w, r, externalOrgID) {
+		return
+	}
+	if h.service == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "nvr_monitor_not_configured", "error": "工控机监控暂未配置"})
+		return
+	}
+	cameraID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("cameraId")), 10, 64)
+	if err != nil || cameraID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "invalid_camera_id", "error": "摄像头参数无效"})
+		return
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "image/jpeg" {
+		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"code": "invalid_snapshot_content_type", "error": "截图格式无效"})
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSnapshotUploadBytes))
+	if err != nil || len(body) == 0 || len(body) > maxSnapshotUploadBytes || http.DetectContentType(body) != "image/jpeg" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "invalid_snapshot", "error": "截图内容无效"})
+		return
+	}
+	if err := h.service.SaveSnapshot(r.Context(), externalOrgID, cameraID, bytes.NewReader(body)); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) ensureCanViewStore(w http.ResponseWriter, r *http.Request, externalOrgID string) bool {
 	if externalOrgID == "" {
 		writeJSON(w, http.StatusNotFound, map[string]string{"code": "nvr_monitor_store_not_found", "error": "未找到可用门店"})
@@ -144,6 +188,28 @@ func (h *Handler) ensureCanViewStore(w http.ResponseWriter, r *http.Request, ext
 	}
 	if !ok {
 		writeJSON(w, http.StatusForbidden, map[string]string{"code": "nvr_monitor_forbidden", "error": "暂无该门店监控访问权限"})
+		return false
+	}
+	return true
+}
+
+func (h *Handler) ensureCanBackfillSnapshot(w http.ResponseWriter, r *http.Request, externalOrgID string) bool {
+	if externalOrgID == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"code": "nvr_monitor_store_not_found", "error": "未找到可用门店"})
+		return false
+	}
+	authorizer, ok := h.authorizer.(SnapshotBackfillAuthorizer)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"code": "nvr_snapshot_backfill_unavailable", "error": "截图回填暂不可用"})
+		return false
+	}
+	allowed, err := authorizer.CanBackfillSnapshot(r, externalOrgID)
+	if err != nil {
+		writeAuthorizationError(w, err)
+		return false
+	}
+	if !allowed {
+		writeJSON(w, http.StatusForbidden, map[string]string{"code": "nvr_snapshot_backfill_forbidden", "error": "暂无截图回填权限"})
 		return false
 	}
 	return true
