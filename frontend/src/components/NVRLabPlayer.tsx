@@ -11,6 +11,12 @@ export type NVRLabPlayerStatus = {
 
 export type NVRLabPlayerDiagnostics = {
   receivedPackets: number;
+  rtpPackets: number;
+  videoPayloadPackets: number;
+  vpsPackets: number;
+  spsPackets: number;
+  ppsPackets: number;
+  keyFrameNALUnits: number;
   decoderInputFrames: number;
   renderedFrames: number;
 };
@@ -53,7 +59,17 @@ export function NVRLabPlayer({
     if (!session || !canvasRef.current) return;
     let disposed = false;
     let firstFrameRendered = false;
-    const diagnostics: NVRLabPlayerDiagnostics = { receivedPackets: 0, decoderInputFrames: 0, renderedFrames: 0 };
+    const diagnostics: NVRLabPlayerDiagnostics = {
+      receivedPackets: 0,
+      rtpPackets: 0,
+      videoPayloadPackets: 0,
+      vpsPackets: 0,
+      spsPackets: 0,
+      ppsPackets: 0,
+      keyFrameNALUnits: 0,
+      decoderInputFrames: 0,
+      renderedFrames: 0,
+    };
     let firstFrameTimeout: number | null = null;
     const clearFirstFrameTimeout = () => {
       if (firstFrameTimeout !== null) {
@@ -96,6 +112,12 @@ export function NVRLabPlayer({
       },
       onDiagnostics: (next: NVRLabPlayerDiagnostics) => {
         diagnostics.receivedPackets = next.receivedPackets;
+        diagnostics.rtpPackets = next.rtpPackets;
+        diagnostics.videoPayloadPackets = next.videoPayloadPackets;
+        diagnostics.vpsPackets = next.vpsPackets;
+        diagnostics.spsPackets = next.spsPackets;
+        diagnostics.ppsPackets = next.ppsPackets;
+        diagnostics.keyFrameNALUnits = next.keyFrameNALUnits;
         diagnostics.decoderInputFrames = next.decoderInputFrames;
         diagnostics.renderedFrames = next.renderedFrames;
       },
@@ -224,9 +246,15 @@ export function NVRLabPlayer({
   );
 }
 
-export function nvrLabFirstFrameTimeoutMessage(diagnostics: NVRLabPlayerDiagnostics): string {
-  if (diagnostics.receivedPackets <= 0) return "视频流已连接，但未收到摄像头媒体数据，请稍后重试";
-  if (diagnostics.decoderInputFrames <= 0) return "视频流已收到，但未识别出可播放的视频帧，请确认该通道编码及工控机转发状态";
+export function nvrLabFirstFrameTimeoutMessage(diagnostics: Partial<NVRLabPlayerDiagnostics>): string {
+  if ((diagnostics.receivedPackets || 0) <= 0) return "视频流已连接，但未收到摄像头媒体数据，请稍后重试";
+  if ((diagnostics.rtpPackets || 0) <= 0) return "视频流已收到，但数据格式不是有效 RTP，请确认工控机转发协议";
+  if ((diagnostics.videoPayloadPackets || 0) <= 0) return "视频流已收到 RTP 数据，但未收到 PT=96 视频包，请确认工控机转发配置";
+  if ((diagnostics.vpsPackets || 0) <= 0 || (diagnostics.spsPackets || 0) <= 0 || (diagnostics.ppsPackets || 0) <= 0) {
+    return "视频流已收到 PT=96 视频包，但缺少 H.265 解码参数集，请确认该通道编码";
+  }
+  if ((diagnostics.keyFrameNALUnits || 0) <= 0) return "视频流已收到，但未收到 H.265 关键帧，请确认工控机关键帧转发";
+  if ((diagnostics.decoderInputFrames || 0) <= 0) return "视频流已收到，但无法送入 H.265 解码器，请确认工控机转发格式";
   return "视频流已收到，但当前浏览器无法解码该摄像头画面";
 }
 

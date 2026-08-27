@@ -200,6 +200,14 @@ class NVRPlayer {
     _resetDiagnostics() {
         this.diagnostics = {
             receivedPackets: 0,
+            rtpPackets: 0,
+            videoPayloadPackets: 0,
+            audioPayloadPackets: 0,
+            otherPayloadPackets: 0,
+            vpsPackets: 0,
+            spsPackets: 0,
+            ppsPackets: 0,
+            keyFrameNALUnits: 0,
             wasmRuntimeReady: false,
             wasmReady: false,
             wasmOutputInit: 0,
@@ -464,7 +472,10 @@ class NVRPlayer {
         if (this.useWasm) { this._decodeH265Wasm(data); return; }
         if (!this.decoder) return;
         const view = new Uint8Array(data);
-        if (this._isRTP(view)) this._decodeRTP(data);
+        if (!this._isRTP(view)) return;
+        this.diagnostics.rtpPackets++;
+        this._publishDiagnostics();
+        this._decodeRTP(data);
     }
 
     _decodeH265Wasm(data) {
@@ -493,6 +504,8 @@ class NVRPlayer {
 
         // 音频分支
         if (rtp.payloadType === this.AUDIO_PAYLOAD_TYPE) {
+            this.diagnostics.audioPayloadPackets++;
+            this._publishDiagnostics();
             if (this.lastAudioSeq !== null) {
                 const lost = (rtp.sequenceNumber - this.lastAudioSeq - 1 + 65536) % 65536;
                 if (lost > 0) this.audioPacketLoss += lost;
@@ -502,7 +515,13 @@ class NVRPlayer {
             return;
         }
 
-        if (rtp.payloadType !== this.VIDEO_PAYLOAD_TYPE) return;
+        if (rtp.payloadType !== this.VIDEO_PAYLOAD_TYPE) {
+            this.diagnostics.otherPayloadPackets++;
+            this._publishDiagnostics();
+            return;
+        }
+        this.diagnostics.videoPayloadPackets++;
+        this._publishDiagnostics();
 
         const nal = this._parseFU(rtp.payload);
         if (!nal) return;
@@ -511,6 +530,10 @@ class NVRPlayer {
 
         // 参数集（VPS=32, SPS=33, PPS=34）
         if (nalType === 32 || nalType === 33 || nalType === 34) {
+            if (nalType === 32) this.diagnostics.vpsPackets++;
+            if (nalType === 33) this.diagnostics.spsPackets++;
+            if (nalType === 34) this.diagnostics.ppsPackets++;
+            this._publishDiagnostics();
             if (!this.h265Params) this.h265Params = new Map();
 
             const existing = this.h265Params.get(nalType);
@@ -532,6 +555,10 @@ class NVRPlayer {
         if (!this.decoderConfigured) return;
 
         const isKey = nalType >= 16 && nalType <= 20;
+        if (isKey) {
+            this.diagnostics.keyFrameNALUnits++;
+            this._publishDiagnostics();
+        }
 
         // 等待关键帧
         if (this.waitingForKeyFrame || this.needKeyFrame) {
@@ -569,6 +596,8 @@ class NVRPlayer {
         if (this.baseRtpTimestamp === null) this.baseRtpTimestamp = rtpTimestamp;
         const ts = Math.floor((rtpTimestamp - this.baseRtpTimestamp) * 1000 / 90);
 
+        this.diagnostics.decoderInputFrames++;
+        this._publishDiagnostics();
         this._safeDecode(isKey ? 'key' : 'delta', ts, frameData);
         this.frameIndex++;
     }

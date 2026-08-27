@@ -12,13 +12,25 @@ describe("NVRLabPlayer", () => {
 	});
 
 	it("classifies media that the live player cannot turn into a video frame", () => {
-		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 12, decoderInputFrames: 0, renderedFrames: 0 })).toBe(
-			"视频流已收到，但未识别出可播放的视频帧，请确认该通道编码及工控机转发状态",
+		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 12, rtpPackets: 0, videoPayloadPackets: 0, vpsPackets: 0, spsPackets: 0, ppsPackets: 0, keyFrameNALUnits: 0, decoderInputFrames: 0, renderedFrames: 0 })).toBe(
+			"视频流已收到，但数据格式不是有效 RTP，请确认工控机转发协议",
+		);
+	});
+
+	it("identifies a live stream that has RTP video packets but lacks H.265 parameter sets", () => {
+		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 12, rtpPackets: 12, videoPayloadPackets: 12, vpsPackets: 0, spsPackets: 0, ppsPackets: 0, keyFrameNALUnits: 0, decoderInputFrames: 0, renderedFrames: 0 })).toBe(
+			"视频流已收到 PT=96 视频包，但缺少 H.265 解码参数集，请确认该通道编码",
+		);
+	});
+
+	it("identifies a configured H.265 stream that has not delivered a key frame", () => {
+		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 12, rtpPackets: 12, videoPayloadPackets: 12, vpsPackets: 1, spsPackets: 1, ppsPackets: 1, keyFrameNALUnits: 0, decoderInputFrames: 0, renderedFrames: 0 })).toBe(
+			"视频流已收到，但未收到 H.265 关键帧，请确认工控机关键帧转发",
 		);
 	});
 
 	it("classifies decoder input that cannot render in the current browser", () => {
-		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 12, decoderInputFrames: 4, renderedFrames: 0 })).toBe(
+		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 12, rtpPackets: 12, videoPayloadPackets: 12, vpsPackets: 1, spsPackets: 1, ppsPackets: 1, keyFrameNALUnits: 1, decoderInputFrames: 4, renderedFrames: 0 })).toBe(
 			"视频流已收到，但当前浏览器无法解码该摄像头画面",
 		);
 	});

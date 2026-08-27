@@ -1,5 +1,13 @@
 export type NVRPlayerDiagnostics = {
   receivedPackets: number;
+  rtpPackets: number;
+  videoPayloadPackets: number;
+  audioPayloadPackets: number;
+  otherPayloadPackets: number;
+  vpsPackets: number;
+  spsPackets: number;
+  ppsPackets: number;
+  keyFrameNALUnits: number;
   wasmRuntimeReady: boolean;
   wasmReady: boolean;
   wasmOutputInit: number;
