@@ -160,13 +160,17 @@ function AdminApp() {
       setStores(response.items);
       setTotal(response.total);
       setListSummary(response.summary);
-      setCityOptions(response.cities);
+      if (nextCityFilter === "all") {
+        setCityOptions(response.cities);
+      }
     } catch (error) {
       if (listRequestIdRef.current !== requestId) return;
       setStores([]);
       setTotal(0);
       setListSummary(EMPTY_RESOURCE_LIST_SUMMARY);
-      setCityOptions([]);
+      if (nextCityFilter === "all") {
+        setCityOptions([]);
+      }
       setToast(storeListLoadErrorMessage(error));
     } finally {
       if (listRequestIdRef.current === requestId) {
