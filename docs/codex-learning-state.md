@@ -6221,3 +6221,10 @@ git pull --ff-only
 - 测试门店 `10042` 的摄像头 `2088` 在一次会话中正常首帧播放；另一次计时会话在第 10 秒仍等待画面、第 14 秒显示“当前浏览器无法解码该摄像头画面”。失败会话已确认具备 RTP、PT=96、VPS/SPS/PPS、关键帧和解码输入，缺失的是 WebCodecs 渲染输出。
 - 结论：`2088` 不是固定的 H.264/PT/参数集/关键帧缺失，而是间歇性的 H.265 解码失败。最可能的后续排查方向是该通道的码流 profile/level、切片或 access unit 封装与当前播放器的兼容性；同一浏览器可播放 `2089`，因此不是浏览器全局不支持。
 - 测试发布：`65d80fb fix: trace nvr live frame pipeline` 已同步 GitHub 和 GitLab 测试分支；Wharf `752` 构建 `169475` 成功（2 分 9 秒），自动部署记录 `415617` 已部署到阿里云测试集群。Chrome 实页复测完成，前端 `12 files / 73 tests` 与生产构建均通过。
+
+### 2026-08-27 3.2.18 H.265 RTP 访问单元兼容修复
+
+- 根因确认：直播播放器此前固定按 12 字节 RTP 头取 payload，且每个重组后的 H.265 NAL 立即送入 WebCodecs。该实现忽略 RTP header extension、CSRC、padding 与 marker，不适配同一画面包含多个 NAL/slice 的通道，会把不完整 access unit 作为视频帧解码，表现为间歇黑屏。
+- 修复：完整解析 RTP 头；支持 RTP aggregation packet；按 RTP marker 聚合同一 timestamp 的 H.265 access unit；校验 FU-A 序列连续性，丢弃丢包残帧；解码器遇到坏帧时保留已知参数集并自动等下一关键帧恢复。所有诊断留在内存，不输出流地址、token 或媒体内容。
+- 回归：新增 RTP extension、同一 access unit 多 NAL 聚合、FU 分片序号缺口三项单测。前端全量 `13 files / 76 tests`、生产构建和 `git diff --check` 均通过；当前机器未安装 Go 工具链，本轮未运行 Go 检查，且未修改 Go 代码。
+- 测试发布：`a17f552 fix: stabilize h265 rtp access unit decoding` 已同步 GitHub 与 GitLab 测试分支，等待自动发布后用 Chrome 复测测试环境 `10042/2088` 成功获得 `1920x1080` 首帧，页面为“画面已开始播放”，无播放器错误态或控制台警告。未发布正式环境。
