@@ -957,7 +957,10 @@ class NVRPlayer {
         this.ws.onclose = (e) => {
             this.diagnostics.closeCode = Number.isFinite(e?.code) ? e.code : null;
             this._publishDiagnostics(true);
-            this.onDisconnected();
+            this.onDisconnected({
+                code: this.diagnostics.closeCode,
+                wasClean: e?.wasClean === true
+            });
             // 断线后重置解码器状态，确保重连后以干净状态处理新流
             this._resetDecoderState();
             this._scheduleReconnect();

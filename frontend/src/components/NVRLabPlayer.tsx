@@ -98,11 +98,11 @@ export function NVRLabPlayer({
           canvasRef.current?.toBlob((image) => onSnapshotCapture?.(image), "image/jpeg", 0.82);
         }
       },
-      onDisconnected: () => {
+      onDisconnected: (details: { code: number | null; wasClean: boolean }) => {
         clearFirstFrameTimeout();
         setPlaying(false);
         onPlaybackStateChange?.(false);
-        report({ stage: "error", message: "视频流已断开，请重新连接" });
+        report({ stage: "error", message: nvrLabDisconnectMessage(details) });
       },
       onError: (error) => {
         clearFirstFrameTimeout();
@@ -256,6 +256,14 @@ export function nvrLabFirstFrameTimeoutMessage(diagnostics: Partial<NVRLabPlayer
   if ((diagnostics.keyFrameNALUnits || 0) <= 0) return "视频流已收到，但未收到 H.265 关键帧，请确认工控机关键帧转发";
   if ((diagnostics.decoderInputFrames || 0) <= 0) return "视频流已收到，但无法送入 H.265 解码器，请确认工控机转发格式";
   return "视频流已收到，但当前浏览器无法解码该摄像头画面";
+}
+
+export function nvrLabDisconnectMessage(details: { code: number | null; wasClean: boolean }): string {
+  if (details.code === 1000) return "视频流已正常结束，当前摄像头可能未持续推流，请重新连接";
+  if (details.code === 1008) return "视频流会话被服务拒绝，请重新连接";
+  if (details.code === 1011) return "视频流服务异常，请稍后重新连接";
+  if (details.code === 1006 || !details.wasClean) return "视频流连接异常中断，请重新连接";
+  return "视频流已断开，请重新连接";
 }
 
 function playerErrorMessage(error: unknown): string {

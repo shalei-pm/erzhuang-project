@@ -41,7 +41,7 @@ export type NVRPlayerOptions = {
   wasmWorkerUrl?: string;
   onError?: (error: Error) => void;
   onConnected?: () => void;
-  onDisconnected?: () => void;
+  onDisconnected?: (details: { code: number | null; wasClean: boolean }) => void;
   onFirstFrame?: () => void;
   onDiagnostics?: (diagnostics: NVRPlayerDiagnostics) => void;
 };

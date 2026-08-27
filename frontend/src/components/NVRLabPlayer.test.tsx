@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { NVRLabPlayer, nvrLabFirstFrameTimeoutMessage } from "./NVRLabPlayer";
+import { NVRLabPlayer, nvrLabDisconnectMessage, nvrLabFirstFrameTimeoutMessage } from "./NVRLabPlayer";
 import { NVRLabCamera } from "../pages/NVRLabCamera";
 
 describe("NVRLabPlayer", () => {
@@ -33,6 +33,13 @@ describe("NVRLabPlayer", () => {
 		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 12, rtpPackets: 12, videoPayloadPackets: 12, vpsPackets: 1, spsPackets: 1, ppsPackets: 1, keyFrameNALUnits: 1, decoderInputFrames: 4, renderedFrames: 0 })).toBe(
 			"视频流已收到，但当前浏览器无法解码该摄像头画面",
 		);
+	});
+
+	it("explains WebSocket close states without exposing stream details", () => {
+		expect(nvrLabDisconnectMessage({ code: 1000, wasClean: true })).toBe("视频流已正常结束，当前摄像头可能未持续推流，请重新连接");
+		expect(nvrLabDisconnectMessage({ code: 1008, wasClean: true })).toBe("视频流会话被服务拒绝，请重新连接");
+		expect(nvrLabDisconnectMessage({ code: 1011, wasClean: true })).toBe("视频流服务异常，请稍后重新连接");
+		expect(nvrLabDisconnectMessage({ code: 1006, wasClean: false })).toBe("视频流连接异常中断，请重新连接");
 	});
 
   it("does not render the signed stream URL into the page", () => {
