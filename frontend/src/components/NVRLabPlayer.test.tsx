@@ -1,10 +1,28 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { NVRLabPlayer } from "./NVRLabPlayer";
+import { NVRLabPlayer, nvrLabFirstFrameTimeoutMessage } from "./NVRLabPlayer";
 import { NVRLabCamera } from "../pages/NVRLabCamera";
 
 describe("NVRLabPlayer", () => {
+	it("classifies a connected stream that has not delivered any media packets", () => {
+		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 0, decoderInputFrames: 0, renderedFrames: 0 })).toBe(
+			"视频流已连接，但未收到摄像头媒体数据，请稍后重试",
+		);
+	});
+
+	it("classifies media that the live player cannot turn into a video frame", () => {
+		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 12, decoderInputFrames: 0, renderedFrames: 0 })).toBe(
+			"视频流已收到，但未识别出可播放的视频帧，请确认该通道编码及工控机转发状态",
+		);
+	});
+
+	it("classifies decoder input that cannot render in the current browser", () => {
+		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 12, decoderInputFrames: 4, renderedFrames: 0 })).toBe(
+			"视频流已收到，但当前浏览器无法解码该摄像头画面",
+		);
+	});
+
   it("does not render the signed stream URL into the page", () => {
     const markup = renderToStaticMarkup(
       createElement(NVRLabPlayer, {

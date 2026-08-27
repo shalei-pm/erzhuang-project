@@ -9,6 +9,12 @@ export type NVRLabPlayerStatus = {
   message: string;
 };
 
+export type NVRLabPlayerDiagnostics = {
+  receivedPackets: number;
+  decoderInputFrames: number;
+  renderedFrames: number;
+};
+
 type NVRLabPlayerProps = {
   session: NVRLabStreamSession | null;
   playbackSegment?: PlaybackSegmentTiming | null;
@@ -46,6 +52,15 @@ export function NVRLabPlayer({
   useEffect(() => {
     if (!session || !canvasRef.current) return;
     let disposed = false;
+    let firstFrameRendered = false;
+    const diagnostics: NVRLabPlayerDiagnostics = { receivedPackets: 0, decoderInputFrames: 0, renderedFrames: 0 };
+    let firstFrameTimeout: number | null = null;
+    const clearFirstFrameTimeout = () => {
+      if (firstFrameTimeout !== null) {
+        window.clearTimeout(firstFrameTimeout);
+        firstFrameTimeout = null;
+      }
+    };
     const report = (next: NVRLabPlayerStatus) => {
       if (disposed) return;
       setStatus(next);
@@ -57,6 +72,8 @@ export function NVRLabPlayer({
       wasmWorkerUrl: `${import.meta.env.BASE_URL.replace(/\/$/, "")}/nvr-player/wasm/systemTransform-worker.js`,
       onConnected: () => report({ stage: "connected", message: "视频流已连接，等待画面" }),
       onFirstFrame: () => {
+        firstFrameRendered = true;
+        clearFirstFrameTimeout();
         setPlaying(true);
         onPlaybackStateChange?.(true);
         report({ stage: "first-frame", message: "画面已开始播放" });
@@ -66,14 +83,21 @@ export function NVRLabPlayer({
         }
       },
       onDisconnected: () => {
+        clearFirstFrameTimeout();
         setPlaying(false);
         onPlaybackStateChange?.(false);
         report({ stage: "error", message: "视频流已断开，请重新连接" });
       },
       onError: (error) => {
+        clearFirstFrameTimeout();
         setPlaying(false);
         onPlaybackStateChange?.(false);
         report({ stage: "error", message: playerErrorMessage(error) });
+      },
+      onDiagnostics: (next: NVRLabPlayerDiagnostics) => {
+        diagnostics.receivedPackets = next.receivedPackets;
+        diagnostics.decoderInputFrames = next.decoderInputFrames;
+        diagnostics.renderedFrames = next.renderedFrames;
       },
     });
     playerRef.current = player;
@@ -83,9 +107,18 @@ export function NVRLabPlayer({
     setMuted(true);
     report({ stage: "connecting", message: "正在连接视频流" });
     void player.play(session.url).catch((error: unknown) => report({ stage: "error", message: playerErrorMessage(error) }));
+    if (session.mode === "live") {
+      firstFrameTimeout = window.setTimeout(() => {
+        if (disposed || firstFrameRendered) return;
+        setPlaying(false);
+        onPlaybackStateChange?.(false);
+        report({ stage: "error", message: nvrLabFirstFrameTimeoutMessage(diagnostics) });
+      }, 12_000);
+    }
 
     return () => {
       disposed = true;
+      clearFirstFrameTimeout();
       player.stop();
       onPlaybackStateChange?.(false);
       if (playerRef.current === player) playerRef.current = null;
@@ -189,6 +222,12 @@ export function NVRLabPlayer({
       </div>
     </>
   );
+}
+
+export function nvrLabFirstFrameTimeoutMessage(diagnostics: NVRLabPlayerDiagnostics): string {
+  if (diagnostics.receivedPackets <= 0) return "视频流已连接，但未收到摄像头媒体数据，请稍后重试";
+  if (diagnostics.decoderInputFrames <= 0) return "视频流已收到，但未识别出可播放的视频帧，请确认该通道编码及工控机转发状态";
+  return "视频流已收到，但当前浏览器无法解码该摄像头画面";
 }
 
 function playerErrorMessage(error: unknown): string {
