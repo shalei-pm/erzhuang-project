@@ -59,6 +59,26 @@ func TestStoreListItemRequiresEveryCameraToHaveAValidBinding(t *testing.T) {
 	}
 }
 
+func TestCityNameUsesStaticDistrictAliases(t *testing.T) {
+	tests := []struct {
+		cityID int64
+		want   string
+	}{
+		{cityID: 1, want: "北京"},
+		{cityID: 9, want: "上海"},
+		{cityID: 175, want: "杭州"},
+		{cityID: 275, want: "长沙"},
+		{cityID: 385, want: "成都"},
+		{cityID: 999999, want: "城市 999999"},
+		{cityID: 0, want: ""},
+	}
+	for _, test := range tests {
+		if got := cityName(test.cityID); got != test.want {
+			t.Errorf("cityName(%d) = %q, want %q", test.cityID, got, test.want)
+		}
+	}
+}
+
 func TestBuildStoreDetailCreatesThreeLevelSpaceTreeAndDeviceTree(t *testing.T) {
 	records := StoreRecords{
 		Tenant: BusinessTenant{ID: 10019, Name: "上海陆家嘴店", HospitalName: "新氧青春诊所(上海陆家嘴店)", Status: 1, CityID: 9},

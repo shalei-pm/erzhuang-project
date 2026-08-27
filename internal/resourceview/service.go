@@ -852,6 +852,9 @@ func cityName(cityID int64) string {
 	if cityID == 0 {
 		return ""
 	}
+	if alias := cityAliases[cityID]; alias != "" {
+		return alias
+	}
 	return fmt.Sprintf("城市 %d", cityID)
 }
 
