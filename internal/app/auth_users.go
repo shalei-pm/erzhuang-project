@@ -18,6 +18,7 @@ const (
 	PermissionStoreRead  = "store:read"
 	PermissionStoreWrite = "store:write"
 	PermissionUserManage = "user:manage"
+	PermissionAuditView  = "audit.view"
 
 	ResourceTypeStore = "store"
 	ScopeMonitorView  = "monitor:view"
@@ -77,7 +78,7 @@ type AuthUserStore interface {
 func (record AuthUserRecord) permissions() []string {
 	switch strings.ToLower(strings.TrimSpace(record.Role)) {
 	case RoleAdmin:
-		return []string{RoleAdmin, PermissionStoreRead, PermissionStoreWrite, PermissionUserManage}
+		return []string{RoleAdmin, PermissionStoreRead, PermissionStoreWrite, PermissionUserManage, PermissionAuditView}
 	case RoleEditor:
 		return []string{RoleEditor, PermissionStoreRead, PermissionStoreWrite}
 	default:

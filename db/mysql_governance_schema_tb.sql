@@ -147,6 +147,7 @@ create table if not exists tb_auth_sessions (
 create table if not exists tb_audit_logs (
   id bigint not null auto_increment,
   user_id bigint null,
+  actor_display_name varchar(255) not null default '',
   user_email varchar(255) not null default '',
   action varchar(128) not null,
   entity_type varchar(64) not null,

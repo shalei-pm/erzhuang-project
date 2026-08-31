@@ -465,7 +465,7 @@ func TestAuthUserPermissionsForAdminEditorViewer(t *testing.T) {
 		role string
 		want []string
 	}{
-		{role: "admin", want: []string{"admin", "store:read", "store:write", "user:manage"}},
+		{role: "admin", want: []string{"admin", "store:read", "store:write", "user:manage", PermissionAuditView}},
 		{role: "editor", want: []string{"editor", "store:read", "store:write"}},
 		{role: "viewer", want: []string{"viewer", "store:read"}},
 		{role: "", want: []string{"viewer", "store:read"}},
