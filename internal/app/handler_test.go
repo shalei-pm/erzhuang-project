@@ -2109,6 +2109,7 @@ type recordingSQLDriver struct {
 	driverName  string
 	mu          sync.Mutex
 	execQueries []string
+	execErr     error
 }
 
 func newRecordingSQLDriver(t *testing.T) *recordingSQLDriver {
@@ -2126,6 +2127,12 @@ func (d *recordingSQLDriver) record(query string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.execQueries = append(d.execQueries, strings.Join(strings.Fields(query), " "))
+}
+
+func (d *recordingSQLDriver) setExecError(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.execErr = err
 }
 
 func (d *recordingSQLDriver) queries() []string {
@@ -2155,6 +2162,12 @@ func (c *recordingSQLConn) BeginTx(ctx context.Context, opts driver.TxOptions) (
 }
 
 func (c *recordingSQLConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	c.driver.mu.Lock()
+	execErr := c.driver.execErr
+	c.driver.mu.Unlock()
+	if execErr != nil {
+		return nil, execErr
+	}
 	c.driver.record(query)
 	return driver.RowsAffected(1), nil
 }

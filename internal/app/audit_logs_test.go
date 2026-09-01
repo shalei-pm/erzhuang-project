@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
 
 func TestAuditLogMemoryStoreUsesLeftClosedRightOpenTimeRange(t *testing.T) {
@@ -194,6 +197,79 @@ func TestMySQLStoreCreatesAuditLogWithAssetLogicalKey(t *testing.T) {
 	queries := recorder.queries()
 	if len(queries) != 1 || !strings.Contains(queries[0], "asset_logical_key") {
 		t.Fatalf("expected asset logical key insert column, got %#v", queries)
+	}
+}
+
+func TestAuditLogStoreAdaptersImplementSharedRecorders(t *testing.T) {
+	memoryStore := NewMemoryStore()
+	createdAt := time.Date(2026, time.September, 1, 10, 0, 0, 0, time.UTC)
+	memoryStore.now = func() time.Time { return createdAt }
+	var memoryRecorder auditlog.AuditRecorder = memoryStore
+	if err := memoryRecorder.RecordAudit(context.Background(), auditlog.AuditEvent{Action: "store.update"}); err != nil {
+		t.Fatalf("record memory audit event: %v", err)
+	}
+	page, err := memoryStore.ListAuditLogs(context.Background(), AuditLogFilter{
+		StartAt:  createdAt.Add(-time.Hour),
+		EndAt:    createdAt.Add(time.Hour),
+		Page:     1,
+		PageSize: 1,
+	})
+	if err != nil || page.Total != 1 || page.Items[0].Action != "store.update" {
+		t.Fatalf("memory adapter did not preserve audit event: page=%+v err=%v", page, err)
+	}
+
+	recordingDriver := newRecordingSQLDriver(t)
+	db, err := sql.Open(recordingDriver.driverName, "")
+	if err != nil {
+		t.Fatalf("open recording db: %v", err)
+	}
+	defer db.Close()
+
+	mysqlStore := NewMySQLStore(db)
+	var txRecorder auditlog.TxRecorder = mysqlStore
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin transaction: %v", err)
+	}
+	if err := txRecorder.RecorderForTx(tx).RecordAudit(context.Background(), auditlog.AuditEvent{Action: "store.update"}); err != nil {
+		t.Fatalf("record transaction audit event: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit transaction: %v", err)
+	}
+	queries := recordingDriver.queries()
+	if len(queries) != 1 || !strings.Contains(queries[0], "insert into tb_audit_logs") {
+		t.Fatalf("expected audit event insert through transaction, got %#v", queries)
+	}
+}
+
+func TestMySQLStoreRecorderForTxRejectsNilTransaction(t *testing.T) {
+	recorder := NewMySQLStore(nil).RecorderForTx(nil)
+	err := recorder.RecordAudit(context.Background(), auditlog.AuditEvent{Action: "store.update"})
+	if !errors.Is(err, errAuditLogTransactionNil) {
+		t.Fatalf("expected nil transaction error, got %v", err)
+	}
+}
+
+func TestMySQLStoreRecorderForTxPropagatesExecError(t *testing.T) {
+	expectedErr := errors.New("record audit exec failed")
+	recordingDriver := newRecordingSQLDriver(t)
+	recordingDriver.setExecError(expectedErr)
+	db, err := sql.Open(recordingDriver.driverName, "")
+	if err != nil {
+		t.Fatalf("open recording db: %v", err)
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	err = NewMySQLStore(db).RecorderForTx(tx).RecordAudit(context.Background(), auditlog.AuditEvent{Action: "store.update"})
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected transaction exec error to propagate, got %v", err)
 	}
 }
 
