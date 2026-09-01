@@ -1,6 +1,9 @@
 import type { MonitorCategory } from "./h5-types";
+import { readSessionStorage, safeSessionStorage, writeSessionStorage } from "./auth";
 
 export type H5MonitorTabKey = "all" | MonitorCategory;
+
+type TabStorage = Pick<Storage, "getItem" | "setItem"> | null;
 
 export const H5_MONITOR_TAB_QUERY_PARAM = "tab";
 
@@ -13,20 +16,14 @@ export const h5MonitorTabs: Array<{ key: H5MonitorTabKey; label: string }> = [
   { key: "other", label: "过道/其他" },
 ];
 
-type TabStorage = Pick<Storage, "getItem" | "setItem">;
-
 export function h5MonitorActiveTabStorageKey(externalOrgId: string) {
   return `h5-monitor-active-tab:${externalOrgId}`;
 }
 
-export function readH5MonitorActiveTab(externalOrgId: string, storage = browserSessionStorage()): H5MonitorTabKey {
+export function readH5MonitorActiveTab(externalOrgId: string, storage: TabStorage = safeSessionStorage()): H5MonitorTabKey {
   if (!storage) return "all";
-  try {
-    const value = storage.getItem(h5MonitorActiveTabStorageKey(externalOrgId));
-    return isH5MonitorTabKey(value) ? value : "all";
-  } catch {
-    return "all";
-  }
+  const value = readSessionStorage(h5MonitorActiveTabStorageKey(externalOrgId), storage);
+  return isH5MonitorTabKey(value) ? value : "all";
 }
 
 export function readH5MonitorActiveTabFromSearch(search: string | URLSearchParams): H5MonitorTabKey | null {
@@ -42,20 +39,11 @@ export function h5MonitorTabSearch(tab: H5MonitorTabKey | null | undefined) {
   return `?${params.toString()}`;
 }
 
-export function storeH5MonitorActiveTab(externalOrgId: string, tab: H5MonitorTabKey, storage = browserSessionStorage()) {
+export function storeH5MonitorActiveTab(externalOrgId: string, tab: H5MonitorTabKey, storage: TabStorage = safeSessionStorage()) {
   if (!storage) return;
-  try {
-    storage.setItem(h5MonitorActiveTabStorageKey(externalOrgId), tab);
-  } catch {
-    // 页面状态恢复是体验增强；存储不可用时保持本次页面内状态即可。
-  }
+  writeSessionStorage(h5MonitorActiveTabStorageKey(externalOrgId), tab, storage);
 }
 
 export function isH5MonitorTabKey(value: string | null): value is H5MonitorTabKey {
   return h5MonitorTabs.some((tab) => tab.key === value);
-}
-
-function browserSessionStorage(): TabStorage | null {
-  if (typeof window === "undefined") return null;
-  return window.sessionStorage;
 }

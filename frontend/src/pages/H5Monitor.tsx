@@ -5,7 +5,7 @@ import { SystemTopBar } from "../components/SystemTopBar";
 import { cameraPlaceholderURL, legacyCameraThumbnailKind } from "../domain/camera-placeholder";
 import { h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from "../domain/h5-channel-display";
 import { h5MonitorTabs, readH5MonitorActiveTab, storeH5MonitorActiveTab, type H5MonitorTabKey } from "../domain/h5-monitor-active-tab";
-import type { AuthState } from "../domain/auth";
+import { writeSessionStorage, type AuthState } from "../domain/auth";
 import type { H5MonitorChannel, H5MonitorHomeResponse } from "../domain/h5-types";
 
 interface H5MonitorProps {
@@ -210,7 +210,7 @@ export function H5Monitor({
             key={channel.id}
             channel={channel}
             onClick={() => {
-              sessionStorage.setItem("h5-monitor-active-channel-name", h5ChannelDisplayText(channel).title);
+              writeSessionStorage("h5-monitor-active-channel-name", h5ChannelDisplayText(channel).title);
               onOpenChannel(channel.id, activeTab);
             }}
           />

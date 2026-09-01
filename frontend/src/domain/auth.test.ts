@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   authLogoutPath,
   claimIdleSessionTimeoutRedirect,
   isIdleSessionTimeout,
+  readSessionStorage,
+  removeSessionStorage,
+  safeSessionStorage,
+  writeSessionStorage,
   type AuthState,
 } from "./auth";
 
@@ -49,5 +53,56 @@ describe("idle session auth helpers", () => {
 
     expect(claimIdleSessionTimeoutRedirect(readErrorStorage)).toBe(true);
     expect(claimIdleSessionTimeoutRedirect(writeErrorStorage)).toBe(true);
+    expect(claimIdleSessionTimeoutRedirect(null)).toBe(true);
+  });
+
+  it("treats unavailable session storage as a non-blocking condition", () => {
+    const failingStorage = {
+      getItem: () => {
+        throw new Error("storage unavailable");
+      },
+      setItem: () => {
+        throw new Error("storage unavailable");
+      },
+      removeItem: () => {
+        throw new Error("storage unavailable");
+      },
+    };
+
+    expect(readSessionStorage("key", failingStorage)).toBeNull();
+    expect(writeSessionStorage("key", "value", failingStorage)).toBe(false);
+    expect(removeSessionStorage("key", failingStorage)).toBe(false);
+  });
+
+  it("returns no storage when the sessionStorage getter throws", () => {
+    vi.stubGlobal("window", {
+      get sessionStorage() {
+        throw new Error("storage unavailable");
+      },
+    });
+
+    expect(safeSessionStorage()).toBeNull();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("company SSO logout paths", () => {
+  it("supports the formal domain with the safe gateway logout redirect", () => {
+    const logoutURL = new URL(`https://lite.soyoung.com${authLogoutPath("lite.soyoung.com")}`);
+    const gatewayURL = new URL(logoutURL.searchParams.get("redirect") ?? "");
+
+    expect(logoutURL.pathname).toBe("/erzhuang-project/logout");
+    expect(gatewayURL.origin).toBe("https://security-test.sy.soyoung.com");
+    expect(gatewayURL.pathname).toBe("/api/g/sso/logouttogether");
+    expect(gatewayURL.searchParams.get("from_host")).toBe("lite.soyoung.com");
+    expect(gatewayURL.searchParams.get("from_uri")).toBe("http://lite.soyoung.com/erzhuang-project/");
+  });
+
+  it("normalizes the supported test domain without changing its HTTPS return URI", () => {
+    const logoutURL = new URL(`https://lite.sy.soyoung.com${authLogoutPath("LITE.SY.SOYOUNG.COM.")}`);
+    const gatewayURL = new URL(logoutURL.searchParams.get("redirect") ?? "");
+
+    expect(gatewayURL.searchParams.get("from_host")).toBe("lite.sy.soyoung.com");
+    expect(gatewayURL.searchParams.get("from_uri")).toBe("https://lite.sy.soyoung.com/erzhuang-project/");
   });
 });

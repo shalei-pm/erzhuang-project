@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { storeSpaceApi, type AuditLogItem, type ManagedUser } from "../api";
+import { isIdleSessionTimeout } from "../domain/auth";
 import { errorMessage, formatDateTime } from "../domain/format";
 
 const actionLabels: Record<string, string> = {
@@ -23,7 +24,7 @@ function localDate(offsetDays = 0) {
   return date.toISOString().slice(0, 10);
 }
 
-export function AuditLogManagement({ onToast }: { onToast: (message: string) => void }) {
+export function AuditLogManagement({ onToast, onAuthRequired }: { onToast: (message: string) => void; onAuthRequired?: (error?: unknown) => void }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [items, setItems] = useState<AuditLogItem[]>([]);
   const [startDate, setStartDate] = useState(() => localDate(-6));
@@ -38,7 +39,13 @@ export function AuditLogManagement({ onToast }: { onToast: (message: string) => 
   const sortedUsers = useMemo(() => [...users].sort((a, b) => a.email.localeCompare(b.email)), [users]);
 
   useEffect(() => {
-    void Promise.all([storeSpaceApi.listUsers(), loadLogs(1)]).then(([nextUsers]) => setUsers(nextUsers)).catch((error) => onToast(errorMessage(error, "操作日志加载失败。")));
+    void Promise.all([storeSpaceApi.listUsers(), loadLogs(1)]).then(([nextUsers]) => setUsers(nextUsers)).catch((error) => {
+      if (isIdleSessionTimeout(error) && onAuthRequired) {
+        onAuthRequired(error);
+        return;
+      }
+      onToast(errorMessage(error, "操作日志加载失败。"));
+    });
     // The initial request intentionally uses the default seven-day range.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -64,6 +71,10 @@ export function AuditLogManagement({ onToast }: { onToast: (message: string) => 
       setPage(response.page);
       setTotal(response.total);
     } catch (error) {
+      if (isIdleSessionTimeout(error) && onAuthRequired) {
+        onAuthRequired(error);
+        return;
+      }
       onToast(errorMessage(error, "操作日志加载失败。"));
     } finally {
       setLoading(false);

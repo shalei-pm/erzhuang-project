@@ -24,6 +24,7 @@ import { displayAccountRegion, selectableRegionAccounts } from "../domain/ezviz"
 import { fallbackProbeChannelNumbers, fallbackProbeMaxChannelNo, shouldStopFallbackProbe } from "../domain/fallback-probe";
 import { formatDateTime } from "../domain/format";
 import { ImageLoadQueue } from "../domain/image-load-queue";
+import { isIdleSessionTimeout } from "../domain/auth";
 
 const snapshotImageQueue = new ImageLoadQueue(2);
 
@@ -34,9 +35,10 @@ type VideoChannelTabProps = {
   onStoreUpdated: (update: StoreDetail | ((store: StoreDetail) => StoreDetail)) => void;
   onRecorderUpdated: (recorder: VideoRecorder) => void;
   onToast: (message: string) => void;
+  onAuthRequired?: (error?: unknown) => void;
 };
 
-export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRecorderUpdated, onToast }: VideoChannelTabProps) {
+export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRecorderUpdated, onToast, onAuthRequired }: VideoChannelTabProps) {
   const [workingRecorderId, setWorkingRecorderId] = useState<number | null>(null);
   const [recognizingChannelIds, setRecognizingChannelIds] = useState<Set<number>>(() => new Set());
   const [recorderProgress, setRecorderProgress] = useState<Record<number, { done: number; total: number }>>({});
@@ -76,6 +78,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       onRecorderUpdated(nextRecorder);
       onToast(`已扫描 ${recorder.deviceCode}，发现 ${nextRecorder.effectiveChannelCount} 个有效通道。`);
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       const message = channelErrorMessage(error, "扫描失败，请稍后重试。");
       if (shouldUseFallbackProbe(message)) {
         await runFallbackProbeRecognition(recorder);
@@ -109,6 +112,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
           consecutiveFailures += 1;
         }
       } catch (error) {
+        if (handleIdleSessionTimeout(error, onAuthRequired)) return;
         consecutiveFailures += 1;
       }
       setFallbackProbeProgress((current) => ({ ...current, [recorder.id]: { checked: channelNo, active: activeCount } }));
@@ -157,6 +161,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       interrupted: 0,
       firstError: "",
     };
+    let sessionIdleTimeout = false;
     try {
       for (let index = 0; index < targetChannels.length; index++) {
         const channel = targetChannels[index];
@@ -175,6 +180,9 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
           setExpiredSnapshotIds((current) => removeIdFromSet(current, channel.id));
           setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
         } catch (error) {
+          if (handleIdleSessionTimeout(error, onAuthRequired)) {
+            sessionIdleTimeout = true;
+          }
           const networkMessage = channelNetworkErrorMessage(error);
           const message = networkMessage || channelErrorMessage(error, "截图识别失败，请稍后重试。");
           if (networkMessage) {
@@ -193,6 +201,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
           });
           setRecorderProgress((current) => ({ ...current, [recorder.id]: { done: index + 1, total: targetChannels.length } }));
         }
+        if (sessionIdleTimeout) break;
       }
       setCompletedRecorderProgressId(recorder.id);
       if (completionTimerRef.current !== null) {
@@ -229,6 +238,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       onStoreUpdated(updated);
       onToast(`已删除录像机 ${recorder.deviceCode}。`);
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       onStoreUpdated(previousStore);
       onToast(channelErrorMessage(error, "删除录像机失败，请稍后重试。"));
     } finally {
@@ -259,6 +269,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       onStoreUpdated(updated);
       onToast(`已添加录像机 ${deviceCode.toUpperCase()}。`);
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       onToast(channelErrorMessage(error, "添加录像机失败，请稍后重试。"));
     } finally {
       setAddingRecorder(false);
@@ -297,6 +308,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       onStoreUpdated(updated);
       onToast("通道确认已保存。");
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, previousChannel));
       setEditingChannels((current) => ({ ...current, [channel.id]: patch }));
       const message = channelErrorMessage(error, "通道确认失败，请稍后重试。");
@@ -331,6 +343,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       const updatedChannel = await storeSpaceApi.unlockChannelForEdit(store.id, channel.id);
       onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, updatedChannel));
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       onStoreUpdated((currentStore) => replaceChannelInStore(currentStore, previousChannel));
       setEditingChannels((current) => {
         const next = { ...current };
@@ -362,6 +375,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       onStoreUpdated(updated);
       onToast(`已删除通道 ${channel.channelNo}。`);
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       onStoreUpdated(previousStore);
       const message = channelErrorMessage(error, "删除通道失败，请稍后重试。");
       setChannelError(`通道 ${channel.channelNo} 删除失败：${message}`);
@@ -381,6 +395,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
       onToast(`已重新识别录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo}。`);
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       const message = channelErrorMessage(error, "截图识别能力还在接入中，请稍后再试。");
       setChannelError(`通道 ${channel.channelNo} 识别失败：${message}`);
       onToast(message);
@@ -403,6 +418,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       setSnapshotDiagnostics((current) => removeKeyFromRecord(current, channel.id));
       onToast(`已刷新录像机 ${recorder.deviceCode} 的通道 ${channel.channelNo} 截图。`);
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       const message = channelErrorMessage(error, "刷新截图失败，请稍后重试。");
       setChannelError(`通道 ${channel.channelNo} 刷新截图失败：${message}`);
       onToast(message);
@@ -425,6 +441,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       const diagnostics = await storeSpaceApi.diagnoseChannelSnapshot(snapshotName);
       setSnapshotDiagnostics((current) => ({ ...current, [channel.id]: diagnostics }));
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       setSnapshotDiagnostics((current) => ({ ...current, [channel.id]: { detail: diagnosticErrorMessage(error) } }));
     }
   }
@@ -436,6 +453,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       await storeSpaceApi.recordChannelSnapshotView(store.id, channel.id);
       setPreviewChannel(channel);
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       onToast(channelErrorMessage(error, "截图审计失败，请稍后重试。"));
     } finally {
       setViewingSnapshotIds((current) => removeIdFromSet(current, channel.id));
@@ -449,6 +467,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
       await storeSpaceApi.exportChannelMappings(store.id);
       onToast("通道映射表已开始下载。");
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       const message = channelErrorMessage(error, "导出失败，请稍后重试。");
       setChannelError(message);
       onToast(message);
@@ -969,6 +988,12 @@ function snapshotDiagnosticLabel(diagnostics: SnapshotDiagnostics | { detail: st
     return parts.join(" · ");
   }
   return diagnostics.detail;
+}
+
+function handleIdleSessionTimeout(error: unknown, onAuthRequired?: (error?: unknown) => void): boolean {
+  if (!isIdleSessionTimeout(error) || !onAuthRequired) return false;
+  onAuthRequired(error);
+  return true;
 }
 
 function diagnosticErrorMessage(error: unknown) {

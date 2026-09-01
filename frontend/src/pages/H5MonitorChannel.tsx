@@ -10,7 +10,7 @@ import { H5PlayerControls, type H5PlayerControlState } from "../components/H5Pla
 import { PlaybackSegmentSlider } from "../components/PlaybackSegmentSlider";
 import { PlaybackDatePicker, initialPlaybackDateTimeValue } from "../components/PlaybackDatePicker";
 import { SystemTopBar } from "../components/SystemTopBar";
-import type { AuthState } from "../domain/auth";
+import { readSessionStorage, type AuthState } from "../domain/auth";
 import {
   dataUrlToFile,
   estimatePlaybackUnixAt,
@@ -105,7 +105,7 @@ export function H5MonitorChannel({
   const isAdmin = false;
 
   const channelTitle = useMemo(() => {
-    return sessionStorage.getItem("h5-monitor-active-channel-name") || `通道${channelId}`;
+    return readSessionStorage("h5-monitor-active-channel-name") || `通道${channelId}`;
   }, [channelId]);
 
   const activeUrlId = mode === "live" ? liveUrl?.url_id : playbackUrl?.url_id;

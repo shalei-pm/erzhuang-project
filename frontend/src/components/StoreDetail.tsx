@@ -21,6 +21,7 @@ type StoreDetailProps = {
   onToggleAIModel: () => void;
   onStoreUpdated: (update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType)) => void;
   onToast: (message: string) => void;
+  onAuthRequired?: (error?: unknown) => void;
 };
 
 export function StoreDetail({
@@ -39,6 +40,7 @@ export function StoreDetail({
   onToggleAIModel,
   onStoreUpdated,
   onToast,
+  onAuthRequired,
 }: StoreDetailProps) {
   const [activeTab, setActiveTab] = useState<StoreDetailTab>(initialTab);
 
@@ -141,6 +143,7 @@ export function StoreDetail({
               onStoreUpdated={onStoreUpdated}
               onRecorderUpdated={updateRecorder}
               onToast={onToast}
+              onAuthRequired={onAuthRequired}
             />
           </div>
         </>

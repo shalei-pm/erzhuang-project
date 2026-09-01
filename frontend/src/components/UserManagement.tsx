@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { storeSpaceApi, type ManagedUser, type ManagedUserPayload, type ManagedUserRole, type MonitorStoreScope } from "../api";
+import { isIdleSessionTimeout } from "../domain/auth";
 import { errorMessage, formatDateTime } from "../domain/format";
 
 const roleLabels: Record<ManagedUserRole, string> = {
@@ -10,6 +11,7 @@ const roleLabels: Record<ManagedUserRole, string> = {
 
 type UserManagementProps = {
   onToast: (message: string) => void;
+  onAuthRequired?: (error?: unknown) => void;
 };
 
 type UserFormState = {
@@ -31,7 +33,7 @@ const emptyForm: UserFormState = {
   monitorStoreScopeIds: [],
 };
 
-export function UserManagement({ onToast }: UserManagementProps) {
+export function UserManagement({ onToast, onAuthRequired }: UserManagementProps) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -77,6 +79,10 @@ export function UserManagement({ onToast }: UserManagementProps) {
     try {
       setUsers(await storeSpaceApi.listUsers());
     } catch (error) {
+      if (isIdleSessionTimeout(error) && onAuthRequired) {
+        onAuthRequired(error);
+        return;
+      }
       onToast(errorMessage(error, "用户列表加载失败。"));
     } finally {
       setLoading(false);
@@ -89,6 +95,10 @@ export function UserManagement({ onToast }: UserManagementProps) {
     try {
       setScopeCandidates(await storeSpaceApi.listMonitorStoreScopeCandidates());
     } catch (error) {
+      if (isIdleSessionTimeout(error) && onAuthRequired) {
+        onAuthRequired(error);
+        return;
+      }
       onToast(errorMessage(error, "门店范围加载失败。"));
     } finally {
       setScopeLoading(false);
@@ -143,6 +153,10 @@ export function UserManagement({ onToast }: UserManagementProps) {
       setFormOpen(false);
       onToast(form.id ? "用户权限已更新。" : "用户已添加。");
     } catch (error) {
+      if (isIdleSessionTimeout(error) && onAuthRequired) {
+        onAuthRequired(error);
+        return;
+      }
       onToast(errorMessage(error, "用户保存失败。"));
     } finally {
       setSaving(false);

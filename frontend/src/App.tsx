@@ -22,12 +22,16 @@ import {
   canManageUsers,
   idleSessionTimeoutRedirectKey,
   isIdleSessionTimeout,
+  readSessionStorage,
+  removeSessionStorage,
+  safeSessionStorage,
   shouldBlockBusinessData,
   shouldShowForbiddenAccess,
   shouldShowLoginWelcome,
   shouldShowLogoutEntry,
   shouldSkipLocalLogoutBeforeRedirect,
   type AuthState,
+  writeSessionStorage,
 } from "./domain/auth";
 import { errorMessage } from "./domain/format";
 import {
@@ -127,7 +131,7 @@ function AdminApp() {
     });
     if (idleTimeout && !authRedirectingRef.current) {
       authRedirectingRef.current = true;
-      if (claimIdleSessionTimeoutRedirect(window.sessionStorage)) {
+      if (claimIdleSessionTimeoutRedirect(safeSessionStorage())) {
         window.location.assign(logoutPath);
       }
     }
@@ -159,8 +163,8 @@ function AdminApp() {
 
   useEffect(() => {
     if (auth?.authenticated) {
-      window.sessionStorage.removeItem("erzhuang:sso-entry-redirected");
-      window.sessionStorage.removeItem(idleSessionTimeoutRedirectKey);
+      removeSessionStorage("erzhuang:sso-entry-redirected");
+      removeSessionStorage(idleSessionTimeoutRedirectKey);
     }
   }, [auth]);
 
@@ -169,8 +173,8 @@ function AdminApp() {
     const companyEntryPath = authCompanyEntryPath();
     if (!companyEntryPath) return;
     const redirectKey = "erzhuang:sso-entry-redirected";
-    if (window.sessionStorage.getItem(redirectKey) === "1") return;
-    window.sessionStorage.setItem(redirectKey, "1");
+    if (readSessionStorage(redirectKey) === "1") return;
+    writeSessionStorage(redirectKey, "1");
     window.location.replace(companyEntryPath);
   }, [auth]);
 
@@ -333,7 +337,11 @@ function AdminApp() {
             操作日志
           </button>
         </nav>
-        {settingsSection === "audit" ? <AuditLogManagement onToast={setToast} /> : <UserManagement onToast={setToast} />}
+        {settingsSection === "audit" ? (
+          <AuditLogManagement onToast={setToast} onAuthRequired={handleAuthRequired} />
+        ) : (
+          <UserManagement onToast={setToast} onAuthRequired={handleAuthRequired} />
+        )}
         <footer className="app-version" aria-label="当前版本">
           版本 {APP_VERSION}
         </footer>
@@ -497,7 +505,7 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     setAuthMessage(idleTimeout ? "登录已因长时间未操作失效，请重新扫码登录。" : "");
     if (idleTimeout && !authRedirectingRef.current) {
       authRedirectingRef.current = true;
-      if (claimIdleSessionTimeoutRedirect(window.sessionStorage)) {
+      if (claimIdleSessionTimeoutRedirect(safeSessionStorage())) {
         window.location.assign(logoutPath);
       }
     }
@@ -533,8 +541,8 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
 
   useEffect(() => {
     if (auth?.authenticated) {
-      window.sessionStorage.removeItem("erzhuang:h5-sso-entry-redirected");
-      window.sessionStorage.removeItem(idleSessionTimeoutRedirectKey);
+      removeSessionStorage("erzhuang:h5-sso-entry-redirected");
+      removeSessionStorage(idleSessionTimeoutRedirectKey);
     }
   }, [auth]);
 
@@ -566,8 +574,8 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     const companyEntryPath = authCompanyEntryPath();
     if (!companyEntryPath) return;
     const redirectKey = "erzhuang:h5-sso-entry-redirected";
-    if (window.sessionStorage.getItem(redirectKey) === "1") return;
-    window.sessionStorage.setItem(redirectKey, "1");
+    if (readSessionStorage(redirectKey) === "1") return;
+    writeSessionStorage(redirectKey, "1");
     window.location.replace(companyEntryPath);
   }, [auth]);
 
