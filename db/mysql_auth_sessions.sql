@@ -29,6 +29,8 @@ order by index_name, seq_in_index;
 -- ============================================================================
 -- Run this whole file in a MySQL client that supports DELIMITER commands,
 -- such as the mysql CLI. The procedure is removed after it is called.
+-- All existing-table blockers are checked before ALTER/UPDATE statements;
+-- MySQL DDL may implicitly commit, so this migration does not promise rollback.
 
 drop procedure if exists erzhuang_migrate_tb_auth_sessions_tmp;
 
@@ -40,10 +42,15 @@ begin
   declare v_users_exists bigint default 0;
   declare v_missing_columns bigint default 0;
   declare v_null_created_at bigint default 0;
+  declare v_nullable_token_hash bigint default 0;
+  declare v_null_token_hash bigint default 0;
   declare v_column_exists bigint default 0;
   declare v_index_entries bigint default 0;
   declare v_index_matches bigint default 0;
   declare v_duplicate_hashes bigint default 0;
+  declare v_token_index_missing bigint default 0;
+  declare v_user_activity_index_missing bigint default 0;
+  declare v_expiry_index_missing bigint default 0;
 
   select count(*) into v_table_exists
   from information_schema.tables
@@ -108,6 +115,18 @@ begin
         set message_text = 'tb_auth_sessions is missing required base columns; inspect information_schema.columns';
     end if;
 
+    select count(*) into v_nullable_token_hash
+    from information_schema.columns
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions'
+      and column_name = 'session_token_hash'
+      and is_nullable <> 'NO';
+
+    if v_nullable_token_hash > 0 then
+      signal sqlstate '45000'
+        set message_text = 'tb_auth_sessions.session_token_hash must be NOT NULL before migration';
+    end if;
+
     select count(*) into v_null_created_at
     from tb_auth_sessions
     where created_at is null;
@@ -115,6 +134,90 @@ begin
     if v_null_created_at > 0 then
       signal sqlstate '45000'
         set message_text = 'tb_auth_sessions contains rows with NULL created_at; repair data before migration';
+    end if;
+
+    select count(*) into v_null_token_hash
+    from tb_auth_sessions
+    where session_token_hash is null;
+
+    if v_null_token_hash > 0 then
+      signal sqlstate '45000'
+        set message_text = 'tb_auth_sessions contains rows with NULL session_token_hash; repair data before migration';
+    end if;
+
+    select count(*) into v_duplicate_hashes
+    from (
+      select session_token_hash
+      from tb_auth_sessions
+      group by session_token_hash
+      having count(*) > 1
+    ) duplicate_hashes;
+
+    if v_duplicate_hashes > 0 then
+      signal sqlstate '45000'
+        set message_text = 'duplicate session_token_hash values must be repaired before migration';
+    end if;
+
+    -- Validate existing named indexes before any ALTER or UPDATE. A wrong
+    -- definition is blocked rather than silently treated as missing.
+    select count(*), coalesce(sum(
+      case when non_unique = 0
+        and index_type = 'BTREE'
+        and (sub_part = 0 or sub_part is null)
+        and seq_in_index = 1
+        and column_name = 'session_token_hash'
+        then 1 else 0 end), 0)
+      into v_index_entries, v_index_matches
+    from information_schema.statistics
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions'
+      and index_name = 'uq_tb_auth_sessions_token_hash';
+
+    if v_index_entries = 0 then
+      set v_token_index_missing = 1;
+    elseif v_index_entries <> 1 or v_index_matches <> 1 then
+      signal sqlstate '45000'
+        set message_text = 'uq_tb_auth_sessions_token_hash has the wrong uniqueness, BTREE type, prefix, or column order';
+    end if;
+
+    select count(*), coalesce(sum(
+      case when non_unique = 1
+        and index_type = 'BTREE'
+        and (sub_part = 0 or sub_part is null)
+        and ((seq_in_index = 1 and column_name = 'user_id')
+          or (seq_in_index = 2 and column_name = 'last_activity_at'))
+        then 1 else 0 end), 0)
+      into v_index_entries, v_index_matches
+    from information_schema.statistics
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions'
+      and index_name = 'idx_tb_auth_sessions_user_activity';
+
+    if v_index_entries = 0 then
+      set v_user_activity_index_missing = 1;
+    elseif v_index_entries <> 2 or v_index_matches <> 2 then
+      signal sqlstate '45000'
+        set message_text = 'idx_tb_auth_sessions_user_activity has the wrong uniqueness, BTREE type, prefix, or column order';
+    end if;
+
+    select count(*), coalesce(sum(
+      case when non_unique = 1
+        and index_type = 'BTREE'
+        and (sub_part = 0 or sub_part is null)
+        and seq_in_index = 1
+        and column_name = 'expires_at'
+        then 1 else 0 end), 0)
+      into v_index_entries, v_index_matches
+    from information_schema.statistics
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions'
+      and index_name = 'idx_tb_auth_sessions_expires_at';
+
+    if v_index_entries = 0 then
+      set v_expiry_index_missing = 1;
+    elseif v_index_entries <> 1 or v_index_matches <> 1 then
+      signal sqlstate '45000'
+        set message_text = 'idx_tb_auth_sessions_expires_at has the wrong uniqueness, BTREE type, prefix, or column order';
     end if;
 
     select count(*) into v_column_exists
@@ -135,75 +238,19 @@ begin
     alter table tb_auth_sessions
       modify column last_activity_at datetime(3) not null;
 
-    -- Every existing index with a required name must have the exact definition.
-    select count(*), coalesce(sum(
-      case when non_unique = 0
-        and seq_in_index = 1
-        and column_name = 'session_token_hash'
-        then 1 else 0 end), 0)
-      into v_index_entries, v_index_matches
-    from information_schema.statistics
-    where table_schema = database()
-      and table_name = 'tb_auth_sessions'
-      and index_name = 'uq_tb_auth_sessions_token_hash';
-
-    if v_index_entries = 0 then
-      select count(*) into v_duplicate_hashes
-      from (
-        select session_token_hash
-        from tb_auth_sessions
-        group by session_token_hash
-        having count(*) > 1
-      ) duplicate_hashes;
-
-      if v_duplicate_hashes > 0 then
-        signal sqlstate '45000'
-          set message_text = 'duplicate session_token_hash values prevent the required unique index';
-      end if;
-
+    if v_token_index_missing = 1 then
       alter table tb_auth_sessions
         add unique key uq_tb_auth_sessions_token_hash (session_token_hash);
-    elseif v_index_entries <> 1 or v_index_matches <> 1 then
-      signal sqlstate '45000'
-        set message_text = 'uq_tb_auth_sessions_token_hash has the wrong uniqueness or column order';
     end if;
 
-    select count(*), coalesce(sum(
-      case when non_unique = 1
-        and ((seq_in_index = 1 and column_name = 'user_id')
-          or (seq_in_index = 2 and column_name = 'last_activity_at'))
-        then 1 else 0 end), 0)
-      into v_index_entries, v_index_matches
-    from information_schema.statistics
-    where table_schema = database()
-      and table_name = 'tb_auth_sessions'
-      and index_name = 'idx_tb_auth_sessions_user_activity';
-
-    if v_index_entries = 0 then
+    if v_user_activity_index_missing = 1 then
       alter table tb_auth_sessions
         add key idx_tb_auth_sessions_user_activity (user_id, last_activity_at);
-    elseif v_index_entries <> 2 or v_index_matches <> 2 then
-      signal sqlstate '45000'
-        set message_text = 'idx_tb_auth_sessions_user_activity has the wrong columns or order';
     end if;
 
-    select count(*), coalesce(sum(
-      case when non_unique = 1
-        and seq_in_index = 1
-        and column_name = 'expires_at'
-        then 1 else 0 end), 0)
-      into v_index_entries, v_index_matches
-    from information_schema.statistics
-    where table_schema = database()
-      and table_name = 'tb_auth_sessions'
-      and index_name = 'idx_tb_auth_sessions_expires_at';
-
-    if v_index_entries = 0 then
+    if v_expiry_index_missing = 1 then
       alter table tb_auth_sessions
         add key idx_tb_auth_sessions_expires_at (expires_at);
-    elseif v_index_entries <> 1 or v_index_matches <> 1 then
-      signal sqlstate '45000'
-        set message_text = 'idx_tb_auth_sessions_expires_at has the wrong columns or order';
     end if;
   end if;
 end$$

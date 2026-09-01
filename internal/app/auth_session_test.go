@@ -453,12 +453,116 @@ func TestMySQLAuthSessionIntegration(t *testing.T) {
 		t.Fatalf("ping MYSQL_TEST_DSN: %v", err)
 	}
 
-	ok, err := NewMySQLStore(db).TouchAuthSession(ctx, "task2-integration-probe", -1, time.Now(), 24*time.Hour)
-	if err != nil {
-		t.Fatalf("touch auth-session probe: %v", err)
+	var tableExists int
+	if err := db.QueryRowContext(ctx, `
+		select count(*)
+		from information_schema.tables
+		where table_schema = database() and table_name = 'tb_auth_sessions'
+	`).Scan(&tableExists); err != nil {
+		t.Fatalf("check tb_auth_sessions: %v", err)
 	}
-	if ok {
-		t.Fatal("nonexistent integration probe session must not be active")
+	if tableExists != 1 {
+		t.Fatal("tb_auth_sessions is required for the integration test")
+	}
+
+	const requiredColumnCount = 11
+	var columnCount int
+	if err := db.QueryRowContext(ctx, `
+		select count(*)
+		from information_schema.columns
+		where table_schema = database()
+		  and table_name = 'tb_auth_sessions'
+		  and column_name in (
+			'id', 'session_token_hash', 'user_id', 'sso_subject', 'ip_address',
+			'user_agent', 'created_at', 'last_activity_at', 'expires_at',
+			'revoked_at', 'revoked_reason'
+		  )
+	`).Scan(&columnCount); err != nil {
+		t.Fatalf("check tb_auth_sessions columns: %v", err)
+	}
+	if columnCount != requiredColumnCount {
+		t.Fatalf("tb_auth_sessions required columns = %d, want %d", columnCount, requiredColumnCount)
+	}
+	var nullCreatedAt, nullTokenHash int
+	if err := db.QueryRowContext(ctx, `select count(*) from tb_auth_sessions where created_at is null`).Scan(&nullCreatedAt); err != nil {
+		t.Fatalf("check NULL created_at preflight: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `select count(*) from tb_auth_sessions where session_token_hash is null`).Scan(&nullTokenHash); err != nil {
+		t.Fatalf("check NULL session_token_hash preflight: %v", err)
+	}
+	if nullCreatedAt != 0 || nullTokenHash != 0 {
+		t.Fatalf("migration preflight data checks failed: null_created_at=%d null_token_hash=%d", nullCreatedAt, nullTokenHash)
+	}
+	var duplicateHashes int
+	if err := db.QueryRowContext(ctx, `
+		select count(*)
+		from (
+			select session_token_hash
+			from tb_auth_sessions
+			group by session_token_hash
+			having count(*) > 1
+		) duplicate_hashes
+	`).Scan(&duplicateHashes); err != nil {
+		t.Fatalf("check duplicate session_token_hash preflight: %v", err)
+	}
+	if duplicateHashes != 0 {
+		t.Fatalf("migration preflight found duplicate session_token_hash groups: %d", duplicateHashes)
+	}
+
+	var userID int64
+	if err := db.QueryRowContext(ctx, `select id from tb_users order by id limit 1`).Scan(&userID); err != nil {
+		t.Fatalf("find integration test user: %v", err)
+	}
+
+	store := NewMySQLStore(db)
+	now := time.Now().UTC()
+	token, err := store.CreateAuthSession(ctx, AuthSessionCreate{UserID: userID, Now: now})
+	if err != nil {
+		t.Fatalf("create auth session: %v", err)
+	}
+	tokenHash := hashAuthSessionToken(token)
+	hashText := hex.EncodeToString(tokenHash[:])
+	defer func() {
+		_, _ = db.ExecContext(context.Background(), `delete from tb_auth_sessions where session_token_hash = ?`, hashText)
+	}()
+
+	ok, err := store.TouchAuthSession(ctx, token, userID, now.Add(24*time.Hour), 24*time.Hour)
+	if err != nil {
+		t.Fatalf("touch active auth session: %v", err)
+	}
+	if !ok {
+		t.Fatal("new auth session must be active")
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		update tb_auth_sessions
+		set expires_at = utc_timestamp(3) - interval 1 second
+		where session_token_hash = ? and user_id = ?
+	`, hashText, userID); err != nil {
+		t.Fatalf("expire auth session: %v", err)
+	}
+	if ok, err := store.TouchAuthSession(ctx, token, userID, now, 24*time.Hour); err != nil {
+		t.Fatalf("touch expired auth session: %v", err)
+	} else if ok {
+		t.Fatal("expired auth session must not be active")
+	}
+
+	revokedToken, err := store.CreateAuthSession(ctx, AuthSessionCreate{UserID: userID, Now: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("create revocation auth session: %v", err)
+	}
+	revokedHash := hashAuthSessionToken(revokedToken)
+	revokedHashText := hex.EncodeToString(revokedHash[:])
+	defer func() {
+		_, _ = db.ExecContext(context.Background(), `delete from tb_auth_sessions where session_token_hash = ?`, revokedHashText)
+	}()
+	if err := store.RevokeAuthSession(ctx, revokedToken, userID, "integration_test", time.Now().UTC()); err != nil {
+		t.Fatalf("revoke auth session: %v", err)
+	}
+	if ok, err := store.TouchAuthSession(ctx, revokedToken, userID, now, 24*time.Hour); err != nil {
+		t.Fatalf("touch revoked auth session: %v", err)
+	} else if ok {
+		t.Fatal("revoked auth session must not be active")
 	}
 }
 
@@ -485,19 +589,42 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 		"add column last_activity_at datetime(3) null",
 		"set last_activity_at = created_at",
 		"modify column last_activity_at datetime(3) not null",
-		"if v_index_exists = 0 then",
+		"if v_index_entries = 0 then",
 		"call erzhuang_migrate_tb_auth_sessions_tmp()",
 		"drop procedure erzhuang_migrate_tb_auth_sessions_tmp",
 		"v_missing_columns",
 		"v_null_created_at",
+		"v_nullable_token_hash",
+		"v_null_token_hash",
 		"NULL created_at",
+		"NULL session_token_hash",
 		"duplicate session_token_hash",
-		"wrong uniqueness or column order",
-		"wrong columns or order",
+		"index_type = 'BTREE'",
+		"sub_part = 0 or sub_part is null",
+		"uq_tb_auth_sessions_token_hash has the wrong uniqueness, BTREE type, prefix, or column order",
+		"idx_tb_auth_sessions_user_activity has the wrong uniqueness, BTREE type, prefix, or column order",
+		"idx_tb_auth_sessions_expires_at has the wrong uniqueness, BTREE type, prefix, or column order",
 		"application startup",
 	} {
 		if !strings.Contains(migration, want) {
 			t.Fatalf("auth-session migration missing %q", want)
+		}
+	}
+	firstAlter := strings.Index(migration, "alter table tb_auth_sessions")
+	if firstAlter < 0 {
+		t.Fatal("migration must contain the existing-table patch branch")
+	}
+	for _, preflightMarker := range []string{
+		"tb_auth_sessions is missing required base columns",
+		"tb_auth_sessions.session_token_hash must be NOT NULL",
+		"tb_auth_sessions contains rows with NULL created_at",
+		"tb_auth_sessions contains rows with NULL session_token_hash",
+		"duplicate session_token_hash values must be repaired before migration",
+		"and index_type = 'BTREE'",
+		"and (sub_part = 0 or sub_part is null)",
+	} {
+		if index := strings.Index(migration, preflightMarker); index < 0 || index > firstAlter {
+			t.Fatalf("migration preflight marker %q must appear before first ALTER", preflightMarker)
 		}
 	}
 	for _, secretMarker := range []string{"Authorization:", "password", "MYSQL_DSN", "wss://", "eyJ"} {
