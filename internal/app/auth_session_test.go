@@ -619,7 +619,7 @@ func TestMySQLAuthSessionMigrationIntegration(t *testing.T) {
 		t.Skip("MYSQL_TEST_DSN, MYSQL_TEST_DSN_ALLOW_MIGRATION=1, and MYSQL_TEST_MIGRATION_DATABASE are required")
 	}
 	if !isSafeMySQLMigrationDSN(dsn, declaredDatabase) {
-		t.Skip("migration test requires an isolated *_migration_test database and an exact MYSQL_TEST_MIGRATION_DATABASE match")
+		t.Skip("migration test requires the exact polar-dev.rwlb.rds.aliyuncs.com:3306 host, an isolated *_migration_test database, and an exact MYSQL_TEST_MIGRATION_DATABASE match")
 	}
 
 	db, err := sql.Open("mysql", dsn)
@@ -714,6 +714,7 @@ func isSafeMySQLTestDSN(dsn string) bool {
 	return false
 }
 
+// This integration test drops tb_auth_sessions; keep its connection target exact.
 func isSafeMySQLMigrationDSN(dsn, declaredDatabase string) bool {
 	cfg, err := mysql.ParseDSN(dsn)
 	if err != nil {
@@ -725,7 +726,10 @@ func isSafeMySQLMigrationDSN(dsn, declaredDatabase string) bool {
 		return false
 	}
 
-	host := mysqlDSNHost(cfg.Net, cfg.Addr)
+	host, port, ok := mysqlDSNHostPort(cfg.Net, cfg.Addr)
+	if !ok || host != "polar-dev.rwlb.rds.aliyuncs.com" || port != "3306" {
+		return false
+	}
 	identity := strings.ToLower(host + " " + database)
 	for _, marker := range []string{
 		"db_pm_erzhuang",
@@ -738,26 +742,18 @@ func isSafeMySQLMigrationDSN(dsn, declaredDatabase string) bool {
 			return false
 		}
 	}
-	if cfg.Net != "tcp" {
-		return false
-	}
-	_, allowed := map[string]struct{}{
-		"localhost":                         {},
-		"127.0.0.1":                         {},
-		"::1":                               {},
-		"polar-dev.rwlb.rds.aliyuncs.com": {},
-	}[host]
-	return allowed
+	return true
 }
 
-func mysqlDSNHost(network, address string) string {
+func mysqlDSNHostPort(network, address string) (string, string, bool) {
 	if network != "tcp" {
-		return ""
+		return "", "", false
 	}
-	if host, _, err := net.SplitHostPort(address); err == nil {
-		return strings.ToLower(strings.Trim(host, "[]"))
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", "", false
 	}
-	return strings.ToLower(strings.Trim(address, "[]"))
+	return strings.ToLower(strings.Trim(host, "[]")), port, true
 }
 
 func TestMySQLAuthSessionMigrationSafetyGate(t *testing.T) {
@@ -774,10 +770,10 @@ func TestMySQLAuthSessionMigrationSafetyGate(t *testing.T) {
 			wantSafe: true,
 		},
 		{
-			name:     "localhost isolated database",
+			name:     "loopback host is rejected",
 			dsn:      "test_user@tcp(127.0.0.1:3306)/erzhuang_migration_test",
 			declared: "erzhuang_migration_test",
-			wantSafe: true,
+			wantSafe: false,
 		},
 		{
 			name:     "ordinary shared business database",
@@ -801,6 +797,12 @@ func TestMySQLAuthSessionMigrationSafetyGate(t *testing.T) {
 			name:     "database without isolation suffix",
 			dsn:      "test_user@tcp(polar-dev.rwlb.rds.aliyuncs.com:3306)/erzhuang_test",
 			declared: "erzhuang_test",
+			wantSafe: false,
+		},
+		{
+			name:     "test host with wrong port",
+			dsn:      "test_user@tcp(polar-dev.rwlb.rds.aliyuncs.com:3307)/erzhuang_migration_test",
+			declared: "erzhuang_migration_test",
 			wantSafe: false,
 		},
 		{
