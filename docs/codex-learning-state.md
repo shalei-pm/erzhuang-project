@@ -6253,3 +6253,9 @@ git pull --ff-only
 - 现口径：自动加载缩略图不记审计；打开大图本身不记审计；用户明确点击截图时记录新的 `snapshot.view`；用户点击刷新截图继续记录 `snapshot.refresh`。
 - 实现：图片接口恢复为纯读取；旧版通道截图增加显式 `POST /api/store-space/stores/{storeId}/channels/{channelId}/snapshot/view` 审计入口，校验通道归属后记录事件，再打开大图；历史 `snapshot.download` 仅保留展示兼容，不再作为新筛选项。
 - 验证：后端显式查看与自动图片加载定向测试通过；前端 Vitest `14 files / 78 tests`、生产构建和 `git diff --check` 通过。尚未发布测试环境。
+
+### 2026-09-01 用户权限审计摘要增强
+
+- `0778214` 为用户权限审计记录增加目标用户姓名、邮箱、角色、启用状态和门店范围摘要；审计列表优先展示经过安全过滤的中文摘要，历史 `summary=user.update` 记录继续使用通用文案。
+- 验证：`internal/app` 测试通过，前端 Vitest `14 files / 78 tests`、生产构建、`go vet ./internal/app`、`go build ./...` 和 `git diff --check` 通过。全仓另外两个既有 NVR 测试受本机沙箱 IPv6 监听限制，未影响本次改动。
+- 发布：已推送公司 GitLab 测试分支 `codex/containerize-single-image`，远端 commit 为 `0778214`；等待 Wharf `752` 自动构建和测试实例部署，未操作正式 `main`。
