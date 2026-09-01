@@ -10,7 +10,7 @@ import { H5PlayerControls, type H5PlayerControlState } from "../components/H5Pla
 import { PlaybackSegmentSlider } from "../components/PlaybackSegmentSlider";
 import { PlaybackDatePicker, initialPlaybackDateTimeValue } from "../components/PlaybackDatePicker";
 import { SystemTopBar } from "../components/SystemTopBar";
-import { readSessionStorage, type AuthState } from "../domain/auth";
+import { isIdleSessionTimeout, readSessionStorage, type AuthState } from "../domain/auth";
 import {
   dataUrlToFile,
   estimatePlaybackUnixAt,
@@ -126,9 +126,11 @@ export function H5MonitorChannel({
   const releaseUrl = useCallback(
     (urlId: string | undefined | null) => {
       if (!urlId) return Promise.resolve();
-      return h5Api.disableUrl(externalOrgId, channelId, urlId, userId.current).catch(() => {});
+      return h5Api.disableUrl(externalOrgId, channelId, urlId, userId.current).catch((error) => {
+        if (isIdleSessionTimeout(error)) onAuthRequired?.(error);
+      });
     },
-    [channelId, externalOrgId],
+    [channelId, externalOrgId, onAuthRequired],
   );
 
   function nextPlaybackRequestSeq() {

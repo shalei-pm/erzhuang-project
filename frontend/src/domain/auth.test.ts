@@ -66,7 +66,21 @@ describe("idle session auth helpers", () => {
 
     expect(claimSessionRedirect("entry", storage)).toBe(true);
     expect(claimSessionRedirect("entry", storage)).toBe(false);
-    expect(claimSessionRedirect("entry", null)).toBe(true);
+    expect(claimSessionRedirect("entry", null)).toBe(false);
+  });
+
+  it("does not claim the ordinary SSO entry redirect when storage operations fail", () => {
+    const failingStorage = {
+      getItem: () => {
+        throw new Error("storage unavailable");
+      },
+      setItem: () => {
+        throw new Error("storage unavailable");
+      },
+    };
+
+    expect(claimSessionRedirect("entry", failingStorage)).toBe(false);
+    expect(claimIdleSessionTimeoutRedirect(failingStorage)).toBe(true);
   });
 
   it("treats unavailable session storage as a non-blocking condition", () => {

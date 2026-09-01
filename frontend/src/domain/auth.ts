@@ -24,14 +24,18 @@ export type SessionStorageLike = Pick<Storage, "getItem" | "setItem" | "removeIt
 
 export const idleSessionTimeoutRedirectKey = "erzhuang:idle-session-timeout-redirected";
 
-export function claimSessionRedirect(key: string, storage: Pick<Storage, "getItem" | "setItem"> | null): boolean {
-  if (!storage) return true;
+export function claimSessionRedirect(
+  key: string,
+  storage: Pick<Storage, "getItem" | "setItem"> | null,
+  unavailableResult = false,
+): boolean {
+  if (!storage) return unavailableResult;
   try {
     if (storage.getItem(key) === "1") return false;
     storage.setItem(key, "1");
     return true;
   } catch {
-    return true;
+    return unavailableResult;
   }
 }
 
@@ -42,7 +46,7 @@ export function isIdleSessionTimeout(error: unknown): boolean {
 }
 
 export function claimIdleSessionTimeoutRedirect(storage: Pick<Storage, "getItem" | "setItem"> | null): boolean {
-  return claimSessionRedirect(idleSessionTimeoutRedirectKey, storage);
+  return claimSessionRedirect(idleSessionTimeoutRedirectKey, storage, true);
 }
 
 export function safeSessionStorage(): SessionStorageLike | null {

@@ -303,14 +303,6 @@ function AdminApp() {
     );
   }
 
-  if (shouldShowLoginWelcome(auth) && authCompanyEntryPath()) {
-    return (
-      <main className="app-shell">
-        <div className="auth-loading">正在进入公司 SSO 登录...</div>
-      </main>
-    );
-  }
-
   if (shouldShowLoginWelcome(auth)) {
     return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
   }
@@ -617,14 +609,6 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
 
   if (shouldShowForbiddenAccess(auth)) {
     return <ForbiddenAccess appVersion={APP_VERSION} />;
-  }
-
-  if (shouldShowLoginWelcome(auth) && authCompanyEntryPath()) {
-    return (
-      <main className="app-shell">
-        <div className="auth-loading">正在进入公司 SSO 登录...</div>
-      </main>
-    );
   }
 
   if (shouldShowLoginWelcome(auth)) {
