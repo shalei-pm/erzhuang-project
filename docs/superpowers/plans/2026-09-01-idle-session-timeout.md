@@ -259,7 +259,7 @@ git diff --check
 
 Expected: all tests pass, vet is clean, the binary builds, and no sensitive value appears in test output.
 
-- [ ] Step 7: Commit the backend enforcement.
+- [x] Step 7: Commit the backend enforcement.
 
 ~~~bash
 git add internal/app/auth_session.go internal/app/auth_session_test.go internal/app/auth.go internal/app/authz.go internal/app/handler.go internal/app/mysql_store.go internal/app/audit_recorder.go internal/app/handler_test.go internal/app/auth_logout_test.go
@@ -300,7 +300,7 @@ export function isIdleSessionTimeout(error: { status?: number; code?: string } |
 
 In App.tsx, when initial getAuthMe() receives this code, clear the React auth state and navigate once to authLogoutPath(). Use sessionStorage only as a one-navigation loop guard and clear it after authenticated state is restored. Existing page-level 401 handlers must call the same callback or return to the shell so H5/NVR requests cannot leave stale authenticated UI visible.
 
-- [ ] Step 4: Run frontend tests and build.
+- [x] Step 4: Run frontend tests and build.
 
 ~~~bash
 npm --prefix frontend test -- --run
@@ -310,7 +310,7 @@ git diff --check
 
 Expected: all frontend tests pass and the production bundle builds.
 
-- [ ] Step 5: Commit the frontend timeout handling.
+- [x] Step 5: Commit the frontend timeout handling.
 
 ~~~bash
 git add frontend/src/api.ts frontend/src/api-h5.ts frontend/src/api-nvr-lab.ts frontend/src/App.tsx frontend/src/domain/auth.ts frontend/src/domain/auth.test.ts
@@ -406,4 +406,3 @@ git diff --check
 ~~~
 
 Expected: only intentionally preserved untracked workspace files remain, the feature and release records are committed, and no production branch or production database was changed.
-

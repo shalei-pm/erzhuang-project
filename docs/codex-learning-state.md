@@ -1,6 +1,16 @@
 # Codex Learning State
 
-最后更新：2026-08-18
+最后更新：2026-09-01
+
+## 2026-09-01 登录空闲超时方案 A
+
+- 产品负责人已确认采用方案 A：MySQL 共享会话表 `tb_auth_sessions` + HttpOnly 本地会话 Cookie；登录后连续 30 分钟没有受保护业务请求即失效，下一次访问必须重新走公司 SSO 扫码登录。
+- 已完成后端会话契约、MySQL 持久化、迁移材料和鉴权接入。最新后端相关提交为 `98c681e`、`aca411c`、`ee8562b`、`3a6d9f0`、`e9e35ee`；本机没有 Go/MySQL，未假称运行 Go 单测或真实数据库集成测试。
+- 已完成前端超时错误码传播、统一 SSO 联合退出、测试/正式域名识别、H5/NVR/用户管理/审计日志/设计图等关键请求路径处理。最新前端提交为 `7c57b8e`。
+- 前端子任务已验证：15 个测试文件、89 个 Vitest 测试通过，`tsc -b`、Vite production build、`git diff --check` 通过；本机 bundled pnpm 因依赖目录冲突尝试访问 npm registry，未使用其联网安装流程。
+- 安全约束：不保存原始会话 Token，只保存 SHA-256 哈希；超时审计只写 `reason=idle_timeout`；不输出 Cookie、Token、哈希、DSN 或 Secret。健康检查、SSO 回调和手动退出不进入空闲校验。
+- 回滚点：恢复测试分支到本轮前的已验证提交；保留 `tb_auth_sessions` 和审计记录，不删表、不删历史数据。正式环境 `main` 未修改，正式数据库和 Secret 未触碰。
+- 下一步：只发布 `codex/containerize-single-image` 到测试环境，等待 Wharf 752 自动构建部署；在测试环境先核对表结构/登录、正常刷新、30 分钟超时回跳和手动退出，再决定正式环境材料。
 
 ## 2026-08-21 NVR 回放实验最新结论
 
