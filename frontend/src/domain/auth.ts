@@ -29,9 +29,13 @@ export function isIdleSessionTimeout(error: unknown): boolean {
 }
 
 export function claimIdleSessionTimeoutRedirect(storage: Pick<Storage, "getItem" | "setItem">): boolean {
-  if (storage.getItem(idleSessionTimeoutRedirectKey) === "1") return false;
-  storage.setItem(idleSessionTimeoutRedirectKey, "1");
-  return true;
+  try {
+    if (storage.getItem(idleSessionTimeoutRedirectKey) === "1") return false;
+    storage.setItem(idleSessionTimeoutRedirectKey, "1");
+    return true;
+  } catch {
+    return true;
+  }
 }
 
 export function shouldShowLoginWelcome(auth: Pick<AuthState, "enabled" | "authenticated" | "forbidden"> | null) {

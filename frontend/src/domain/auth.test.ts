@@ -32,4 +32,22 @@ describe("idle session auth helpers", () => {
     expect(claimIdleSessionTimeoutRedirect(storage)).toBe(false);
     expect(authLogoutPath("lite.sy.soyoung.com")).toContain("logouttogether");
   });
+
+  it("continues the timeout logout when storage cannot be read or written", () => {
+    const readErrorStorage = {
+      getItem: () => {
+        throw new Error("storage unavailable");
+      },
+      setItem: () => undefined,
+    };
+    const writeErrorStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("storage unavailable");
+      },
+    };
+
+    expect(claimIdleSessionTimeoutRedirect(readErrorStorage)).toBe(true);
+    expect(claimIdleSessionTimeoutRedirect(writeErrorStorage)).toBe(true);
+  });
 });
