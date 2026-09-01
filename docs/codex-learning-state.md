@@ -6256,6 +6256,6 @@ git pull --ff-only
 
 ### 2026-09-01 用户权限审计摘要增强
 
-- `0778214` 为用户权限审计记录增加目标用户姓名、邮箱、角色、启用状态和门店范围摘要；审计列表优先展示经过安全过滤的中文摘要，历史 `summary=user.update` 记录继续使用通用文案。
+- `0778214` 为用户权限审计记录增加目标用户姓名、邮箱、角色、启用状态和门店范围摘要；`db88194` 继续补充普通查看用户的授权门店 ID，审计列表优先展示经过安全过滤的中文摘要，历史 `summary=user.update` 记录继续使用通用文案。
 - 验证：`internal/app` 测试通过，前端 Vitest `14 files / 78 tests`、生产构建、`go vet ./internal/app`、`go build ./...` 和 `git diff --check` 通过。全仓另外两个既有 NVR 测试受本机沙箱 IPv6 监听限制，未影响本次改动。
-- 发布：已推送公司 GitLab 测试分支 `codex/containerize-single-image`，远端 commit 为 `0778214`；等待 Wharf `752` 自动构建和测试实例部署，未操作正式 `main`。
+- 发布：已推送公司 GitLab 测试分支 `codex/containerize-single-image`，远端最终 commit 为 `db88194`；等待 Wharf `752` 自动构建和测试实例部署，未操作正式 `main`。
