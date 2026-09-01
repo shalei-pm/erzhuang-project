@@ -1880,6 +1880,49 @@ func TestAPISIXSSOLogoutGetUnderConfiguredBasePathRedirectsHome(t *testing.T) {
 	}
 }
 
+func TestExplicitChannelSnapshotViewRecordsAudit(t *testing.T) {
+	appStore := NewMemoryStore()
+	spaceRepo := storespace.NewMemoryStore()
+	spaceService := storespace.NewService(spaceRepo)
+	_, err := spaceService.CreateStore(context.Background(), storespace.CreateStoreInput{
+		City:          "北京",
+		Name:          "北京截图审计测试店",
+		ExternalOrgID: "10001",
+		Recorders:     []storespace.RecorderInput{{DeviceCode: "NVR-1"}},
+	})
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if _, err := spaceRepo.UpsertRecorderChannel(context.Background(), 1, storespace.ChannelInput{ChannelNo: 1, IsActive: true}); err != nil {
+		t.Fatalf("add channel: %v", err)
+	}
+
+	handler := NewHandlerWithServices(appStore, designplan.NewService(designplan.NewMemoryStore()), spaceService)
+	request := httptest.NewRequest(http.MethodPost, "/api/store-space/stores/1/channels/1/snapshot/view", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
+	}
+	page, err := appStore.ListAuditLogs(context.Background(), AuditLogFilter{
+		StartAt:  time.Unix(0, 0),
+		EndAt:    time.Now().Add(time.Hour),
+		PageSize: 100,
+	})
+	if err != nil {
+		t.Fatalf("list audit logs: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("audit logs = %#v, want one explicit view event", page.Items)
+	}
+	event := page.Items[0]
+	if event.Action != "snapshot.view" || event.EntityType != "channel" || event.EntityID == nil || *event.EntityID != 1 || event.ExternalOrgID != "10001" || event.Result != "success" {
+		t.Fatalf("event = %#v", event)
+	}
+}
+
 func TestAuthLogoutPostKeepsJSONResponse(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
 	recorder := httptest.NewRecorder()

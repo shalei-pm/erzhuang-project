@@ -7,13 +7,15 @@ const actionLabels: Record<string, string> = {
   "auth.logout": "退出登录",
   "monitor.live_view": "查看直播",
   "monitor.playback_view": "查看回放",
+  "snapshot.view": "查看截图",
+  // Keep rendering records written before the explicit-view audit endpoint.
   "snapshot.download": "查看截图",
   "snapshot.refresh": "刷新截图",
   "user.create": "新增用户",
   "user.update": "更新用户权限",
 };
 
-const actionOptions = Object.entries(actionLabels);
+const actionOptions = Object.entries(actionLabels).filter(([action]) => action !== "snapshot.download");
 
 function localDate(offsetDays = 0) {
   const date = new Date();

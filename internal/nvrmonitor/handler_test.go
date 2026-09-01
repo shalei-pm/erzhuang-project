@@ -303,24 +303,7 @@ func TestStreamSessionBlocksStreamWhenAuditFails(t *testing.T) {
 	}
 }
 
-func TestSnapshotDownloadAuditsBeforeWritingImage(t *testing.T) {
-	authorizer := &fakeAuditAuthorizer{fakeAuthorizer: fakeAuthorizer{allow: map[string]bool{"10001": true}}}
-	handler := newAuditedHandler(t, authorizer, fakeSnapshotStore{data: map[int64]string{111: "jpeg-data"}})
-	request := httptest.NewRequest(http.MethodGet, "/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot", nil)
-	response := httptest.NewRecorder()
-
-	handler.ServeHTTP(response, request)
-
-	if response.Code != http.StatusOK || response.Body.String() != "jpeg-data" || len(authorizer.events) != 1 {
-		t.Fatalf("status = %d events = %#v body = %q", response.Code, authorizer.events, response.Body.String())
-	}
-	event := authorizer.events[0]
-	if event.Action != "snapshot.download" || event.EntityType != "camera" || event.EntityID == nil || *event.EntityID != 111 || event.ExternalOrgID != "10001" || event.Result != "success" {
-		t.Fatalf("event = %#v", event)
-	}
-}
-
-func TestSnapshotDownloadBlocksImageWhenAuditFails(t *testing.T) {
+func TestSnapshotDownloadDoesNotAuditAutomaticImageLoad(t *testing.T) {
 	authorizer := &fakeAuditAuthorizer{
 		fakeAuthorizer: fakeAuthorizer{allow: map[string]bool{"10001": true}},
 		err:            errors.New("audit unavailable"),
@@ -331,8 +314,8 @@ func TestSnapshotDownloadBlocksImageWhenAuditFails(t *testing.T) {
 
 	handler.ServeHTTP(response, request)
 
-	if response.Code != http.StatusServiceUnavailable || response.Body.String() == "jpeg-data" || !strings.Contains(response.Body.String(), `"code":"nvr_monitor_audit_failed"`) {
-		t.Fatalf("status = %d body = %q", response.Code, response.Body.String())
+	if response.Code != http.StatusOK || response.Body.String() != "jpeg-data" || len(authorizer.events) != 0 {
+		t.Fatalf("status = %d events = %#v body = %q", response.Code, authorizer.events, response.Body.String())
 	}
 }
 

@@ -55,6 +55,7 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
   const [exportingChannels, setExportingChannels] = useState(false);
   const [expiredSnapshotIds, setExpiredSnapshotIds] = useState<Set<number>>(() => new Set());
   const [snapshotDiagnostics, setSnapshotDiagnostics] = useState<Record<number, SnapshotDiagnostics | { detail: string }>>({});
+  const [viewingSnapshotIds, setViewingSnapshotIds] = useState<Set<number>>(() => new Set());
   const [editingChannels, setEditingChannels] = useState<Record<number, Partial<VideoChannel>>>({});
   const completionTimerRef = useRef<number | null>(null);
   const regionAccounts = selectableRegionAccounts(accounts);
@@ -428,6 +429,19 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
     }
   }
 
+  async function viewSnapshot(channel: VideoChannel) {
+    if (!channel.thumbnailUrl || viewingSnapshotIds.has(channel.id)) return;
+    setViewingSnapshotIds((current) => new Set(current).add(channel.id));
+    try {
+      await storeSpaceApi.recordChannelSnapshotView(store.id, channel.id);
+      setPreviewChannel(channel);
+    } catch (error) {
+      onToast(channelErrorMessage(error, "截图审计失败，请稍后重试。"));
+    } finally {
+      setViewingSnapshotIds((current) => removeIdFromSet(current, channel.id));
+    }
+  }
+
   async function exportChannelMappings() {
     setExportingChannels(true);
     setChannelError("");
@@ -665,9 +679,9 @@ export function VideoChannelTab({ store, accounts, canEdit, onStoreUpdated, onRe
                       <button
                         className={`channel-thumb ${canPreviewSnapshot ? "has-image" : ""}`}
                         type="button"
-                        disabled={!canPreviewSnapshot}
+                        disabled={!canPreviewSnapshot || viewingSnapshotIds.has(channel.id)}
                         aria-label={canPreviewSnapshot ? `查看通道 ${channel.channelNo} 截图` : "暂无截图"}
-                        onClick={() => setPreviewChannel(channel)}
+                        onClick={() => void viewSnapshot(channel)}
                       >
                         {canPreviewSnapshot ? (
                           <QueuedSnapshotImage

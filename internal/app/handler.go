@@ -139,6 +139,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	storespace.RegisterRoutesWithGuards(mux, storeSpaceService, handler.monitorVisibilityMiddleware, handler.storeWriteGuard)
 	resourceview.RegisterRoutesWithReadGuard(mux, resourceViewService, handler.resourceViewMonitorAccess, handler.storeReadGuard)
 	mux.HandleFunc("GET /api/store-space-resource-view/stores/{tenantId}/cameras/{cameraId}/snapshot", handler.storeReadGuard(handler.resourceViewLegacySnapshotHandler))
+	mux.HandleFunc("POST /api/store-space/stores/{storeId}/channels/{channelId}/snapshot/view", handler.storeReadGuard(handler.recordChannelSnapshotView))
 	nvrlab.RegisterRoutesWithAudit(mux, nvrLabService, handler.nvrLabAdminGuard, nvrMonitorAuthorizer{handler: handler})
 	if monitorPlaybackMode == MonitorPlaybackModeNVR && nvrMonitorService != nil {
 		nvrmonitor.RegisterRoutesWithAuthorizer(mux, nvrMonitorService, nvrMonitorAuthorizer{handler: handler})
@@ -184,16 +185,6 @@ func (h *Handler) resourceViewLegacySnapshotHandler(w http.ResponseWriter, r *ht
 		return
 	}
 	defer reader.Close()
-	if err := h.recordMonitorAudit(r.Context(), r, auditlog.AuditEvent{
-		Action:        "snapshot.download",
-		EntityType:    "camera",
-		EntityID:      &cameraID,
-		ExternalOrgID: strconv.FormatInt(tenantID, 10),
-		Result:        "success",
-	}); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "audit_unavailable", "error": "监控审计失败，请稍后重试"})
-		return
-	}
 	w.Header().Set("Cache-Control", "private, no-store")
 	if strings.TrimSpace(contentType) != "" {
 		w.Header().Set("Content-Type", contentType)
@@ -201,6 +192,51 @@ func (h *Handler) resourceViewLegacySnapshotHandler(w http.ResponseWriter, r *ht
 	if _, err := io.Copy(w, reader); err != nil {
 		log.Printf("resource view: serve legacy snapshot failed: %v", err)
 	}
+}
+
+func (h *Handler) recordChannelSnapshotView(w http.ResponseWriter, r *http.Request) {
+	storeID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("storeId")), 10, 64)
+	if err != nil || storeID <= 0 || h.storeSpaceService == nil {
+		http.NotFound(w, r)
+		return
+	}
+	channelID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("channelId")), 10, 64)
+	if err != nil || channelID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	store, err := h.storeSpaceService.GetStore(r.Context(), storeID)
+	if err != nil || store == nil {
+		http.NotFound(w, r)
+		return
+	}
+	belongsToStore := false
+	for _, recorder := range store.Recorders {
+		for _, channel := range recorder.Channels {
+			if channel.ID == channelID {
+				belongsToStore = true
+				break
+			}
+		}
+		if belongsToStore {
+			break
+		}
+	}
+	if !belongsToStore {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.recordMonitorAudit(r.Context(), r, auditlog.AuditEvent{
+		Action:        "snapshot.view",
+		EntityType:    "channel",
+		EntityID:      &channelID,
+		ExternalOrgID: strings.TrimSpace(store.ExternalOrgID),
+		Result:        "success",
+	}); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "audit_unavailable", "error": "截图审计失败，请稍后重试"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type ossSmokeResult = osssmoke.Result

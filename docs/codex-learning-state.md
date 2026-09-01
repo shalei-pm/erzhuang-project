@@ -6244,3 +6244,12 @@ git pull --ff-only
 - 本地验证：`CGO_ENABLED=0 GOCACHE=/private/tmp/erzhuang-go-cache .tools/go/bin/go test ./... -count=1` 全部通过；前端 Vitest `13 files / 77 tests` 和生产构建通过；`git diff --check` 通过。
 - 当前发布目标仅为公司测试环境 `codex/containerize-single-image` / Wharf `752`，不发布正式 `main`；`e679123` 已部署并验证入口，但测试库查询返回内部错误，待运维核对 `tb_audit_logs.actor_display_name` 后复测。
 - `3.3.1` 增加前端错误映射，避免将 `list audit logs failed` 直接展示给用户；仍不自动执行数据库 DDL。
+- 测试库字段修复（2026-09-01）：用户确认后，通过 TablePro 测试连接执行 `ALTER TABLE tb_audit_logs ADD COLUMN actor_display_name varchar(255) NOT NULL DEFAULT '' AFTER user_id;`，TablePro 返回执行成功（约 89ms）。只读结构复核确认字段为 `varchar(255)`、`NOT NULL`、默认空字符串；未操作正式库、实例配置、Secret 或代码。
+- 测试验收：执行前 `tb_audit_logs` 总行数为 0；在已有 Chrome 测试标签页进入门店 `10001` 监控后，复核总行数为 44，操作日志页展示真实记录，操作人“凯撒（沙磊）”、邮箱 `shalei@soyoung.com`、操作类型“查看截图”、结果“成功”。
+
+### 2026-09-01 操作日志截图事件口径修正
+
+- 根因：原 NVR 图片 GET 接口在自动加载缩略图时写入 `snapshot.download`，进入监控页会按摄像头数量批量产生“查看截图”日志；此前测试库中看到的 44 条记录由该验收行为产生，不代表用户逐一点击。
+- 现口径：自动加载缩略图不记审计；打开大图本身不记审计；用户明确点击截图时记录新的 `snapshot.view`；用户点击刷新截图继续记录 `snapshot.refresh`。
+- 实现：图片接口恢复为纯读取；旧版通道截图增加显式 `POST /api/store-space/stores/{storeId}/channels/{channelId}/snapshot/view` 审计入口，校验通道归属后记录事件，再打开大图；历史 `snapshot.download` 仅保留展示兼容，不再作为新筛选项。
+- 验证：后端显式查看与自动图片加载定向测试通过；前端 Vitest `14 files / 78 tests`、生产构建和 `git diff --check` 通过。尚未发布测试环境。

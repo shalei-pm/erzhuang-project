@@ -46,7 +46,7 @@
 | `auth.logout` | 退出登录 | 当前用户 |
 | `monitor.live_view` | 查看监控 | 门店、摄像头 |
 | `monitor.playback_view` | 查看录像 | 门店、摄像头、时间范围 |
-| `snapshot.download` | 下载截图 | 门店、摄像头 |
+| `snapshot.view` | 查看截图（用户明确点击） | 门店、摄像头/通道 |
 | `snapshot.refresh` | 刷新截图 | 门店、摄像头 |
 | `user.create` | 新增用户 | 用户 |
 | `user.update` | 编辑用户 | 用户 |
@@ -57,6 +57,8 @@
 | `store.update` | 编辑门店 | 门店 |
 | `store.delete` | 删除门店 | 门店 |
 | `audit.view` | 查看操作日志 | 日志查询 |
+
+缩略图自动加载、图片接口 GET 和打开已加载的大图不记录审计；当前没有独立的截图下载功能，因此不新增下载事件。
 
 成功、权限拒绝和执行失败的关键操作都记录。登录只在后端确认 SSO 回调成功时记录，不把每次 `auth/me` 查询当作登录。
 

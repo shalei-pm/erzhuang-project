@@ -1995,6 +1995,12 @@ const storeSpaceHttpAdapter = {
     return mapBackendChannel(response, 0, "");
   },
 
+  async recordChannelSnapshotView(storeId: number, channelId: number): Promise<void> {
+    await requestJSON<void>(`${STORE_SPACE_API_BASE}/stores/${storeId}/channels/${channelId}/snapshot/view`, {
+      method: "POST",
+    });
+  },
+
   async diagnoseChannelSnapshot(snapshotName: string): Promise<SnapshotDiagnostics> {
     const response = await requestJSON<BackendSnapshotDiagnostics>(
       `${STORE_SPACE_API_BASE}/channel-snapshots/${encodeURIComponent(snapshotName)}/diagnostics`,
@@ -2367,6 +2373,11 @@ export const storeSpaceApi = {
       return mockAdapter.refreshChannelSnapshot(storeId, channelId);
     }
     return storeSpaceHttpAdapter.refreshChannelSnapshot(channelId);
+  },
+
+  async recordChannelSnapshotView(storeId: number, channelId: number): Promise<void> {
+    if (API_MODE === "mock") return;
+    return storeSpaceHttpAdapter.recordChannelSnapshotView(storeId, channelId);
   },
 
   async diagnoseChannelSnapshot(snapshotName: string): Promise<SnapshotDiagnostics> {

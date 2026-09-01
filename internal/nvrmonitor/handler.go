@@ -150,25 +150,18 @@ func (h *Handler) getSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	reader, contentType, err := h.service.OpenSnapshot(r.Context(), externalOrgID, cameraID)
 	if err != nil {
-		_ = h.recordAudit(r, newCameraAuditEvent(r, "snapshot.download", "failed", externalOrgID, cameraID))
 		http.NotFound(w, r)
 		return
 	}
 	defer reader.Close()
 	body, err := io.ReadAll(io.LimitReader(reader, maxSnapshotUploadBytes+1))
 	if err != nil || len(body) > maxSnapshotUploadBytes {
-		_ = h.recordAudit(r, newCameraAuditEvent(r, "snapshot.download", "failed", externalOrgID, cameraID))
 		http.NotFound(w, r)
 		return
 	}
 	mediaType, _, mediaTypeErr := mime.ParseMediaType(contentType)
 	if mediaTypeErr != nil || !strings.EqualFold(mediaType, "image/jpeg") {
-		_ = h.recordAudit(r, newCameraAuditEvent(r, "snapshot.download", "failed", externalOrgID, cameraID))
 		http.NotFound(w, r)
-		return
-	}
-	if err := h.recordAudit(r, newCameraAuditEvent(r, "snapshot.download", "success", externalOrgID, cameraID)); err != nil {
-		writeAuditError(w)
 		return
 	}
 	// Keep thumbnails private and prevent a mislabelled object from being
@@ -282,18 +275,24 @@ func (h *Handler) ensureCanViewStore(w http.ResponseWriter, r *http.Request, ext
 	}
 	ok, err := h.authorizer.CanViewStore(r, externalOrgID)
 	if err != nil {
-		if errors.Is(err, ErrForbidden) || errors.Is(err, ErrUnauthorized) {
+		if shouldAuditAccessDenial(r) && (errors.Is(err, ErrForbidden) || errors.Is(err, ErrUnauthorized)) {
 			_ = h.recordAudit(r, newDeniedAuditEvent(r, auditActionForRequest(r), externalOrgID))
 		}
 		writeAuthorizationError(w, err)
 		return false
 	}
 	if !ok {
-		_ = h.recordAudit(r, newDeniedAuditEvent(r, auditActionForRequest(r), externalOrgID))
+		if shouldAuditAccessDenial(r) {
+			_ = h.recordAudit(r, newDeniedAuditEvent(r, auditActionForRequest(r), externalOrgID))
+		}
 		writeJSON(w, http.StatusForbidden, map[string]string{"code": "nvr_monitor_forbidden", "error": "暂无该门店监控访问权限"})
 		return false
 	}
 	return true
+}
+
+func shouldAuditAccessDenial(r *http.Request) bool {
+	return r == nil || !(r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/snapshot"))
 }
 
 func (h *Handler) ensureCanBackfillSnapshot(w http.ResponseWriter, r *http.Request, externalOrgID string) bool {
