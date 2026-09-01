@@ -10,8 +10,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
@@ -117,6 +119,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("PUT /api/users/{id}", handler.updateUserHandler)
 	mux.HandleFunc("GET /api/ai-settings", handler.aiSettingsHandler)
 	mux.HandleFunc("POST /api/ai-settings/toggle", handler.requirePermissionHandler(PermissionUserManage, handler.toggleAISettingsHandler))
+	mux.HandleFunc("GET /api/admin/audit-logs", handler.requirePermissionHandler(PermissionAuditView, handler.auditLogsHandler))
 	mux.HandleFunc("GET /api/admin/ops/env-check", handler.ossEnvCheckHandler)
 	mux.HandleFunc("POST /api/admin/ops/oss-smoke", handler.ossSmokeHandler)
 	mux.HandleFunc("POST /api/admin/ops/asset-migrate", handler.assetMigrationHandler)
@@ -397,6 +400,154 @@ func (h *Handler) toggleAISettingsHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, AISettingsFromProvider(nextProvider))
+}
+
+const auditLogDateLayout = "2006-01-02"
+
+var auditLogActionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$`)
+
+type auditLogItemResponse struct {
+	ActorDisplayName string    `json:"actor_display_name"`
+	UserEmail        string    `json:"user_email"`
+	Action           string    `json:"action"`
+	EntityType       string    `json:"entity_type"`
+	EntityID         *int64    `json:"entity_id"`
+	StoreID          *int64    `json:"store_id"`
+	ExternalOrgID    string    `json:"external_org_id"`
+	ChannelID        *int64    `json:"channel_id"`
+	Result           string    `json:"result"`
+	CreatedAt        time.Time `json:"created_at"`
+	Summary          string    `json:"summary"`
+}
+
+type auditLogListResponse struct {
+	Items    []auditLogItemResponse `json:"items"`
+	Page     int                    `json:"page"`
+	PageSize int                    `json:"page_size"`
+	Total    int                    `json:"total"`
+}
+
+func (h *Handler) auditLogsHandler(w http.ResponseWriter, r *http.Request) {
+	filter, err := parseAuditLogFilter(r.URL.Query())
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	auditLogStore, ok := h.store.(AuditLogStore)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "audit log store unavailable"})
+		return
+	}
+	page, err := auditLogStore.ListAuditLogs(r.Context(), filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list audit logs failed"})
+		return
+	}
+
+	items := make([]auditLogItemResponse, 0, len(page.Items))
+	for _, log := range page.Items {
+		items = append(items, auditLogItemResponse{
+			ActorDisplayName: strings.TrimSpace(log.ActorDisplayName),
+			UserEmail:        strings.TrimSpace(log.UserEmail),
+			Action:           strings.TrimSpace(log.Action),
+			EntityType:       strings.TrimSpace(log.EntityType),
+			EntityID:         log.EntityID,
+			StoreID:          log.StoreID,
+			ExternalOrgID:    strings.TrimSpace(log.ExternalOrgID),
+			ChannelID:        log.ChannelID,
+			Result:           strings.TrimSpace(log.Result),
+			CreatedAt:        log.CreatedAt,
+			Summary:          auditLogSummary(log),
+		})
+	}
+	writeJSON(w, http.StatusOK, auditLogListResponse{
+		Items:    items,
+		Page:     page.Page,
+		PageSize: page.PageSize,
+		Total:    page.Total,
+	})
+}
+
+func parseAuditLogFilter(values url.Values) (AuditLogFilter, error) {
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return AuditLogFilter{}, errors.New("load audit log timezone failed")
+	}
+	startAt, err := parseAuditLogDate(values.Get("start_time"), location)
+	if err != nil {
+		return AuditLogFilter{}, errors.New("invalid start_time")
+	}
+	endDate, err := parseAuditLogDate(values.Get("end_time"), location)
+	if err != nil {
+		return AuditLogFilter{}, errors.New("invalid end_time")
+	}
+	if startAt.After(endDate) {
+		return AuditLogFilter{}, errors.New("start_time must not be after end_time")
+	}
+	if endDate.After(startAt.AddDate(0, 3, 0)) {
+		return AuditLogFilter{}, errors.New("audit log date range must not exceed three months")
+	}
+
+	filter := AuditLogFilter{
+		StartAt: startAt,
+		EndAt:   endDate.AddDate(0, 0, 1),
+	}
+	if value := strings.TrimSpace(values.Get("user_id")); value != "" {
+		userID, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || userID <= 0 {
+			return AuditLogFilter{}, errors.New("invalid user_id")
+		}
+		filter.UserID = &userID
+	}
+	filter.Action = strings.TrimSpace(values.Get("action"))
+	if filter.Action != "" && (len(filter.Action) > 64 || !auditLogActionPattern.MatchString(filter.Action)) {
+		return AuditLogFilter{}, errors.New("invalid action")
+	}
+
+	page, err := parseOptionalPositiveAuditLogInt(values.Get("page"))
+	if err != nil {
+		return AuditLogFilter{}, errors.New("invalid page")
+	}
+	filter.Page = page
+	pageSize, err := parseOptionalPositiveAuditLogInt(values.Get("page_size"))
+	if err != nil {
+		return AuditLogFilter{}, errors.New("invalid page_size")
+	}
+	filter.PageSize = pageSize
+	return filter, nil
+}
+
+func parseAuditLogDate(value string, location *time.Location) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, errors.New("missing date")
+	}
+	parsed, err := time.ParseInLocation(auditLogDateLayout, value, location)
+	if err != nil || parsed.Format(auditLogDateLayout) != value {
+		return time.Time{}, errors.New("invalid date")
+	}
+	return parsed, nil
+}
+
+func parseOptionalPositiveAuditLogInt(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0, errors.New("invalid positive integer")
+	}
+	return parsed, nil
+}
+
+func auditLogSummary(log AuditLog) string {
+	action := strings.TrimSpace(log.Action)
+	if auditLogActionPattern.MatchString(action) {
+		return "Audit event: " + action
+	}
+	return "Audit event"
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
