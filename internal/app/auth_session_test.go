@@ -305,7 +305,7 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 	}
 	expectedHash := hashAuthSessionToken(token)
 	expectedHashText := hex.EncodeToString(expectedHash[:])
-	if len(calls[0].args) != 8 || calls[0].args[0].Value != expectedHashText || calls[0].args[1].Value != int64(7) || calls[0].args[2].Value != "subject-7" {
+	if len(calls[0].args) != 5 || calls[0].args[0].Value != expectedHashText || calls[0].args[1].Value != int64(7) || calls[0].args[2].Value != "subject-7" {
 		t.Fatalf("create bindings do not contain the expected hash and metadata: arg_count=%d", len(calls[0].args))
 	}
 	if len(calls[1].args) != 2 || calls[1].args[0].Value != expectedHashText || calls[1].args[1].Value != int64(7) {
@@ -325,6 +325,8 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 		"insert into tb_auth_sessions",
 		"session_token_hash",
 		"created_at, last_activity_at, expires_at",
+		"utc_timestamp(3)",
+		"date_add(utc_timestamp(3), interval 30 minute)",
 	} {
 		if !strings.Contains(queries[0], want) {
 			t.Fatalf("create query missing %q: %s", want, queries[0])
@@ -399,7 +401,7 @@ func TestMySQLAuthSessionTouchZeroRowsConfirmsActiveSession(t *testing.T) {
 		t.Fatalf("executed calls = %d, want create plus two update/select pairs", len(calls))
 	}
 	if !strings.Contains(calls[2].query, "select 1") || !strings.Contains(calls[4].query, "select 1") {
-		t.Fatalf("zero-row touches must confirm with the active-session select: calls=%#v", calls)
+		t.Fatalf("zero-row touches must confirm with the active-session select: %s", summarizeSQLCalls(calls))
 	}
 }
 
@@ -471,7 +473,7 @@ func TestMySQLAuthSessionTouchZeroRowsRejectsInvalidStates(t *testing.T) {
 			}
 			calls := recorder.calls()
 			if len(calls) != 2 || !strings.Contains(calls[1].query, "select 1") {
-				t.Fatalf("invalid state must execute update plus confirmation select: calls=%#v", calls)
+				t.Fatalf("invalid state must execute update plus confirmation select: %s", summarizeSQLCalls(calls))
 			}
 		})
 	}
@@ -1089,9 +1091,13 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 		"v_null_created_at",
 		"v_nullable_token_hash",
 		"v_null_token_hash",
+		"v_null_expires_at",
 		"NULL created_at",
 		"NULL session_token_hash",
+		"NULL expires_at",
 		"duplicate session_token_hash",
+		"tb_auth_sessions PRIMARY index must be a single BTREE on id without a prefix",
+		"idx_tb_auth_sessions_user has the wrong uniqueness, BTREE type, prefix, or column order",
 		"index_type = 'BTREE'",
 		"sub_part = 0 or sub_part is null",
 		"uq_tb_auth_sessions_token_hash has the wrong uniqueness, BTREE type, prefix, or column order",
@@ -1112,7 +1118,10 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 		"tb_auth_sessions.session_token_hash must be NOT NULL",
 		"tb_auth_sessions contains rows with NULL created_at",
 		"tb_auth_sessions contains rows with NULL session_token_hash",
+		"tb_auth_sessions contains rows with NULL expires_at",
 		"duplicate session_token_hash values must be repaired before migration",
+		"tb_auth_sessions PRIMARY index must be a single BTREE on id without a prefix",
+		"idx_tb_auth_sessions_user has the wrong uniqueness, BTREE type, prefix, or column order",
 		"and index_type = 'BTREE'",
 		"and (sub_part = 0 or sub_part is null)",
 	} {
@@ -1139,4 +1148,12 @@ func readAuthSessionTestFile(t *testing.T, name string) string {
 		t.Fatalf("read %s: %v", name, err)
 	}
 	return string(content)
+}
+
+func summarizeSQLCalls(calls []recordingSQLCall) string {
+	summaries := make([]string, 0, len(calls))
+	for index, call := range calls {
+		summaries = append(summaries, fmt.Sprintf("%d:{keyword=%s,args=%d}", index, sqlStatementKeyword(call.query), len(call.args)))
+	}
+	return strings.Join(summaries, " ")
 }

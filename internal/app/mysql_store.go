@@ -39,7 +39,8 @@ const mysqlAuthSessionCreateSQL = `
 	insert into tb_auth_sessions (
 		session_token_hash, user_id, sso_subject, ip_address, user_agent,
 		created_at, last_activity_at, expires_at
-	) values (?, ?, ?, ?, ?, ?, ?, ?)
+	) values (?, ?, ?, ?, ?, utc_timestamp(3), utc_timestamp(3),
+		date_add(utc_timestamp(3), interval 30 minute))
 `
 
 const mysqlAuthSessionTouchSQL = `
@@ -90,9 +91,6 @@ func (s *MySQLStore) CreateAuthSession(ctx context.Context, input AuthSessionCre
 		strings.TrimSpace(input.SSOSubject),
 		sanitizeAuditMetadata(input.IPAddress, 64),
 		sanitizeAuditMetadata(input.UserAgent, 512),
-		input.Now,
-		input.Now,
-		input.Now.Add(defaultAuthIdleTimeout),
 	)
 	if err != nil {
 		return "", err

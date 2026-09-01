@@ -44,10 +44,15 @@ begin
   declare v_null_created_at bigint default 0;
   declare v_nullable_token_hash bigint default 0;
   declare v_null_token_hash bigint default 0;
+  declare v_null_expires_at bigint default 0;
   declare v_column_exists bigint default 0;
   declare v_index_entries bigint default 0;
   declare v_index_matches bigint default 0;
   declare v_duplicate_hashes bigint default 0;
+  declare v_primary_index_entries bigint default 0;
+  declare v_primary_index_matches bigint default 0;
+  declare v_user_index_entries bigint default 0;
+  declare v_user_index_matches bigint default 0;
   declare v_token_index_missing bigint default 0;
   declare v_user_activity_index_missing bigint default 0;
   declare v_expiry_index_missing bigint default 0;
@@ -145,6 +150,15 @@ begin
         set message_text = 'tb_auth_sessions contains rows with NULL session_token_hash; repair data before migration';
     end if;
 
+    select count(*) into v_null_expires_at
+    from tb_auth_sessions
+    where expires_at is null;
+
+    if v_null_expires_at > 0 then
+      signal sqlstate '45000'
+        set message_text = 'tb_auth_sessions contains rows with NULL expires_at; repair data before migration';
+    end if;
+
     select count(*) into v_duplicate_hashes
     from (
       select session_token_hash
@@ -156,6 +170,43 @@ begin
     if v_duplicate_hashes > 0 then
       signal sqlstate '45000'
         set message_text = 'duplicate session_token_hash values must be repaired before migration';
+    end if;
+
+    select count(*), coalesce(sum(
+      case when non_unique = 0
+        and index_type = 'BTREE'
+        and (sub_part = 0 or sub_part is null)
+        and seq_in_index = 1
+        and column_name = 'id'
+        then 1 else 0 end), 0)
+      into v_primary_index_entries, v_primary_index_matches
+    from information_schema.statistics
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions'
+      and index_name = 'PRIMARY';
+
+    if v_primary_index_entries <> 1 or v_primary_index_matches <> 1 then
+      signal sqlstate '45000'
+        set message_text = 'tb_auth_sessions PRIMARY index must be a single BTREE on id without a prefix';
+    end if;
+
+    select count(*), coalesce(sum(
+      case when non_unique = 1
+        and index_type = 'BTREE'
+        and (sub_part = 0 or sub_part is null)
+        and ((seq_in_index = 1 and column_name = 'user_id')
+          or (seq_in_index = 2 and column_name = 'created_at'))
+        then 1 else 0 end), 0)
+      into v_user_index_entries, v_user_index_matches
+    from information_schema.statistics
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions'
+      and index_name = 'idx_tb_auth_sessions_user';
+
+    if v_user_index_entries > 0
+      and (v_user_index_entries <> 2 or v_user_index_matches <> 2) then
+      signal sqlstate '45000'
+        set message_text = 'idx_tb_auth_sessions_user has the wrong uniqueness, BTREE type, prefix, or column order';
     end if;
 
     -- Validate existing named indexes before any ALTER or UPDATE. A wrong
