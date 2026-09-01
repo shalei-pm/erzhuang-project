@@ -17,12 +17,12 @@ import { AuditLogManagement } from "./components/AuditLogManagement";
 import {
   authCompanyEntryPath,
   claimIdleSessionTimeoutRedirect,
+  claimSessionRedirect,
   authLoginPath,
   authLogoutPath,
   canManageUsers,
   idleSessionTimeoutRedirectKey,
   isIdleSessionTimeout,
-  readSessionStorage,
   removeSessionStorage,
   safeSessionStorage,
   shouldBlockBusinessData,
@@ -31,7 +31,6 @@ import {
   shouldShowLogoutEntry,
   shouldSkipLocalLogoutBeforeRedirect,
   type AuthState,
-  writeSessionStorage,
 } from "./domain/auth";
 import { errorMessage } from "./domain/format";
 import {
@@ -102,6 +101,7 @@ function AdminApp() {
   const listRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
   const authRedirectingRef = useRef(false);
+  const companyEntryRedirectAttemptedRef = useRef(false);
 
   if (new URLSearchParams(window.location.search).get("tool") === "ezviz-live-demo") {
     return <EzvizLiveDemo appVersion={APP_VERSION} />;
@@ -172,10 +172,10 @@ function AdminApp() {
     if (!shouldShowLoginWelcome(auth)) return;
     const companyEntryPath = authCompanyEntryPath();
     if (!companyEntryPath) return;
+    if (companyEntryRedirectAttemptedRef.current) return;
+    companyEntryRedirectAttemptedRef.current = true;
     const redirectKey = "erzhuang:sso-entry-redirected";
-    if (readSessionStorage(redirectKey) === "1") return;
-    writeSessionStorage(redirectKey, "1");
-    window.location.replace(companyEntryPath);
+    if (claimSessionRedirect(redirectKey, safeSessionStorage())) window.location.replace(companyEntryPath);
   }, [auth]);
 
   async function loadStores(nextQuery = query, nextCityFilter = cityFilter, nextPage = page) {
@@ -489,6 +489,7 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const authRedirectingRef = useRef(false);
+  const companyEntryRedirectAttemptedRef = useRef(false);
   const [monitorMode, setMonitorMode] = useState<"legacy" | "nvr">("legacy");
   const [monitorModeLoading, setMonitorModeLoading] = useState(true);
   const showLogoutEntry = shouldShowLogoutEntry(auth);
@@ -573,10 +574,10 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     if (!shouldShowLoginWelcome(auth)) return;
     const companyEntryPath = authCompanyEntryPath();
     if (!companyEntryPath) return;
+    if (companyEntryRedirectAttemptedRef.current) return;
+    companyEntryRedirectAttemptedRef.current = true;
     const redirectKey = "erzhuang:h5-sso-entry-redirected";
-    if (readSessionStorage(redirectKey) === "1") return;
-    writeSessionStorage(redirectKey, "1");
-    window.location.replace(companyEntryPath);
+    if (claimSessionRedirect(redirectKey, safeSessionStorage())) window.location.replace(companyEntryPath);
   }, [auth]);
 
   async function logout() {

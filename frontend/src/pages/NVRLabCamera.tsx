@@ -16,7 +16,7 @@ import {
   type NVRLabPlaybackRange,
   type NVRLabStreamSession,
 } from "../domain/nvr-lab";
-import type { AuthState } from "../domain/auth";
+import { isIdleSessionTimeout, type AuthState } from "../domain/auth";
 
 type NVRLabCameraProps = {
 	externalOrgId: string;
@@ -84,7 +84,7 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
     return () => {
       cancelled = true;
     };
-  }, [cameraId, externalOrgId]);
+  }, [cameraId, externalOrgId, onAuthRequired]);
 
   const requestSession = useCallback(
     async (nextMode: NVRLabMode, nextStart?: number, nextEnd?: number) => {
@@ -163,10 +163,14 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
     try {
       await nvrLabApi.uploadSnapshot(externalOrgId, cameraId, image);
       setSnapshotBackfillState("succeeded");
-    } catch {
+    } catch (error) {
+      if (isIdleSessionTimeout(error)) {
+        onAuthRequired(error);
+        return;
+      }
       setSnapshotBackfillState("failed");
     }
-  }, [cameraId, externalOrgId]);
+  }, [cameraId, externalOrgId, onAuthRequired]);
 
   const seekPlayback = useCallback((startTime: number) => {
     const range = activePlaybackRangeRef.current;

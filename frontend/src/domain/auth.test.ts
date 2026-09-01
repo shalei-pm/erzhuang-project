@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   authLogoutPath,
   claimIdleSessionTimeoutRedirect,
+  claimSessionRedirect,
   isIdleSessionTimeout,
   readSessionStorage,
   removeSessionStorage,
@@ -54,6 +55,18 @@ describe("idle session auth helpers", () => {
     expect(claimIdleSessionTimeoutRedirect(readErrorStorage)).toBe(true);
     expect(claimIdleSessionTimeoutRedirect(writeErrorStorage)).toBe(true);
     expect(claimIdleSessionTimeoutRedirect(null)).toBe(true);
+  });
+
+  it("claims any session redirect once and remains available without storage", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    };
+
+    expect(claimSessionRedirect("entry", storage)).toBe(true);
+    expect(claimSessionRedirect("entry", storage)).toBe(false);
+    expect(claimSessionRedirect("entry", null)).toBe(true);
   });
 
   it("treats unavailable session storage as a non-blocking condition", () => {

@@ -133,7 +133,14 @@ export function StoreDetail({
       ) : (
         <>
           <div hidden={activeTab !== "design-plan"}>
-            <DesignPlanTab store={store} saving={saving} canEdit={canEdit} onStoreUpdated={onStoreUpdated} onToast={onToast} />
+            <DesignPlanTab
+              store={store}
+              saving={saving}
+              canEdit={canEdit}
+              onStoreUpdated={onStoreUpdated}
+              onToast={onToast}
+              onAuthRequired={onAuthRequired}
+            />
           </div>
           <div hidden={activeTab !== "channels"}>
             <VideoChannelTab
