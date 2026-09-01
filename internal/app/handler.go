@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 	"github.com/shalei-pm/erzhuang-project/internal/nvrlab"
@@ -57,6 +58,7 @@ type Store interface {
 type Handler struct {
 	store                    Store
 	auth                     AuthConfig
+	auditRecorder            auditlog.AuditRecorder
 	ossSmokeRunner           ossSmokeRunner
 	assetMigrationRunner     assetMigrationRunner
 	assetStateBackfillRunner assetStateBackfillRunner
@@ -104,7 +106,11 @@ func NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(store Store, design
 }
 
 func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
-	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner, storeSpaceService: storeSpaceService, resourceViewService: resourceViewService, nvrMonitorService: nvrMonitorService, monitorPlaybackMode: monitorPlaybackMode}
+	var auditRecorder auditlog.AuditRecorder
+	if recorder, ok := store.(auditlog.AuditRecorder); ok {
+		auditRecorder = recorder
+	}
+	handler := &Handler{store: store, auth: AuthConfigFromEnv(), auditRecorder: auditRecorder, ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner, storeSpaceService: storeSpaceService, resourceViewService: resourceViewService, nvrMonitorService: nvrMonitorService, monitorPlaybackMode: monitorPlaybackMode}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)

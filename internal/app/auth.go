@@ -201,10 +201,12 @@ func (h *Handler) writeForbiddenAuth(w http.ResponseWriter) {
 }
 
 func (h *Handler) authCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	h.recordAuthLogin(r)
 	http.Redirect(w, r, normalizeBasePath(os.Getenv("APP_BASE_PATH"))+"/", http.StatusFound)
 }
 
 func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
+	h.recordAuthLogout(r)
 	h.clearAuthCookie(w, r)
 	if r.Method == http.MethodGet {
 		redirectTo := safeLogoutRedirect(r.URL.Query().Get("redirect"))
