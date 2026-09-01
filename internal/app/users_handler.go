@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -163,9 +164,19 @@ func newUserMutationAuditEvent(r *http.Request, operator AuthUserRecord, action,
 	targetName := firstNonEmpty(input.DisplayName, input.Username, input.Email)
 	targetEmail := normalizeEmail(input.Email)
 	role := normalizeRole(input.Role)
+	scopeIDs := auditStoreIDs(input.MonitorStoreScopeIDs)
+	if role == RoleViewer && len(scopeIDs) > 0 {
+		scopeCount = len(scopeIDs)
+	}
 	scopeLabel := fmt.Sprintf("%d家", scopeCount)
+	scopeIDsValue := ""
+	if len(scopeIDs) > 0 {
+		scopeIDsValue = strings.Join(scopeIDs, ",")
+		scopeLabel += fmt.Sprintf("（门店ID=%s）", scopeIDsValue)
+	}
 	if role != RoleViewer {
 		scopeLabel = "全部门店"
+		scopeIDsValue = ""
 	}
 	summary := fmt.Sprintf("将用户“%s（%s）”权限更新为：角色=%s，状态=%s，门店范围=%s", targetName, targetEmail, auditRoleLabel(role), auditEnabledLabel(input.Enabled), scopeLabel)
 	if action == "user.create" {
@@ -177,6 +188,7 @@ func newUserMutationAuditEvent(r *http.Request, operator AuthUserRecord, action,
 		"role":         role,
 		"enabled":      input.Enabled,
 		"scope_count":  scopeCount,
+		"scope_ids":    scopeIDsValue,
 		"target_name":  targetName,
 		"target_email": targetEmail,
 	})
@@ -196,6 +208,25 @@ func newUserMutationAuditEvent(r *http.Request, operator AuthUserRecord, action,
 		event.EntityID = int64Pointer(targetID)
 	}
 	return event
+}
+
+func auditStoreIDs(ids []int64) []string {
+	unique := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id > 0 {
+			unique[id] = struct{}{}
+		}
+	}
+	ordered := make([]int64, 0, len(unique))
+	for id := range unique {
+		ordered = append(ordered, id)
+	}
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
+	result := make([]string, len(ordered))
+	for i, id := range ordered {
+		result[i] = strconv.FormatInt(id, 10)
+	}
+	return result
 }
 
 func auditRoleLabel(role string) string {

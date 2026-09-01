@@ -26,11 +26,11 @@ func TestNewUserMutationAuditEventIncludesTargetAndPermissionState(t *testing.T)
 	if err := json.Unmarshal(event.DetailJSON, &detail); err != nil {
 		t.Fatalf("decode detail: %v", err)
 	}
-	wantSummary := "将用户“目标用户（target@soyoung.com）”权限更新为：角色=普通查看，状态=启用，门店范围=2家"
+	wantSummary := "将用户“目标用户（target@soyoung.com）”权限更新为：角色=普通查看，状态=启用，门店范围=2家（门店ID=10001,10030）"
 	if detail["summary"] != wantSummary {
 		t.Fatalf("summary = %q, want %q", detail["summary"], wantSummary)
 	}
-	if detail["target_name"] != "目标用户" || detail["target_email"] != "target@soyoung.com" || detail["role"] != RoleViewer || detail["enabled"] != true {
+	if detail["target_name"] != "目标用户" || detail["target_email"] != "target@soyoung.com" || detail["role"] != RoleViewer || detail["enabled"] != true || detail["scope_ids"] != "10001,10030" {
 		t.Fatalf("unexpected target detail: %#v", detail)
 	}
 }

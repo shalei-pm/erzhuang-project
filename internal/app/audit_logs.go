@@ -77,6 +77,7 @@ var safeAuditDetailKeys = map[string]bool{
 	"role":         true,
 	"enabled":      true,
 	"scope_count":  true,
+	"scope_ids":    true,
 	"start_time":   true,
 	"end_time":     true,
 	"date_range":   true,
