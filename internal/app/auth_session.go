@@ -16,7 +16,7 @@ const (
 type authSessionStore interface {
 	CreateAuthSession(context.Context, AuthSessionCreate) (string, error)
 	TouchAuthSession(context.Context, string, int64, time.Time, time.Duration) (bool, error)
-	RevokeAuthSession(context.Context, string, string, time.Time) error
+	RevokeAuthSession(context.Context, string, int64, string, time.Time) error
 }
 
 type AuthSessionCreate struct {

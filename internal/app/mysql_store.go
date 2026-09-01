@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
@@ -33,12 +35,89 @@ const mysqlUserResourceScopesTableDDL = `
 	) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_general_ci
 `
 
+const mysqlAuthSessionCreateSQL = `
+	insert into tb_auth_sessions (
+		session_token_hash, user_id, sso_subject, ip_address, user_agent,
+		created_at, last_activity_at, expires_at
+	) values (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+const mysqlAuthSessionTouchSQL = `
+	update tb_auth_sessions
+	set last_activity_at = greatest(last_activity_at, ?),
+		expires_at = greatest(expires_at, ?)
+	where session_token_hash = ?
+		and user_id = ?
+		and revoked_at is null
+		and expires_at > ?
+`
+
+const mysqlAuthSessionRevokeSQL = `
+	update tb_auth_sessions
+	set revoked_at = ?, revoked_reason = ?
+	where session_token_hash = ?
+		and user_id = ?
+		and revoked_at is null
+`
+
 func NewMySQLStore(db *sql.DB) *MySQLStore {
 	return &MySQLStore{db: db}
 }
 
 func (s *MySQLStore) Name() string {
 	return "mysql"
+}
+
+func (s *MySQLStore) CreateAuthSession(ctx context.Context, input AuthSessionCreate) (string, error) {
+	token, err := newAuthSessionToken()
+	if err != nil {
+		return "", err
+	}
+	hash := hashAuthSessionToken(token)
+	_, err = s.db.ExecContext(ctx, mysqlAuthSessionCreateSQL,
+		hex.EncodeToString(hash[:]),
+		input.UserID,
+		strings.TrimSpace(input.SSOSubject),
+		sanitizeAuditMetadata(input.IPAddress, 64),
+		sanitizeAuditMetadata(input.UserAgent, 512),
+		input.Now,
+		input.Now,
+		input.Now.Add(defaultAuthIdleTimeout),
+	)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func (s *MySQLStore) TouchAuthSession(ctx context.Context, token string, userID int64, now time.Time, idleTimeout time.Duration) (bool, error) {
+	hash := hashAuthSessionToken(token)
+	result, err := s.db.ExecContext(ctx, mysqlAuthSessionTouchSQL,
+		now,
+		now.Add(idleTimeout),
+		hex.EncodeToString(hash[:]),
+		userID,
+		now,
+	)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected == 1, nil
+}
+
+func (s *MySQLStore) RevokeAuthSession(ctx context.Context, token string, userID int64, reason string, now time.Time) error {
+	hash := hashAuthSessionToken(token)
+	_, err := s.db.ExecContext(ctx, mysqlAuthSessionRevokeSQL,
+		now,
+		sanitizeAuditMetadata(reason, 255),
+		hex.EncodeToString(hash[:]),
+		userID,
+	)
+	return err
 }
 
 func (s *MySQLStore) Ping(ctx context.Context) error {

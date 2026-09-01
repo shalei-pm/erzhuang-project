@@ -133,12 +133,14 @@ create table if not exists tb_auth_sessions (
   ip_address varchar(64) not null default '',
   user_agent varchar(512) not null default '',
   created_at datetime(3) not null default current_timestamp(3),
+  last_activity_at datetime(3) not null,
   expires_at datetime(3) not null,
   revoked_at datetime(3) null,
   revoked_reason varchar(255) not null default '',
   primary key (id),
   unique key uq_tb_auth_sessions_token_hash (session_token_hash),
   key idx_tb_auth_sessions_user (user_id, created_at),
+  key idx_tb_auth_sessions_user_activity (user_id, last_activity_at),
   key idx_tb_auth_sessions_expires_at (expires_at),
   constraint fk_tb_auth_sessions_user
     foreign key (user_id) references tb_users(id)

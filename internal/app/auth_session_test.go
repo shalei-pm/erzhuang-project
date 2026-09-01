@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -63,13 +66,13 @@ func (s *fakeAuthSessionStore) TouchAuthSession(_ context.Context, token string,
 	return true, nil
 }
 
-func (s *fakeAuthSessionStore) RevokeAuthSession(_ context.Context, token string, reason string, now time.Time) error {
+func (s *fakeAuthSessionStore) RevokeAuthSession(_ context.Context, token string, userID int64, reason string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	hash := hashAuthSessionToken(token)
 	key := hex.EncodeToString(hash[:])
 	session, ok := s.sessions[key]
-	if ok && session.revokedAt.IsZero() {
+	if ok && session.userID == userID && session.revokedAt.IsZero() {
 		session.revokedAt = now
 		session.revokeReason = reason
 		s.sessions[key] = session
@@ -188,7 +191,7 @@ func TestAuthSessionRevokedCannotBeTouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RevokeAuthSession(context.Background(), token, "manual_logout", createdAt.Add(time.Minute)); err != nil {
+	if err := store.RevokeAuthSession(context.Background(), token, 7, "manual_logout", createdAt.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -217,4 +220,123 @@ func TestAuthSessionFakeDoesNotStoreRawToken(t *testing.T) {
 	if got := len(store.sessions); got != 1 {
 		t.Fatalf("stored sessions = %d, want 1", got)
 	}
+}
+
+func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
+	recorder := newRecordingSQLDriver(t)
+	db, err := sql.Open(recorder.driverName, "")
+	if err != nil {
+		t.Fatalf("open recording db: %v", err)
+	}
+	defer db.Close()
+
+	store := NewMySQLStore(db)
+	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	token, err := store.CreateAuthSession(context.Background(), AuthSessionCreate{
+		UserID:    7,
+		SSOSubject: "subject-7",
+		IPAddress: "192.0.2.1",
+		UserAgent: "contract-test",
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("create auth session: %v", err)
+	}
+	if _, err := store.TouchAuthSession(context.Background(), token, 7, now.Add(time.Minute), defaultAuthIdleTimeout); err != nil {
+		t.Fatalf("touch auth session: %v", err)
+	}
+	if err := store.RevokeAuthSession(context.Background(), token, 7, "manual_logout", now.Add(2*time.Minute)); err != nil {
+		t.Fatalf("revoke auth session: %v", err)
+	}
+
+	queries := recorder.queries()
+	if len(queries) != 3 {
+		t.Fatalf("executed queries = %d, want 3", len(queries))
+	}
+	for _, query := range queries {
+		if strings.Contains(query, token) {
+			t.Fatalf("raw session token was interpolated into SQL: raw_token_present=true")
+		}
+	}
+	for _, want := range []string{
+		"insert into tb_auth_sessions",
+		"session_token_hash",
+		"created_at, last_activity_at, expires_at",
+	} {
+		if !strings.Contains(queries[0], want) {
+			t.Fatalf("create query missing %q: %s", want, queries[0])
+		}
+	}
+	for _, want := range []string{
+		"update tb_auth_sessions",
+		"last_activity_at = greatest(last_activity_at, ?)",
+		"expires_at = greatest(expires_at, ?)",
+		"session_token_hash = ?",
+		"user_id = ?",
+		"revoked_at is null",
+		"expires_at > ?",
+	} {
+		if !strings.Contains(queries[1], want) {
+			t.Fatalf("touch query missing %q: %s", want, queries[1])
+		}
+	}
+	for _, want := range []string{
+		"revoked_at = ?",
+		"revoked_reason = ?",
+		"session_token_hash = ?",
+		"user_id = ?",
+		"revoked_at is null",
+	} {
+		if !strings.Contains(queries[2], want) {
+			t.Fatalf("revoke query missing %q: %s", want, queries[2])
+		}
+	}
+}
+
+func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
+	schema := readAuthSessionTestFile(t, filepath.Join("..", "..", "db", "mysql_governance_schema_tb.sql"))
+	migration := readAuthSessionTestFile(t, filepath.Join("..", "..", "db", "mysql_auth_sessions.sql"))
+	for _, want := range []string{
+		"create table if not exists tb_auth_sessions",
+		"last_activity_at datetime(3) not null",
+		"key idx_tb_auth_sessions_user_activity (user_id, last_activity_at)",
+		"key idx_tb_auth_sessions_expires_at (expires_at)",
+	} {
+		if !strings.Contains(schema, want) {
+			t.Fatalf("governance schema missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"from information_schema.tables",
+		"from information_schema.columns",
+		"from information_schema.statistics",
+		"create table if not exists tb_auth_sessions",
+		"add column last_activity_at datetime(3) null",
+		"set last_activity_at = created_at",
+		"modify column last_activity_at datetime(3) not null",
+		"application startup",
+	} {
+		if !strings.Contains(migration, want) {
+			t.Fatalf("auth-session migration missing %q", want)
+		}
+	}
+	for _, secretMarker := range []string{"Authorization:", "password", "MYSQL_DSN", "wss://", "eyJ"} {
+		if strings.Contains(migration, secretMarker) {
+			t.Fatalf("auth-session migration contains prohibited secret marker %q", secretMarker)
+		}
+	}
+
+	mysqlSource := readAuthSessionTestFile(t, "mysql_store.go")
+	if strings.Contains(mysqlSource, "log.Print") || strings.Contains(mysqlSource, "log.Printf") {
+		t.Fatal("MySQL auth-session implementation must not log session tokens")
+	}
+}
+
+func readAuthSessionTestFile(t *testing.T, name string) string {
+	t.Helper()
+	content, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(content)
 }
