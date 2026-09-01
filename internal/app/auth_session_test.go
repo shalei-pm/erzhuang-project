@@ -52,7 +52,7 @@ func (s *fakeAuthSessionStore) CreateAuthSession(_ context.Context, input AuthSe
 	return token, nil
 }
 
-func (s *fakeAuthSessionStore) TouchAuthSession(_ context.Context, token string, userID int64, now time.Time, idleTimeout time.Duration) (bool, error) {
+func (s *fakeAuthSessionStore) TouchAuthSession(_ context.Context, token string, userID int64, now time.Time, _ time.Duration) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	hash := hashAuthSessionToken(token)
@@ -64,7 +64,7 @@ func (s *fakeAuthSessionStore) TouchAuthSession(_ context.Context, token string,
 		return true, nil
 	}
 	session.lastActivity = now
-	session.expiresAt = now.Add(idleTimeout)
+	session.expiresAt = now.Add(defaultAuthIdleTimeout)
 	s.sessions[hex.EncodeToString(hash[:])] = session
 	return true, nil
 }
@@ -145,6 +145,47 @@ func TestAuthSessionTouchAfterIdleTimeout(t *testing.T) {
 				t.Fatal("touch at or after 30 minutes should fail")
 			}
 		})
+	}
+}
+
+func TestAuthSessionTouchNotFound(t *testing.T) {
+	store := newFakeAuthSessionStore()
+	ok, err := store.TouchAuthSession(
+		context.Background(), "missing-session-token", 7,
+		time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC), 4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("missing session should not be touchable")
+	}
+}
+
+func TestAuthSessionTouchUsesFixedIdleTimeout(t *testing.T) {
+	store := newFakeAuthSessionStore()
+	createdAt := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	token, err := store.CreateAuthSession(context.Background(), AuthSessionCreate{UserID: 7, Now: createdAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	touchAt := createdAt.Add(time.Minute)
+	ok, err := store.TouchAuthSession(context.Background(), token, 7, touchAt, 4*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("active session should be touchable")
+	}
+
+	hash := hashAuthSessionToken(token)
+	key := hex.EncodeToString(hash[:])
+	store.mu.Lock()
+	expiresAt := store.sessions[key].expiresAt
+	store.mu.Unlock()
+	if !expiresAt.Equal(touchAt.Add(defaultAuthIdleTimeout)) {
+		t.Fatalf("fake store accepted caller timeout: got=%s want=%s", expiresAt, touchAt.Add(defaultAuthIdleTimeout))
 	}
 }
 
