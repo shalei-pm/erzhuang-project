@@ -19,7 +19,7 @@ type NVRLabMonitorProps = {
   loggingOut: boolean;
   authMessage: string;
   onLogout: () => void | Promise<void>;
-  onAuthRequired: () => void;
+  onAuthRequired: (error?: unknown) => void;
   onOpenCamera: (cameraId: number) => void;
   onSelectStore: (externalOrgId: string) => void;
 };
@@ -46,7 +46,7 @@ export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, on
       .catch((error) => {
         if (cancelled) return;
         if (error instanceof NVRLabApiError && error.status === 401) {
-          onAuthRequired();
+          onAuthRequired(error);
           return;
         }
         setMessage(error instanceof Error ? error.message : "摄像头列表加载失败");

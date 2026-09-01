@@ -13,11 +13,26 @@ export type AuthUser = {
 export type AuthState = {
   enabled: boolean;
   authenticated: boolean;
+  code?: string;
   forbidden?: boolean;
   login_url?: string;
   user?: AuthUser;
   permissions?: string[];
 };
+
+export const idleSessionTimeoutRedirectKey = "erzhuang:idle-session-timeout-redirected";
+
+export function isIdleSessionTimeout(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { status?: unknown; code?: unknown };
+  return candidate.status === 401 && candidate.code === "session_idle_timeout";
+}
+
+export function claimIdleSessionTimeoutRedirect(storage: Pick<Storage, "getItem" | "setItem">): boolean {
+  if (storage.getItem(idleSessionTimeoutRedirectKey) === "1") return false;
+  storage.setItem(idleSessionTimeoutRedirectKey, "1");
+  return true;
+}
 
 export function shouldShowLoginWelcome(auth: Pick<AuthState, "enabled" | "authenticated" | "forbidden"> | null) {
   return Boolean(auth?.enabled && !auth.authenticated && !auth.forbidden);

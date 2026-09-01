@@ -34,7 +34,7 @@ interface H5MonitorChannelProps {
   loggingOut?: boolean;
   authMessage?: string;
   onBack: () => void;
-  onAuthRequired?: () => void;
+  onAuthRequired?: (error?: unknown) => void;
   onLogout?: () => void | Promise<void>;
 }
 
@@ -1149,9 +1149,9 @@ function errMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function isUnauthorizedError(err: unknown, onAuthRequired: (() => void) | undefined): boolean {
+function isUnauthorizedError(err: unknown, onAuthRequired: ((error?: unknown) => void) | undefined): boolean {
   if (err instanceof H5ApiError && err.status === 401) {
-    onAuthRequired?.();
+    onAuthRequired?.(err);
     return true;
   }
   return false;

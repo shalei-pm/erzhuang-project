@@ -6,7 +6,7 @@ type H5StoreSwitcherProps = {
   currentExternalOrgId: string;
   currentStoreName?: string;
   currentCity?: string;
-  onAuthRequired?: () => void;
+  onAuthRequired?: (error?: unknown) => void;
   onSelectStore: (externalOrgId: string) => void;
 };
 
@@ -37,7 +37,7 @@ export function H5StoreSwitcher({
       .catch((err) => {
         if (cancelled) return;
         if (err instanceof H5ApiError && err.status === 401) {
-          onAuthRequired?.();
+          onAuthRequired?.(err);
           return;
         }
         setError(errorMessage(err, "门店列表加载失败"));

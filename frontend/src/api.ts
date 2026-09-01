@@ -2496,12 +2496,13 @@ async function withFallback<T>(httpCall: () => Promise<T>, mockCall: () => Promi
 
 async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(url, {
+    ...options,
+    credentials: "include",
     headers: {
       Accept: "application/json",
       ...(options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
     },
-    ...options,
   });
 
   if (response.status === 204) {
@@ -2534,14 +2535,22 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
 const channelMappingExcelMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 async function downloadFile(url: string): Promise<void> {
-  const response = await fetch(url, { headers: { Accept: channelMappingExcelMime } });
+  const response = await fetch(url, { credentials: "include", headers: { Accept: channelMappingExcelMime } });
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.includes("application/json")) {
       const data = await response.json();
       const fields = data && typeof data === "object" && "fields" in data && isStringRecord(data.fields) ? data.fields : {};
-      const message = data && typeof data === "object" && "error" in data ? String(data.error) : `HTTP ${response.status}`;
-      throw new ApiError(response.status, message, fields);
+      const message =
+        data && typeof data === "object" && "message" in data
+          ? String(data.message)
+          : data && typeof data === "object" && "error" in data
+            ? String(data.error)
+            : `HTTP ${response.status}`;
+      const code = data && typeof data === "object" && "code" in data ? String(data.code) : "";
+      const stage = data && typeof data === "object" && "stage" in data ? String(data.stage) : "";
+      const detail = data && typeof data === "object" && "detail" in data ? String(data.detail) : "";
+      throw new ApiError(response.status, message, fields, code, stage, detail);
     }
     throw new ApiError(response.status, `HTTP ${response.status}`);
   }

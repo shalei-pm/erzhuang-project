@@ -28,7 +28,7 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
     headers["Content-Type"] = "application/json";
   }
 
-  const response = await fetch(url, { ...options, headers });
+  const response = await fetch(url, { ...options, credentials: "include", headers });
 
   if (response.status === 204) {
     return undefined as T;

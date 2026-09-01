@@ -17,7 +17,7 @@ interface H5MonitorProps {
   onOpenChannel: (channelId: number, activeTab: H5MonitorTabKey) => void;
   onSelectTab?: (tab: H5MonitorTabKey) => void;
   onSelectStore: (externalOrgId: string) => void;
-  onAuthRequired?: () => void;
+  onAuthRequired?: (error?: unknown) => void;
   onLogout?: () => void | Promise<void>;
   refreshKey?: number;
 }
@@ -65,7 +65,7 @@ export function H5Monitor({
       .catch((err) => {
         if (cancelled) return;
         if (err instanceof H5ApiError && err.status === 401) {
-          onAuthRequired?.();
+          onAuthRequired?.(err);
           return;
         }
         if (err instanceof H5ApiError && err.status === 403) {

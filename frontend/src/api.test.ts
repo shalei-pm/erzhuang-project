@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { __testing } from "./api";
+import { storeSpaceApi } from "./api";
+import { h5Api, H5ApiError } from "./api-h5";
+import { nvrLabApi, NVRLabApiError } from "./api-nvr-lab";
 import { h5CameraColumnCount, h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from "./domain/h5-channel-display";
 import {
   h5DecodePathForEnvironment,
@@ -60,6 +63,53 @@ describe("design plan API path helpers", () => {
     );
   });
 });
+
+describe("authenticated API requests", () => {
+  it("includes the HttpOnly session cookie on JSON requests", async () => {
+    const calls: RequestInit[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push(init ?? {});
+        return jsonResponse({ enabled: true, authenticated: true });
+      }),
+    );
+
+    await storeSpaceApi.getAuthMe();
+    await h5Api.getMonitorHome("10001");
+    await nvrLabApi.listCameras("10001");
+
+    expect(calls).toHaveLength(3);
+    expect(calls.every((init) => init.credentials === "include")).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("preserves session timeout codes from every API client", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ code: "session_idle_timeout", message: "expired" }, 401)),
+    );
+
+    await expect(storeSpaceApi.getAuthMe()).rejects.toMatchObject({ status: 401, code: "session_idle_timeout" });
+    const h5Request = h5Api.getMonitorHome("10001");
+    await expect(h5Request).rejects.toBeInstanceOf(H5ApiError);
+    await expect(h5Request).rejects.toMatchObject({ status: 401, code: "session_idle_timeout" });
+    const nvrRequest = nvrLabApi.listCameras("10001");
+    await expect(nvrRequest).rejects.toBeInstanceOf(NVRLabApiError);
+    await expect(nvrRequest).rejects.toMatchObject({ status: 401, code: "session_idle_timeout" });
+    vi.unstubAllGlobals();
+  });
+});
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers({ "content-type": "application/json" }),
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  } as Response;
+}
 
 describe("store space resource view api", () => {
   it("uses the 3.0 read-only resource view paths", () => {

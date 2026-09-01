@@ -15,6 +15,7 @@ export default defineConfig({
       "src/domain/h5-monitor-active-tab.test.ts",
       "src/domain/nvr-lab.test.ts",
       "src/domain/resource-view.test.ts",
+      "src/domain/auth.test.ts",
     ],
     env: {
       VITE_DESIGN_PLAN_API_BASE: "/erzhuang-project/api/design-plan",

@@ -25,7 +25,7 @@ type NVRLabCameraProps = {
   loggingOut: boolean;
   authMessage: string;
   onLogout: () => void | Promise<void>;
-  onAuthRequired: () => void;
+  onAuthRequired: (error?: unknown) => void;
   onBack: () => void;
 };
 
@@ -74,7 +74,12 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
         if (!found) setMessage("未找到可用摄像头");
       })
       .catch((error) => {
-        if (!cancelled) setMessage(error instanceof Error ? error.message : "摄像头信息加载失败");
+        if (cancelled) return;
+        if (error instanceof NVRLabApiError && error.status === 401) {
+          onAuthRequired(error);
+          return;
+        }
+        setMessage(error instanceof Error ? error.message : "摄像头信息加载失败");
       });
     return () => {
       cancelled = true;
@@ -90,7 +95,7 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
         setSession(nextSession);
       } catch (error) {
         if (error instanceof NVRLabApiError && error.status === 401) {
-          onAuthRequired();
+          onAuthRequired(error);
           return;
         }
         if (error instanceof NVRLabApiError) {

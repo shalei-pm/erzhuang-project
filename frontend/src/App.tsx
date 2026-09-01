@@ -16,9 +16,12 @@ import { UserManagement } from "./components/UserManagement";
 import { AuditLogManagement } from "./components/AuditLogManagement";
 import {
   authCompanyEntryPath,
+  claimIdleSessionTimeoutRedirect,
   authLoginPath,
   authLogoutPath,
   canManageUsers,
+  idleSessionTimeoutRedirectKey,
+  isIdleSessionTimeout,
   shouldBlockBusinessData,
   shouldShowForbiddenAccess,
   shouldShowLoginWelcome,
@@ -94,6 +97,7 @@ function AdminApp() {
   const [settingsSection, setSettingsSection] = useState<"users" | "audit">("users");
   const listRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
+  const authRedirectingRef = useRef(false);
 
   if (new URLSearchParams(window.location.search).get("tool") === "ezviz-live-demo") {
     return <EzvizLiveDemo appVersion={APP_VERSION} />;
@@ -112,13 +116,30 @@ function AdminApp() {
     </button>
   ) : null;
 
+  function handleAuthRequired(error?: unknown) {
+    const idleTimeout = isIdleSessionTimeout(error);
+    const logoutPath = authLogoutPath();
+    setAuth({
+      enabled: true,
+      authenticated: false,
+      code: idleTimeout ? "session_idle_timeout" : undefined,
+      login_url: idleTimeout ? logoutPath : authLoginPath(),
+    });
+    if (idleTimeout && !authRedirectingRef.current) {
+      authRedirectingRef.current = true;
+      if (claimIdleSessionTimeoutRedirect(window.sessionStorage)) {
+        window.location.assign(logoutPath);
+      }
+    }
+  }
+
   useEffect(() => {
     void storeSpaceApi
       .getAuthMe()
       .then(setAuth)
       .catch((error) => {
         if (error instanceof Error && "status" in error && (error as { status?: number }).status === 401) {
-          setAuth({ enabled: true, authenticated: false, login_url: "/erzhuang-project/_/auth/callback" });
+          handleAuthRequired(error);
           return;
         }
         if (error instanceof Error && "status" in error && (error as { status?: number }).status === 403) {
@@ -139,6 +160,7 @@ function AdminApp() {
   useEffect(() => {
     if (auth?.authenticated) {
       window.sessionStorage.removeItem("erzhuang:sso-entry-redirected");
+      window.sessionStorage.removeItem(idleSessionTimeoutRedirectKey);
     }
   }, [auth]);
 
@@ -167,6 +189,10 @@ function AdminApp() {
       }
     } catch (error) {
       if (listRequestIdRef.current !== requestId) return;
+      if (isIdleSessionTimeout(error)) {
+        handleAuthRequired(error);
+        return;
+      }
       setStores([]);
       setTotal(0);
       setListSummary(EMPTY_RESOURCE_LIST_SUMMARY);
@@ -205,6 +231,10 @@ function AdminApp() {
       setActiveStore(detail);
     } catch (error) {
       if (detailRequestIdRef.current !== requestId) return;
+      if (isIdleSessionTimeout(error)) {
+        handleAuthRequired(error);
+        return;
+      }
       setActiveStore(null);
       setToast(errorMessage(error, "门店详情加载失败。"));
     } finally {
@@ -450,9 +480,28 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
-	const [monitorMode, setMonitorMode] = useState<"legacy" | "nvr">("legacy");
-	const [monitorModeLoading, setMonitorModeLoading] = useState(true);
+  const authRedirectingRef = useRef(false);
+  const [monitorMode, setMonitorMode] = useState<"legacy" | "nvr">("legacy");
+  const [monitorModeLoading, setMonitorModeLoading] = useState(true);
   const showLogoutEntry = shouldShowLogoutEntry(auth);
+
+  function handleAuthRequired(error?: unknown) {
+    const idleTimeout = isIdleSessionTimeout(error);
+    const logoutPath = authLogoutPath();
+    setAuth({
+      enabled: true,
+      authenticated: false,
+      code: idleTimeout ? "session_idle_timeout" : undefined,
+      login_url: idleTimeout ? logoutPath : authLoginPath(),
+    });
+    setAuthMessage(idleTimeout ? "登录已因长时间未操作失效，请重新扫码登录。" : "");
+    if (idleTimeout && !authRedirectingRef.current) {
+      authRedirectingRef.current = true;
+      if (claimIdleSessionTimeoutRedirect(window.sessionStorage)) {
+        window.location.assign(logoutPath);
+      }
+    }
+  }
 
   useEffect(() => {
     const onPopState = () => setRoute(parseH5Route());
@@ -469,7 +518,7 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
       })
       .catch((error) => {
         if (error instanceof Error && "status" in error && (error as { status?: number }).status === 401) {
-          setAuth({ enabled: true, authenticated: false, login_url: authLoginPath() });
+          handleAuthRequired(error);
           return;
         }
         if (error instanceof Error && "status" in error && (error as { status?: number }).status === 403) {
@@ -485,26 +534,32 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
   useEffect(() => {
     if (auth?.authenticated) {
       window.sessionStorage.removeItem("erzhuang:h5-sso-entry-redirected");
+      window.sessionStorage.removeItem(idleSessionTimeoutRedirectKey);
     }
   }, [auth]);
 
-	useEffect(() => {
-		if (!auth?.authenticated) {
-			setMonitorMode("legacy");
-			setMonitorModeLoading(false);
-			return;
-		}
-		setMonitorModeLoading(true);
-		let cancelled = false;
-		nvrLabApi.getMonitorMode().then((response) => {
-			if (!cancelled) setMonitorMode(response.mode === "nvr" ? "nvr" : "legacy");
-		}).catch(() => {
-			if (!cancelled) setMonitorMode("legacy");
-		}).finally(() => {
-			if (!cancelled) setMonitorModeLoading(false);
-		});
-		return () => { cancelled = true; };
-	}, [auth?.authenticated]);
+  useEffect(() => {
+    if (!auth?.authenticated) {
+      setMonitorMode("legacy");
+      setMonitorModeLoading(false);
+      return;
+    }
+    setMonitorModeLoading(true);
+    let cancelled = false;
+    nvrLabApi.getMonitorMode().then((response) => {
+      if (!cancelled) setMonitorMode(response.mode === "nvr" ? "nvr" : "legacy");
+    }).catch((error) => {
+      if (cancelled) return;
+      if (isIdleSessionTimeout(error)) {
+        handleAuthRequired(error);
+        return;
+      }
+      setMonitorMode("legacy");
+    }).finally(() => {
+      if (!cancelled) setMonitorModeLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [auth?.authenticated]);
 
   useEffect(() => {
     if (!shouldShowLoginWelcome(auth)) return;
@@ -533,11 +588,6 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     } finally {
       setLoggingOut(false);
     }
-  }
-
-  function handleAuthRequired() {
-    setAuth({ enabled: true, authenticated: false, login_url: authLoginPath() });
-    setAuthMessage("");
   }
 
   if (!route) {

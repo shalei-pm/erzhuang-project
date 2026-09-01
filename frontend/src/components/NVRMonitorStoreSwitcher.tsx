@@ -6,7 +6,7 @@ type Props = {
   currentExternalOrgId: string;
   currentStoreName?: string;
   currentCity?: string;
-  onAuthRequired?: () => void;
+  onAuthRequired?: (error?: unknown) => void;
   onSelectStore: (externalOrgId: string) => void;
 };
 
@@ -23,7 +23,7 @@ export function NVRMonitorStoreSwitcher({ currentExternalOrgId, currentStoreName
       if (!cancelled) setResponse(next);
     }).catch((error) => {
       if (cancelled) return;
-      if (error instanceof NVRLabApiError && error.status === 401) onAuthRequired?.();
+      if (error instanceof NVRLabApiError && error.status === 401) onAuthRequired?.(error);
       else setMessage(error instanceof Error ? error.message : "门店列表加载失败");
     });
     return () => { cancelled = true; };
