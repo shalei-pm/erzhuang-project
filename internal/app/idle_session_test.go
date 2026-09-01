@@ -3,8 +3,8 @@ package app
 import (
 	"context"
 	"crypto/rsa"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -207,6 +207,15 @@ func TestIdleAuthGateFailsClosedWithoutSessionStore(t *testing.T) {
 
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("missing session store status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestIdleAuthTimeoutCannotExceedProductionDefault(t *testing.T) {
+	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	h, _ := newIdleSessionTestHandler(t, newFakeAuthSessionStore(), now)
+	h.idleTimeout = 4 * time.Hour
+	if got := h.authIdleTimeout(); got != defaultAuthIdleTimeout {
+		t.Fatalf("idle timeout = %s, want capped default %s", got, defaultAuthIdleTimeout)
 	}
 }
 
