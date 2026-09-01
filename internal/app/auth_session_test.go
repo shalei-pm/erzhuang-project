@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 type fakeAuthSession struct {
@@ -264,7 +266,7 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 	if len(calls[0].args) != 8 || calls[0].args[0].Value != expectedHashText || calls[0].args[1].Value != int64(7) || calls[0].args[2].Value != "subject-7" {
 		t.Fatalf("create bindings do not contain the expected hash and metadata: arg_count=%d", len(calls[0].args))
 	}
-	if len(calls[1].args) != 5 || calls[1].args[2].Value != expectedHashText || calls[1].args[3].Value != int64(7) {
+	if len(calls[1].args) != 2 || calls[1].args[0].Value != expectedHashText || calls[1].args[1].Value != int64(7) {
 		t.Fatalf("touch bindings do not contain the expected hash and user id: arg_count=%d", len(calls[1].args))
 	}
 	if len(calls[2].args) != 4 || calls[2].args[1].Value != "manual_logout" || calls[2].args[2].Value != expectedHashText || calls[2].args[3].Value != int64(7) {
@@ -291,7 +293,8 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 		"session_token_hash = ?",
 		"user_id = ?",
 		"revoked_at is null",
-		"expires_at > ?",
+		"expires_at > utc_timestamp(3)",
+		"for update",
 	} {
 		if !strings.Contains(mysqlAuthSessionValidSQL, want) {
 			t.Fatalf("touch fallback query missing %q: %s", want, mysqlAuthSessionValidSQL)
@@ -299,12 +302,12 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 	}
 	for _, want := range []string{
 		"update tb_auth_sessions",
-		"last_activity_at = greatest(last_activity_at, ?)",
-		"expires_at = greatest(expires_at, ?)",
+		"last_activity_at = greatest(last_activity_at, utc_timestamp(3))",
+		"expires_at = greatest(expires_at, date_add(utc_timestamp(3), interval 30 minute))",
 		"session_token_hash = ?",
 		"user_id = ?",
 		"revoked_at is null",
-		"expires_at > ?",
+		"expires_at > utc_timestamp(3)",
 	} {
 		if !strings.Contains(queries[1], want) {
 			t.Fatalf("touch query missing %q: %s", want, queries[1])
@@ -358,6 +361,107 @@ func TestMySQLAuthSessionTouchZeroRowsConfirmsActiveSession(t *testing.T) {
 	}
 }
 
+func TestMySQLAuthSessionTouchIgnoresCallerTimeoutAndClock(t *testing.T) {
+	recorder := newRecordingSQLDriver(t)
+	db, err := sql.Open(recorder.driverName, "")
+	if err != nil {
+		t.Fatalf("open recording db: %v", err)
+	}
+	defer db.Close()
+
+	store := NewMySQLStore(db)
+	token, err := store.CreateAuthSession(context.Background(), AuthSessionCreate{
+		UserID: 7,
+		Now:    time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("create auth session: %v", err)
+	}
+
+	callerTime := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := store.TouchAuthSession(context.Background(), token, 7, callerTime, 4*time.Hour); err != nil {
+		t.Fatalf("touch auth session: %v", err)
+	}
+
+	calls := recorder.calls()
+	if len(calls) != 2 {
+		t.Fatalf("executed calls = %d, want create and touch", len(calls))
+	}
+	touchQuery := calls[1].query
+	for _, want := range []string{
+		"utc_timestamp(3)",
+		"date_add(utc_timestamp(3), interval 30 minute)",
+		"expires_at > utc_timestamp(3)",
+	} {
+		if !strings.Contains(touchQuery, want) {
+			t.Fatalf("touch query missing database-clock fixed window %q: %s", want, touchQuery)
+		}
+	}
+	if strings.Contains(touchQuery, "interval ?") || strings.Contains(touchQuery, "date_add(?,") {
+		t.Fatalf("touch query must not accept a caller-controlled timeout or clock: %s", touchQuery)
+	}
+	if len(calls[1].args) != 2 || calls[1].args[0].Value == token {
+		t.Fatalf("touch must bind only the hashed token and user id: arg_count=%d", len(calls[1].args))
+	}
+}
+
+func TestMySQLAuthSessionTouchZeroRowsRejectsInvalidStates(t *testing.T) {
+	for _, state := range []string{"expired", "revoked", "missing"} {
+		t.Run(state, func(t *testing.T) {
+			recorder := newRecordingSQLDriver(t)
+			db, err := sql.Open(recorder.driverName, "")
+			if err != nil {
+				t.Fatalf("open recording db: %v", err)
+			}
+			defer db.Close()
+
+			recorder.setExecRowsAffected(0)
+			recorder.setQueryExists(false)
+			ok, err := NewMySQLStore(db).TouchAuthSession(
+				context.Background(), "invalid-state-token", 7,
+				time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC), defaultAuthIdleTimeout,
+			)
+			if err != nil {
+				t.Fatalf("touch invalid %s session: %v", state, err)
+			}
+			if ok {
+				t.Fatalf("%s session must not be treated as active", state)
+			}
+			calls := recorder.calls()
+			if len(calls) != 2 || !strings.Contains(calls[1].query, "select 1") {
+				t.Fatalf("invalid state must execute update plus confirmation select: calls=%#v", calls)
+			}
+		})
+	}
+}
+
+func TestMySQLAuthSessionIntegration(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("MYSQL_TEST_DSN"))
+	if dsn == "" {
+		t.Skip("MYSQL_TEST_DSN is not set")
+	}
+
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("open MYSQL_TEST_DSN: %v", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatalf("ping MYSQL_TEST_DSN: %v", err)
+	}
+
+	ok, err := NewMySQLStore(db).TouchAuthSession(ctx, "task2-integration-probe", -1, time.Now(), 24*time.Hour)
+	if err != nil {
+		t.Fatalf("touch auth-session probe: %v", err)
+	}
+	if ok {
+		t.Fatal("nonexistent integration probe session must not be active")
+	}
+}
+
 func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 	schema := readAuthSessionTestFile(t, filepath.Join("..", "..", "db", "mysql_governance_schema_tb.sql"))
 	migration := readAuthSessionTestFile(t, filepath.Join("..", "..", "db", "mysql_auth_sessions.sql"))
@@ -384,6 +488,12 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 		"if v_index_exists = 0 then",
 		"call erzhuang_migrate_tb_auth_sessions_tmp()",
 		"drop procedure erzhuang_migrate_tb_auth_sessions_tmp",
+		"v_missing_columns",
+		"v_null_created_at",
+		"NULL created_at",
+		"duplicate session_token_hash",
+		"wrong uniqueness or column order",
+		"wrong columns or order",
 		"application startup",
 	} {
 		if !strings.Contains(migration, want) {

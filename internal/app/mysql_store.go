@@ -44,12 +44,12 @@ const mysqlAuthSessionCreateSQL = `
 
 const mysqlAuthSessionTouchSQL = `
 	update tb_auth_sessions
-	set last_activity_at = greatest(last_activity_at, ?),
-		expires_at = greatest(expires_at, ?)
+	set last_activity_at = greatest(last_activity_at, utc_timestamp(3)),
+		expires_at = greatest(expires_at, date_add(utc_timestamp(3), interval 30 minute))
 	where session_token_hash = ?
 		and user_id = ?
 		and revoked_at is null
-		and expires_at > ?
+		and expires_at > utc_timestamp(3)
 `
 
 const mysqlAuthSessionValidSQL = `
@@ -58,8 +58,8 @@ const mysqlAuthSessionValidSQL = `
 	where session_token_hash = ?
 		and user_id = ?
 		and revoked_at is null
-		and expires_at > ?
-	limit 1
+		and expires_at > utc_timestamp(3)
+	for update
 `
 
 const mysqlAuthSessionRevokeSQL = `
@@ -100,14 +100,17 @@ func (s *MySQLStore) CreateAuthSession(ctx context.Context, input AuthSessionCre
 	return token, nil
 }
 
-func (s *MySQLStore) TouchAuthSession(ctx context.Context, token string, userID int64, now time.Time, idleTimeout time.Duration) (bool, error) {
+func (s *MySQLStore) TouchAuthSession(ctx context.Context, token string, userID int64, _ time.Time, _ time.Duration) (bool, error) {
 	hash := hashAuthSessionToken(token)
-	result, err := s.db.ExecContext(ctx, mysqlAuthSessionTouchSQL,
-		now,
-		now.Add(idleTimeout),
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, mysqlAuthSessionTouchSQL,
 		hex.EncodeToString(hash[:]),
 		userID,
-		now,
 	)
 	if err != nil {
 		return false, err
@@ -117,22 +120,24 @@ func (s *MySQLStore) TouchAuthSession(ctx context.Context, token string, userID 
 		return false, err
 	}
 	if affected == 1 {
-		return true, nil
+		return true, tx.Commit()
 	}
 	if affected != 0 {
 		return false, nil
 	}
 
 	var exists int
-	err = s.db.QueryRowContext(ctx, mysqlAuthSessionValidSQL,
+	err = tx.QueryRowContext(ctx, mysqlAuthSessionValidSQL,
 		hex.EncodeToString(hash[:]),
 		userID,
-		now,
 	).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
-	return err == nil, err
+	if err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 func (s *MySQLStore) RevokeAuthSession(ctx context.Context, token string, userID int64, reason string, now time.Time) error {

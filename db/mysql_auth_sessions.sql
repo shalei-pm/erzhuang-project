@@ -27,8 +27,8 @@ order by index_name, seq_in_index;
 -- ============================================================================
 -- 2. Conditional create/patch migration
 -- ============================================================================
--- The temporary procedure is dropped after the call. Run this whole file in a
--- MySQL client that supports DELIMITER commands, such as the mysql CLI.
+-- Run this whole file in a MySQL client that supports DELIMITER commands,
+-- such as the mysql CLI. The procedure is removed after it is called.
 
 drop procedure if exists erzhuang_migrate_tb_auth_sessions_tmp;
 
@@ -37,8 +37,13 @@ delimiter $$
 create procedure erzhuang_migrate_tb_auth_sessions_tmp()
 begin
   declare v_table_exists bigint default 0;
+  declare v_users_exists bigint default 0;
+  declare v_missing_columns bigint default 0;
+  declare v_null_created_at bigint default 0;
   declare v_column_exists bigint default 0;
-  declare v_index_exists bigint default 0;
+  declare v_index_entries bigint default 0;
+  declare v_index_matches bigint default 0;
+  declare v_duplicate_hashes bigint default 0;
 
   select count(*) into v_table_exists
   from information_schema.tables
@@ -46,6 +51,16 @@ begin
     and table_name = 'tb_auth_sessions';
 
   if v_table_exists = 0 then
+    select count(*) into v_users_exists
+    from information_schema.tables
+    where table_schema = database()
+      and table_name = 'tb_users';
+
+    if v_users_exists = 0 then
+      signal sqlstate '45000'
+        set message_text = 'tb_users is required before creating tb_auth_sessions';
+    end if;
+
     -- Create branch: all required fields and indexes are created together.
     create table tb_auth_sessions (
       id bigint not null auto_increment,
@@ -68,7 +83,40 @@ begin
         foreign key (user_id) references tb_users(id)
     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
   else
-    -- Patch branch: add and initialize the activity column before NOT NULL.
+    -- Patch branch: block before any ALTER if the existing base is incomplete.
+    select count(*) into v_missing_columns
+    from (
+      select 'id' as column_name
+      union all select 'session_token_hash'
+      union all select 'user_id'
+      union all select 'sso_subject'
+      union all select 'ip_address'
+      union all select 'user_agent'
+      union all select 'created_at'
+      union all select 'expires_at'
+      union all select 'revoked_at'
+      union all select 'revoked_reason'
+    ) required_columns
+    left join information_schema.columns c
+      on c.table_schema = database()
+      and c.table_name = 'tb_auth_sessions'
+      and c.column_name = required_columns.column_name
+    where c.column_name is null;
+
+    if v_missing_columns > 0 then
+      signal sqlstate '45000'
+        set message_text = 'tb_auth_sessions is missing required base columns; inspect information_schema.columns';
+    end if;
+
+    select count(*) into v_null_created_at
+    from tb_auth_sessions
+    where created_at is null;
+
+    if v_null_created_at > 0 then
+      signal sqlstate '45000'
+        set message_text = 'tb_auth_sessions contains rows with NULL created_at; repair data before migration';
+    end if;
+
     select count(*) into v_column_exists
     from information_schema.columns
     where table_schema = database()
@@ -87,37 +135,75 @@ begin
     alter table tb_auth_sessions
       modify column last_activity_at datetime(3) not null;
 
-    select count(*) into v_index_exists
-    from information_schema.statistics
-    where table_schema = database()
-      and table_name = 'tb_auth_sessions'
-      and index_name = 'idx_tb_auth_sessions_user_activity';
-
-    if v_index_exists = 0 then
-      alter table tb_auth_sessions
-        add key idx_tb_auth_sessions_user_activity (user_id, last_activity_at);
-    end if;
-
-    select count(*) into v_index_exists
-    from information_schema.statistics
-    where table_schema = database()
-      and table_name = 'tb_auth_sessions'
-      and index_name = 'idx_tb_auth_sessions_expires_at';
-
-    if v_index_exists = 0 then
-      alter table tb_auth_sessions
-        add key idx_tb_auth_sessions_expires_at (expires_at);
-    end if;
-
-    select count(*) into v_index_exists
+    -- Every existing index with a required name must have the exact definition.
+    select count(*), coalesce(sum(
+      case when non_unique = 0
+        and seq_in_index = 1
+        and column_name = 'session_token_hash'
+        then 1 else 0 end), 0)
+      into v_index_entries, v_index_matches
     from information_schema.statistics
     where table_schema = database()
       and table_name = 'tb_auth_sessions'
       and index_name = 'uq_tb_auth_sessions_token_hash';
 
-    if v_index_exists = 0 then
+    if v_index_entries = 0 then
+      select count(*) into v_duplicate_hashes
+      from (
+        select session_token_hash
+        from tb_auth_sessions
+        group by session_token_hash
+        having count(*) > 1
+      ) duplicate_hashes;
+
+      if v_duplicate_hashes > 0 then
+        signal sqlstate '45000'
+          set message_text = 'duplicate session_token_hash values prevent the required unique index';
+      end if;
+
       alter table tb_auth_sessions
         add unique key uq_tb_auth_sessions_token_hash (session_token_hash);
+    elseif v_index_entries <> 1 or v_index_matches <> 1 then
+      signal sqlstate '45000'
+        set message_text = 'uq_tb_auth_sessions_token_hash has the wrong uniqueness or column order';
+    end if;
+
+    select count(*), coalesce(sum(
+      case when non_unique = 1
+        and ((seq_in_index = 1 and column_name = 'user_id')
+          or (seq_in_index = 2 and column_name = 'last_activity_at'))
+        then 1 else 0 end), 0)
+      into v_index_entries, v_index_matches
+    from information_schema.statistics
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions'
+      and index_name = 'idx_tb_auth_sessions_user_activity';
+
+    if v_index_entries = 0 then
+      alter table tb_auth_sessions
+        add key idx_tb_auth_sessions_user_activity (user_id, last_activity_at);
+    elseif v_index_entries <> 2 or v_index_matches <> 2 then
+      signal sqlstate '45000'
+        set message_text = 'idx_tb_auth_sessions_user_activity has the wrong columns or order';
+    end if;
+
+    select count(*), coalesce(sum(
+      case when non_unique = 1
+        and seq_in_index = 1
+        and column_name = 'expires_at'
+        then 1 else 0 end), 0)
+      into v_index_entries, v_index_matches
+    from information_schema.statistics
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions'
+      and index_name = 'idx_tb_auth_sessions_expires_at';
+
+    if v_index_entries = 0 then
+      alter table tb_auth_sessions
+        add key idx_tb_auth_sessions_expires_at (expires_at);
+    elseif v_index_entries <> 1 or v_index_matches <> 1 then
+      signal sqlstate '45000'
+        set message_text = 'idx_tb_auth_sessions_expires_at has the wrong columns or order';
     end if;
   end if;
 end$$

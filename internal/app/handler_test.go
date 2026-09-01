@@ -2155,6 +2155,7 @@ type recordingSQLDriver struct {
 	execCalls       []recordingSQLCall
 	execRowsAffected int64
 	execErr         error
+	queryExists     bool
 }
 
 type recordingSQLCall struct {
@@ -2167,6 +2168,7 @@ func newRecordingSQLDriver(t *testing.T) *recordingSQLDriver {
 	driver := &recordingSQLDriver{
 		driverName:      "recording-sql-" + strings.ReplaceAll(t.Name(), "/", "-"),
 		execRowsAffected: 1,
+		queryExists:     true,
 	}
 	sql.Register(driver.driverName, driver)
 	return driver
@@ -2195,6 +2197,12 @@ func (d *recordingSQLDriver) setExecRowsAffected(rows int64) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.execRowsAffected = rows
+}
+
+func (d *recordingSQLDriver) setQueryExists(exists bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.queryExists = exists
 }
 
 func (d *recordingSQLDriver) queries() []string {
@@ -2233,32 +2241,44 @@ func (c *recordingSQLConn) Close() error {
 }
 
 func (c *recordingSQLConn) Begin() (driver.Tx, error) {
-	return recordingSQLTx{}, nil
+	return recordingSQLTx{driver: c.driver}, nil
 }
 
 func (c *recordingSQLConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
-	return recordingSQLTx{}, nil
+	return recordingSQLTx{driver: c.driver}, nil
 }
 
 func (c *recordingSQLConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-	c.driver.mu.Lock()
-	execErr := c.driver.execErr
-	rowsAffected := c.driver.execRowsAffected
-	c.driver.mu.Unlock()
+	return c.driver.exec(query, args)
+}
+
+func (d *recordingSQLDriver) exec(query string, args []driver.NamedValue) (driver.Result, error) {
+	d.mu.Lock()
+	execErr := d.execErr
+	rowsAffected := d.execRowsAffected
+	d.mu.Unlock()
 	if execErr != nil {
 		return nil, execErr
 	}
-	c.driver.record(query, args)
+	d.record(query, args)
 	return driver.RowsAffected(rowsAffected), nil
 }
 
 func (c *recordingSQLConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-	c.driver.record(query, args)
-	return &recordingSQLRows{}, nil
+	return c.driver.query(query, args)
+}
+
+func (d *recordingSQLDriver) query(query string, args []driver.NamedValue) (driver.Rows, error) {
+	d.mu.Lock()
+	queryExists := d.queryExists
+	d.mu.Unlock()
+	d.record(query, args)
+	return &recordingSQLRows{hasRow: queryExists}, nil
 }
 
 type recordingSQLRows struct {
-	done bool
+	hasRow bool
+	done   bool
 }
 
 func (r *recordingSQLRows) Columns() []string {
@@ -2270,7 +2290,7 @@ func (r *recordingSQLRows) Close() error {
 }
 
 func (r *recordingSQLRows) Next(dest []driver.Value) error {
-	if r.done {
+	if r.done || !r.hasRow {
 		return io.EOF
 	}
 	r.done = true
@@ -2278,7 +2298,9 @@ func (r *recordingSQLRows) Next(dest []driver.Value) error {
 	return nil
 }
 
-type recordingSQLTx struct{}
+type recordingSQLTx struct {
+	driver *recordingSQLDriver
+}
 
 func (recordingSQLTx) Commit() error {
 	return nil
@@ -2286,4 +2308,12 @@ func (recordingSQLTx) Commit() error {
 
 func (recordingSQLTx) Rollback() error {
 	return nil
+}
+
+func (tx recordingSQLTx) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	return tx.driver.exec(query, args)
+}
+
+func (tx recordingSQLTx) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	return tx.driver.query(query, args)
 }
