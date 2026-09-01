@@ -35,7 +35,10 @@ func newMonitorAuditTestHandler(t *testing.T, recorder auditlog.AuditRecorder) (
 	}
 	privateKey := newTestRSAKey(t)
 	handler := &Handler{
-		store: store,
+		store:            store,
+		authSessionStore: newFakeAuthSessionStore(),
+		now:              time.Now,
+		idleTimeout:      defaultAuthIdleTimeout,
 		auth: AuthConfig{
 			Enabled:      true,
 			CookieName:   "sy_sso_token",

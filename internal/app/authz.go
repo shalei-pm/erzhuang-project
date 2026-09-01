@@ -15,48 +15,162 @@ import (
 var (
 	errUnauthorizedAuth         = errors.New("auth unauthorized")
 	errForbiddenAuth            = errors.New("auth forbidden")
+	errSessionIdleTimeout       = errors.New("auth session idle timeout")
+	errAuthSessionUnavailable   = errors.New("auth session unavailable")
 	errAuditUnavailable         = errors.New("audit recorder unavailable")
 	errAuditMutationUnavailable = errors.New("transactional audit mutation unavailable")
 )
 
+type authContextKey struct{}
+
+type authenticatedAuthContext struct {
+	record AuthUserRecord
+	user   AuthUserResponse
+}
+
+type authSessionAuthentication struct {
+	identity    authenticatedAuthContext
+	newToken    string
+	createdNew  bool
+}
+
 func (h *Handler) currentAuthUser(r *http.Request) (AuthUserRecord, error) {
-	cookie, err := r.Cookie(h.auth.CookieName)
-	if err != nil || strings.TrimSpace(cookie.Value) == "" {
-		if h.auth.Enabled {
-			return AuthUserRecord{}, errUnauthorizedAuth
-		}
-		return AuthUserRecord{Role: RoleAdmin, Enabled: true}, nil
+	if identity, ok := r.Context().Value(authContextKey{}).(authenticatedAuthContext); ok {
+		return identity.record, nil
 	}
-	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, time.Now())
-	if err != nil {
-		if h.auth.Enabled {
-			return AuthUserRecord{}, errUnauthorizedAuth
-		}
-		return AuthUserRecord{Role: RoleAdmin, Enabled: true}, nil
-	}
-	user := claims.authUser()
-	record, err := h.store.GetAuthUserByEmail(r.Context(), user.Email)
-	if errors.Is(err, errAuthUserNotFound) || (err == nil && !record.Enabled) {
-		return AuthUserRecord{}, errForbiddenAuth
-	}
+	authentication, err := h.authenticateRequest(r)
 	if err != nil {
 		return AuthUserRecord{}, err
 	}
-	return record, nil
+	return authentication.identity.record, nil
+}
+
+func (h *Handler) authUserClaims(r *http.Request) AuthUserResponse {
+	if identity, ok := r.Context().Value(authContextKey{}).(authenticatedAuthContext); ok {
+		return identity.user
+	}
+	cookie, err := r.Cookie(h.auth.CookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return AuthUserResponse{}
+	}
+	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, h.authNow())
+	if err != nil {
+		return AuthUserResponse{}
+	}
+	return claims.authUser()
+}
+
+func (h *Handler) authenticateRequest(r *http.Request) (authSessionAuthentication, error) {
+	if !h.auth.Enabled {
+		return authSessionAuthentication{identity: authenticatedAuthContext{
+			record: AuthUserRecord{Role: RoleAdmin, Enabled: true},
+		}}, nil
+	}
+	cookie, err := r.Cookie(h.auth.CookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return authSessionAuthentication{}, errUnauthorizedAuth
+	}
+	now := h.authNow()
+	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, now)
+	if err != nil {
+		return authSessionAuthentication{}, errUnauthorizedAuth
+	}
+	claimsUser := claims.authUser()
+	record, err := h.store.GetAuthUserByEmail(r.Context(), claimsUser.Email)
+	if errors.Is(err, errAuthUserNotFound) || (err == nil && !record.Enabled) {
+		return authSessionAuthentication{}, errForbiddenAuth
+	}
+	if err != nil {
+		return authSessionAuthentication{}, err
+	}
+	if h.authSessionStore == nil {
+		return authSessionAuthentication{}, errAuthSessionUnavailable
+	}
+	identity := authenticatedAuthContext{record: record, user: claimsUser}
+	localCookie, localErr := r.Cookie(authSessionCookieName)
+	if localErr != nil || strings.TrimSpace(localCookie.Value) == "" {
+		token, err := h.authSessionStore.CreateAuthSession(r.Context(), AuthSessionCreate{
+			UserID:    record.ID,
+			SSOSubject: claims.Sub,
+			IPAddress: requestIPAddress(r),
+			UserAgent: strings.TrimSpace(r.UserAgent()),
+			Now:       now,
+		})
+		if err != nil || strings.TrimSpace(token) == "" {
+			return authSessionAuthentication{}, errAuthSessionUnavailable
+		}
+		return authSessionAuthentication{identity: identity, newToken: token, createdNew: true}, nil
+	}
+	active, err := h.authSessionStore.TouchAuthSession(r.Context(), localCookie.Value, record.ID, now, h.authIdleTimeout())
+	if err != nil {
+		return authSessionAuthentication{}, errAuthSessionUnavailable
+	}
+	if !active {
+		_ = h.authSessionStore.RevokeAuthSession(r.Context(), localCookie.Value, record.ID, "idle_timeout", now)
+		h.recordAuthIdleTimeout(r, record, claimsUser)
+		return authSessionAuthentication{}, errSessionIdleTimeout
+	}
+	return authSessionAuthentication{identity: identity}, nil
+}
+
+func (h *Handler) authNow() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
+}
+
+func (h *Handler) authIdleTimeout() time.Duration {
+	if h.idleTimeout <= 0 || h.idleTimeout > defaultAuthIdleTimeout {
+		return defaultAuthIdleTimeout
+	}
+	return h.idleTimeout
+}
+
+func (h *Handler) authGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.auth.Enabled || isAuthGateExemptPath(r.URL.Path) || !isAPIPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		authentication, err := h.authenticateRequest(r)
+		if err != nil {
+			h.writeAuthError(w, r, err)
+			return
+		}
+		if authentication.createdNew {
+			h.setAuthSessionCookie(w, r, authentication.newToken)
+		}
+		request := r.WithContext(context.WithValue(r.Context(), authContextKey{}, authentication.identity))
+		next.ServeHTTP(w, request)
+	})
+}
+
+func isAPIPath(path string) bool {
+	for _, basePath := range configuredBasePaths() {
+		if strings.HasPrefix(path, basePath+"/api/") {
+			return true
+		}
+	}
+	return strings.HasPrefix(path, "/api/")
+}
+
+func isAuthGateExemptPath(path string) bool {
+	for _, basePath := range configuredBasePaths() {
+		path = strings.TrimPrefix(path, basePath)
+	}
+	switch path {
+	case "/health", "/_/auth/callback", "/api/auth/logout", "/logout":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Handler) requirePermission(w http.ResponseWriter, r *http.Request, permission string) (AuthUserRecord, bool) {
 	record, err := h.currentAuthUser(r)
-	if errors.Is(err, errUnauthorizedAuth) {
-		h.writeUnauthorizedAuth(w)
-		return AuthUserRecord{}, false
-	}
-	if errors.Is(err, errForbiddenAuth) {
-		h.writeForbiddenAuth(w)
-		return AuthUserRecord{}, false
-	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "load auth user failed"})
+		h.writeAuthError(w, r, err)
 		return AuthUserRecord{}, false
 	}
 	if !hasPermission(record.permissions(), permission) {
@@ -78,16 +192,8 @@ func (h *Handler) requirePermissionHandler(permission string, next http.HandlerF
 func (h *Handler) nvrLabAdminGuard(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, err := h.currentAuthUser(r)
-		if errors.Is(err, errUnauthorizedAuth) {
-			h.writeUnauthorizedAuth(w)
-			return
-		}
-		if errors.Is(err, errForbiddenAuth) {
-			h.writeForbiddenAuth(w)
-			return
-		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "load auth user failed"})
+			h.writeAuthError(w, r, err)
 			return
 		}
 		if normalizeRole(user.Role) != RoleAdmin {
@@ -169,7 +275,7 @@ func (a nvrMonitorAuthorizer) FilterStores(r *http.Request, response nvrmonitor.
 }
 
 func nvrMonitorAuthError(err error) error {
-	if errors.Is(err, errUnauthorizedAuth) {
+	if errors.Is(err, errUnauthorizedAuth) || errors.Is(err, errSessionIdleTimeout) || errors.Is(err, errAuthSessionUnavailable) {
 		return nvrmonitor.ErrUnauthorized
 	}
 	if errors.Is(err, errForbiddenAuth) {
@@ -229,7 +335,7 @@ func (a h5MonitorAuthorizer) FilterMonitorStores(r *http.Request, response h5mon
 }
 
 func h5MonitorAuthError(err error) error {
-	if errors.Is(err, errUnauthorizedAuth) {
+	if errors.Is(err, errUnauthorizedAuth) || errors.Is(err, errSessionIdleTimeout) || errors.Is(err, errAuthSessionUnavailable) {
 		return h5monitor.ErrUnauthorized
 	}
 	if errors.Is(err, errForbiddenAuth) {

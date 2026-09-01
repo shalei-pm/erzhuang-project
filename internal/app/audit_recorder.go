@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
@@ -35,7 +34,7 @@ func (h *Handler) recordAuthLogout(r *http.Request) {
 		h.recordAuthAuditEvent(r, "auth.logout", result, actor)
 		return
 	}
-	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, time.Now())
+	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, h.authNow())
 	if err != nil {
 		h.recordAuthAuditEvent(r, "auth.logout", "failed", actor)
 		return
@@ -71,7 +70,7 @@ func (h *Handler) recordAuthLogin(r *http.Request) {
 		h.recordAuthAuditEvent(r, "auth.login", result, actor)
 		return
 	}
-	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, time.Now())
+	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, h.authNow())
 	if err != nil {
 		h.recordAuthAuditEvent(r, "auth.login", "failed", actor)
 		return
@@ -89,6 +88,27 @@ func (h *Handler) recordAuthLogin(r *http.Request) {
 		result = "failed"
 	}
 	h.recordAuthAuditEvent(r, "auth.login", result, actor)
+}
+
+func (h *Handler) recordAuthIdleTimeout(r *http.Request, record AuthUserRecord, claimsUser AuthUserResponse) {
+	if h.auditRecorder == nil {
+		return
+	}
+	actor := actorFromAuthUser(record, claimsUser)
+	event := auditlog.AuditEvent{
+		UserID:           actor.userID,
+		ActorDisplayName: actor.displayName,
+		UserEmail:        actor.email,
+		Action:           "auth.idle_timeout",
+		IPAddress:        requestIPAddress(r),
+		UserAgent:        strings.TrimSpace(r.UserAgent()),
+		RequestID:        strings.TrimSpace(r.Header.Get("X-Request-ID")),
+		Result:           "success",
+		DetailJSON:       []byte(`{"reason":"idle_timeout"}`),
+	}
+	if err := h.auditRecorder.RecordAudit(r.Context(), event); err != nil {
+		log.Printf("auth: audit record failed action=%s result=%s", event.Action, event.Result)
+	}
 }
 
 func (h *Handler) recordAuthAuditEvent(r *http.Request, action string, result string, actor auditActor) {

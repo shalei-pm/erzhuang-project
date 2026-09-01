@@ -58,6 +58,9 @@ type Store interface {
 type Handler struct {
 	store                    Store
 	auth                     AuthConfig
+	authSessionStore         authSessionStore
+	now                      func() time.Time
+	idleTimeout              time.Duration
 	auditRecorder            auditlog.AuditRecorder
 	ossSmokeRunner           ossSmokeRunner
 	assetMigrationRunner     assetMigrationRunner
@@ -106,11 +109,22 @@ func NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(store Store, design
 }
 
 func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
+	var sessionStore authSessionStore
+	if candidate, ok := store.(authSessionStore); ok {
+		sessionStore = candidate
+	} else if _, ok := store.(*MemoryStore); ok {
+		// The memory adapter is only a local/test persistence substitute.
+		sessionStore = newMemoryAuthSessionStore()
+	}
+	return newHandlerWithAuthSessionStore(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode, sessionStore)
+}
+
+func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, monitorPlaybackMode MonitorPlaybackMode, sessionStore authSessionStore) http.Handler {
 	var auditRecorder auditlog.AuditRecorder
 	if recorder, ok := store.(auditlog.AuditRecorder); ok {
 		auditRecorder = recorder
 	}
-	handler := &Handler{store: store, auth: AuthConfigFromEnv(), auditRecorder: auditRecorder, ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner, storeSpaceService: storeSpaceService, resourceViewService: resourceViewService, nvrMonitorService: nvrMonitorService, monitorPlaybackMode: monitorPlaybackMode}
+	handler := &Handler{store: store, auth: AuthConfigFromEnv(), authSessionStore: sessionStore, now: time.Now, idleTimeout: defaultAuthIdleTimeout, auditRecorder: auditRecorder, ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner, storeSpaceService: storeSpaceService, resourceViewService: resourceViewService, nvrMonitorService: nvrMonitorService, monitorPlaybackMode: monitorPlaybackMode}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
@@ -147,7 +161,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 		h5monitor.RegisterRoutesWithAuthorizer(mux, h5MonitorService, h5MonitorAuthorizer{handler: handler})
 	}
 	registerFrontendRoutes(mux)
-	return withBasePathAPIPrefixes(mux)
+	return withBasePathAPIPrefixes(handler.authGate(mux))
 }
 
 func (h *Handler) monitorModeHandler(w http.ResponseWriter, _ *http.Request) {
