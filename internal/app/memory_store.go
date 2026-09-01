@@ -170,6 +170,18 @@ func (s *MemoryStore) GetAuthUserByEmail(ctx context.Context, email string) (Aut
 	return user, nil
 }
 
+func (s *MemoryStore) GetAuthUserByID(ctx context.Context, id int64) (AuthUserRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, user := range s.authUsers {
+		if user.ID == id {
+			s.attachMemoryMonitorScopes(&user)
+			return user, nil
+		}
+	}
+	return AuthUserRecord{}, errAuthUserNotFound
+}
+
 func (s *MemoryStore) UpdateAuthUserProfile(ctx context.Context, patch AuthUserPatch) (AuthUserRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

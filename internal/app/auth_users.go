@@ -77,6 +77,12 @@ type AuthUserStore interface {
 	CanUserViewMonitorStore(ctx context.Context, user AuthUserRecord, externalOrgID string) (bool, error)
 }
 
+// authUserByIDStore is optional so stores that support user mutations can
+// enrich audit records without widening the shared Store contract.
+type authUserByIDStore interface {
+	GetAuthUserByID(ctx context.Context, id int64) (AuthUserRecord, error)
+}
+
 // AuthUserMutationAuditStore commits a user/role/scope mutation and its audit
 // event in one storage transaction. Production MySQL storage implements this;
 // the memory implementation mirrors the contract for local verification.

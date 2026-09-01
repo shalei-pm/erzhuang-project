@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -95,7 +96,11 @@ func (h *Handler) updateUserHandler(w http.ResponseWriter, r *http.Request) {
 	if !decodeAuthUserMutation(w, r, &input, false) {
 		return
 	}
-	event := newUserMutationAuditEvent(r, operator, "user.update", "success", id, input, len(input.MonitorStoreScopeIDs))
+	auditInput := input
+	if h.auditRecorder != nil {
+		auditInput = h.enrichUserMutationAuditTarget(r.Context(), id, input)
+	}
+	event := newUserMutationAuditEvent(r, operator, "user.update", "success", id, auditInput, len(input.MonitorStoreScopeIDs))
 	user, err := h.updateAuthUserWithAudit(r.Context(), id, input, event)
 	if errors.Is(err, errAuthUserNotFound) {
 		h.recordUserMutationFailure(r, operator, "user.update", id, input, len(input.MonitorStoreScopeIDs))
@@ -108,6 +113,25 @@ func (h *Handler) updateUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, authUserItem(user))
+}
+
+func (h *Handler) enrichUserMutationAuditTarget(ctx context.Context, id int64, input AuthUserMutation) AuthUserMutation {
+	store, ok := h.store.(authUserByIDStore)
+	if !ok {
+		return input
+	}
+	target, err := store.GetAuthUserByID(ctx, id)
+	if err != nil {
+		return input
+	}
+	input.Email = normalizeEmail(target.Email)
+	if strings.TrimSpace(input.DisplayName) == "" {
+		input.DisplayName = firstNonEmpty(target.DisplayName, target.Username, target.Email)
+	}
+	if strings.TrimSpace(input.Username) == "" {
+		input.Username = firstNonEmpty(target.Username, target.Email)
+	}
+	return input
 }
 
 func (h *Handler) createAuthUserWithAudit(ctx context.Context, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error) {
@@ -136,12 +160,25 @@ func newUserMutationAuditEvent(r *http.Request, operator AuthUserRecord, action,
 	if scopeCount == 0 {
 		scopeCount = len(input.MonitorStoreScopeIDs)
 	}
+	targetName := firstNonEmpty(input.DisplayName, input.Username, input.Email)
+	targetEmail := normalizeEmail(input.Email)
+	role := normalizeRole(input.Role)
+	scopeLabel := fmt.Sprintf("%d家", scopeCount)
+	if role != RoleViewer {
+		scopeLabel = "全部门店"
+	}
+	summary := fmt.Sprintf("将用户“%s（%s）”权限更新为：角色=%s，状态=%s，门店范围=%s", targetName, targetEmail, auditRoleLabel(role), auditEnabledLabel(input.Enabled), scopeLabel)
+	if action == "user.create" {
+		summary = fmt.Sprintf("新增用户“%s（%s）”：角色=%s，状态=%s，门店范围=%s", targetName, targetEmail, auditRoleLabel(role), auditEnabledLabel(input.Enabled), scopeLabel)
+	}
 	detail, _ := json.Marshal(map[string]any{
-		"summary":     action,
-		"source":      "user_management",
-		"role":        normalizeRole(input.Role),
-		"scope_count": scopeCount,
-		"target_name": firstNonEmpty(input.DisplayName, input.Username),
+		"summary":      summary,
+		"source":       "user_management",
+		"role":         role,
+		"enabled":      input.Enabled,
+		"scope_count":  scopeCount,
+		"target_name":  targetName,
+		"target_email": targetEmail,
 	})
 	event := auditlog.AuditEvent{
 		UserID:           int64Pointer(operator.ID),
@@ -159,6 +196,24 @@ func newUserMutationAuditEvent(r *http.Request, operator AuthUserRecord, action,
 		event.EntityID = int64Pointer(targetID)
 	}
 	return event
+}
+
+func auditRoleLabel(role string) string {
+	switch normalizeRole(role) {
+	case RoleAdmin:
+		return "管理员"
+	case RoleEditor:
+		return "编辑运维"
+	default:
+		return "普通查看"
+	}
+}
+
+func auditEnabledLabel(enabled bool) string {
+	if enabled {
+		return "启用"
+	}
+	return "停用"
 }
 
 func (h *Handler) recordUserMutationFailure(r *http.Request, operator AuthUserRecord, action string, targetID int64, input AuthUserMutation, scopeCount int) {

@@ -595,6 +595,18 @@ func parseOptionalPositiveAuditLogInt(value string) (int, error) {
 }
 
 func auditLogSummary(log AuditLog) string {
+	if detail := sanitizeAuditDetail(log.DetailJSON); len(detail) > 0 {
+		var values map[string]json.RawMessage
+		if err := json.Unmarshal(detail, &values); err == nil {
+			var summary string
+			if raw, ok := values["summary"]; ok && json.Unmarshal(raw, &summary) == nil {
+				summary = strings.TrimSpace(summary)
+				if summary != "" && summary != strings.TrimSpace(log.Action) {
+					return summary
+				}
+			}
+		}
+	}
 	action := strings.TrimSpace(log.Action)
 	if auditLogActionPattern.MatchString(action) {
 		return "Audit event: " + action

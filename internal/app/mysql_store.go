@@ -286,6 +286,10 @@ func (s *MySQLStore) GetAuthUserByEmail(ctx context.Context, email string) (Auth
 	return record, err
 }
 
+func (s *MySQLStore) GetAuthUserByID(ctx context.Context, id int64) (AuthUserRecord, error) {
+	return s.getAuthUserByID(ctx, id)
+}
+
 func (s *MySQLStore) UpdateAuthUserProfile(ctx context.Context, patch AuthUserPatch) (AuthUserRecord, error) {
 	result, err := s.db.ExecContext(ctx, `
 		update tb_users

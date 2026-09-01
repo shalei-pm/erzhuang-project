@@ -184,7 +184,7 @@ func TestAuditLogsHandlerNormalizesPageSizeAndReturnsSafeFields(t *testing.T) {
 		UserAgent:        "private user agent",
 		RequestID:        "private-request-id",
 		Result:           "success",
-		DetailJSON:       json.RawMessage(`{"token":"secret-value","summary":"should not be returned"}`),
+		DetailJSON:       json.RawMessage(`{"token":"secret-value","summary":"safe audit summary"}`),
 	}); err != nil {
 		t.Fatalf("create audit log: %v", err)
 	}
@@ -211,6 +211,9 @@ func TestAuditLogsHandlerNormalizesPageSizeAndReturnsSafeFields(t *testing.T) {
 		t.Fatalf("unexpected response: %#v", response)
 	}
 	item := response.Items[0]
+	if item["summary"] != "safe audit summary" {
+		t.Fatalf("summary = %#v, want safe detail summary", item["summary"])
+	}
 	for _, key := range []string{"actor_display_name", "user_email", "action", "entity_type", "entity_id", "store_id", "external_org_id", "channel_id", "result", "created_at", "summary"} {
 		if _, ok := item[key]; !ok {
 			t.Fatalf("response item is missing allowed field %q: %#v", key, item)
@@ -225,7 +228,7 @@ func TestAuditLogsHandlerNormalizesPageSizeAndReturnsSafeFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal response: %v", err)
 	}
-	for _, value := range []string{"private/audit-object.jpg", "203.0.113.42", "private user agent", "private-request-id", "secret-value", "should not be returned"} {
+	for _, value := range []string{"private/audit-object.jpg", "203.0.113.42", "private user agent", "private-request-id", "secret-value"} {
 		if strings.Contains(string(encoded), value) {
 			t.Fatalf("response leaks internal value %q: %s", value, encoded)
 		}
