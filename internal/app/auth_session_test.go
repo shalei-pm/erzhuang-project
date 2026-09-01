@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 )
 
 type fakeAuthSession struct {
@@ -440,6 +441,9 @@ func TestMySQLAuthSessionIntegration(t *testing.T) {
 	if dsn == "" {
 		t.Skip("MYSQL_TEST_DSN is not set")
 	}
+	if !isSafeMySQLTestDSN(dsn) {
+		t.Fatal("MYSQL_TEST_DSN must identify an isolated test database and must not look like production")
+	}
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -563,6 +567,382 @@ func TestMySQLAuthSessionIntegration(t *testing.T) {
 		t.Fatalf("touch revoked auth session: %v", err)
 	} else if ok {
 		t.Fatal("revoked auth session must not be active")
+	}
+}
+
+func TestMySQLAuthSessionMigrationIntegration(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("MYSQL_TEST_DSN"))
+	if dsn == "" || os.Getenv("MYSQL_TEST_DSN_ALLOW_MIGRATION") != "1" {
+		t.Skip("MYSQL_TEST_DSN and MYSQL_TEST_DSN_ALLOW_MIGRATION=1 are required")
+	}
+	if !isSafeMySQLTestDSN(dsn) {
+		t.Fatal("refusing migration test: MYSQL_TEST_DSN must identify an isolated test database and must not look like production")
+	}
+
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatal("open MYSQL_TEST_DSN failed")
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatal("ping MYSQL_TEST_DSN failed")
+	}
+
+	defer func() {
+		_, _ = db.ExecContext(context.Background(), `drop procedure if exists erzhuang_migrate_tb_auth_sessions_tmp`)
+		_, _ = db.ExecContext(context.Background(), `drop table if exists tb_auth_sessions`)
+	}()
+	if _, err := db.ExecContext(ctx, `drop table if exists tb_auth_sessions`); err != nil {
+		t.Fatal("prepare isolated migration database failed")
+	}
+
+	if err := runMySQLAuthSessionMigration(ctx, db); err != nil {
+		t.Fatal("fresh migration execution failed")
+	}
+	assertAuthSessionMigrationTable(t, ctx, db, true)
+
+	userID := integrationAuthUserID(t, ctx, db)
+	preservedCreatedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Millisecond)
+	preservedActivityAt := preservedCreatedAt.Add(15 * time.Minute)
+	insertAuthSessionRow(t, ctx, db, "a", userID, preservedCreatedAt, preservedActivityAt)
+	if err := runMySQLAuthSessionMigration(ctx, db); err != nil {
+		t.Fatal("repeat migration with existing last_activity_at failed")
+	}
+	assertAuthSessionActivity(t, ctx, db, "a", preservedActivityAt)
+
+	if _, err := db.ExecContext(ctx, `drop table tb_auth_sessions`); err != nil {
+		t.Fatal("prepare duplicate preflight case failed")
+	}
+	if err := createLegacyAuthSessionTable(ctx, db); err != nil {
+		t.Fatal("create legacy auth-session table failed")
+	}
+	insertLegacyAuthSessionRow(t, ctx, db, "b", userID, preservedCreatedAt)
+	insertLegacyAuthSessionRow(t, ctx, db, "b", userID, preservedCreatedAt.Add(time.Minute))
+	if err := runMySQLAuthSessionMigration(ctx, db); err == nil {
+		t.Fatal("duplicate session_token_hash preflight must block migration")
+	}
+	var activityColumnCount int
+	if err := db.QueryRowContext(ctx, `
+		select count(*) from information_schema.columns
+		where table_schema = database()
+		  and table_name = 'tb_auth_sessions'
+		  and column_name = 'last_activity_at'
+	`).Scan(&activityColumnCount); err != nil {
+		t.Fatal("check duplicate preflight side effects failed")
+	}
+	if activityColumnCount != 0 {
+		t.Fatal("duplicate preflight must block before adding last_activity_at")
+	}
+
+	if _, err := db.ExecContext(ctx, `drop table tb_auth_sessions`); err != nil {
+		t.Fatal("prepare legacy backfill case failed")
+	}
+	if err := createLegacyAuthSessionTable(ctx, db); err != nil {
+		t.Fatal("create legacy backfill table failed")
+	}
+	legacyCreatedAt := preservedCreatedAt.Add(2 * time.Hour)
+	insertLegacyAuthSessionRow(t, ctx, db, "c", userID, legacyCreatedAt)
+	if err := runMySQLAuthSessionMigration(ctx, db); err != nil {
+		t.Fatal("legacy backfill migration failed")
+	}
+	assertAuthSessionMigrationTable(t, ctx, db, true)
+	assertAuthSessionActivity(t, ctx, db, "c", legacyCreatedAt)
+}
+
+func isSafeMySQLTestDSN(dsn string) bool {
+	cfg, err := mysql.ParseDSN(dsn)
+	if err != nil || strings.TrimSpace(cfg.DBName) == "" {
+		return false
+	}
+	identity := strings.ToLower(cfg.Addr + " " + cfg.DBName)
+	for _, productionMarker := range []string{"polar-ops", "production", "prod", "ops"} {
+		if strings.Contains(identity, productionMarker) {
+			return false
+		}
+	}
+	for _, testMarker := range []string{"test", "dev", "sandbox", "migration", "localhost", "127.0.0.1", "::1"} {
+		if strings.Contains(identity, testMarker) {
+			return true
+		}
+	}
+	return false
+}
+
+func runMySQLAuthSessionMigration(ctx context.Context, db *sql.DB) error {
+	script, err := readAuthSessionTestFileForMigration(filepath.Join("..", "..", "db", "mysql_auth_sessions.sql"))
+	if err != nil {
+		return err
+	}
+	statements, err := splitMySQLMigrationStatements(script)
+	if err != nil {
+		return err
+	}
+	for _, statement := range statements {
+		if strings.EqualFold(sqlStatementKeyword(statement), "select") {
+			rows, err := db.QueryContext(ctx, statement)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return err
+			}
+			if err := rows.Close(); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func splitMySQLMigrationStatements(script string) ([]string, error) {
+	var statements []string
+	var current strings.Builder
+	delimiter := ";"
+	inSingle, inDouble, inBacktick, inLineComment, inBlockComment := false, false, false, false, false
+	lineStart := true
+
+	flush := func() {
+		if statement := strings.TrimSpace(current.String()); statement != "" {
+			statements = append(statements, statement)
+		}
+		current.Reset()
+	}
+
+	for index := 0; index < len(script); {
+		if lineStart && !inSingle && !inDouble && !inBacktick && !inLineComment && !inBlockComment {
+			lineEnd := strings.IndexByte(script[index:], '\n')
+			if lineEnd < 0 {
+				lineEnd = len(script) - index
+			}
+			line := strings.TrimSpace(script[index : index+lineEnd])
+			if len(line) >= len("delimiter ") && strings.EqualFold(line[:len("delimiter ")], "delimiter ") {
+				delimiter = strings.TrimSpace(line[len("delimiter "):])
+				index += lineEnd
+				if index < len(script) && script[index] == '\n' {
+					index++
+				}
+				lineStart = true
+				continue
+			}
+		}
+
+		if !inSingle && !inDouble && !inBacktick && !inBlockComment {
+			if inLineComment {
+				current.WriteByte(script[index])
+				if script[index] == '\n' {
+					inLineComment = false
+					lineStart = true
+				}
+				index++
+				continue
+			}
+			if script[index] == '#' || (script[index] == '-' && index+2 < len(script) && script[index+1] == '-' && (script[index+2] == ' ' || script[index+2] == '\t')) {
+				inLineComment = true
+				current.WriteByte(script[index])
+				index++
+				continue
+			}
+		}
+		if !inSingle && !inDouble && !inBacktick && !inLineComment && script[index] == '/' && index+1 < len(script) && script[index+1] == '*' {
+			inBlockComment = true
+			current.WriteString("/*")
+			index += 2
+			continue
+		}
+		if inBlockComment {
+			if script[index] == '*' && index+1 < len(script) && script[index+1] == '/' {
+				current.WriteString("*/")
+				index += 2
+				inBlockComment = false
+				continue
+			}
+			current.WriteByte(script[index])
+			index++
+			continue
+		}
+		if !inDouble && !inBacktick && script[index] == '\'' {
+			if inSingle && index+1 < len(script) && script[index+1] == '\'' {
+				current.WriteString("''")
+				index += 2
+				continue
+			}
+			inSingle = !inSingle
+		} else if !inSingle && !inBacktick && script[index] == '"' {
+			inDouble = !inDouble
+		} else if !inSingle && !inDouble && script[index] == '`' {
+			inBacktick = !inBacktick
+		}
+		if !inSingle && !inDouble && !inBacktick && strings.HasPrefix(script[index:], delimiter) {
+			flush()
+			index += len(delimiter)
+			lineStart = false
+			continue
+		}
+		current.WriteByte(script[index])
+		if script[index] == '\n' {
+			lineStart = true
+		} else if lineStart && script[index] != ' ' && script[index] != '\t' && script[index] != '\r' {
+			lineStart = false
+		}
+		index++
+	}
+	if inSingle || inDouble || inBacktick || inBlockComment {
+		return nil, fmt.Errorf("unterminated SQL quote or comment")
+	}
+	flush()
+	return statements, nil
+}
+
+func sqlStatementKeyword(statement string) string {
+	trimmed := strings.TrimSpace(statement)
+	for {
+		switch {
+		case strings.HasPrefix(trimmed, "--"):
+			if newline := strings.IndexByte(trimmed, '\n'); newline >= 0 {
+				trimmed = strings.TrimSpace(trimmed[newline+1:])
+				continue
+			}
+			return ""
+		case strings.HasPrefix(trimmed, "#"):
+			if newline := strings.IndexByte(trimmed, '\n'); newline >= 0 {
+				trimmed = strings.TrimSpace(trimmed[newline+1:])
+				continue
+			}
+			return ""
+		case strings.HasPrefix(trimmed, "/*"):
+			if end := strings.Index(trimmed[2:], "*/"); end >= 0 {
+				trimmed = strings.TrimSpace(trimmed[end+4:])
+				continue
+			}
+			return ""
+		}
+		break
+	}
+	if space := strings.IndexAny(trimmed, " \t\r\n"); space >= 0 {
+		return trimmed[:space]
+	}
+	return trimmed
+}
+
+func readAuthSessionTestFileForMigration(name string) (string, error) {
+	content, err := os.ReadFile(name)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func integrationAuthUserID(t *testing.T, ctx context.Context, db *sql.DB) int64 {
+	t.Helper()
+	var userID int64
+	if err := db.QueryRowContext(ctx, `select id from tb_users order by id limit 1`).Scan(&userID); err != nil {
+		t.Fatal("find integration test user failed")
+	}
+	return userID
+}
+
+func insertAuthSessionRow(t *testing.T, ctx context.Context, db *sql.DB, hashSeed string, userID int64, createdAt, activityAt time.Time) {
+	t.Helper()
+	hash := strings.Repeat(hashSeed, 64)
+	if _, err := db.ExecContext(ctx, `
+		insert into tb_auth_sessions (
+			session_token_hash, user_id, sso_subject, ip_address, user_agent,
+			created_at, last_activity_at, expires_at
+		) values (?, ?, '', '', '', ?, ?, ?)
+	`, hash, userID, createdAt, activityAt, activityAt.Add(defaultAuthIdleTimeout)); err != nil {
+		t.Fatalf("insert integration auth session row failed: seed=%s", hashSeed)
+	}
+}
+
+func insertLegacyAuthSessionRow(t *testing.T, ctx context.Context, db *sql.DB, hashSeed string, userID int64, createdAt time.Time) {
+	t.Helper()
+	hash := strings.Repeat(hashSeed, 64)
+	if _, err := db.ExecContext(ctx, `
+		insert into tb_auth_sessions (
+			session_token_hash, user_id, sso_subject, ip_address, user_agent,
+			created_at, expires_at
+		) values (?, ?, '', '', '', ?, ?)
+	`, hash, userID, createdAt, createdAt.Add(defaultAuthIdleTimeout)); err != nil {
+		t.Fatalf("insert legacy auth session row failed: seed=%s", hashSeed)
+	}
+}
+
+func createLegacyAuthSessionTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		create table tb_auth_sessions (
+			id bigint not null auto_increment,
+			session_token_hash char(64) not null,
+			user_id bigint not null,
+			sso_subject varchar(255) not null default '',
+			ip_address varchar(64) not null default '',
+			user_agent varchar(512) not null default '',
+			created_at datetime(3) not null,
+			expires_at datetime(3) not null,
+			revoked_at datetime(3) null,
+			revoked_reason varchar(255) not null default '',
+			primary key (id),
+			key idx_legacy_auth_sessions_user (user_id, created_at)
+		) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
+	`)
+	return err
+}
+
+func assertAuthSessionMigrationTable(t *testing.T, ctx context.Context, db *sql.DB, wantActivityColumn bool) {
+	t.Helper()
+	var count int
+	if err := db.QueryRowContext(ctx, `
+		select count(*) from information_schema.columns
+		where table_schema = database()
+		  and table_name = 'tb_auth_sessions'
+		  and column_name = 'last_activity_at'
+		  and is_nullable = 'NO'
+	`).Scan(&count); err != nil {
+		t.Fatal("check migrated last_activity_at failed")
+	}
+	if (count == 1) != wantActivityColumn {
+		t.Fatalf("last_activity_at column present=%t, want %t", count == 1, wantActivityColumn)
+	}
+	assertAuthSessionIndex(t, ctx, db, "uq_tb_auth_sessions_token_hash", "non_unique = 0", "seq_in_index = 1", "column_name = 'session_token_hash'")
+	assertAuthSessionIndex(t, ctx, db, "idx_tb_auth_sessions_user_activity", "non_unique = 1", "seq_in_index = 1", "column_name = 'user_id'")
+	assertAuthSessionIndex(t, ctx, db, "idx_tb_auth_sessions_user_activity", "non_unique = 1", "seq_in_index = 2", "column_name = 'last_activity_at'")
+	assertAuthSessionIndex(t, ctx, db, "idx_tb_auth_sessions_expires_at", "non_unique = 1", "seq_in_index = 1", "column_name = 'expires_at'")
+}
+
+func assertAuthSessionIndex(t *testing.T, ctx context.Context, db *sql.DB, name string, predicates ...string) {
+	t.Helper()
+	where := []string{"table_schema = database()", "table_name = 'tb_auth_sessions'", "index_name = ?", "index_type = 'BTREE'", "(sub_part = 0 or sub_part is null)"}
+	where = append(where, predicates...)
+	var count int
+	if err := db.QueryRowContext(ctx, `select count(*) from information_schema.statistics where `+strings.Join(where, " and ")+
+		"", name).Scan(&count); err != nil {
+		t.Fatalf("check migrated index failed: name=%s", name)
+	}
+	if count != 1 {
+		t.Fatalf("migrated index definition count = %d, want 1: name=%s", count, name)
+	}
+}
+
+func assertAuthSessionActivity(t *testing.T, ctx context.Context, db *sql.DB, hashSeed string, want time.Time) {
+	t.Helper()
+	var got string
+	if err := db.QueryRowContext(ctx, `
+		select date_format(last_activity_at, '%Y-%m-%d %H:%i:%s.%f')
+		from tb_auth_sessions where session_token_hash = ?
+	`, strings.Repeat(hashSeed, 64)).Scan(&got); err != nil {
+		t.Fatalf("read migrated last_activity_at failed: seed=%s", hashSeed)
+	}
+	if got != want.Format("2006-01-02 15:04:05.000000") {
+		t.Fatalf("last_activity_at = %s, want %s", got, want.Format("2006-01-02 15:04:05.000000"))
 	}
 }
 
