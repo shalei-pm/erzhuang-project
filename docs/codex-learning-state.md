@@ -6242,4 +6242,5 @@ git pull --ff-only
 - 审计事件不记录 token、WSS 地址、Authorization、媒体内容或完整敏感 URL；截图刷新在审计写入失败时回滚对象，避免留下未审计资产。
 - 前端沿用二壮现有表格、按钮、分页和状态标签样式，操作人和邮箱分列显示；修复筛选重置时可能使用旧日期状态的问题。
 - 本地验证：`CGO_ENABLED=0 GOCACHE=/private/tmp/erzhuang-go-cache .tools/go/bin/go test ./... -count=1` 全部通过；前端 Vitest `13 files / 77 tests` 和生产构建通过；`git diff --check` 通过。
-- 当前发布目标仅为公司测试环境 `codex/containerize-single-image` / Wharf `752`，不发布正式 `main`；待自动部署后使用现有 Chrome 测试页验证系统设置、日志筛选、分页和空态。
+- 当前发布目标仅为公司测试环境 `codex/containerize-single-image` / Wharf `752`，不发布正式 `main`；`e679123` 已部署并验证入口，但测试库查询返回内部错误，待运维核对 `tb_audit_logs.actor_display_name` 后复测。
+- `3.3.1` 增加前端错误映射，避免将 `list audit logs failed` 直接展示给用户；仍不自动执行数据库 DDL。

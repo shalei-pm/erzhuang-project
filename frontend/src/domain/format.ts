@@ -12,6 +12,12 @@ export function formatDateTime(value: string) {
 
 export function errorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
+    const knownMessages: Record<string, string> = {
+      "list audit logs failed": "操作日志加载失败，请检查审计日志表配置后重试。",
+    };
+    if (knownMessages[error.message]) {
+      return knownMessages[error.message];
+    }
     if (error.status === 413) {
       return "文件过大，请上传 5MB 以内的 PDF。";
     }

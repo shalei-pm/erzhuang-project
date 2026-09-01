@@ -11,6 +11,7 @@ export default defineConfig({
       "src/pages/**/*.test.{ts,tsx}",
       "src/domain/camera-placeholder.test.ts",
       "src/domain/channel-recognition.test.ts",
+      "src/domain/format.test.ts",
       "src/domain/h5-monitor-active-tab.test.ts",
       "src/domain/nvr-lab.test.ts",
       "src/domain/resource-view.test.ts",
