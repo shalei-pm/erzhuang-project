@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -70,7 +71,7 @@ func TestIdleAuthGateCreatesHttpOnlyLocalSession(t *testing.T) {
 		}
 	}
 	if localCookie == nil || !localCookie.HttpOnly || localCookie.Value == "" {
-		t.Fatalf("local session cookie = %#v", localCookie)
+		t.Fatalf("local session cookie = %s", summarizeCookie(localCookie))
 	}
 }
 
@@ -92,7 +93,7 @@ func TestAuthMeUsesIdleSessionGate(t *testing.T) {
 		t.Fatalf("auth/me response = %#v", response)
 	}
 	if !hasCookie(recorder.Result().Cookies(), authSessionCookieName) {
-		t.Fatalf("auth/me did not issue local session cookie: %#v", recorder.Result().Cookies())
+		t.Fatalf("auth/me did not issue local session cookie: %s", summarizeCookies(recorder.Result().Cookies()))
 	}
 }
 
@@ -190,7 +191,7 @@ func TestIdleAuthGateExpiresSessionAndAuditsWithoutLeakingToken(t *testing.T) {
 	}
 	if !hasClearedAuthCookie(recorder.Result().Cookies(), authSessionCookieName, "") ||
 		!hasClearedAuthCookie(recorder.Result().Cookies(), "sy_sso_token", "") {
-		t.Fatalf("timeout did not clear both auth cookies: %#v", recorder.Result().Cookies())
+		t.Fatalf("timeout did not clear both auth cookies: %s", summarizeCookies(recorder.Result().Cookies()))
 	}
 	if strings.Contains(recorder.Body.String(), localCookie.Value) {
 		t.Fatal("timeout response leaked local token")
@@ -281,6 +282,28 @@ func hasCookie(cookies []*http.Cookie, name string) bool {
 	return false
 }
 
+func summarizeCookie(cookie *http.Cookie) string {
+	if cookie == nil {
+		return "cookie_present=false http_only=false secure=false count=0 name=none"
+	}
+	return fmt.Sprintf("cookie_present=true http_only=%t secure=%t count=1 name=%q", cookie.HttpOnly, cookie.Secure, cookie.Name)
+}
+
+func summarizeCookies(cookies []*http.Cookie) string {
+	names := make([]string, 0, len(cookies))
+	allHTTPOnly := len(cookies) > 0
+	anySecure := false
+	for _, cookie := range cookies {
+		if cookie == nil {
+			continue
+		}
+		names = append(names, cookie.Name)
+		allHTTPOnly = allHTTPOnly && cookie.HttpOnly
+		anySecure = anySecure || cookie.Secure
+	}
+	return fmt.Sprintf("cookie_present=%t http_only=%t secure=%t count=%d names=%q", len(names) > 0, allHTTPOnly, anySecure, len(names), strings.Join(names, ","))
+}
+
 func TestManualLogoutRevokesLocalSessionAndClearsCookies(t *testing.T) {
 	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	sessions := newFakeAuthSessionStore()
@@ -306,7 +329,7 @@ func TestManualLogoutRevokesLocalSessionAndClearsCookies(t *testing.T) {
 	}
 	if !hasClearedAuthCookie(recorder.Result().Cookies(), authSessionCookieName, "") ||
 		!hasClearedAuthCookie(recorder.Result().Cookies(), "sy_sso_token", "") {
-		t.Fatalf("logout did not clear both auth cookies: %#v", recorder.Result().Cookies())
+		t.Fatalf("logout did not clear both auth cookies: %s", summarizeCookies(recorder.Result().Cookies()))
 	}
 }
 
