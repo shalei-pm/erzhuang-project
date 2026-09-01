@@ -41,6 +41,7 @@ begin
   declare v_table_exists bigint default 0;
   declare v_users_exists bigint default 0;
   declare v_missing_columns bigint default 0;
+  declare v_nullable_governance_columns bigint default 0;
   declare v_table_engine varchar(64) default '';
   declare v_null_created_at bigint default 0;
   declare v_nullable_token_hash bigint default 0;
@@ -131,6 +132,21 @@ begin
     if v_missing_columns > 0 then
       signal sqlstate '45000'
         set message_text = 'tb_auth_sessions is missing required base columns; inspect information_schema.columns';
+    end if;
+
+    select count(*) into v_nullable_governance_columns
+    from information_schema.columns
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions'
+      and column_name in (
+        'id', 'user_id', 'created_at', 'sso_subject', 'ip_address',
+        'user_agent', 'revoked_reason'
+      )
+      and is_nullable <> 'NO';
+
+    if v_nullable_governance_columns > 0 then
+      signal sqlstate '45000'
+        set message_text = 'tb_auth_sessions governance columns id, user_id, created_at, sso_subject, ip_address, user_agent, and revoked_reason must be NOT NULL before migration';
     end if;
 
     select count(*) into v_nullable_token_hash

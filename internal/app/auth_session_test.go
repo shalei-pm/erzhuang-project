@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -724,9 +725,11 @@ func isSafeMySQLMigrationDSN(dsn, declaredDatabase string) bool {
 		return false
 	}
 
-	identity := strings.ToLower(database)
+	host := mysqlDSNHost(cfg.Net, cfg.Addr)
+	identity := strings.ToLower(host + " " + database)
 	for _, marker := range []string{
 		"db_pm_erzhuang",
+		"polar-ops",
 		"production",
 		"prod",
 		"ops",
@@ -735,7 +738,26 @@ func isSafeMySQLMigrationDSN(dsn, declaredDatabase string) bool {
 			return false
 		}
 	}
-	return true
+	if cfg.Net != "tcp" {
+		return false
+	}
+	_, allowed := map[string]struct{}{
+		"localhost":                         {},
+		"127.0.0.1":                         {},
+		"::1":                               {},
+		"polar-dev.rwlb.rds.aliyuncs.com": {},
+	}[host]
+	return allowed
+}
+
+func mysqlDSNHost(network, address string) string {
+	if network != "tcp" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(address); err == nil {
+		return strings.ToLower(strings.Trim(host, "[]"))
+	}
+	return strings.ToLower(strings.Trim(address, "[]"))
 }
 
 func TestMySQLAuthSessionMigrationSafetyGate(t *testing.T) {
@@ -748,6 +770,12 @@ func TestMySQLAuthSessionMigrationSafetyGate(t *testing.T) {
 		{
 			name:     "isolated database with exact declaration",
 			dsn:      "test_user@tcp(polar-dev.rwlb.rds.aliyuncs.com:3306)/erzhuang_migration_test",
+			declared: "erzhuang_migration_test",
+			wantSafe: true,
+		},
+		{
+			name:     "localhost isolated database",
+			dsn:      "test_user@tcp(127.0.0.1:3306)/erzhuang_migration_test",
 			declared: "erzhuang_migration_test",
 			wantSafe: true,
 		},
@@ -773,6 +801,30 @@ func TestMySQLAuthSessionMigrationSafetyGate(t *testing.T) {
 			name:     "database without isolation suffix",
 			dsn:      "test_user@tcp(polar-dev.rwlb.rds.aliyuncs.com:3306)/erzhuang_test",
 			declared: "erzhuang_test",
+			wantSafe: false,
+		},
+		{
+			name:     "production host",
+			dsn:      "test_user@tcp(polar-ops.rwlb.rds.aliyuncs.com:3306)/erzhuang_migration_test",
+			declared: "erzhuang_migration_test",
+			wantSafe: false,
+		},
+		{
+			name:     "production marker host",
+			dsn:      "test_user@tcp(prod-db.example:3306)/erzhuang_migration_test",
+			declared: "erzhuang_migration_test",
+			wantSafe: false,
+		},
+		{
+			name:     "production named host",
+			dsn:      "test_user@tcp(production-db.example:3306)/erzhuang_migration_test",
+			declared: "erzhuang_migration_test",
+			wantSafe: false,
+		},
+		{
+			name:     "unlisted host",
+			dsn:      "test_user@tcp(shared-test-db.example:3306)/erzhuang_migration_test",
+			declared: "erzhuang_migration_test",
 			wantSafe: false,
 		},
 	} {
@@ -1091,6 +1143,7 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 		"call erzhuang_migrate_tb_auth_sessions_tmp()",
 		"drop procedure erzhuang_migrate_tb_auth_sessions_tmp",
 		"v_missing_columns",
+		"v_nullable_governance_columns",
 		"v_null_created_at",
 		"v_nullable_token_hash",
 		"v_null_token_hash",
@@ -1100,6 +1153,8 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 		"NULL created_at",
 		"NULL session_token_hash",
 		"NULL expires_at",
+		"column_name in (\n        'id', 'user_id', 'created_at', 'sso_subject', 'ip_address',\n        'user_agent', 'revoked_reason'\n      )",
+		"tb_auth_sessions governance columns id, user_id, created_at, sso_subject, ip_address, user_agent, and revoked_reason must be NOT NULL before migration",
 		"tb_auth_sessions.expires_at must be NOT NULL before migration",
 		"tb_auth_sessions must use the InnoDB engine before migration",
 		"and is_nullable <> 'NO'",
@@ -1123,6 +1178,7 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 	}
 	for _, preflightMarker := range []string{
 		"tb_auth_sessions is missing required base columns",
+		"tb_auth_sessions governance columns id, user_id, created_at, sso_subject, ip_address, user_agent, and revoked_reason must be NOT NULL before migration",
 		"tb_auth_sessions.session_token_hash must be NOT NULL",
 		"tb_auth_sessions contains rows with NULL created_at",
 		"tb_auth_sessions contains rows with NULL session_token_hash",
