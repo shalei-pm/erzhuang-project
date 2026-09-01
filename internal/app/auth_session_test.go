@@ -54,6 +54,9 @@ func (s *fakeAuthSessionStore) TouchAuthSession(_ context.Context, token string,
 	if !ok || session.userID != userID || !now.Before(session.expiresAt) || !session.revokedAt.IsZero() {
 		return false, nil
 	}
+	if !now.After(session.lastActivity) {
+		return true, nil
+	}
 	session.lastActivity = now
 	session.expiresAt = now.Add(idleTimeout)
 	s.sessions[hex.EncodeToString(hash[:])] = session
@@ -84,7 +87,7 @@ func TestAuthSessionTokenHasSufficientEntropy(t *testing.T) {
 		t.Fatal(err)
 	}
 	if first == "" || second == "" || first == second {
-		t.Fatalf("tokens must be non-empty and unique: %q %q", first, second)
+		t.Fatalf("tokens must be non-empty and unique: first_len=%d second_len=%d equal=%t", len(first), len(second), first == second)
 	}
 	decoded, err := base64.RawURLEncoding.DecodeString(first)
 	if err != nil {
@@ -120,12 +123,61 @@ func TestAuthSessionTouchAfterIdleTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ok, err := store.TouchAuthSession(context.Background(), token, 7, createdAt.Add(30*time.Minute+time.Second), defaultAuthIdleTimeout)
+	for _, test := range []struct {
+		name string
+		now  time.Time
+	}{
+		{name: "exactly 30 minutes", now: createdAt.Add(30 * time.Minute)},
+		{name: "30 minutes and 1 second", now: createdAt.Add(30*time.Minute + time.Second)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ok, err := store.TouchAuthSession(context.Background(), token, 7, test.now, defaultAuthIdleTimeout)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ok {
+				t.Fatal("touch at or after 30 minutes should fail")
+			}
+		})
+	}
+}
+
+func TestAuthSessionTouchDoesNotMoveActivityBackward(t *testing.T) {
+	store := newFakeAuthSessionStore()
+	createdAt := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	token, err := store.CreateAuthSession(context.Background(), AuthSessionCreate{UserID: 7, Now: createdAt})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ok {
-		t.Fatal("touch at 30:01 should fail")
+
+	later := createdAt.Add(10 * time.Minute)
+	ok, err := store.TouchAuthSession(context.Background(), token, 7, later, defaultAuthIdleTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("touch at the later time should succeed")
+	}
+
+	earlier := createdAt.Add(5 * time.Minute)
+	ok, err = store.TouchAuthSession(context.Background(), token, 7, earlier, defaultAuthIdleTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("touch with an earlier timestamp should still recognize the active session")
+	}
+
+	hash := hashAuthSessionToken(token)
+	key := hex.EncodeToString(hash[:])
+	store.mu.Lock()
+	session := store.sessions[key]
+	store.mu.Unlock()
+	if !session.lastActivity.Equal(later) {
+		t.Fatalf("last activity moved backward: got=%s want=%s", session.lastActivity, later)
+	}
+	if !session.expiresAt.Equal(later.Add(defaultAuthIdleTimeout)) {
+		t.Fatalf("expiry moved backward: got=%s want=%s", session.expiresAt, later.Add(defaultAuthIdleTimeout))
 	}
 }
 
