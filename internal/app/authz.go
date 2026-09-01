@@ -35,29 +35,22 @@ type authSessionAuthentication struct {
 }
 
 func (h *Handler) currentAuthUser(r *http.Request) (AuthUserRecord, error) {
-	if identity, ok := r.Context().Value(authContextKey{}).(authenticatedAuthContext); ok {
-		return identity.record, nil
-	}
-	authentication, err := h.authenticateRequest(r)
+	identity, err := h.currentAuthIdentity(r)
 	if err != nil {
 		return AuthUserRecord{}, err
 	}
-	return authentication.identity.record, nil
+	return identity.record, nil
 }
 
-func (h *Handler) authUserClaims(r *http.Request) AuthUserResponse {
+func (h *Handler) currentAuthIdentity(r *http.Request) (authenticatedAuthContext, error) {
 	if identity, ok := r.Context().Value(authContextKey{}).(authenticatedAuthContext); ok {
-		return identity.user
+		return identity, nil
 	}
-	cookie, err := r.Cookie(h.auth.CookieName)
-	if err != nil || strings.TrimSpace(cookie.Value) == "" {
-		return AuthUserResponse{}
-	}
-	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, h.authNow())
+	authentication, err := h.authenticateRequest(r)
 	if err != nil {
-		return AuthUserResponse{}
+		return authenticatedAuthContext{}, err
 	}
-	return claims.authUser()
+	return authentication.identity, nil
 }
 
 func (h *Handler) authenticateRequest(r *http.Request) (authSessionAuthentication, error) {

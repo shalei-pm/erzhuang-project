@@ -115,16 +115,13 @@ func (h *Handler) authMeHandler(w http.ResponseWriter, r *http.Request) {
 		h.writeLocalAdminAuth(w)
 		return
 	}
-	record, err := h.currentAuthUser(r)
+	identity, err := h.currentAuthIdentity(r)
 	if err != nil {
 		h.writeAuthError(w, r, err)
 		return
 	}
-	user := h.authUserClaims(r)
-	if user.Email == "" {
-		h.writeUnauthorizedAuth(w)
-		return
-	}
+	record := identity.record
+	user := identity.user
 	record, err = h.store.UpdateAuthUserProfile(r.Context(), AuthUserPatch{
 		Email:        user.Email,
 		Username:     user.Username,
