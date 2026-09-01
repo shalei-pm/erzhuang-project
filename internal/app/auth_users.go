@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
 
 const (
@@ -73,6 +75,14 @@ type AuthUserStore interface {
 	ListMonitorStoreScopeCandidates(ctx context.Context) ([]AuthUserResourceScope, error)
 	GetUserMonitorStoreScopes(ctx context.Context, userID int64) ([]AuthUserResourceScope, error)
 	CanUserViewMonitorStore(ctx context.Context, user AuthUserRecord, externalOrgID string) (bool, error)
+}
+
+// AuthUserMutationAuditStore commits a user/role/scope mutation and its audit
+// event in one storage transaction. Production MySQL storage implements this;
+// the memory implementation mirrors the contract for local verification.
+type AuthUserMutationAuditStore interface {
+	CreateAuthUserWithAudit(ctx context.Context, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error)
+	UpdateAuthUserWithAudit(ctx context.Context, id int64, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error)
 }
 
 func (record AuthUserRecord) permissions() []string {

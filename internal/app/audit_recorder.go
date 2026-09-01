@@ -17,6 +17,13 @@ type auditActor struct {
 	email       string
 }
 
+func int64Pointer(value int64) *int64 {
+	if value <= 0 {
+		return nil
+	}
+	return &value
+}
+
 func (h *Handler) recordAuthLogout(r *http.Request) {
 	if h.auditRecorder == nil {
 		return

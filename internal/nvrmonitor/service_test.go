@@ -57,12 +57,40 @@ type fakeWritableSnapshotStore struct {
 	savedContentType string
 }
 
+type fakeSnapshotRollback struct {
+	store   *fakeWritableSnapshotStore
+	camera  int64
+	body    string
+	existed bool
+}
+
+func (r fakeSnapshotRollback) Rollback(context.Context) error {
+	if r.existed {
+		r.store.data[r.camera] = r.body
+	} else {
+		delete(r.store.data, r.camera)
+	}
+	return nil
+}
+
 func (s *fakeWritableSnapshotStore) Save(_ context.Context, tenantID int64, cameraID int64, body io.Reader) error {
-	_, _ = io.ReadAll(body)
+	payload, _ := io.ReadAll(body)
+	if s.data == nil {
+		s.data = map[int64]string{}
+	}
+	s.data[cameraID] = string(payload)
 	s.savedTenantID = tenantID
 	s.savedCameraID = cameraID
 	s.savedContentType = "image/jpeg"
 	return nil
+}
+
+func (s *fakeWritableSnapshotStore) SaveSnapshotWithRollback(ctx context.Context, tenantID int64, cameraID int64, body io.Reader) (SnapshotRollback, error) {
+	old, existed := s.data[cameraID]
+	if err := s.Save(ctx, tenantID, cameraID, body); err != nil {
+		return nil, err
+	}
+	return fakeSnapshotRollback{store: s, camera: cameraID, body: old, existed: existed}, nil
 }
 
 func (s fakeSnapshotStore) Open(_ context.Context, _ int64, cameraID int64) (io.ReadCloser, string, error) {

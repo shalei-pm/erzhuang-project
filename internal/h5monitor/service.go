@@ -136,11 +136,11 @@ func (s *Service) GetLiveURL(ctx context.Context, externalOrgID string, channelI
 	startedAt := time.Now()
 	channel, err := s.validateChannel(ctx, externalOrgID, channelID)
 	if err != nil {
-		log.Printf("h5monitor: live-url failed stage=validate external_org_id=%q channel_id=%d duration_ms=%d error=%q", externalOrgID, channelID, elapsedMilliseconds(startedAt), err)
+		log.Printf("h5monitor: live-url failed stage=validate external_org_id=%q channel_id=%d duration_ms=%d error=%q", externalOrgID, channelID, elapsedMilliseconds(startedAt), safeLogError(err))
 		return LiveURLResponse{}, err
 	}
 	if err := s.acquireConcurrency(userID, isAdmin); err != nil {
-		log.Printf("h5monitor: live-url failed stage=concurrency external_org_id=%q channel_id=%d device=%s channel_no=%d user=%s admin=%t duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, safeLogID(userID), isAdmin, elapsedMilliseconds(startedAt), err)
+		log.Printf("h5monitor: live-url failed stage=concurrency external_org_id=%q channel_id=%d device=%s channel_no=%d user=%s admin=%t duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, safeLogID(userID), isAdmin, elapsedMilliseconds(startedAt), safeLogError(err))
 		return LiveURLResponse{}, err
 	}
 	account := channelToAccount(channel)
@@ -160,7 +160,7 @@ func (s *Service) GetLiveURL(ctx context.Context, externalOrgID string, channelI
 	})
 	if err != nil {
 		s.releaseConcurrency(userID)
-		log.Printf("h5monitor: live-url failed stage=ezviz external_org_id=%q channel_id=%d device=%s channel_no=%d protocol=%s quality=%d duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, protocol, quality, elapsedMilliseconds(startedAt), err)
+		log.Printf("h5monitor: live-url failed stage=ezviz external_org_id=%q channel_id=%d device=%s channel_no=%d protocol=%s quality=%d duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, protocol, quality, elapsedMilliseconds(startedAt), safeLogError(err))
 		return LiveURLResponse{}, err
 	}
 	log.Printf("h5monitor: live-url completed external_org_id=%q channel_id=%d device=%s channel_no=%d protocol=%s quality=%d url_id=%s duration_ms=%d", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, protocol, quality, safeLogID(result.ID), elapsedMilliseconds(startedAt))
@@ -171,12 +171,12 @@ func (s *Service) GetRecordSegments(ctx context.Context, externalOrgID string, c
 	startedAt := time.Now()
 	channel, err := s.validateChannel(ctx, externalOrgID, channelID)
 	if err != nil {
-		log.Printf("h5monitor: record-segments failed stage=validate external_org_id=%q channel_id=%d date=%q duration_ms=%d error=%q", externalOrgID, channelID, dateValue, elapsedMilliseconds(startedAt), err)
+		log.Printf("h5monitor: record-segments failed stage=validate external_org_id=%q channel_id=%d date=%q duration_ms=%d error=%q", externalOrgID, channelID, dateValue, elapsedMilliseconds(startedAt), safeLogError(err))
 		return RecordSegmentsResponse{}, err
 	}
 	date, normalizedDate, err := parseDate(dateValue)
 	if err != nil {
-		log.Printf("h5monitor: record-segments failed stage=parse-date external_org_id=%q channel_id=%d device=%s channel_no=%d date=%q duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, dateValue, elapsedMilliseconds(startedAt), err)
+		log.Printf("h5monitor: record-segments failed stage=parse-date external_org_id=%q channel_id=%d device=%s channel_no=%d date=%q duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, dateValue, elapsedMilliseconds(startedAt), safeLogError(err))
 		return RecordSegmentsResponse{}, &ValidationError{Fields: map[string]string{"date": "日期格式应为 YYYY-MM-DD"}}
 	}
 	log.Printf("h5monitor: record-segments request external_org_id=%q channel_id=%d device=%s channel_no=%d date=%s", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, normalizedDate)
@@ -186,7 +186,7 @@ func (s *Service) GetRecordSegments(ctx context.Context, externalOrgID string, c
 		Date:         date,
 	})
 	if err != nil {
-		log.Printf("h5monitor: record-segments failed stage=ezviz external_org_id=%q channel_id=%d device=%s channel_no=%d date=%s duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, normalizedDate, elapsedMilliseconds(startedAt), err)
+		log.Printf("h5monitor: record-segments failed stage=ezviz external_org_id=%q channel_id=%d device=%s channel_no=%d date=%s duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, normalizedDate, elapsedMilliseconds(startedAt), safeLogError(err))
 		return RecordSegmentsResponse{}, err
 	}
 	segments := make([]RecordSegmentResponse, 0, len(result.Records))
@@ -206,7 +206,7 @@ func (s *Service) GetPlaybackURL(ctx context.Context, externalOrgID string, chan
 	startedAt := time.Now()
 	channel, err := s.validateChannel(ctx, externalOrgID, channelID)
 	if err != nil {
-		log.Printf("h5monitor: playback-url failed stage=validate external_org_id=%q channel_id=%d duration_ms=%d error=%q", externalOrgID, channelID, elapsedMilliseconds(startedAt), err)
+		log.Printf("h5monitor: playback-url failed stage=validate external_org_id=%q channel_id=%d duration_ms=%d error=%q", externalOrgID, channelID, elapsedMilliseconds(startedAt), safeLogError(err))
 		return PlaybackURLResponse{}, err
 	}
 	if request.StartTime <= 0 || request.StopTime <= request.StartTime {
@@ -214,7 +214,7 @@ func (s *Service) GetPlaybackURL(ctx context.Context, externalOrgID string, chan
 		return PlaybackURLResponse{}, &ValidationError{Fields: map[string]string{"time": "回放时间范围无效"}}
 	}
 	if err := s.acquireConcurrency(request.UserID, request.IsAdmin); err != nil {
-		log.Printf("h5monitor: playback-url failed stage=concurrency external_org_id=%q channel_id=%d device=%s channel_no=%d user=%s admin=%t duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, safeLogID(request.UserID), request.IsAdmin, elapsedMilliseconds(startedAt), err)
+		log.Printf("h5monitor: playback-url failed stage=concurrency external_org_id=%q channel_id=%d device=%s channel_no=%d user=%s admin=%t duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, safeLogID(request.UserID), request.IsAdmin, elapsedMilliseconds(startedAt), safeLogError(err))
 		return PlaybackURLResponse{}, err
 	}
 	log.Printf("h5monitor: playback-url request external_org_id=%q channel_id=%d device=%s channel_no=%d start=%d stop=%d user=%s admin=%t", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, request.StartTime, request.StopTime, safeLogID(request.UserID), request.IsAdmin)
@@ -229,7 +229,7 @@ func (s *Service) GetPlaybackURL(ctx context.Context, externalOrgID string, chan
 	})
 	if err != nil {
 		s.releaseConcurrency(request.UserID)
-		log.Printf("h5monitor: playback-url failed stage=ezviz external_org_id=%q channel_id=%d device=%s channel_no=%d start=%d stop=%d duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, request.StartTime, request.StopTime, elapsedMilliseconds(startedAt), err)
+		log.Printf("h5monitor: playback-url failed stage=ezviz external_org_id=%q channel_id=%d device=%s channel_no=%d start=%d stop=%d duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, request.StartTime, request.StopTime, elapsedMilliseconds(startedAt), safeLogError(err))
 		return PlaybackURLResponse{}, err
 	}
 	log.Printf("h5monitor: playback-url completed external_org_id=%q channel_id=%d device=%s channel_no=%d start=%d stop=%d url_id=%s duration_ms=%d", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, request.StartTime, request.StopTime, safeLogID(result.ID), elapsedMilliseconds(startedAt))
@@ -241,7 +241,7 @@ func (s *Service) DisableURL(ctx context.Context, externalOrgID string, channelI
 	channel, err := s.validateChannel(ctx, externalOrgID, channelID)
 	if err != nil {
 		s.releaseConcurrency(userID)
-		log.Printf("h5monitor: disable-url failed stage=validate external_org_id=%q channel_id=%d url_id=%s user=%s duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(urlID), safeLogID(userID), elapsedMilliseconds(startedAt), err)
+		log.Printf("h5monitor: disable-url failed stage=validate external_org_id=%q channel_id=%d url_id=%s user=%s duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(urlID), safeLogID(userID), elapsedMilliseconds(startedAt), safeLogError(err))
 		return err
 	}
 	disableErr := s.player.DisableLiveAddress(ctx, channelToAccount(channel), ezviz.DisableLiveAddressRequest{
@@ -251,7 +251,7 @@ func (s *Service) DisableURL(ctx context.Context, externalOrgID string, channelI
 	})
 	s.releaseConcurrency(userID)
 	if disableErr != nil {
-		log.Printf("h5monitor: disable-url failed stage=ezviz external_org_id=%q channel_id=%d device=%s channel_no=%d url_id=%s user=%s duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, safeLogID(urlID), safeLogID(userID), elapsedMilliseconds(startedAt), disableErr)
+		log.Printf("h5monitor: disable-url failed stage=ezviz external_org_id=%q channel_id=%d device=%s channel_no=%d url_id=%s user=%s duration_ms=%d error=%q", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, safeLogID(urlID), safeLogID(userID), elapsedMilliseconds(startedAt), safeLogError(disableErr))
 	} else {
 		log.Printf("h5monitor: disable-url completed external_org_id=%q channel_id=%d device=%s channel_no=%d url_id=%s user=%s duration_ms=%d", externalOrgID, channelID, safeLogID(channel.DeviceSerial), channel.ChannelNo, safeLogID(urlID), safeLogID(userID), elapsedMilliseconds(startedAt))
 	}
@@ -298,7 +298,7 @@ func (s *Service) validateChannel(ctx context.Context, externalOrgID string, cha
 func (s *Service) acquireConcurrency(userID string, isAdmin bool) error {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
-		return nil
+		userID = "anonymous"
 	}
 	maxCount := 15
 	if isAdmin {
@@ -323,7 +323,7 @@ func (s *Service) acquireConcurrency(userID string, isAdmin bool) error {
 func (s *Service) releaseConcurrency(userID string) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
-		return
+		userID = "anonymous"
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -332,6 +332,9 @@ func (s *Service) releaseConcurrency(userID string) {
 		return
 	}
 	state.ActiveCount--
+	if state.ActiveCount == 0 {
+		delete(s.concurrency, userID)
+	}
 }
 
 func groupChannels(channels []ChannelInfo) []MonitorGroup {
@@ -474,6 +477,42 @@ func safeLogID(value string) string {
 		return value
 	}
 	return value[:4] + "..." + value[len(value)-4:]
+}
+
+func safeLogError(err error) string {
+	if err == nil {
+		return "-"
+	}
+	if code := ezviz.ErrorCode(err); code != "" {
+		if isNumericLogCode(code) {
+			return "provider_" + code
+		}
+		return "provider_error"
+	}
+	if errors.Is(err, ErrNotFound) {
+		return "not_found"
+	}
+	if errors.Is(err, ErrConcurrencyLimit) {
+		return "concurrency_limit"
+	}
+	var validationErr *ValidationError
+	if errors.As(err, &validationErr) {
+		return "validation"
+	}
+	return "internal"
+}
+
+func isNumericLogCode(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func parseDate(value string) (time.Time, string, error) {

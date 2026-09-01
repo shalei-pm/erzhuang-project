@@ -175,7 +175,7 @@ func TestMySQLAuditLogWhereUsesBoundParameters(t *testing.T) {
 	if strings.Contains(where, filter.Action) {
 		t.Fatalf("action must not be interpolated into query: %q", where)
 	}
-	if len(args) != 4 || args[2] != userID || args[3] != filter.Action {
+	if len(args) != 5 || args[2] != internalAuditActionSnapshotRefreshPrepare || args[3] != userID || args[4] != filter.Action {
 		t.Fatalf("unexpected query args: %#v", args)
 	}
 }
@@ -406,6 +406,18 @@ func TestSanitizeAuditDetailDropsSensitiveFields(t *testing.T) {
 		if strings.Contains(string(encoded), unexpected) {
 			t.Fatalf("unexpected direct JSON value %q", unexpected)
 		}
+	}
+}
+
+func TestSanitizeAuditMetadataDropsSensitiveValuesAndLimitsLength(t *testing.T) {
+	if got := sanitizeAuditMetadata("Authorization=secret-token", 128); got != "" {
+		t.Fatalf("sensitive metadata = %q, want empty", got)
+	}
+	if got := sanitizeAuditMetadata(strings.Repeat("a", 10), 4); got != "aaaa" {
+		t.Fatalf("metadata = %q, want truncated value", got)
+	}
+	if got := sanitizeAuditMetadata("request-123", 128); got != "request-123" {
+		t.Fatalf("safe metadata = %q, want request-123", got)
 	}
 }
 

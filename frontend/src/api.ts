@@ -424,6 +424,25 @@ export type ManagedUserPayload = {
   monitorStoreScopeIds: number[];
 };
 
+export type AuditLogItem = {
+  actorDisplayName: string;
+  userEmail: string;
+  action: string;
+  entityType: string;
+  entityId?: number;
+  externalOrgId: string;
+  result: "success" | "denied" | "failed" | string;
+  createdAt: string;
+  summary: string;
+};
+
+export type AuditLogPage = {
+  items: AuditLogItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 type ApiMode = "auto" | "http" | "mock";
 
 type BackendStoreListResponse = {
@@ -643,6 +662,18 @@ type BackendMonitorStoreScope = {
   name?: string;
   external_org_id?: string;
   externalOrgId?: string;
+};
+
+type BackendAuditLogItem = {
+  actor_display_name?: string;
+  user_email?: string;
+  action?: string;
+  entity_type?: string;
+  entity_id?: number;
+  external_org_id?: string;
+  result?: string;
+  created_at?: string;
+  summary?: string;
 };
 
 type BackendStoreSpaceListResponse = {
@@ -1814,6 +1845,29 @@ const storeSpaceHttpAdapter = {
     return (response.stores ?? []).map(mapMonitorStoreScope);
   },
 
+  async listAuditLogs(startDate: string, endDate: string, userId = "", action = "", page = 1): Promise<AuditLogPage> {
+    const params = new URLSearchParams({ start_time: startDate, end_time: endDate, page: String(page), page_size: "20" });
+    if (userId) params.set("user_id", userId);
+    if (action) params.set("action", action);
+    const response = await requestJSON<{ items?: BackendAuditLogItem[]; page?: number; page_size?: number; total?: number }>(`${APP_API_BASE}/admin/audit-logs?${params.toString()}`);
+    return {
+      items: (response.items ?? []).map((item) => ({
+        actorDisplayName: item.actor_display_name ?? "",
+        userEmail: item.user_email ?? "",
+        action: item.action ?? "",
+        entityType: item.entity_type ?? "",
+        entityId: item.entity_id,
+        externalOrgId: item.external_org_id ?? "",
+        result: item.result ?? "",
+        createdAt: item.created_at ?? "",
+        summary: item.summary ?? "",
+      })),
+      page: response.page ?? page,
+      pageSize: response.page_size ?? 20,
+      total: response.total ?? 0,
+    };
+  },
+
   async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores`, {
       method: "POST",
@@ -2168,6 +2222,13 @@ export const storeSpaceApi = {
         .map((store) => ({ storeId: store.id, city: store.city, name: store.name, externalOrgId: store.externalOrgId }));
     }
     return storeSpaceHttpAdapter.listMonitorStoreScopeCandidates();
+  },
+
+  async listAuditLogs(startDate: string, endDate: string, userId = "", action = "", page = 1): Promise<AuditLogPage> {
+    if (API_MODE === "mock") {
+      return { items: [], page, pageSize: 20, total: 0 };
+    }
+    return storeSpaceHttpAdapter.listAuditLogs(startDate, endDate, userId, action, page);
   },
 
   async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {

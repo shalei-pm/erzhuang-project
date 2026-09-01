@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	defaultAuditLogPageSize = 20
-	maxAuditLogPageSize     = 100
+	defaultAuditLogPageSize                   = 20
+	maxAuditLogPageSize                       = 100
+	internalAuditActionSnapshotRefreshPrepare = "snapshot.refresh.prepare"
 )
 
 // AuditLog remains the app-facing name for the shared persisted audit event.
@@ -106,6 +107,18 @@ func sanitizeAuditDetail(raw json.RawMessage) json.RawMessage {
 		return nil
 	}
 	return json.RawMessage(encoded)
+}
+
+func sanitizeAuditMetadata(value string, maxRunes int) string {
+	value = strings.TrimSpace(value)
+	if value == "" || containsSensitiveAuditValue(value) {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) > maxRunes {
+		return string(runes[:maxRunes])
+	}
+	return value
 }
 
 func isSafeAuditDetailValue(raw json.RawMessage) bool {

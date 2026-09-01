@@ -1,11 +1,14 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
 
 type authUsersResponse struct {
@@ -48,15 +51,18 @@ func (h *Handler) listUsersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createUserHandler(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+	operator, ok := h.requirePermission(w, r, PermissionUserManage)
+	if !ok {
 		return
 	}
 	var input AuthUserMutation
 	if !decodeAuthUserMutation(w, r, &input, true) {
 		return
 	}
-	user, err := h.store.CreateAuthUser(r.Context(), input)
+	event := newUserMutationAuditEvent(r, operator, "user.create", "success", 0, input, 0)
+	user, err := h.createAuthUserWithAudit(r.Context(), input, event)
 	if err != nil {
+		h.recordUserMutationFailure(r, operator, "user.create", 0, input, 0)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -76,7 +82,8 @@ func (h *Handler) listMonitorStoreScopeCandidatesHandler(w http.ResponseWriter, 
 }
 
 func (h *Handler) updateUserHandler(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
+	operator, ok := h.requirePermission(w, r, PermissionUserManage)
+	if !ok {
 		return
 	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -88,16 +95,81 @@ func (h *Handler) updateUserHandler(w http.ResponseWriter, r *http.Request) {
 	if !decodeAuthUserMutation(w, r, &input, false) {
 		return
 	}
-	user, err := h.store.UpdateAuthUser(r.Context(), id, input)
+	event := newUserMutationAuditEvent(r, operator, "user.update", "success", id, input, len(input.MonitorStoreScopeIDs))
+	user, err := h.updateAuthUserWithAudit(r.Context(), id, input, event)
 	if errors.Is(err, errAuthUserNotFound) {
+		h.recordUserMutationFailure(r, operator, "user.update", id, input, len(input.MonitorStoreScopeIDs))
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
 		return
 	}
 	if err != nil {
+		h.recordUserMutationFailure(r, operator, "user.update", id, input, len(input.MonitorStoreScopeIDs))
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, authUserItem(user))
+}
+
+func (h *Handler) createAuthUserWithAudit(ctx context.Context, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error) {
+	if h.auditRecorder == nil {
+		return h.store.CreateAuthUser(ctx, input)
+	}
+	store, ok := h.store.(AuthUserMutationAuditStore)
+	if !ok {
+		return AuthUserRecord{}, errAuditMutationUnavailable
+	}
+	return store.CreateAuthUserWithAudit(ctx, input, event)
+}
+
+func (h *Handler) updateAuthUserWithAudit(ctx context.Context, id int64, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error) {
+	if h.auditRecorder == nil {
+		return h.store.UpdateAuthUser(ctx, id, input)
+	}
+	store, ok := h.store.(AuthUserMutationAuditStore)
+	if !ok {
+		return AuthUserRecord{}, errAuditMutationUnavailable
+	}
+	return store.UpdateAuthUserWithAudit(ctx, id, input, event)
+}
+
+func newUserMutationAuditEvent(r *http.Request, operator AuthUserRecord, action, result string, targetID int64, input AuthUserMutation, scopeCount int) auditlog.AuditEvent {
+	if scopeCount == 0 {
+		scopeCount = len(input.MonitorStoreScopeIDs)
+	}
+	detail, _ := json.Marshal(map[string]any{
+		"summary":     action,
+		"source":      "user_management",
+		"role":        normalizeRole(input.Role),
+		"scope_count": scopeCount,
+		"target_name": firstNonEmpty(input.DisplayName, input.Username),
+	})
+	event := auditlog.AuditEvent{
+		UserID:           int64Pointer(operator.ID),
+		ActorDisplayName: firstNonEmpty(operator.DisplayName, operator.Username, operator.Email),
+		UserEmail:        operator.Email,
+		Action:           action,
+		EntityType:       "user",
+		IPAddress:        requestIPAddress(r),
+		UserAgent:        strings.TrimSpace(r.UserAgent()),
+		RequestID:        strings.TrimSpace(r.Header.Get("X-Request-ID")),
+		Result:           result,
+		DetailJSON:       detail,
+	}
+	if targetID > 0 {
+		event.EntityID = int64Pointer(targetID)
+	}
+	return event
+}
+
+func (h *Handler) recordUserMutationFailure(r *http.Request, operator AuthUserRecord, action string, targetID int64, input AuthUserMutation, scopeCount int) {
+	if h.auditRecorder == nil {
+		return
+	}
+	event := newUserMutationAuditEvent(r, operator, action, "failed", targetID, input, scopeCount)
+	if err := h.auditRecorder.RecordAudit(r.Context(), event); err != nil {
+		// The original mutation error is returned to the caller; keep recorder
+		// failures out of the response and rely on server logs/metrics later.
+	}
 }
 
 func decodeAuthUserMutation(w http.ResponseWriter, r *http.Request, input *AuthUserMutation, requireEmail bool) bool {

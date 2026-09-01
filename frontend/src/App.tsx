@@ -13,6 +13,7 @@ import { ResourceStoreDetail } from "./components/ResourceStoreDetail";
 import { ResourceStoreList } from "./components/ResourceStoreList";
 import { SystemTopBar } from "./components/SystemTopBar";
 import { UserManagement } from "./components/UserManagement";
+import { AuditLogManagement } from "./components/AuditLogManagement";
 import {
   authCompanyEntryPath,
   authLoginPath,
@@ -90,6 +91,7 @@ function AdminApp() {
   const [activeStore, setActiveStore] = useState<ResourceStoreDetailType | null>(null);
   const [openingStoreIds, setOpeningStoreIds] = useState<Set<number>>(() => new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<"users" | "audit">("users");
   const listRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
 
@@ -105,7 +107,7 @@ function AdminApp() {
   const showLogoutEntry = shouldShowLogoutEntry(auth);
   const canManageSystemUsers = canManageUsers(auth);
   const systemSettingsAction = canManageSystemUsers ? (
-    <button type="button" className="topbar-settings-button" onClick={() => setSettingsOpen(true)}>
+    <button type="button" className="topbar-settings-button" onClick={() => { setSettingsSection("users"); setSettingsOpen(true); }}>
       系统设置
     </button>
   ) : null;
@@ -233,6 +235,7 @@ function AdminApp() {
     detailRequestIdRef.current += 1;
     setActiveStore(null);
     setSettingsOpen(false);
+    setSettingsSection("users");
     void loadStores();
   }
 
@@ -292,7 +295,15 @@ function AdminApp() {
           onLogout={logout}
         />
         {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
-        <UserManagement onToast={setToast} />
+        <nav className="settings-tabs" aria-label="系统设置菜单">
+          <button type="button" className={settingsSection === "users" ? "is-active" : ""} onClick={() => setSettingsSection("users")}>
+            用户管理
+          </button>
+          <button type="button" className={settingsSection === "audit" ? "is-active" : ""} onClick={() => setSettingsSection("audit")}>
+            操作日志
+          </button>
+        </nav>
+        {settingsSection === "audit" ? <AuditLogManagement onToast={setToast} /> : <UserManagement onToast={setToast} />}
         <footer className="app-version" aria-label="当前版本">
           版本 {APP_VERSION}
         </footer>

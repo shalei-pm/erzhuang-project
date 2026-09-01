@@ -588,9 +588,111 @@ h1 {
 }
 
 .user-management-page {
-  max-width: 1440px;
-  margin: 0 auto;
+	max-width: 1440px;
+	margin: 0 auto;
 }
+
+.settings-tabs {
+	display: flex;
+	gap: 4px;
+	max-width: 1440px;
+	margin: 0 auto 14px;
+	border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-tabs button {
+	min-height: 34px;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	border-radius: 0;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 13px;
+	font-weight: 700;
+}
+
+.settings-tabs button:hover:not(:disabled),
+.settings-tabs button.is-active {
+	border-bottom-color: var(--brand);
+	background: transparent;
+	color: var(--brand);
+}
+
+.audit-log-page {
+	max-width: 1440px;
+	margin: 0 auto;
+}
+
+.audit-log-page .page-header {
+	max-width: none;
+}
+
+.audit-log-toolbar {
+	display: flex;
+	align-items: flex-end;
+	gap: 12px;
+	margin-bottom: 14px;
+	padding: 14px 16px;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-card);
+	background: var(--surface);
+}
+
+.audit-log-toolbar label {
+	display: grid;
+	flex: 0 1 190px;
+	gap: 6px;
+	color: var(--text-muted);
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.audit-log-toolbar-actions {
+	display: flex;
+	gap: 8px;
+	margin-left: auto;
+}
+
+.audit-log-table {
+	width: 100%;
+	border-collapse: collapse;
+	table-layout: fixed;
+}
+
+.audit-log-table th,
+.audit-log-table td {
+	padding: 13px 16px;
+	border-bottom: 1px solid var(--border-subtle);
+	text-align: left;
+	vertical-align: middle;
+	font-size: 13px;
+}
+
+.audit-log-table th {
+	background: var(--surface-subtle);
+	color: var(--text-muted);
+	font-weight: 700;
+}
+
+.audit-log-table th:nth-child(1), .audit-log-table td:nth-child(1) { width: 15%; }
+.audit-log-table th:nth-child(2), .audit-log-table td:nth-child(2) { width: 22%; }
+.audit-log-table th:nth-child(3), .audit-log-table td:nth-child(3) { width: 18%; }
+.audit-log-table th:nth-child(4), .audit-log-table td:nth-child(4) { width: 15%; }
+.audit-log-table th:nth-child(6), .audit-log-table td:nth-child(6) { width: 10%; }
+
+.audit-result {
+	display: inline-flex;
+	min-width: 42px;
+	justify-content: center;
+	padding: 3px 8px;
+	border-radius: 999px;
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.audit-result-success { background: #ecfdf3; color: var(--success); }
+.audit-result-denied { background: #fff7ed; color: var(--warning); }
+.audit-result-failed { background: #fef2f2; color: var(--danger); }
 
 .user-management-page .page-header,
 .user-management-page .table-frame {
@@ -3097,6 +3199,24 @@ td:nth-child(10) {
 
   .toolbar-meta {
     justify-content: flex-start;
+  }
+
+  .audit-log-toolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .audit-log-toolbar label {
+    flex-basis: calc(50% - 6px);
+  }
+
+  .audit-log-toolbar-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .audit-log-toolbar-actions button {
+    flex: 1;
   }
 
   h1 {

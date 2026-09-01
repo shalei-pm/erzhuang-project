@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 )
 
@@ -69,12 +70,26 @@ type fakePlayer struct {
 	liveInput     ezviz.LiveAddressRequest
 	playbackInput ezviz.PlaybackRequest
 	disableInput  ezviz.DisableLiveAddressRequest
+	liveErr       error
+	playbackErr   error
 	disableErr    error
 	disabledIDs   []string
 }
 
 type fakeAuthorizer struct {
 	allowed map[string]bool
+	err     error
+}
+
+type auditAuthorizer struct {
+	fakeAuthorizer
+	events []auditlog.AuditEvent
+	err    error
+}
+
+func (a *auditAuthorizer) RecordAudit(_ *http.Request, event auditlog.AuditEvent) error {
+	a.events = append(a.events, event)
+	return a.err
 }
 
 func (a fakeAuthorizer) CurrentUser(r *http.Request) (AuthContext, error) {
@@ -82,6 +97,9 @@ func (a fakeAuthorizer) CurrentUser(r *http.Request) (AuthContext, error) {
 }
 
 func (a fakeAuthorizer) CanViewMonitorStore(r *http.Request, externalOrgID string) (bool, error) {
+	if a.err != nil {
+		return false, a.err
+	}
 	return a.allowed[externalOrgID], nil
 }
 
@@ -101,17 +119,27 @@ func (a fakeAuthorizer) FilterMonitorStores(r *http.Request, response MonitorSto
 	return filtered, nil
 }
 
+func (a fakeAuthorizer) RecordAudit(_ *http.Request, _ auditlog.AuditEvent) error {
+	return nil
+}
+
 func (p *fakePlayer) EnsureAACTransfer(ctx context.Context, account ezviz.Account, deviceSerial string, channelNo int) error {
 	return errors.New("aac best effort failure")
 }
 
 func (p *fakePlayer) LiveAddress(ctx context.Context, account ezviz.Account, input ezviz.LiveAddressRequest) (ezviz.LiveAddressResult, error) {
 	p.liveInput = input
+	if p.liveErr != nil {
+		return ezviz.LiveAddressResult{}, p.liveErr
+	}
 	return ezviz.LiveAddressResult{ID: "live-url-id", URL: "https://example.test/live.flv", ExpireTime: "2026-12-31 23:59:59"}, nil
 }
 
 func (p *fakePlayer) PlaybackAddress(ctx context.Context, account ezviz.Account, input ezviz.PlaybackRequest) (ezviz.PlaybackResult, error) {
 	p.playbackInput = input
+	if p.playbackErr != nil {
+		return ezviz.PlaybackResult{}, p.playbackErr
+	}
 	return ezviz.PlaybackResult{ID: "play-url-id", URL: "https://example.test/play.flv", ExpireTime: "2026-12-31 23:59:59"}, nil
 }
 
@@ -160,9 +188,23 @@ func TestSnapshotRefreshRouteIsNotRegisteredForH5Monitor(t *testing.T) {
 	}
 }
 
-func TestMonitorStoresListsCitiesAndStoresWithEffectiveChannels(t *testing.T) {
+func TestCompatibilityHandlerRejectsRequestsWithoutAuthorizer(t *testing.T) {
 	service, _ := newFakeService()
 	handler := NewHandler(service)
+	request := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/10030/monitor", nil)
+	request.SetPathValue("externalOrgId", "10030")
+	response := httptest.NewRecorder()
+
+	handler.getMonitorHome(response, request)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d body=%s, want 401", response.Code, response.Body.String())
+	}
+}
+
+func TestMonitorStoresListsCitiesAndStoresWithEffectiveChannels(t *testing.T) {
+	service, _ := newFakeService()
+	handler := NewHandlerForTesting(service)
 	request := httptest.NewRequest(http.MethodGet, "/api/h5/monitor/stores", nil)
 	response := httptest.NewRecorder()
 
@@ -231,7 +273,7 @@ func TestMonitorStoresCanCountUnconfirmedEffectiveChannels(t *testing.T) {
 		channels: []ChannelInfo{channel},
 		byID:     map[int64]ChannelInfo{71: channel},
 	}
-	handler := NewHandler(NewService(repo, &fakePlayer{}))
+	handler := NewHandlerForTesting(NewService(repo, &fakePlayer{}))
 	storesRequest := httptest.NewRequest(http.MethodGet, "/api/h5/monitor/stores", nil)
 	storesResponse := httptest.NewRecorder()
 
@@ -264,7 +306,7 @@ func TestMonitorStoresCanCountUnconfirmedEffectiveChannels(t *testing.T) {
 }
 
 func TestMonitorHomeReturnsNotFoundForMissingStore(t *testing.T) {
-	handler := NewHandler(NewService(&fakeRepo{}, &fakePlayer{}))
+	handler := NewHandlerForTesting(NewService(&fakeRepo{}, &fakePlayer{}))
 	request := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/404/monitor", nil)
 	request.SetPathValue("externalOrgId", "404")
 	response := httptest.NewRecorder()
@@ -281,7 +323,7 @@ func TestLiveURLReturnsNotFoundForMissingChannel(t *testing.T) {
 		store: &StoreInfo{ID: 80, Name: "测试门店", City: "北京", ExternalOrgID: "10080"},
 		byID:  map[int64]ChannelInfo{},
 	}
-	handler := NewHandler(NewService(repo, &fakePlayer{}))
+	handler := NewHandlerForTesting(NewService(repo, &fakePlayer{}))
 	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10080/monitor/channels/999/live-url", strings.NewReader(`{"user_id":"u1"}`))
 	request.SetPathValue("externalOrgId", "10080")
 	request.SetPathValue("channelId", "999")
@@ -296,7 +338,7 @@ func TestLiveURLReturnsNotFoundForMissingChannel(t *testing.T) {
 
 func TestMonitorHomeGroupsChannelsAndDoesNotLeakSecrets(t *testing.T) {
 	service, _ := newFakeService()
-	handler := NewHandler(service)
+	handler := NewHandlerForTesting(service)
 	request := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/10030/monitor", nil)
 	request.SetPathValue("externalOrgId", "10030")
 	response := httptest.NewRecorder()
@@ -346,7 +388,7 @@ func TestMonitorHomeAllowsAnyStoreWithExternalOrgID(t *testing.T) {
 		byID:     map[int64]ChannelInfo{31: channels[0]},
 	}
 	service := NewService(repo, &fakePlayer{})
-	handler := NewHandler(service)
+	handler := NewHandlerForTesting(service)
 	request := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/10031/monitor", nil)
 	request.SetPathValue("externalOrgId", "10031")
 	response := httptest.NewRecorder()
@@ -372,7 +414,7 @@ func TestShanghaiKaidePilotUsesStoreOwnChannels(t *testing.T) {
 	}
 	player := &fakePlayer{}
 	service := NewService(repo, player)
-	handler := NewHandler(service)
+	handler := NewHandlerForTesting(service)
 
 	homeRequest := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/10047/monitor", nil)
 	homeRequest.SetPathValue("externalOrgId", "10047")
@@ -400,7 +442,7 @@ func TestShanghaiKaidePilotUsesStoreOwnChannels(t *testing.T) {
 
 func TestBeijingHomeAndPlaybackAllowStoreOwnEffectiveChannels(t *testing.T) {
 	service, player := newFakeService()
-	handler := NewHandler(service)
+	handler := NewHandlerForTesting(service)
 
 	homeRequest := httptest.NewRequest(http.MethodGet, "/api/h5/orgs/10030/monitor", nil)
 	homeRequest.SetPathValue("externalOrgId", "10030")
@@ -428,7 +470,7 @@ func TestBeijingHomeAndPlaybackAllowStoreOwnEffectiveChannels(t *testing.T) {
 
 func TestLiveURLUsesRequestedHLSParameters(t *testing.T) {
 	service, player := newFakeService()
-	handler := NewHandler(service)
+	handler := NewHandlerForTesting(service)
 	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1","protocol":"hls"}`))
 	request.SetPathValue("externalOrgId", "10030")
 	request.SetPathValue("channelId", "2")
@@ -450,9 +492,141 @@ func TestLiveURLUsesRequestedHLSParameters(t *testing.T) {
 	}
 }
 
+func TestLiveURLRecordsAuditBeforeReturningURL(t *testing.T) {
+	service, _ := newFakeService()
+	authorizer := &auditAuthorizer{fakeAuthorizer: fakeAuthorizer{allowed: map[string]bool{"10030": true}}}
+	handler := NewHandlerWithAuthorizer(service, authorizer)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getLiveURL(response, request)
+
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "https://example.test/live.flv") {
+		t.Fatalf("status=%d body=%s, want successful live URL", response.Code, response.Body.String())
+	}
+	if len(authorizer.events) != 1 {
+		t.Fatalf("audit events = %#v, want one event", authorizer.events)
+	}
+	event := authorizer.events[0]
+	if event.Action != "monitor.live_view" || event.EntityType != "channel" || event.ExternalOrgID != "10030" || event.EntityID == nil || *event.EntityID != 2 || event.ChannelID == nil || *event.ChannelID != 2 || event.Result != "success" {
+		t.Fatalf("unexpected live audit event: %#v", event)
+	}
+	if len(event.DetailJSON) != 0 || strings.Contains(string(event.DetailJSON), "live.flv") {
+		t.Fatalf("live audit detail contains sensitive data: %s", event.DetailJSON)
+	}
+}
+
+func TestLiveURLAuditFailureBlocksURL(t *testing.T) {
+	service, _ := newFakeService()
+	authorizer := &auditAuthorizer{
+		fakeAuthorizer: fakeAuthorizer{allowed: map[string]bool{"10030": true}},
+		err:            errors.New("audit recorder unavailable"),
+	}
+	handler := NewHandlerWithAuthorizer(service, authorizer)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getLiveURL(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s, want 503", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"code":"audit_unavailable"`) {
+		t.Fatalf("body=%s, want stable audit error code", response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "https://example.test/live.flv") {
+		t.Fatalf("response leaked live URL: %s", response.Body.String())
+	}
+}
+
+func TestLiveURLServiceFailureRecordsFailedAudit(t *testing.T) {
+	service, player := newFakeService()
+	player.liveErr = errors.New("upstream response url=https://media.example.test/live?token=secret wss://media.example.test/live")
+	authorizer := &auditAuthorizer{fakeAuthorizer: fakeAuthorizer{allowed: map[string]bool{"10030": true}}}
+	handler := NewHandlerWithAuthorizer(service, authorizer)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getLiveURL(response, request)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s, want 500", response.Code, response.Body.String())
+	}
+	for _, secret := range []string{"https://media.example.test/live", "token=secret", "wss://media.example.test/live"} {
+		if strings.Contains(response.Body.String(), secret) {
+			t.Fatalf("service error leaked sensitive value %q: %s", secret, response.Body.String())
+		}
+	}
+	if !strings.Contains(response.Body.String(), `"code":"h5_monitor_service_failed"`) || !strings.Contains(response.Body.String(), "监控服务请求失败") {
+		t.Fatalf("body=%s, want fixed service error", response.Body.String())
+	}
+	if len(authorizer.events) != 1 || authorizer.events[0].Action != "monitor.live_view" || authorizer.events[0].Result != "failed" {
+		t.Fatalf("unexpected failed audit events: %#v", authorizer.events)
+	}
+	if authorizer.events[0].EntityID == nil || *authorizer.events[0].EntityID != 2 || authorizer.events[0].ChannelID == nil || *authorizer.events[0].ChannelID != 2 || len(authorizer.events[0].DetailJSON) != 0 {
+		t.Fatalf("failed audit event contains unsafe or incomplete identity data: %#v", authorizer.events[0])
+	}
+}
+
+func TestLiveURLDeniedRecordsAuditAndPreservesForbiddenOnAuditFailure(t *testing.T) {
+	service, _ := newFakeService()
+	authorizer := &auditAuthorizer{
+		fakeAuthorizer: fakeAuthorizer{allowed: map[string]bool{}},
+		err:            errors.New("audit recorder unavailable"),
+	}
+	handler := NewHandlerWithAuthorizer(service, authorizer)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getLiveURL(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s, want original 403", response.Code, response.Body.String())
+	}
+	if len(authorizer.events) != 1 || authorizer.events[0].Action != "monitor.live_view" || authorizer.events[0].Result != "denied" {
+		t.Fatalf("unexpected denied audit events: %#v", authorizer.events)
+	}
+	if authorizer.events[0].EntityID == nil || *authorizer.events[0].EntityID != 2 || authorizer.events[0].ChannelID == nil || *authorizer.events[0].ChannelID != 2 || len(authorizer.events[0].DetailJSON) != 0 {
+		t.Fatalf("denied audit event contains unsafe or incomplete identity data: %#v", authorizer.events[0])
+	}
+}
+
+func TestLiveURLUnauthorizedRecordsDeniedAuditAndPreservesUnauthorized(t *testing.T) {
+	service, _ := newFakeService()
+	authorizer := &auditAuthorizer{
+		fakeAuthorizer: fakeAuthorizer{err: ErrUnauthorized},
+		err:            errors.New("audit recorder unavailable"),
+	}
+	handler := NewHandlerWithAuthorizer(service, authorizer)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getLiveURL(response, request)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s, want original 401", response.Code, response.Body.String())
+	}
+	if len(authorizer.events) != 1 || authorizer.events[0].Action != "monitor.live_view" || authorizer.events[0].Result != "denied" {
+		t.Fatalf("unexpected denied audit events: %#v", authorizer.events)
+	}
+	if authorizer.events[0].EntityID == nil || *authorizer.events[0].EntityID != 2 || authorizer.events[0].ChannelID == nil || *authorizer.events[0].ChannelID != 2 {
+		t.Fatalf("unauthorized audit event contains incomplete channel identity: %#v", authorizer.events[0])
+	}
+}
+
 func TestLiveURLUsesRequestedFLVParameters(t *testing.T) {
 	service, player := newFakeService()
-	handler := NewHandler(service)
+	handler := NewHandlerForTesting(service)
 	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1","protocol":"flv"}`))
 	request.SetPathValue("externalOrgId", "10030")
 	request.SetPathValue("channelId", "2")
@@ -473,7 +647,7 @@ func TestLiveURLUsesRequestedFLVParameters(t *testing.T) {
 
 func TestLiveURLUsesRequestedHDQuality(t *testing.T) {
 	service, player := newFakeService()
-	handler := NewHandler(service)
+	handler := NewHandlerForTesting(service)
 	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/live-url", strings.NewReader(`{"user_id":"u1","protocol":"flv","quality":"hd"}`))
 	request.SetPathValue("externalOrgId", "10030")
 	request.SetPathValue("channelId", "2")
@@ -491,7 +665,7 @@ func TestLiveURLUsesRequestedHDQuality(t *testing.T) {
 
 func TestPlaybackURLUsesRequestedTimeRange(t *testing.T) {
 	service, player := newFakeService()
-	handler := NewHandler(service)
+	handler := NewHandlerForTesting(service)
 	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/playback-url", strings.NewReader(`{"start_time":1731945592,"stop_time":1731949200,"user_id":"u1"}`))
 	request.SetPathValue("externalOrgId", "10030")
 	request.SetPathValue("channelId", "2")
@@ -510,9 +684,136 @@ func TestPlaybackURLUsesRequestedTimeRange(t *testing.T) {
 	}
 }
 
+func TestPlaybackURLRecordsAudit(t *testing.T) {
+	service, _ := newFakeService()
+	authorizer := &auditAuthorizer{fakeAuthorizer: fakeAuthorizer{allowed: map[string]bool{"10030": true}}}
+	handler := NewHandlerWithAuthorizer(service, authorizer)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/playback-url", strings.NewReader(`{"start_time":1731945592,"stop_time":1731949200,"user_id":"u1"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getPlaybackURL(response, request)
+
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "https://example.test/play.flv") {
+		t.Fatalf("status=%d body=%s, want successful playback URL", response.Code, response.Body.String())
+	}
+	if len(authorizer.events) != 1 {
+		t.Fatalf("audit events = %#v, want one event", authorizer.events)
+	}
+	event := authorizer.events[0]
+	if event.Action != "monitor.playback_view" || event.EntityType != "channel" || event.ExternalOrgID != "10030" || event.EntityID == nil || *event.EntityID != 2 || event.ChannelID == nil || *event.ChannelID != 2 || event.Result != "success" {
+		t.Fatalf("unexpected playback audit event: %#v", event)
+	}
+	if len(event.DetailJSON) != 0 || strings.Contains(string(event.DetailJSON), "https://") || strings.Contains(string(event.DetailJSON), "wss://") {
+		t.Fatalf("playback audit detail contains sensitive data: %s", event.DetailJSON)
+	}
+}
+
+func TestPlaybackURLAuditFailureBlocksURL(t *testing.T) {
+	service, _ := newFakeService()
+	authorizer := &auditAuthorizer{
+		fakeAuthorizer: fakeAuthorizer{allowed: map[string]bool{"10030": true}},
+		err:            errors.New("audit recorder unavailable"),
+	}
+	handler := NewHandlerWithAuthorizer(service, authorizer)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/playback-url", strings.NewReader(`{"start_time":1731945592,"stop_time":1731949200,"user_id":"u1"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getPlaybackURL(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s, want 503", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"code":"audit_unavailable"`) {
+		t.Fatalf("body=%s, want stable audit error code", response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "https://example.test/play.flv") {
+		t.Fatalf("response leaked playback URL: %s", response.Body.String())
+	}
+}
+
+func TestPlaybackURLServiceFailureRecordsFailedAuditWithoutLeakingProviderError(t *testing.T) {
+	service, player := newFakeService()
+	player.playbackErr = errors.New("upstream media failed url=https://media.example.test/play?token=secret wss://media.example.test/play")
+	authorizer := &auditAuthorizer{fakeAuthorizer: fakeAuthorizer{allowed: map[string]bool{"10030": true}}}
+	handler := NewHandlerWithAuthorizer(service, authorizer)
+	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/playback-url", strings.NewReader(`{"start_time":1731945592,"stop_time":1731949200,"user_id":"u1"}`))
+	request.SetPathValue("externalOrgId", "10030")
+	request.SetPathValue("channelId", "2")
+	response := httptest.NewRecorder()
+
+	handler.getPlaybackURL(response, request)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s, want 500", response.Code, response.Body.String())
+	}
+	for _, secret := range []string{"https://media.example.test/play", "token=secret", "wss://media.example.test/play"} {
+		if strings.Contains(response.Body.String(), secret) {
+			t.Fatalf("service error leaked sensitive value %q: %s", secret, response.Body.String())
+		}
+	}
+	if !strings.Contains(response.Body.String(), `"code":"h5_monitor_service_failed"`) || !strings.Contains(response.Body.String(), "监控服务请求失败") {
+		t.Fatalf("body=%s, want fixed service error", response.Body.String())
+	}
+	if len(authorizer.events) != 1 {
+		t.Fatalf("audit events = %#v, want one failed event", authorizer.events)
+	}
+	event := authorizer.events[0]
+	if event.Action != "monitor.playback_view" || event.Result != "failed" || event.EntityID == nil || *event.EntityID != 2 || event.ChannelID == nil || *event.ChannelID != 2 {
+		t.Fatalf("unexpected failed playback audit event: %#v", event)
+	}
+	if len(event.DetailJSON) != 0 || strings.Contains(string(event.DetailJSON), "media.example.test") || strings.Contains(string(event.DetailJSON), "token") {
+		t.Fatalf("failed playback audit detail contains sensitive data: %s", event.DetailJSON)
+	}
+}
+
+func TestWriteServiceErrorSanitizesUnknownAndEzvizErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{
+			name: "unknown",
+			err:  errors.New("upstream URL=https://media.example.test/live?token=secret WSS=wss://media.example.test/live media-bytes"),
+			code: "h5_monitor_service_failed",
+		},
+		{
+			name: "ezviz",
+			err:  &ezviz.Error{Code: "10026", Msg: "response url=https://media.example.test/live token=secret wss://media.example.test/live"},
+			code: "10026",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			writeServiceError(response, tt.err)
+
+			if response.Code != http.StatusInternalServerError {
+				t.Fatalf("status=%d body=%s, want 500", response.Code, response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), `"code":"`+tt.code+`"`) {
+				t.Fatalf("body=%s, want code %q", response.Body.String(), tt.code)
+			}
+			for _, secret := range []string{"https://media.example.test/live", "wss://media.example.test/live", "token=secret", "media-bytes"} {
+				if strings.Contains(response.Body.String(), secret) {
+					t.Fatalf("response leaked sensitive value %q: %s", secret, response.Body.String())
+				}
+			}
+			if !strings.Contains(response.Body.String(), "监控服务请求失败") {
+				t.Fatalf("body=%s, want fixed Chinese message", response.Body.String())
+			}
+		})
+	}
+}
+
 func TestPlaybackURLIgnoresRequestedQuality(t *testing.T) {
 	service, player := newFakeService()
-	handler := NewHandler(service)
+	handler := NewHandlerForTesting(service)
 	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/playback-url", strings.NewReader(`{"start_time":1731945592,"stop_time":1731949200,"user_id":"u1","quality":"hd"}`))
 	request.SetPathValue("externalOrgId", "10030")
 	request.SetPathValue("channelId", "2")
@@ -531,7 +832,7 @@ func TestPlaybackURLIgnoresRequestedQuality(t *testing.T) {
 func TestDisableURLReturnsOKFalseOnEzvizFailure(t *testing.T) {
 	service, player := newFakeService()
 	player.disableErr = errors.New("ezviz disable failed")
-	handler := NewHandler(service)
+	handler := NewHandlerForTesting(service)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/h5/orgs/10030/monitor/channels/2/disable-url?user_id=u1", strings.NewReader(`{"url_id":"live-url-id"}`))
 	request.SetPathValue("externalOrgId", "10030")

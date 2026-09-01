@@ -123,9 +123,9 @@ func insertAuditLog(ctx context.Context, executor auditLogExecer, log AuditLog) 
 		strings.TrimSpace(log.ExternalOrgID),
 		log.ChannelID,
 		strings.TrimSpace(log.AssetLogicalKey),
-		strings.TrimSpace(log.IPAddress),
-		strings.TrimSpace(log.UserAgent),
-		strings.TrimSpace(log.RequestID),
+		sanitizeAuditMetadata(log.IPAddress, 64),
+		sanitizeAuditMetadata(log.UserAgent, 512),
+		sanitizeAuditMetadata(log.RequestID, 128),
 		strings.TrimSpace(log.Result),
 		detailJSON,
 	)
@@ -176,8 +176,9 @@ func (s *MySQLStore) ListAuditLogs(ctx context.Context, filter AuditLogFilter) (
 }
 
 func mysqlAuditLogWhere(filter AuditLogFilter) (string, []any) {
-	clauses := []string{"created_at >= ?", "created_at < ?"}
+	clauses := []string{"created_at >= ?", "created_at < ?", "action <> ?"}
 	args := []any{filter.StartAt, filter.EndAt}
+	args = append(args, internalAuditActionSnapshotRefreshPrepare)
 	if filter.UserID != nil {
 		clauses = append(clauses, "user_id = ?")
 		args = append(args, *filter.UserID)
@@ -358,6 +359,14 @@ func (s *MySQLStore) ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error
 }
 
 func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation) (AuthUserRecord, error) {
+	return s.createAuthUser(ctx, input, nil)
+}
+
+func (s *MySQLStore) CreateAuthUserWithAudit(ctx context.Context, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error) {
+	return s.createAuthUser(ctx, input, &event)
+}
+
+func (s *MySQLStore) createAuthUser(ctx context.Context, input AuthUserMutation, event *auditlog.AuditEvent) (AuthUserRecord, error) {
 	if normalizeRole(input.Role) == RoleViewer {
 		if err := s.ensureUserResourceScopesTable(ctx); err != nil {
 			return AuthUserRecord{}, err
@@ -391,6 +400,12 @@ func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation)
 	if err := setMySQLUserMonitorScopes(ctx, tx, id, input.Role, input.MonitorStoreScopeIDs); err != nil {
 		return AuthUserRecord{}, err
 	}
+	if event != nil {
+		event.EntityID = &id
+		if err := (mysqlAuditLogTxRecorder{tx: tx}).RecordAudit(ctx, *event); err != nil {
+			return AuthUserRecord{}, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return AuthUserRecord{}, err
 	}
@@ -398,6 +413,14 @@ func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation)
 }
 
 func (s *MySQLStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error) {
+	return s.updateAuthUser(ctx, id, input, nil)
+}
+
+func (s *MySQLStore) UpdateAuthUserWithAudit(ctx context.Context, id int64, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error) {
+	return s.updateAuthUser(ctx, id, input, &event)
+}
+
+func (s *MySQLStore) updateAuthUser(ctx context.Context, id int64, input AuthUserMutation, event *auditlog.AuditEvent) (AuthUserRecord, error) {
 	if normalizeRole(input.Role) == RoleViewer {
 		if err := s.ensureUserResourceScopesTable(ctx); err != nil {
 			return AuthUserRecord{}, err
@@ -432,6 +455,12 @@ func (s *MySQLStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUse
 	}
 	if err := setMySQLUserMonitorScopes(ctx, tx, id, input.Role, input.MonitorStoreScopeIDs); err != nil {
 		return AuthUserRecord{}, err
+	}
+	if event != nil {
+		event.EntityID = &id
+		if err := (mysqlAuditLogTxRecorder{tx: tx}).RecordAudit(ctx, *event); err != nil {
+			return AuthUserRecord{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return AuthUserRecord{}, err

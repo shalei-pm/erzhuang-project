@@ -7,16 +7,31 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
 
 type RouteMiddleware func(http.HandlerFunc) http.HandlerFunc
 
 type Handler struct {
 	service *Service
+	auditor AuditAuthorizer
+}
+
+type AuditAuthorizer interface {
+	RecordAudit(r *http.Request, event auditlog.AuditEvent) error
 }
 
 func RegisterRoutes(mux *http.ServeMux, service *Service, adminGuard RouteMiddleware) {
-	handler := &Handler{service: service}
+	registerRoutes(mux, service, adminGuard, nil)
+}
+
+func RegisterRoutesWithAudit(mux *http.ServeMux, service *Service, adminGuard RouteMiddleware, auditor AuditAuthorizer) {
+	registerRoutes(mux, service, adminGuard, auditor)
+}
+
+func registerRoutes(mux *http.ServeMux, service *Service, adminGuard RouteMiddleware, auditor AuditAuthorizer) {
+	handler := &Handler{service: service, auditor: auditor}
 	guard := func(next http.HandlerFunc) http.HandlerFunc {
 		if adminGuard == nil {
 			return next
@@ -59,10 +74,28 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.CreateSession(r.Context(), ExperimentTenantID, cameraID, request)
 	if err != nil {
+		h.recordAudit(r, cameraID, "failed")
 		writeServiceError(w, err)
 		return
 	}
+	if err := h.recordAudit(r, cameraID, "success"); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "nvr_lab_audit_failed", "error": "监控审计失败，请稍后重试"})
+		return
+	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) recordAudit(r *http.Request, cameraID int64, result string) error {
+	if h.auditor == nil {
+		return nil
+	}
+	return h.auditor.RecordAudit(r, auditlog.AuditEvent{
+		Action:        "monitor.live_view",
+		EntityType:    "camera",
+		EntityID:      &cameraID,
+		ExternalOrgID: strconv.FormatInt(ExperimentTenantID, 10),
+		Result:        result,
+	})
 }
 
 func writeServiceError(w http.ResponseWriter, err error) {

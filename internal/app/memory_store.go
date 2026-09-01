@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
 
 type MemoryStore struct {
@@ -92,6 +94,9 @@ func (s *MemoryStore) CreateAuditLog(ctx context.Context, log AuditLog) error {
 	log.ID = s.nextAuditLogID
 	log.CreatedAt = s.now()
 	log.AssetLogicalKey = strings.TrimSpace(log.AssetLogicalKey)
+	log.IPAddress = sanitizeAuditMetadata(log.IPAddress, 64)
+	log.UserAgent = sanitizeAuditMetadata(log.UserAgent, 512)
+	log.RequestID = sanitizeAuditMetadata(log.RequestID, 128)
 	log.DetailJSON = sanitizeAuditDetail(log.DetailJSON)
 	s.auditLogs = append(s.auditLogs, cloneAuditLog(log))
 	return nil
@@ -109,6 +114,9 @@ func (s *MemoryStore) ListAuditLogs(ctx context.Context, filter AuditLogFilter) 
 
 	items := make([]AuditLog, 0)
 	for _, log := range s.auditLogs {
+		if log.Action == internalAuditActionSnapshotRefreshPrepare {
+			continue
+		}
 		if log.CreatedAt.Before(filter.StartAt) || !log.CreatedAt.Before(filter.EndAt) {
 			continue
 		}
@@ -224,6 +232,20 @@ func (s *MemoryStore) CreateAuthUser(ctx context.Context, input AuthUserMutation
 	return user, nil
 }
 
+func (s *MemoryStore) CreateAuthUserWithAudit(ctx context.Context, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error) {
+	user, err := s.CreateAuthUser(ctx, input)
+	if err != nil {
+		return AuthUserRecord{}, err
+	}
+	if event.EntityID == nil {
+		event.EntityID = int64Pointer(user.ID)
+	}
+	if err := s.RecordAudit(ctx, event); err != nil {
+		return AuthUserRecord{}, err
+	}
+	return user, nil
+}
+
 func (s *MemoryStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -241,6 +263,20 @@ func (s *MemoryStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUs
 		return user, nil
 	}
 	return AuthUserRecord{}, errAuthUserNotFound
+}
+
+func (s *MemoryStore) UpdateAuthUserWithAudit(ctx context.Context, id int64, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error) {
+	user, err := s.UpdateAuthUser(ctx, id, input)
+	if err != nil {
+		return AuthUserRecord{}, err
+	}
+	if event.EntityID == nil {
+		event.EntityID = int64Pointer(user.ID)
+	}
+	if err := s.RecordAudit(ctx, event); err != nil {
+		return AuthUserRecord{}, err
+	}
+	return user, nil
 }
 
 func (s *MemoryStore) ListMonitorStoreScopeCandidates(ctx context.Context) ([]AuthUserResourceScope, error) {

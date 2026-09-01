@@ -34,6 +34,22 @@ type SnapshotWriter interface {
 	Save(ctx context.Context, tenantID int64, cameraID int64, body io.Reader) error
 }
 
+type SnapshotDeleter interface {
+	Delete(ctx context.Context, tenantID int64, cameraID int64) error
+}
+
+// SnapshotRollback is returned after a snapshot replacement. Callers must
+// run it when a later step, such as audit persistence, fails.
+type SnapshotRollback interface {
+	Rollback(ctx context.Context) error
+}
+
+// SnapshotTransactionalWriter is required for audited refreshes. It prevents
+// a failed audit write from leaving a half-completed thumbnail replacement.
+type SnapshotTransactionalWriter interface {
+	SaveSnapshotWithRollback(ctx context.Context, tenantID int64, cameraID int64, body io.Reader) (SnapshotRollback, error)
+}
+
 type Service struct {
 	repository    resourceview.Repository
 	authorization AuthorizationClient
@@ -151,6 +167,21 @@ func (s *Service) SaveSnapshot(ctx context.Context, externalOrgID string, camera
 		return ErrNotConfigured
 	}
 	return writer.Save(ctx, records.Tenant.ID, cameraID, body)
+}
+
+func (s *Service) SaveSnapshotWithRollback(ctx context.Context, externalOrgID string, cameraID int64, body io.Reader) (SnapshotRollback, error) {
+	records, err := s.storeRecords(ctx, externalOrgID)
+	if err != nil {
+		return nil, err
+	}
+	if !containsCamera(camerasFromRecords(records, false), cameraID) {
+		return nil, ErrCameraNotFound
+	}
+	writer, ok := s.snapshots.(SnapshotTransactionalWriter)
+	if !ok || writer == nil {
+		return nil, ErrSnapshotTransactionUnavailable
+	}
+	return writer.SaveSnapshotWithRollback(ctx, records.Tenant.ID, cameraID, body)
 }
 
 func (s *Service) CreateSession(ctx context.Context, externalOrgID string, cameraID int64, request StreamSessionRequest) (StreamSessionResponse, error) {
