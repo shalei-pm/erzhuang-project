@@ -210,6 +210,41 @@ func TestIdleAuthGateFailsClosedWithoutSessionStore(t *testing.T) {
 	}
 }
 
+func TestRequirePermissionUsesIdleTimeoutResponse(t *testing.T) {
+	createdAt := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	sessions := newFakeAuthSessionStore()
+	h, privateKey := newIdleSessionTestHandler(t, sessions, createdAt)
+	first := httptest.NewRecorder()
+	h.authGate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(first, idleSessionRequest(t, privateKey, "/api/protected", createdAt))
+	var localCookie *http.Cookie
+	for _, cookie := range first.Result().Cookies() {
+		if cookie.Name == authSessionCookieName {
+			localCookie = cookie
+		}
+	}
+	if localCookie == nil {
+		t.Fatal("first request did not create local session cookie")
+	}
+
+	expiredAt := createdAt.Add(defaultAuthIdleTimeout + time.Second)
+	h.now = func() time.Time { return expiredAt }
+	request := idleSessionRequest(t, privateKey, "/api/protected", expiredAt)
+	request.AddCookie(localCookie)
+	recorder := httptest.NewRecorder()
+	if _, ok := h.requirePermission(recorder, request, PermissionStoreRead); ok {
+		t.Fatal("expired session passed permission guard")
+	}
+	var response AuthResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.Code != http.StatusUnauthorized || response.Code != "session_idle_timeout" {
+		t.Fatalf("permission timeout response = status %d code %q", recorder.Code, response.Code)
+	}
+}
+
 func TestIdleAuthTimeoutCannotExceedProductionDefault(t *testing.T) {
 	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	h, _ := newIdleSessionTestHandler(t, newFakeAuthSessionStore(), now)
