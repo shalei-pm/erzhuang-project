@@ -615,8 +615,9 @@ func TestMySQLAuthSessionIntegration(t *testing.T) {
 func TestMySQLAuthSessionMigrationIntegration(t *testing.T) {
 	dsn := strings.TrimSpace(os.Getenv("MYSQL_TEST_DSN"))
 	declaredDatabase := strings.TrimSpace(os.Getenv("MYSQL_TEST_MIGRATION_DATABASE"))
-	if dsn == "" || os.Getenv("MYSQL_TEST_DSN_ALLOW_MIGRATION") != "1" || declaredDatabase == "" {
-		t.Skip("MYSQL_TEST_DSN, MYSQL_TEST_DSN_ALLOW_MIGRATION=1, and MYSQL_TEST_MIGRATION_DATABASE are required")
+	expectedInstanceID := strings.TrimSpace(os.Getenv("MYSQL_TEST_MIGRATION_INSTANCE_ID"))
+	if dsn == "" || os.Getenv("MYSQL_TEST_DSN_ALLOW_MIGRATION") != "1" || declaredDatabase == "" || expectedInstanceID == "" {
+		t.Skip("MYSQL_TEST_DSN, MYSQL_TEST_DSN_ALLOW_MIGRATION=1, MYSQL_TEST_MIGRATION_DATABASE, and MYSQL_TEST_MIGRATION_INSTANCE_ID are required")
 	}
 	if !isSafeMySQLMigrationDSN(dsn, declaredDatabase) {
 		t.Skip("migration test requires the exact polar-dev.rwlb.rds.aliyuncs.com:3306 host, an isolated *_migration_test database, and an exact MYSQL_TEST_MIGRATION_DATABASE match")
@@ -632,6 +633,13 @@ func TestMySQLAuthSessionMigrationIntegration(t *testing.T) {
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		t.Fatal("ping MYSQL_TEST_DSN failed")
+	}
+	actualInstanceID, err := queryMySQLMigrationInstanceID(ctx, db)
+	if err != nil {
+		t.Skip("migration test could not verify the database instance identity")
+	}
+	if actualInstanceID != expectedInstanceID {
+		t.Skip("migration test database instance identity did not match MYSQL_TEST_MIGRATION_INSTANCE_ID")
 	}
 
 	defer func() {
@@ -693,6 +701,15 @@ func TestMySQLAuthSessionMigrationIntegration(t *testing.T) {
 	}
 	assertAuthSessionMigrationTable(t, ctx, db, true)
 	assertAuthSessionActivity(t, ctx, db, "c", legacyCreatedAt)
+}
+
+func queryMySQLMigrationInstanceID(ctx context.Context, db *sql.DB) (string, error) {
+	var hostname string
+	var port int64
+	if err := db.QueryRowContext(ctx, `select @@hostname, @@port`).Scan(&hostname, &port); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s:%d", hostname, port), nil
 }
 
 func isSafeMySQLTestDSN(dsn string) bool {
@@ -833,6 +850,53 @@ func TestMySQLAuthSessionMigrationSafetyGate(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			if got := isSafeMySQLMigrationDSN(testCase.dsn, testCase.declared); got != testCase.wantSafe {
 				t.Fatalf("migration DSN safety = %t, want %t", got, testCase.wantSafe)
+			}
+		})
+	}
+}
+
+func TestMySQLAuthSessionMigrationInstanceGate(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		expected string
+		hostname string
+		port     int64
+		wantSafe bool
+	}{
+		{
+			name:     "exact instance identity",
+			expected: "test-db-01:3306",
+			hostname: "test-db-01",
+			port:     3306,
+			wantSafe: true,
+		},
+		{
+			name:     "different hostname",
+			expected: "test-db-01:3306",
+			hostname: "test-db-02",
+			port:     3306,
+			wantSafe: false,
+		},
+		{
+			name:     "different port",
+			expected: "test-db-01:3306",
+			hostname: "test-db-01",
+			port:     3307,
+			wantSafe: false,
+		},
+		{
+			name:     "missing expected identity",
+			expected: "",
+			hostname: "test-db-01",
+			port:     3306,
+			wantSafe: false,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			actual := fmt.Sprintf("%s:%d", testCase.hostname, testCase.port)
+			got := testCase.expected != "" && actual == testCase.expected
+			if got != testCase.wantSafe {
+				t.Fatalf("migration instance identity match = %t, want %t", got, testCase.wantSafe)
 			}
 		})
 	}

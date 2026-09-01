@@ -54,6 +54,19 @@
 
 `tb_audit_logs.actor_display_name` 是后续增加的字段，不是新增表；测试环境已执行过字段补充，正式环境需单独提交字段 DDL。
 
+## 破坏性 migration 集成测试门禁
+
+`TestMySQLAuthSessionMigrationIntegration` 会清理并重建 `tb_auth_sessions`，默认跳过。只有同时满足以下条件才允许继续：
+
+- `MYSQL_TEST_DSN_ALLOW_MIGRATION=1`
+- `MYSQL_TEST_DSN` 解析后主机必须精确为 `polar-dev.rwlb.rds.aliyuncs.com:3306`
+- `MYSQL_TEST_MIGRATION_DATABASE` 必须与 DSN 解析出的库名完全一致，且库名以 `_migration_test` 结尾
+- `MYSQL_TEST_MIGRATION_INSTANCE_ID` 必须提供，格式为 `@@hostname:@@port`
+
+测试连接建立后会先查询 `@@hostname` 和 `@@port`，只有与 `MYSQL_TEST_MIGRATION_INSTANCE_ID` 完全匹配，才会执行任何 DROP。缺少配置、主机/端口不符、实例身份不符或查询失败都会在破坏性操作前跳过。本文不保存 DSN、密码、Token 或实例真实值。
+
+真实 MySQL 的并发、过期、撤销和不存在会话状态验证属于隔离迁移库的环境验证项；未配置并通过上述门禁前，不使用共享库补测。
+
 ## 业务同步表
 
 以下表由运维从业务侧同步到 `db_pm_erzhuang`，不是二壮新增表，代码只读：
