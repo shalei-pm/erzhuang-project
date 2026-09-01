@@ -16,6 +16,9 @@ type MemoryStore struct {
 	authUsers              map[string]AuthUserRecord
 	monitorScopeCandidates []AuthUserResourceScope
 	monitorScopesByUserID  map[int64][]AuthUserResourceScope
+	auditLogs              []AuditLog
+	nextAuditLogID         int64
+	now                    func() time.Time
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -64,6 +67,7 @@ func NewMemoryStore() *MemoryStore {
 			{StoreID: 19, City: "上海", Name: "新氧青春诊所(上海陆家嘴店)", ExternalOrgID: "10019"},
 		},
 		monitorScopesByUserID: map[int64][]AuthUserResourceScope{},
+		now:                   time.Now,
 	}
 }
 
@@ -79,6 +83,54 @@ func (s *MemoryStore) ListTasks(ctx context.Context) ([]Task, error) {
 	tasks := make([]Task, len(s.tasks))
 	copy(tasks, s.tasks)
 	return tasks, nil
+}
+
+func (s *MemoryStore) CreateAuditLog(ctx context.Context, log AuditLog) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextAuditLogID++
+	log.ID = s.nextAuditLogID
+	log.CreatedAt = s.now()
+	log.AssetLogicalKey = strings.TrimSpace(log.AssetLogicalKey)
+	log.DetailJSON = sanitizeAuditDetail(log.DetailJSON)
+	s.auditLogs = append(s.auditLogs, cloneAuditLog(log))
+	return nil
+}
+
+func (s *MemoryStore) ListAuditLogs(ctx context.Context, filter AuditLogFilter) (AuditLogPage, error) {
+	filter, offset := normalizeAuditLogFilter(filter)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]AuditLog, 0)
+	for _, log := range s.auditLogs {
+		if log.CreatedAt.Before(filter.StartAt) || !log.CreatedAt.Before(filter.EndAt) {
+			continue
+		}
+		if filter.UserID != nil && (log.UserID == nil || *log.UserID != *filter.UserID) {
+			continue
+		}
+		if filter.Action != "" && log.Action != filter.Action {
+			continue
+		}
+		items = append(items, cloneAuditLog(log))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID > items[j].ID
+		}
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+
+	total := len(items)
+	if offset >= total {
+		return AuditLogPage{Items: []AuditLog{}, Page: filter.Page, PageSize: filter.PageSize, Total: total}, nil
+	}
+	end := offset + filter.PageSize
+	if end > total {
+		end = total
+	}
+	return AuditLogPage{Items: items[offset:end], Page: filter.Page, PageSize: filter.PageSize, Total: total}, nil
 }
 
 func (s *MemoryStore) GetAIProvider(ctx context.Context) (string, error) {

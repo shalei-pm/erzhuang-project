@@ -71,6 +71,137 @@ func (s *MySQLStore) ListTasks(ctx context.Context) ([]Task, error) {
 	return tasks, rows.Err()
 }
 
+func (s *MySQLStore) CreateAuditLog(ctx context.Context, log AuditLog) error {
+	detailJSON := sanitizeAuditDetail(log.DetailJSON)
+	_, err := s.db.ExecContext(ctx, `
+		insert into tb_audit_logs (
+			user_id, actor_display_name, user_email, action, entity_type, entity_id,
+			store_id, external_org_id, channel_id, asset_logical_key, ip_address, user_agent, request_id,
+			result, detail_json
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		log.UserID,
+		strings.TrimSpace(log.ActorDisplayName),
+		strings.TrimSpace(log.UserEmail),
+		strings.TrimSpace(log.Action),
+		strings.TrimSpace(log.EntityType),
+		log.EntityID,
+		log.StoreID,
+		strings.TrimSpace(log.ExternalOrgID),
+		log.ChannelID,
+		strings.TrimSpace(log.AssetLogicalKey),
+		strings.TrimSpace(log.IPAddress),
+		strings.TrimSpace(log.UserAgent),
+		strings.TrimSpace(log.RequestID),
+		strings.TrimSpace(log.Result),
+		detailJSON,
+	)
+	return err
+}
+
+func (s *MySQLStore) ListAuditLogs(ctx context.Context, filter AuditLogFilter) (AuditLogPage, error) {
+	filter, offset := normalizeAuditLogFilter(filter)
+	where, args := mysqlAuditLogWhere(filter)
+
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+		select count(*)
+		from tb_audit_logs
+		where `+where,
+		args...,
+	).Scan(&total); err != nil {
+		return AuditLogPage{}, err
+	}
+
+	rowArgs := append(append([]any(nil), args...), filter.PageSize, offset)
+	rows, err := s.db.QueryContext(ctx, `
+		select id, user_id, actor_display_name, user_email, action, entity_type,
+			entity_id, store_id, external_org_id, channel_id, asset_logical_key,
+			ip_address, user_agent, request_id, result, detail_json, created_at
+		from tb_audit_logs
+		where `+where+`
+		order by created_at desc, id desc
+		limit ? offset ?
+	`, rowArgs...)
+	if err != nil {
+		return AuditLogPage{}, err
+	}
+	defer rows.Close()
+
+	items := make([]AuditLog, 0)
+	for rows.Next() {
+		log, err := scanAuditLog(rows)
+		if err != nil {
+			return AuditLogPage{}, err
+		}
+		items = append(items, log)
+	}
+	if err := rows.Err(); err != nil {
+		return AuditLogPage{}, err
+	}
+	return AuditLogPage{Items: items, Page: filter.Page, PageSize: filter.PageSize, Total: total}, nil
+}
+
+func mysqlAuditLogWhere(filter AuditLogFilter) (string, []any) {
+	clauses := []string{"created_at >= ?", "created_at < ?"}
+	args := []any{filter.StartAt, filter.EndAt}
+	if filter.UserID != nil {
+		clauses = append(clauses, "user_id = ?")
+		args = append(args, *filter.UserID)
+	}
+	if filter.Action != "" {
+		clauses = append(clauses, "action = ?")
+		args = append(args, filter.Action)
+	}
+	return strings.Join(clauses, " and "), args
+}
+
+func scanAuditLog(scanner interface {
+	Scan(dest ...any) error
+}) (AuditLog, error) {
+	var log AuditLog
+	var userID, entityID, storeID, channelID sql.NullInt64
+	var detailJSON sql.NullString
+	if err := scanner.Scan(
+		&log.ID,
+		&userID,
+		&log.ActorDisplayName,
+		&log.UserEmail,
+		&log.Action,
+		&log.EntityType,
+		&entityID,
+		&storeID,
+		&log.ExternalOrgID,
+		&channelID,
+		&log.AssetLogicalKey,
+		&log.IPAddress,
+		&log.UserAgent,
+		&log.RequestID,
+		&log.Result,
+		&detailJSON,
+		&log.CreatedAt,
+	); err != nil {
+		return AuditLog{}, err
+	}
+	if userID.Valid {
+		log.UserID = &userID.Int64
+	}
+	if entityID.Valid {
+		log.EntityID = &entityID.Int64
+	}
+	if storeID.Valid {
+		log.StoreID = &storeID.Int64
+	}
+	if channelID.Valid {
+		log.ChannelID = &channelID.Int64
+	}
+	log.AssetLogicalKey = strings.TrimSpace(log.AssetLogicalKey)
+	if detailJSON.Valid {
+		log.DetailJSON = sanitizeAuditDetail([]byte(detailJSON.String))
+	}
+	return log, nil
+}
+
 func (s *MySQLStore) GetAIProvider(ctx context.Context) (string, error) {
 	var value string
 	err := s.db.QueryRowContext(ctx, `
