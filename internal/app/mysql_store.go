@@ -356,7 +356,7 @@ func (s *MySQLStore) ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if err := s.attachMonitorScopeCounts(ctx, users); err != nil {
+	if err := s.attachMonitorScopes(ctx, users); err != nil {
 		return nil, err
 	}
 	return users, nil
@@ -624,7 +624,7 @@ func (s *MySQLStore) CanUserViewMonitorStore(ctx context.Context, user AuthUserR
 	var exists int
 	err := s.db.QueryRowContext(ctx, `
 		select 1
-		from tb_user_resource_scopes
+		from tb_user_resource_scopes urs
 		where user_id = ?
 			and resource_type = ?
 			and external_key = ?
@@ -637,19 +637,22 @@ func (s *MySQLStore) CanUserViewMonitorStore(ctx context.Context, user AuthUserR
 	return err == nil, err
 }
 
-func (s *MySQLStore) attachMonitorScopeCounts(ctx context.Context, users []AuthUserRecord) error {
+func (s *MySQLStore) attachMonitorScopes(ctx context.Context, users []AuthUserRecord) error {
 	if len(users) == 0 {
 		return nil
 	}
 	if err := s.ensureUserResourceScopesTable(ctx); err != nil {
 		return err
 	}
-	counts := map[int64]int{}
+	scopesByUserID := map[int64][]AuthUserResourceScope{}
 	rows, err := s.db.QueryContext(ctx, `
-		select user_id, count(*)
-		from tb_user_resource_scopes
-		where resource_type = ? and scope = ?
-		group by user_id
+		select urs.user_id, s.id, s.city, s.name, s.external_org_id
+		from tb_user_resource_scopes urs
+		join tb_stores s on s.id = urs.resource_id
+		where urs.resource_type = ?
+			and urs.scope = ?
+			and nullif(trim(s.external_org_id), '') is not null
+		order by urs.user_id, s.city, s.name, s.id
 	`, ResourceTypeStore, ScopeMonitorView)
 	if err != nil {
 		return err
@@ -657,17 +660,18 @@ func (s *MySQLStore) attachMonitorScopeCounts(ctx context.Context, users []AuthU
 	defer rows.Close()
 	for rows.Next() {
 		var userID int64
-		var count int
-		if err := rows.Scan(&userID, &count); err != nil {
+		var scope AuthUserResourceScope
+		if err := rows.Scan(&userID, &scope.StoreID, &scope.City, &scope.Name, &scope.ExternalOrgID); err != nil {
 			return err
 		}
-		counts[userID] = count
+		scopesByUserID[userID] = append(scopesByUserID[userID], scope)
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	for index := range users {
-		users[index].MonitorStoreScopeCount = counts[users[index].ID]
+		users[index].MonitorStoreScopes = scopesByUserID[users[index].ID]
+		users[index].MonitorStoreScopeCount = len(users[index].MonitorStoreScopes)
 	}
 	return nil
 }
