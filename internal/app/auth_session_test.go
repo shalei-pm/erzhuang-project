@@ -572,11 +572,12 @@ func TestMySQLAuthSessionIntegration(t *testing.T) {
 
 func TestMySQLAuthSessionMigrationIntegration(t *testing.T) {
 	dsn := strings.TrimSpace(os.Getenv("MYSQL_TEST_DSN"))
-	if dsn == "" || os.Getenv("MYSQL_TEST_DSN_ALLOW_MIGRATION") != "1" {
-		t.Skip("MYSQL_TEST_DSN and MYSQL_TEST_DSN_ALLOW_MIGRATION=1 are required")
+	declaredDatabase := strings.TrimSpace(os.Getenv("MYSQL_TEST_MIGRATION_DATABASE"))
+	if dsn == "" || os.Getenv("MYSQL_TEST_DSN_ALLOW_MIGRATION") != "1" || declaredDatabase == "" {
+		t.Skip("MYSQL_TEST_DSN, MYSQL_TEST_DSN_ALLOW_MIGRATION=1, and MYSQL_TEST_MIGRATION_DATABASE are required")
 	}
-	if !isSafeMySQLTestDSN(dsn) {
-		t.Fatal("refusing migration test: MYSQL_TEST_DSN must identify an isolated test database and must not look like production")
+	if !isSafeMySQLMigrationDSN(dsn, declaredDatabase) {
+		t.Skip("migration test requires an isolated *_migration_test database and an exact MYSQL_TEST_MIGRATION_DATABASE match")
 	}
 
 	db, err := sql.Open("mysql", dsn)
@@ -669,6 +670,77 @@ func isSafeMySQLTestDSN(dsn string) bool {
 		}
 	}
 	return false
+}
+
+func isSafeMySQLMigrationDSN(dsn, declaredDatabase string) bool {
+	cfg, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		return false
+	}
+	database := strings.TrimSpace(cfg.DBName)
+	declaredDatabase = strings.TrimSpace(declaredDatabase)
+	if database == "" || database != declaredDatabase || !strings.HasSuffix(strings.ToLower(database), "_migration_test") {
+		return false
+	}
+
+	identity := strings.ToLower(database)
+	for _, marker := range []string{
+		"db_pm_erzhuang",
+		"production",
+		"prod",
+		"ops",
+	} {
+		if strings.Contains(identity, marker) {
+			return false
+		}
+	}
+	return true
+}
+
+func TestMySQLAuthSessionMigrationSafetyGate(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		dsn      string
+		declared string
+		wantSafe bool
+	}{
+		{
+			name:     "isolated database with exact declaration",
+			dsn:      "test_user@tcp(polar-dev.rwlb.rds.aliyuncs.com:3306)/erzhuang_migration_test",
+			declared: "erzhuang_migration_test",
+			wantSafe: true,
+		},
+		{
+			name:     "ordinary shared business database",
+			dsn:      "test_user@tcp(polar-dev.rwlb.rds.aliyuncs.com:3306)/db_pm_erzhuang",
+			declared: "db_pm_erzhuang",
+			wantSafe: false,
+		},
+		{
+			name:     "shared business name disguised with migration suffix",
+			dsn:      "test_user@tcp(polar-dev.rwlb.rds.aliyuncs.com:3306)/db_pm_erzhuang_migration_test",
+			declared: "db_pm_erzhuang_migration_test",
+			wantSafe: false,
+		},
+		{
+			name:     "declared database does not exactly match DSN",
+			dsn:      "test_user@tcp(polar-dev.rwlb.rds.aliyuncs.com:3306)/erzhuang_migration_test",
+			declared: "other_migration_test",
+			wantSafe: false,
+		},
+		{
+			name:     "database without isolation suffix",
+			dsn:      "test_user@tcp(polar-dev.rwlb.rds.aliyuncs.com:3306)/erzhuang_test",
+			declared: "erzhuang_test",
+			wantSafe: false,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := isSafeMySQLMigrationDSN(testCase.dsn, testCase.declared); got != testCase.wantSafe {
+				t.Fatalf("migration DSN safety = %t, want %t", got, testCase.wantSafe)
+			}
+		})
+	}
 }
 
 func runMySQLAuthSessionMigration(ctx context.Context, db *sql.DB) error {
