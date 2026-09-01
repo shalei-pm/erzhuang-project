@@ -250,12 +250,31 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 	}
 
 	queries := recorder.queries()
-	if len(queries) != 3 {
-		t.Fatalf("executed queries = %d, want 3", len(queries))
+	calls := recorder.calls()
+	if len(queries) != 3 || len(calls) != 3 {
+		t.Fatalf("executed calls = %d, want 3", len(calls))
 	}
 	for _, query := range queries {
 		if strings.Contains(query, token) {
 			t.Fatalf("raw session token was interpolated into SQL: raw_token_present=true")
+		}
+	}
+	expectedHash := hashAuthSessionToken(token)
+	expectedHashText := hex.EncodeToString(expectedHash[:])
+	if len(calls[0].args) != 8 || calls[0].args[0].Value != expectedHashText || calls[0].args[1].Value != int64(7) || calls[0].args[2].Value != "subject-7" {
+		t.Fatalf("create bindings do not contain the expected hash and metadata: arg_count=%d", len(calls[0].args))
+	}
+	if len(calls[1].args) != 5 || calls[1].args[2].Value != expectedHashText || calls[1].args[3].Value != int64(7) {
+		t.Fatalf("touch bindings do not contain the expected hash and user id: arg_count=%d", len(calls[1].args))
+	}
+	if len(calls[2].args) != 4 || calls[2].args[1].Value != "manual_logout" || calls[2].args[2].Value != expectedHashText || calls[2].args[3].Value != int64(7) {
+		t.Fatalf("revoke bindings do not contain the expected hash, user id, and reason: arg_count=%d", len(calls[2].args))
+	}
+	for _, call := range calls {
+		for _, arg := range call.args {
+			if value, ok := arg.Value.(string); ok && value == token {
+				t.Fatal("raw session token was passed as a SQL binding")
+			}
 		}
 	}
 	for _, want := range []string{
@@ -265,6 +284,17 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 	} {
 		if !strings.Contains(queries[0], want) {
 			t.Fatalf("create query missing %q: %s", want, queries[0])
+		}
+	}
+	for _, want := range []string{
+		"select 1",
+		"session_token_hash = ?",
+		"user_id = ?",
+		"revoked_at is null",
+		"expires_at > ?",
+	} {
+		if !strings.Contains(mysqlAuthSessionValidSQL, want) {
+			t.Fatalf("touch fallback query missing %q: %s", want, mysqlAuthSessionValidSQL)
 		}
 	}
 	for _, want := range []string{
@@ -293,6 +323,41 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 	}
 }
 
+func TestMySQLAuthSessionTouchZeroRowsConfirmsActiveSession(t *testing.T) {
+	recorder := newRecordingSQLDriver(t)
+	db, err := sql.Open(recorder.driverName, "")
+	if err != nil {
+		t.Fatalf("open recording db: %v", err)
+	}
+	defer db.Close()
+
+	store := NewMySQLStore(db)
+	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	token, err := store.CreateAuthSession(context.Background(), AuthSessionCreate{UserID: 7, Now: now})
+	if err != nil {
+		t.Fatalf("create auth session: %v", err)
+	}
+	recorder.setExecRowsAffected(0)
+
+	for _, touchAt := range []time.Time{now, now.Add(-time.Minute)} {
+		ok, err := store.TouchAuthSession(context.Background(), token, 7, touchAt, defaultAuthIdleTimeout)
+		if err != nil {
+			t.Fatalf("touch auth session at %s: %v", touchAt, err)
+		}
+		if !ok {
+			t.Fatalf("active session should remain valid when conditional update affects zero rows at %s", touchAt)
+		}
+	}
+
+	calls := recorder.calls()
+	if len(calls) != 5 {
+		t.Fatalf("executed calls = %d, want create plus two update/select pairs", len(calls))
+	}
+	if !strings.Contains(calls[2].query, "select 1") || !strings.Contains(calls[4].query, "select 1") {
+		t.Fatalf("zero-row touches must confirm with the active-session select: calls=%#v", calls)
+	}
+}
+
 func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 	schema := readAuthSessionTestFile(t, filepath.Join("..", "..", "db", "mysql_governance_schema_tb.sql"))
 	migration := readAuthSessionTestFile(t, filepath.Join("..", "..", "db", "mysql_auth_sessions.sql"))
@@ -310,10 +375,15 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 		"from information_schema.tables",
 		"from information_schema.columns",
 		"from information_schema.statistics",
-		"create table if not exists tb_auth_sessions",
+		"drop procedure if exists erzhuang_migrate_tb_auth_sessions_tmp",
+		"if v_table_exists = 0 then",
+		"create table tb_auth_sessions",
 		"add column last_activity_at datetime(3) null",
 		"set last_activity_at = created_at",
 		"modify column last_activity_at datetime(3) not null",
+		"if v_index_exists = 0 then",
+		"call erzhuang_migrate_tb_auth_sessions_tmp()",
+		"drop procedure erzhuang_migrate_tb_auth_sessions_tmp",
 		"application startup",
 	} {
 		if !strings.Contains(migration, want) {

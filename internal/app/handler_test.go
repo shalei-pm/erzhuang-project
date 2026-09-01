@@ -14,6 +14,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -2149,15 +2150,24 @@ func setMySQLAssetInventoryRunnerForTest(runner mysqlAssetInventoryRunner) func(
 }
 
 type recordingSQLDriver struct {
-	driverName  string
-	mu          sync.Mutex
-	execQueries []string
-	execErr     error
+	driverName      string
+	mu              sync.Mutex
+	execCalls       []recordingSQLCall
+	execRowsAffected int64
+	execErr         error
+}
+
+type recordingSQLCall struct {
+	query string
+	args  []driver.NamedValue
 }
 
 func newRecordingSQLDriver(t *testing.T) *recordingSQLDriver {
 	t.Helper()
-	driver := &recordingSQLDriver{driverName: "recording-sql-" + strings.ReplaceAll(t.Name(), "/", "-")}
+	driver := &recordingSQLDriver{
+		driverName:      "recording-sql-" + strings.ReplaceAll(t.Name(), "/", "-"),
+		execRowsAffected: 1,
+	}
 	sql.Register(driver.driverName, driver)
 	return driver
 }
@@ -2166,10 +2176,13 @@ func (d *recordingSQLDriver) Open(name string) (driver.Conn, error) {
 	return &recordingSQLConn{driver: d}, nil
 }
 
-func (d *recordingSQLDriver) record(query string) {
+func (d *recordingSQLDriver) record(query string, args []driver.NamedValue) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.execQueries = append(d.execQueries, strings.Join(strings.Fields(query), " "))
+	d.execCalls = append(d.execCalls, recordingSQLCall{
+		query: strings.Join(strings.Fields(query), " "),
+		args:  append([]driver.NamedValue(nil), args...),
+	})
 }
 
 func (d *recordingSQLDriver) setExecError(err error) {
@@ -2178,10 +2191,33 @@ func (d *recordingSQLDriver) setExecError(err error) {
 	d.execErr = err
 }
 
+func (d *recordingSQLDriver) setExecRowsAffected(rows int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.execRowsAffected = rows
+}
+
 func (d *recordingSQLDriver) queries() []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return append([]string(nil), d.execQueries...)
+	queries := make([]string, 0, len(d.execCalls))
+	for _, call := range d.execCalls {
+		queries = append(queries, call.query)
+	}
+	return queries
+}
+
+func (d *recordingSQLDriver) calls() []recordingSQLCall {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	calls := make([]recordingSQLCall, len(d.execCalls))
+	for index, call := range d.execCalls {
+		calls[index] = recordingSQLCall{
+			query: call.query,
+			args:  append([]driver.NamedValue(nil), call.args...),
+		}
+	}
+	return calls
 }
 
 type recordingSQLConn struct {
@@ -2207,12 +2243,39 @@ func (c *recordingSQLConn) BeginTx(ctx context.Context, opts driver.TxOptions) (
 func (c *recordingSQLConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	c.driver.mu.Lock()
 	execErr := c.driver.execErr
+	rowsAffected := c.driver.execRowsAffected
 	c.driver.mu.Unlock()
 	if execErr != nil {
 		return nil, execErr
 	}
-	c.driver.record(query)
-	return driver.RowsAffected(1), nil
+	c.driver.record(query, args)
+	return driver.RowsAffected(rowsAffected), nil
+}
+
+func (c *recordingSQLConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	c.driver.record(query, args)
+	return &recordingSQLRows{}, nil
+}
+
+type recordingSQLRows struct {
+	done bool
+}
+
+func (r *recordingSQLRows) Columns() []string {
+	return []string{"exists"}
+}
+
+func (r *recordingSQLRows) Close() error {
+	return nil
+}
+
+func (r *recordingSQLRows) Next(dest []driver.Value) error {
+	if r.done {
+		return io.EOF
+	}
+	r.done = true
+	dest[0] = int64(1)
+	return nil
 }
 
 type recordingSQLTx struct{}

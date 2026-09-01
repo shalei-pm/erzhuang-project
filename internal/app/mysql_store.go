@@ -52,6 +52,16 @@ const mysqlAuthSessionTouchSQL = `
 		and expires_at > ?
 `
 
+const mysqlAuthSessionValidSQL = `
+	select 1
+	from tb_auth_sessions
+	where session_token_hash = ?
+		and user_id = ?
+		and revoked_at is null
+		and expires_at > ?
+	limit 1
+`
+
 const mysqlAuthSessionRevokeSQL = `
 	update tb_auth_sessions
 	set revoked_at = ?, revoked_reason = ?
@@ -106,7 +116,23 @@ func (s *MySQLStore) TouchAuthSession(ctx context.Context, token string, userID 
 	if err != nil {
 		return false, err
 	}
-	return affected == 1, nil
+	if affected == 1 {
+		return true, nil
+	}
+	if affected != 0 {
+		return false, nil
+	}
+
+	var exists int
+	err = s.db.QueryRowContext(ctx, mysqlAuthSessionValidSQL,
+		hex.EncodeToString(hash[:]),
+		userID,
+		now,
+	).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func (s *MySQLStore) RevokeAuthSession(ctx context.Context, token string, userID int64, reason string, now time.Time) error {
