@@ -211,7 +211,7 @@ func TestAuthSessionFakeDoesNotStoreRawToken(t *testing.T) {
 	defer store.mu.Unlock()
 	for key := range store.sessions {
 		if key == token || strings.Contains(key, token) {
-			t.Fatalf("fake storage contains raw token: %q", key)
+			t.Fatalf("fake storage contains raw token: raw_token_present=true stored_items=%d", len(store.sessions))
 		}
 	}
 	if got := len(store.sessions); got != 1 {
