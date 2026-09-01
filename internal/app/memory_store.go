@@ -97,6 +97,11 @@ func (s *MemoryStore) CreateAuditLog(ctx context.Context, log AuditLog) error {
 	return nil
 }
 
+// RecordAudit adapts the shared audit write port to the legacy app store API.
+func (s *MemoryStore) RecordAudit(ctx context.Context, event AuditLog) error {
+	return s.CreateAuditLog(ctx, event)
+}
+
 func (s *MemoryStore) ListAuditLogs(ctx context.Context, filter AuditLogFilter) (AuditLogPage, error) {
 	filter, offset := normalizeAuditLogFilter(filter)
 	s.mu.RLock()

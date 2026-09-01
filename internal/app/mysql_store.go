@@ -6,11 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
 
 type MySQLStore struct {
 	db *sql.DB
 }
+
+var errAuditLogTransactionNil = errors.New("audit log transaction is nil")
 
 const mysqlUserResourceScopesTableDDL = `
 	create table if not exists tb_user_resource_scopes (
@@ -72,8 +76,37 @@ func (s *MySQLStore) ListTasks(ctx context.Context) ([]Task, error) {
 }
 
 func (s *MySQLStore) CreateAuditLog(ctx context.Context, log AuditLog) error {
+	return s.RecordAudit(ctx, log)
+}
+
+// RecordAudit adapts the shared audit write port to the legacy app store API.
+func (s *MySQLStore) RecordAudit(ctx context.Context, event AuditLog) error {
+	return insertAuditLog(ctx, s.db, event)
+}
+
+// RecorderForTx returns an audit writer bound to a caller-owned transaction.
+func (s *MySQLStore) RecorderForTx(tx *sql.Tx) auditlog.AuditRecorder {
+	return mysqlAuditLogTxRecorder{tx: tx}
+}
+
+type mysqlAuditLogTxRecorder struct {
+	tx *sql.Tx
+}
+
+func (r mysqlAuditLogTxRecorder) RecordAudit(ctx context.Context, event auditlog.AuditEvent) error {
+	if r.tx == nil {
+		return errAuditLogTransactionNil
+	}
+	return insertAuditLog(ctx, r.tx, event)
+}
+
+type auditLogExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func insertAuditLog(ctx context.Context, executor auditLogExecer, log AuditLog) error {
 	detailJSON := sanitizeAuditDetail(log.DetailJSON)
-	_, err := s.db.ExecContext(ctx, `
+	_, err := executor.ExecContext(ctx, `
 		insert into tb_audit_logs (
 			user_id, actor_display_name, user_email, action, entity_type, entity_id,
 			store_id, external_org_id, channel_id, asset_logical_key, ip_address, user_agent, request_id,

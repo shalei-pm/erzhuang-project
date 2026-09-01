@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
 
 const (
@@ -13,27 +15,8 @@ const (
 	maxAuditLogPageSize     = 100
 )
 
-// AuditLog is the persisted record for a security-relevant business action.
-// DetailJSON is always sanitized and intentionally excluded from direct API JSON output.
-type AuditLog struct {
-	ID               int64           `json:"id"`
-	UserID           *int64          `json:"user_id,omitempty"`
-	ActorDisplayName string          `json:"actor_display_name"`
-	UserEmail        string          `json:"user_email"`
-	Action           string          `json:"action"`
-	EntityType       string          `json:"entity_type"`
-	EntityID         *int64          `json:"entity_id,omitempty"`
-	StoreID          *int64          `json:"store_id,omitempty"`
-	ExternalOrgID    string          `json:"external_org_id"`
-	ChannelID        *int64          `json:"channel_id,omitempty"`
-	AssetLogicalKey  string          `json:"-"`
-	IPAddress        string          `json:"-"`
-	UserAgent        string          `json:"-"`
-	RequestID        string          `json:"-"`
-	Result           string          `json:"result"`
-	DetailJSON       json.RawMessage `json:"-"`
-	CreatedAt        time.Time       `json:"created_at"`
-}
+// AuditLog remains the app-facing name for the shared persisted audit event.
+type AuditLog = auditlog.AuditEvent
 
 type AuditLogFilter struct {
 	StartAt  time.Time
