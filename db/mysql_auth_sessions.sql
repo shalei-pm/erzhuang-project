@@ -41,10 +41,12 @@ begin
   declare v_table_exists bigint default 0;
   declare v_users_exists bigint default 0;
   declare v_missing_columns bigint default 0;
+  declare v_table_engine varchar(64) default '';
   declare v_null_created_at bigint default 0;
   declare v_nullable_token_hash bigint default 0;
   declare v_null_token_hash bigint default 0;
   declare v_null_expires_at bigint default 0;
+  declare v_nullable_expires_at bigint default 0;
   declare v_column_exists bigint default 0;
   declare v_index_entries bigint default 0;
   declare v_index_matches bigint default 0;
@@ -53,6 +55,7 @@ begin
   declare v_primary_index_matches bigint default 0;
   declare v_user_index_entries bigint default 0;
   declare v_user_index_matches bigint default 0;
+  declare v_user_index_missing bigint default 0;
   declare v_token_index_missing bigint default 0;
   declare v_user_activity_index_missing bigint default 0;
   declare v_expiry_index_missing bigint default 0;
@@ -96,6 +99,16 @@ begin
     ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
   else
     -- Patch branch: block before any ALTER if the existing base is incomplete.
+    select engine into v_table_engine
+    from information_schema.tables
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions';
+
+    if upper(coalesce(v_table_engine, '')) <> 'INNODB' then
+      signal sqlstate '45000'
+        set message_text = 'tb_auth_sessions must use the InnoDB engine before migration';
+    end if;
+
     select count(*) into v_missing_columns
     from (
       select 'id' as column_name
@@ -130,6 +143,18 @@ begin
     if v_nullable_token_hash > 0 then
       signal sqlstate '45000'
         set message_text = 'tb_auth_sessions.session_token_hash must be NOT NULL before migration';
+    end if;
+
+    select count(*) into v_nullable_expires_at
+    from information_schema.columns
+    where table_schema = database()
+      and table_name = 'tb_auth_sessions'
+      and column_name = 'expires_at'
+      and is_nullable <> 'NO';
+
+    if v_nullable_expires_at > 0 then
+      signal sqlstate '45000'
+        set message_text = 'tb_auth_sessions.expires_at must be NOT NULL before migration';
     end if;
 
     select count(*) into v_null_created_at
@@ -203,8 +228,9 @@ begin
       and table_name = 'tb_auth_sessions'
       and index_name = 'idx_tb_auth_sessions_user';
 
-    if v_user_index_entries > 0
-      and (v_user_index_entries <> 2 or v_user_index_matches <> 2) then
+    if v_user_index_entries = 0 then
+      set v_user_index_missing = 1;
+    elseif v_user_index_entries <> 2 or v_user_index_matches <> 2 then
       signal sqlstate '45000'
         set message_text = 'idx_tb_auth_sessions_user has the wrong uniqueness, BTREE type, prefix, or column order';
     end if;
@@ -292,6 +318,11 @@ begin
     if v_token_index_missing = 1 then
       alter table tb_auth_sessions
         add unique key uq_tb_auth_sessions_token_hash (session_token_hash);
+    end if;
+
+    if v_user_index_missing = 1 then
+      alter table tb_auth_sessions
+        add key idx_tb_auth_sessions_user (user_id, created_at);
     end if;
 
     if v_user_activity_index_missing = 1 then

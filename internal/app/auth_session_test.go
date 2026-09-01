@@ -449,33 +449,31 @@ func TestMySQLAuthSessionTouchIgnoresCallerTimeoutAndClock(t *testing.T) {
 	}
 }
 
-func TestMySQLAuthSessionTouchZeroRowsRejectsInvalidStates(t *testing.T) {
-	for _, state := range []string{"expired", "revoked", "missing"} {
-		t.Run(state, func(t *testing.T) {
-			recorder := newRecordingSQLDriver(t)
-			db, err := sql.Open(recorder.driverName, "")
-			if err != nil {
-				t.Fatalf("open recording db: %v", err)
-			}
-			defer db.Close()
+func TestMySQLAuthSessionTouchZeroRowsRejectsWhenActiveLookupHasNoRow(t *testing.T) {
+	recorder := newRecordingSQLDriver(t)
+	db, err := sql.Open(recorder.driverName, "")
+	if err != nil {
+		t.Fatalf("open recording db: %v", err)
+	}
+	defer db.Close()
 
-			recorder.setExecRowsAffected(0)
-			recorder.setQueryExists(false)
-			ok, err := NewMySQLStore(db).TouchAuthSession(
-				context.Background(), "invalid-state-token", 7,
-				time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC), defaultAuthIdleTimeout,
-			)
-			if err != nil {
-				t.Fatalf("touch invalid %s session: %v", state, err)
-			}
-			if ok {
-				t.Fatalf("%s session must not be treated as active", state)
-			}
-			calls := recorder.calls()
-			if len(calls) != 2 || !strings.Contains(calls[1].query, "select 1") {
-				t.Fatalf("invalid state must execute update plus confirmation select: %s", summarizeSQLCalls(calls))
-			}
-		})
+	// The recording driver cannot distinguish expired, revoked, and missing rows;
+	// the fake-store tests cover those states independently.
+	recorder.setExecRowsAffected(0)
+	recorder.setQueryExists(false)
+	ok, err := NewMySQLStore(db).TouchAuthSession(
+		context.Background(), "inactive-session-token", 7,
+		time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC), defaultAuthIdleTimeout,
+	)
+	if err != nil {
+		t.Fatalf("touch session with no active lookup row: %v", err)
+	}
+	if ok {
+		t.Fatal("session with no active lookup row must not be treated as active")
+	}
+	calls := recorder.calls()
+	if len(calls) != 2 || !strings.Contains(calls[1].query, "select 1") {
+		t.Fatalf("zero-row touch must confirm no active row: %s", summarizeSQLCalls(calls))
 	}
 }
 
@@ -1028,6 +1026,8 @@ func assertAuthSessionMigrationTable(t *testing.T, ctx context.Context, db *sql.
 		t.Fatalf("last_activity_at column present=%t, want %t", count == 1, wantActivityColumn)
 	}
 	assertAuthSessionIndex(t, ctx, db, "uq_tb_auth_sessions_token_hash", "non_unique = 0", "seq_in_index = 1", "column_name = 'session_token_hash'")
+	assertAuthSessionIndex(t, ctx, db, "idx_tb_auth_sessions_user", "non_unique = 1", "seq_in_index = 1", "column_name = 'user_id'")
+	assertAuthSessionIndex(t, ctx, db, "idx_tb_auth_sessions_user", "non_unique = 1", "seq_in_index = 2", "column_name = 'created_at'")
 	assertAuthSessionIndex(t, ctx, db, "idx_tb_auth_sessions_user_activity", "non_unique = 1", "seq_in_index = 1", "column_name = 'user_id'")
 	assertAuthSessionIndex(t, ctx, db, "idx_tb_auth_sessions_user_activity", "non_unique = 1", "seq_in_index = 2", "column_name = 'last_activity_at'")
 	assertAuthSessionIndex(t, ctx, db, "idx_tb_auth_sessions_expires_at", "non_unique = 1", "seq_in_index = 1", "column_name = 'expires_at'")
@@ -1067,6 +1067,7 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 	for _, want := range []string{
 		"create table if not exists tb_auth_sessions",
 		"last_activity_at datetime(3) not null",
+		"key idx_tb_auth_sessions_user (user_id, created_at)",
 		"key idx_tb_auth_sessions_user_activity (user_id, last_activity_at)",
 		"key idx_tb_auth_sessions_expires_at (expires_at)",
 	} {
@@ -1085,6 +1086,8 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 		"set last_activity_at = created_at",
 		"modify column last_activity_at datetime(3) not null",
 		"if v_index_entries = 0 then",
+		"if v_user_index_missing = 1 then",
+		"add key idx_tb_auth_sessions_user (user_id, created_at)",
 		"call erzhuang_migrate_tb_auth_sessions_tmp()",
 		"drop procedure erzhuang_migrate_tb_auth_sessions_tmp",
 		"v_missing_columns",
@@ -1092,9 +1095,14 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 		"v_nullable_token_hash",
 		"v_null_token_hash",
 		"v_null_expires_at",
+		"v_nullable_expires_at",
+		"v_table_engine",
 		"NULL created_at",
 		"NULL session_token_hash",
 		"NULL expires_at",
+		"tb_auth_sessions.expires_at must be NOT NULL before migration",
+		"tb_auth_sessions must use the InnoDB engine before migration",
+		"and is_nullable <> 'NO'",
 		"duplicate session_token_hash",
 		"tb_auth_sessions PRIMARY index must be a single BTREE on id without a prefix",
 		"idx_tb_auth_sessions_user has the wrong uniqueness, BTREE type, prefix, or column order",
@@ -1119,6 +1127,8 @@ func TestMySQLAuthSessionSchemaAndMigrationContract(t *testing.T) {
 		"tb_auth_sessions contains rows with NULL created_at",
 		"tb_auth_sessions contains rows with NULL session_token_hash",
 		"tb_auth_sessions contains rows with NULL expires_at",
+		"tb_auth_sessions.expires_at must be NOT NULL before migration",
+		"tb_auth_sessions must use the InnoDB engine before migration",
 		"duplicate session_token_hash values must be repaired before migration",
 		"tb_auth_sessions PRIMARY index must be a single BTREE on id without a prefix",
 		"idx_tb_auth_sessions_user has the wrong uniqueness, BTREE type, prefix, or column order",
