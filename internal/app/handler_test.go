@@ -838,7 +838,12 @@ func TestStoreSpaceExportRequiresAdminAndWritesAudit(t *testing.T) {
 	if recorder.Code == http.StatusForbidden || recorder.Code == http.StatusUnauthorized || recorder.Code == http.StatusServiceUnavailable {
 		t.Fatalf("export should pass the authorization and audit guards, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	logs, err := store.ListAuditLogs(context.Background(), AuditLogFilter{Page: 1, PageSize: 20})
+	logs, err := store.ListAuditLogs(context.Background(), AuditLogFilter{
+		StartAt:  time.Now().Add(-time.Hour),
+		EndAt:    time.Now().Add(time.Hour),
+		Page:     1,
+		PageSize: 20,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
