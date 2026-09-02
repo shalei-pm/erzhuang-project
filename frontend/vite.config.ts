@@ -16,6 +16,7 @@ export default defineConfig({
       "src/domain/nvr-lab.test.ts",
       "src/domain/resource-view.test.ts",
       "src/domain/auth.test.ts",
+      "src/domain/screenshot-watermark.test.ts",
     ],
     env: {
       VITE_DESIGN_PLAN_API_BASE: "/erzhuang-project/api/design-plan",

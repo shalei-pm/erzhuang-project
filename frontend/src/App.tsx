@@ -97,7 +97,9 @@ function AdminApp() {
   const [activeStore, setActiveStore] = useState<ResourceStoreDetailType | null>(null);
   const [openingStoreIds, setOpeningStoreIds] = useState<Set<number>>(() => new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<"users" | "audit">("users");
+  const [settingsSection, setSettingsSection] = useState<"users" | "audit" | "security">("users");
+  const [screenshotWatermarkEnabled, setScreenshotWatermarkEnabled] = useState<boolean | null>(null);
+  const [savingScreenshotWatermark, setSavingScreenshotWatermark] = useState(false);
   const listRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
   const authRedirectingRef = useRef(false);
@@ -167,6 +169,20 @@ function AdminApp() {
       removeSessionStorage(idleSessionTimeoutRedirectKey);
     }
   }, [auth]);
+
+  useEffect(() => {
+    if (!settingsOpen || settingsSection !== "security" || !canManageSystemUsers) return;
+    void storeSpaceApi
+      .getMonitorScreenshotWatermarkSettings()
+      .then((settings) => setScreenshotWatermarkEnabled(settings.enabled))
+      .catch((error) => {
+        if (isIdleSessionTimeout(error)) {
+          handleAuthRequired(error);
+          return;
+        }
+        setToast(errorMessage(error, "截图水印设置加载失败。"));
+      });
+  }, [canManageSystemUsers, settingsOpen, settingsSection]);
 
   useEffect(() => {
     if (!shouldShowLoginWelcome(auth)) return;
@@ -273,6 +289,24 @@ function AdminApp() {
     void loadStores();
   }
 
+  async function toggleScreenshotWatermark() {
+    if (screenshotWatermarkEnabled === null || savingScreenshotWatermark) return;
+    setSavingScreenshotWatermark(true);
+    try {
+      const settings = await storeSpaceApi.setMonitorScreenshotWatermarkSettings(!screenshotWatermarkEnabled);
+      setScreenshotWatermarkEnabled(settings.enabled);
+      setToast(settings.enabled ? "已开启监控截图水印" : "已关闭监控截图水印");
+    } catch (error) {
+      if (isIdleSessionTimeout(error)) {
+        handleAuthRequired(error);
+        return;
+      }
+      setToast(errorMessage(error, "截图水印设置保存失败。"));
+    } finally {
+      setSavingScreenshotWatermark(false);
+    }
+  }
+
   if (activeStore) {
     return (
       <main className="app-shell">
@@ -328,9 +362,21 @@ function AdminApp() {
           <button type="button" className={settingsSection === "audit" ? "is-active" : ""} onClick={() => setSettingsSection("audit")}>
             操作日志
           </button>
+          <button type="button" className={settingsSection === "security" ? "is-active" : ""} onClick={() => setSettingsSection("security")}>
+            安全设置
+          </button>
         </nav>
         {settingsSection === "audit" ? (
           <AuditLogManagement onToast={setToast} onAuthRequired={handleAuthRequired} />
+        ) : settingsSection === "security" ? (
+          <section className="user-scope-panel" aria-label="安全设置">
+            <div className="user-switch-field">
+              <span className="user-switch-copy"><strong>监控截图水印</strong><em>截图右上角展示账号姓名与服务端时间</em></span>
+              <button type="button" className={`switch-control ${screenshotWatermarkEnabled ? "is-on" : ""}`} disabled={screenshotWatermarkEnabled === null || savingScreenshotWatermark} onClick={() => void toggleScreenshotWatermark()}>
+                {screenshotWatermarkEnabled ? "已开启" : "已关闭"}
+              </button>
+            </div>
+          </section>
         ) : (
           <UserManagement onToast={setToast} onAuthRequired={handleAuthRequired} />
         )}

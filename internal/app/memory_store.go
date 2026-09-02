@@ -12,15 +12,16 @@ import (
 )
 
 type MemoryStore struct {
-	mu                     sync.RWMutex
-	tasks                  []Task
-	aiProvider             string
-	authUsers              map[string]AuthUserRecord
-	monitorScopeCandidates []AuthUserResourceScope
-	monitorScopesByUserID  map[int64][]AuthUserResourceScope
-	auditLogs              []AuditLog
-	nextAuditLogID         int64
-	now                    func() time.Time
+	mu                                sync.RWMutex
+	tasks                             []Task
+	aiProvider                        string
+	monitorScreenshotWatermarkEnabled *bool
+	authUsers                         map[string]AuthUserRecord
+	monitorScopeCandidates            []AuthUserResourceScope
+	monitorScopesByUserID             map[int64][]AuthUserResourceScope
+	auditLogs                         []AuditLog
+	nextAuditLogID                    int64
+	now                               func() time.Time
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -158,6 +159,22 @@ func (s *MemoryStore) SetAIProvider(ctx context.Context, provider string) error 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.aiProvider = NormalizeAIProvider(provider)
+	return nil
+}
+
+func (s *MemoryStore) GetMonitorScreenshotWatermarkEnabled(ctx context.Context) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.monitorScreenshotWatermarkEnabled == nil {
+		return true, nil
+	}
+	return *s.monitorScreenshotWatermarkEnabled, nil
+}
+
+func (s *MemoryStore) SetMonitorScreenshotWatermarkEnabled(ctx context.Context, enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.monitorScreenshotWatermarkEnabled = &enabled
 	return nil
 }
 

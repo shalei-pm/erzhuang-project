@@ -30,6 +30,7 @@ type NVRLabPlayerProps = {
   onSeekPlayback?: (startTime: number) => void;
   captureOnFirstFrame?: boolean;
   onSnapshotCapture?: (image: Blob | null) => void;
+  onScreenshot?: (dataUrl: string) => void | Promise<void>;
   onRetry: () => void;
 };
 
@@ -42,6 +43,7 @@ export function NVRLabPlayer({
   onSeekPlayback,
   captureOnFirstFrame = false,
   onSnapshotCapture,
+  onScreenshot,
   onRetry,
 }: NVRLabPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -186,8 +188,13 @@ export function NVRLabPlayer({
   function screenshot() {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const dataUrl = canvas.toDataURL("image/png");
+    if (onScreenshot) {
+      void onScreenshot(dataUrl);
+      return;
+    }
     const anchor = document.createElement("a");
-    anchor.href = canvas.toDataURL("image/png");
+    anchor.href = dataUrl;
     anchor.download = "nvr-camera.png";
     anchor.click();
   }

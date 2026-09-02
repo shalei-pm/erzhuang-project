@@ -66,21 +66,23 @@ func normalizeAuditLogFilter(filter AuditLogFilter) (AuditLogFilter, int) {
 }
 
 var safeAuditDetailKeys = map[string]bool{
-	"summary":      true,
-	"source":       true,
-	"reason":       true,
-	"error_code":   true,
-	"target_name":  true,
-	"target_email": true,
-	"store_name":   true,
-	"channel_name": true,
-	"role":         true,
-	"enabled":      true,
-	"scope_count":  true,
-	"scope_ids":    true,
-	"start_time":   true,
-	"end_time":     true,
-	"date_range":   true,
+	"summary":          true,
+	"source":           true,
+	"reason":           true,
+	"error_code":       true,
+	"target_name":      true,
+	"target_email":     true,
+	"store_name":       true,
+	"channel_name":     true,
+	"role":             true,
+	"enabled":          true,
+	"previous_enabled": true,
+	"scope_count":      true,
+	"scope_ids":        true,
+	"start_time":       true,
+	"end_time":         true,
+	"captured_at":      true,
+	"date_range":       true,
 }
 
 // sanitizeAuditDetail retains only primitive values for a narrow set of business summary keys.

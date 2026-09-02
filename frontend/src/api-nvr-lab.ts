@@ -1,4 +1,5 @@
 import type { NVRLabCameraListResponse, NVRLabMode, NVRLabStreamSession, NVRMonitorStoresResponse } from "./domain/nvr-lab";
+import type { MonitorScreenshotWatermarkMetadata } from "./domain/screenshot-watermark";
 
 const API_BASE = apiBase();
 
@@ -59,6 +60,18 @@ export const nvrLabApi = {
       const body = typeof data === "object" && data ? (data as Record<string, unknown>) : {};
       throw new NVRLabApiError(response.status, String(body.error || `HTTP ${response.status}`), String(body.code || ""));
     }
+  },
+
+  async getScreenshotMetadata(externalOrgId: string, cameraId: number): Promise<MonitorScreenshotWatermarkMetadata> {
+    const response = await requestJSON<{ watermark_enabled: boolean; display_name?: string; captured_at?: string }>(
+      `${API_BASE}/h5/nvr-monitor/orgs/${encodeURIComponent(externalOrgId)}/cameras/${encodeURIComponent(String(cameraId))}/screenshot-metadata`,
+      { method: "POST" },
+    );
+    return {
+      watermarkEnabled: Boolean(response.watermark_enabled),
+      displayName: response.display_name,
+      capturedAt: response.captured_at,
+    };
   },
 };
 

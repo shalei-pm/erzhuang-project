@@ -368,6 +368,37 @@ func (s *MySQLStore) SetAIProvider(ctx context.Context, provider string) error {
 	return err
 }
 
+func (s *MySQLStore) GetMonitorScreenshotWatermarkEnabled(ctx context.Context) (bool, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `
+		select value
+		from tb_app_settings
+		where `+"`key`"+` = ?
+	`, monitorScreenshotWatermarkSettingKey).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return NormalizeMonitorScreenshotWatermarkEnabled(value), nil
+}
+
+func (s *MySQLStore) SetMonitorScreenshotWatermarkEnabled(ctx context.Context, enabled bool) error {
+	value := "false"
+	if enabled {
+		value = "true"
+	}
+	_, err := s.db.ExecContext(ctx, `
+		insert into tb_app_settings (`+"`key`"+`, value, updated_at)
+		values (?, ?, current_timestamp(3))
+		on duplicate key update
+			value = values(value),
+			updated_at = values(updated_at)
+	`, monitorScreenshotWatermarkSettingKey, value)
+	return err
+}
+
 func (s *MySQLStore) GetAuthUserByEmail(ctx context.Context, email string) (AuthUserRecord, error) {
 	record, err := scanAuthUser(s.db.QueryRowContext(ctx, `
 		select u.id, u.email, u.username, u.display_name, u.feishu_user_id, u.mobile,

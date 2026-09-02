@@ -6288,3 +6288,11 @@ git pull --ff-only
 - 测试已改为按既有接口边界断言 `AuditLogStore` 后读取审计事件；不改变运行时认证、审计或数据库行为。版本按补丁规则递增为 `3.4.1`，仅重新发布测试分支。
 - 随后完整测试还发现：兼容模式未保留有效 SSO 身份、内存测试时钟未跟随会话时钟、以及手动退出测试误用 GET。已分别恢复兼容身份解析、同步内存审计时钟并改用真实 POST 退出语义；SSO 启用时的 fail-closed 会话存储要求不变。
 - 验证：`go test ./... -count=1` 通过；前端 Vitest `15 files / 89 tests` 与生产构建通过；Linux `amd64` 的 Web 服务和回填命令均成功构建；`git diff --check` 通过。Dockerfile 继续使用相同的 Go 测试和构建步骤。
+
+### 2026-09-02 3.4.2 监控截图水印测试发布准备
+
+- 正式 NVR 监控播放器的用户主动截图改为先请求受监控授权保护的元信息，再在浏览器 Canvas 中叠加右上角水印后下载 PNG。水印内容为服务端 `Asia/Shanghai` 时间和 SSO 昵称；水印开启时元信息或合成失败会阻断下载，不会降级导出无水印图片。
+- 系统设置新增仅管理员可见的“安全设置”页签和“监控截图水印”全局开关，复用既有 `tb_app_settings` 的 `monitor_screenshot_watermark_enabled` 键，默认开启；不新增表、字段或 DDL。
+- 用户点击截图写入 `monitor.screenshot` 审计事件；缩略图加载、打开大图、首帧缩略图回填、刷新缩略图不写该事件。管理员变更开关写入 `system.monitor_screenshot_watermark.update`，日志摘要展示“监控截图水印：启用 -> 停用”或反向变化。
+- 本地验证：`internal/app` 定向测试通过，前端 Vitest `16 files / 92 tests` 与生产构建通过，`go build ./...` 与 `git diff --check` 通过。全仓 `go test ./...` 仅既有 `internal/nvrlab` 和 `internal/nvrmonitor` 的两项 HTTP 客户端测试因当前沙箱禁止监听 IPv6 `::1` 失败；本次相关 `internal/app` 包通过。
+- 发布目标仅为 GitLab 测试分支 `codex/containerize-single-image` / Wharf `752`；尚未推送或验证测试页面，不操作 `main`、正式环境、数据库 DDL 或 K8s Secret。

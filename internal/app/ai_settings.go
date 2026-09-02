@@ -25,6 +25,22 @@ type AISettingsStore interface {
 	SetAIProvider(ctx context.Context, provider string) error
 }
 
+const monitorScreenshotWatermarkSettingKey = "monitor_screenshot_watermark_enabled"
+
+type MonitorScreenshotSettingsStore interface {
+	GetMonitorScreenshotWatermarkEnabled(ctx context.Context) (bool, error)
+	SetMonitorScreenshotWatermarkEnabled(ctx context.Context, enabled bool) error
+}
+
+func NormalizeMonitorScreenshotWatermarkEnabled(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "false", "0", "off", "no":
+		return false
+	default:
+		return true
+	}
+}
+
 func NormalizeAIProvider(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "openai", "responses", "openai-responses":

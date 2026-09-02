@@ -21,7 +21,7 @@
 - `frontend/src/domain/screenshot-watermark.ts`: Canvas composition with fail-closed behavior.
 - `frontend/src/domain/screenshot-watermark.test.ts`: browser-side composition tests.
 - `frontend/src/App.tsx`: administrator-only Security Settings tab.
-- `frontend/src/pages/H5MonitorChannel.tsx`: integration at the existing formal screenshot button only.
+- `frontend/src/pages/NVRLabCamera.tsx` and `frontend/src/components/NVRLabPlayer.tsx`: integration at the current formal NVR screenshot button only.
 - `VERSION`, `docs/codex-learning-state.md`: version and release evidence.
 
 ### Task 1: Store the Security Setting
@@ -61,13 +61,13 @@
 
 ### Task 4: Connect Existing UI Without Touching Thumbnail Flows
 
-**Files:** `frontend/src/api.ts`, `frontend/src/api.test.ts`, `frontend/src/App.tsx`, `frontend/src/pages/H5MonitorChannel.tsx`, `frontend/src/domain/format.ts` and its test only when a new API error must be translated.
+**Files:** `frontend/src/api.ts`, `frontend/src/api-nvr-lab.ts`, `frontend/src/App.tsx`, `frontend/src/pages/NVRLabCamera.tsx`, `frontend/src/components/NVRLabPlayer.tsx`, `frontend/src/domain/format.ts` and its test only when a new API error must be translated.
 
 - [ ] Write a failing API test asserting `getMonitorScreenshotMetadata("10001", 111)` sends a `POST` to the protected metadata endpoint.
 - [ ] Add API methods for get/set watermark settings and monitor screenshot metadata, with deterministic mock-adapter parity.
 - [ ] Extend the existing settings modal union with `security`; show an administrator-only “安全设置” tab and one compact “监控截图水印” switch using existing control styles.
-- [ ] In `H5MonitorChannel.handleScreenshot`, capture the player frame, request metadata, compose the watermark, and pass only the result to `shareScreenshot`.
-- [ ] On metadata or composition failure, show a Chinese error toast and exit without download/share. Do not change `captureFrozenFrame`, thumbnails, large-image opening, refresh-thumbnail behavior, NVR lab, or legacy channel screenshots.
+- [ ] In the current NVR player screenshot callback, capture the player frame, request metadata, compose the watermark, and download only the result.
+- [ ] On metadata or composition failure, show a Chinese error message and exit without download. Do not change first-frame snapshot backfill, thumbnails, large-image opening, refresh-thumbnail behavior, legacy `H5MonitorChannel`, or the standalone NVR lab route.
 - [ ] Run `cd frontend && npm test && npm run build`; expect PASS.
 - [ ] Commit: `feat: watermark monitor screenshots`.
 

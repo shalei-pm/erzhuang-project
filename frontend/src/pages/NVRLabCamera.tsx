@@ -17,6 +17,7 @@ import {
   type NVRLabStreamSession,
 } from "../domain/nvr-lab";
 import { isIdleSessionTimeout, type AuthState } from "../domain/auth";
+import { composeMonitorScreenshot } from "../domain/screenshot-watermark";
 
 type NVRLabCameraProps = {
 	externalOrgId: string;
@@ -178,6 +179,21 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
     playPlayback(range, startTime);
   }, []);
 
+  const handleScreenshot = useCallback(async (dataUrl: string) => {
+    try {
+      const metadata = await nvrLabApi.getScreenshotMetadata(externalOrgId, cameraId);
+      const result = await composeMonitorScreenshot(dataUrl, metadata);
+      downloadMonitorScreenshot(result);
+      setMessage("");
+    } catch (error) {
+      if (isIdleSessionTimeout(error)) {
+        onAuthRequired(error);
+        return;
+      }
+      setMessage(error instanceof Error ? `截图失败：${error.message}` : "截图失败，请稍后重试");
+    }
+  }, [cameraId, externalOrgId, onAuthRequired]);
+
   useEffect(() => {
     if (!activePlaybackRange || !playbackPlaying || playbackStartedAtMs === null) return;
     const tick = () => {
@@ -220,6 +236,7 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
             onSeekPlayback={seekPlayback}
             captureOnFirstFrame={snapshotBackfillEnabled && mode === "live"}
             onSnapshotCapture={snapshotBackfillEnabled ? uploadFirstFrameSnapshot : undefined}
+            onScreenshot={handleScreenshot}
           />
         </section>
         {message ? <div className="h5-error">{message}</div> : null}
@@ -240,6 +257,16 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
       </nav>
     </div>
   );
+}
+
+function downloadMonitorScreenshot(dataUrl: string) {
+  const anchor = document.createElement("a");
+  anchor.href = dataUrl;
+  anchor.download = `monitor-snapshot-${Date.now()}.png`;
+  anchor.rel = "noopener";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 export function NVRLabHourlyPlaybackPicker({

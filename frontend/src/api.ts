@@ -394,6 +394,10 @@ export type AISettings = {
   label: string;
 };
 
+export type MonitorScreenshotWatermarkSettings = {
+  enabled: boolean;
+};
+
 export type ManagedUserRole = "admin" | "editor" | "viewer";
 
 export type MonitorStoreScope = {
@@ -1811,6 +1815,17 @@ const storeSpaceHttpAdapter = {
     return requestJSON<AISettings>(`${APP_API_BASE}/ai-settings/toggle`, { method: "POST" });
   },
 
+  async getMonitorScreenshotWatermarkSettings(): Promise<MonitorScreenshotWatermarkSettings> {
+    return requestJSON<MonitorScreenshotWatermarkSettings>(`${APP_API_BASE}/monitor-screenshot-watermark-settings`);
+  },
+
+  async setMonitorScreenshotWatermarkSettings(enabled: boolean): Promise<MonitorScreenshotWatermarkSettings> {
+    return requestJSON<MonitorScreenshotWatermarkSettings>(`${APP_API_BASE}/monitor-screenshot-watermark-settings`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    });
+  },
+
   async getAuthMe(): Promise<AuthState> {
     return requestJSON<AuthState>(`${APP_API_BASE}/auth/me`);
   },
@@ -2155,6 +2170,16 @@ export const storeSpaceApi = {
       return clone(mockAISettings);
     }
     return storeSpaceHttpAdapter.toggleAISettings();
+  },
+
+  async getMonitorScreenshotWatermarkSettings(): Promise<MonitorScreenshotWatermarkSettings> {
+    if (API_MODE === "mock") return { enabled: true };
+    return storeSpaceHttpAdapter.getMonitorScreenshotWatermarkSettings();
+  },
+
+  async setMonitorScreenshotWatermarkSettings(enabled: boolean): Promise<MonitorScreenshotWatermarkSettings> {
+    if (API_MODE === "mock") return { enabled };
+    return storeSpaceHttpAdapter.setMonitorScreenshotWatermarkSettings(enabled);
   },
 
   async getAuthMe(): Promise<AuthState> {

@@ -144,6 +144,8 @@ func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.S
 	mux.HandleFunc("PUT /api/users/{id}", handler.updateUserHandler)
 	mux.HandleFunc("GET /api/ai-settings", handler.aiSettingsHandler)
 	mux.HandleFunc("POST /api/ai-settings/toggle", handler.requirePermissionHandler(PermissionUserManage, handler.toggleAISettingsHandler))
+	mux.HandleFunc("GET /api/monitor-screenshot-watermark-settings", handler.requirePermissionHandler(PermissionUserManage, handler.monitorScreenshotWatermarkSettingsHandler))
+	mux.HandleFunc("POST /api/monitor-screenshot-watermark-settings", handler.requirePermissionHandler(PermissionUserManage, handler.updateMonitorScreenshotWatermarkSettingsHandler))
 	mux.HandleFunc("GET /api/admin/audit-logs", handler.requirePermissionHandler(PermissionAuditView, handler.auditLogsHandler))
 	mux.HandleFunc("GET /api/admin/ops/env-check", handler.ossEnvCheckHandler)
 	mux.HandleFunc("POST /api/admin/ops/oss-smoke", handler.ossSmokeHandler)
@@ -162,6 +164,7 @@ func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.S
 	nvrlab.RegisterRoutesWithAudit(mux, nvrLabService, handler.nvrLabAdminGuard, nvrMonitorAuthorizer{handler: handler})
 	if monitorPlaybackMode == MonitorPlaybackModeNVR && nvrMonitorService != nil {
 		nvrmonitor.RegisterRoutesWithAuthorizer(mux, nvrMonitorService, nvrMonitorAuthorizer{handler: handler})
+		mux.HandleFunc("POST /api/h5/nvr-monitor/orgs/{externalOrgId}/cameras/{cameraId}/screenshot-metadata", handler.storeReadGuard(handler.nvrScreenshotMetadataHandler))
 	} else if h5MonitorService != nil {
 		h5monitor.RegisterRoutesWithAuthorizer(mux, h5MonitorService, h5MonitorAuthorizer{handler: handler})
 	}
@@ -617,6 +620,14 @@ func auditLogSummary(log AuditLog) string {
 	if detail := sanitizeAuditDetail(log.DetailJSON); len(detail) > 0 {
 		var values map[string]json.RawMessage
 		if err := json.Unmarshal(detail, &values); err == nil {
+			if strings.TrimSpace(log.Action) == "system.monitor_screenshot_watermark.update" {
+				var previousEnabled, enabled bool
+				previousOK := json.Unmarshal(values["previous_enabled"], &previousEnabled) == nil
+				enabledOK := json.Unmarshal(values["enabled"], &enabled) == nil
+				if previousOK && enabledOK {
+					return "监控截图水印：" + auditEnabledLabel(previousEnabled) + " -> " + auditEnabledLabel(enabled)
+				}
+			}
 			var summary string
 			if raw, ok := values["summary"]; ok && json.Unmarshal(raw, &summary) == nil {
 				summary = strings.TrimSpace(summary)
