@@ -6275,3 +6275,9 @@ git pull --ff-only
 - `0778214` 为用户权限审计记录增加目标用户姓名、邮箱、角色、启用状态和门店范围摘要；`db88194` 继续补充普通查看用户的授权门店 ID，审计列表优先展示经过安全过滤的中文摘要，历史 `summary=user.update` 记录继续使用通用文案。
 - 验证：`internal/app` 测试通过，前端 Vitest `14 files / 78 tests`、生产构建、`go vet ./internal/app`、`go build ./...` 和 `git diff --check` 通过。全仓另外两个既有 NVR 测试受本机沙箱 IPv6 监听限制，未影响本次改动。
 - 版本与发布：`3.3.3` 已推送公司 GitLab 测试分支 `codex/containerize-single-image`，功能 commit 为 `db88194`，版本 commit 为 `686140a`，权限范围回显修复为 `e2e89f4`；等待 Wharf `752` 自动构建和测试实例部署，未操作正式 `main`。
+
+### 2026-09-02 3.4.0 空闲会话超时测试发布准备
+
+- 本次安全合规改造引入共享 MySQL 会话、30 分钟受保护请求空闲失效、`401/session_idle_timeout` 与 SSO 联合退出流程。按版本规则作为已有认证流程的中版本迭代，版本从 `3.3.3` 升为 `3.4.0`。
+- 发布前固定门禁：每次改动代码必须同步递增 `VERSION`；测试部署完成后必须在已登录测试页面核对页脚版本号与本次发布一致，不能仅以 GitLab 推送或健康检查可达判定上线完成。
+- 本次仅准备发布公司测试分支 `codex/containerize-single-image`，不触碰 GitLab `main`、正式实例或正式数据库。测试库 `tb_auth_sessions` 迁移须经已确认的客户端操作、结构复核后才可执行应用验收。
