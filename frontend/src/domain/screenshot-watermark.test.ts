@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { watermarkLines } from "./screenshot-watermark";
+import { SCREENSHOT_WATERMARK_PANEL_OPACITY, watermarkLines } from "./screenshot-watermark";
 
 describe("watermarkLines", () => {
   it("uses the trusted display name and server timestamp as two watermark lines", () => {
@@ -15,5 +15,9 @@ describe("watermarkLines", () => {
 
   it("does not draw watermark lines when the global setting is disabled", () => {
     expect(watermarkLines({ watermarkEnabled: false })).toEqual([]);
+  });
+
+  it("keeps the watermark panel at 30 percent opacity", () => {
+    expect(SCREENSHOT_WATERMARK_PANEL_OPACITY).toBe(0.3);
   });
 });

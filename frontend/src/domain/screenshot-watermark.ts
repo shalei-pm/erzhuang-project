@@ -4,6 +4,8 @@ export type MonitorScreenshotWatermarkMetadata = {
   capturedAt?: string;
 };
 
+export const SCREENSHOT_WATERMARK_PANEL_OPACITY = 0.3;
+
 export function watermarkLines(metadata: MonitorScreenshotWatermarkMetadata): string[] {
   if (!metadata.watermarkEnabled) return [];
   const displayName = metadata.displayName?.trim() || "";
@@ -35,9 +37,9 @@ export async function composeMonitorScreenshot(dataUrl: string, metadata: Monito
   const panelHeight = lineHeight * lines.length + paddingY * 2;
   const left = Math.max(0, canvas.width - margin - panelWidth);
   const top = Math.max(0, margin);
-  context.fillStyle = "rgba(15, 23, 42, 0.68)";
+  context.fillStyle = `rgba(15, 23, 42, ${SCREENSHOT_WATERMARK_PANEL_OPACITY})`;
   context.fillRect(left, top, panelWidth, panelHeight);
-  context.fillStyle = "#ffffff";
+  context.fillStyle = "rgba(255, 255, 255, 0.9)";
   context.textAlign = "right";
   context.textBaseline = "middle";
   lines.forEach((line, index) => context.fillText(line, left + panelWidth - paddingX, top + paddingY + lineHeight * index + lineHeight / 2));
