@@ -97,14 +97,23 @@ func main() {
 		log.Print("database store disabled: using memory store")
 	}
 
-	server := &http.Server{
-		Addr:    addr,
-		Handler: handler,
-	}
+	server := newHTTPServer(addr, handler)
 
 	log.Printf("erzhuang-project listening on %s", addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server failed: %v", err)
+	}
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    32 << 10,
 	}
 }
 

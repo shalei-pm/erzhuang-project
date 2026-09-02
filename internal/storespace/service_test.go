@@ -1891,10 +1891,6 @@ func (f fakeChannelScanner) CaptureChannel(ctx context.Context, account EzvizAcc
 	}, nil
 }
 
-func (f fakeChannelScanner) LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error) {
-	return LiveAddressResult{URL: "https://example.test/live.m3u8", URLID: "test-url-id", ExpireTime: "2026-06-24 12:00:00", Protocol: "hls"}, nil
-}
-
 type failingCaptureScanner struct{}
 
 func (f failingCaptureScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
@@ -1903,10 +1899,6 @@ func (f failingCaptureScanner) ScanRecorderChannels(ctx context.Context, account
 
 func (f failingCaptureScanner) CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error) {
 	return ChannelSnapshotInput{}, errors.New("capture failed")
-}
-
-func (f failingCaptureScanner) LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error) {
-	return LiveAddressResult{}, errors.New("live address failed")
 }
 
 type memorySnapshotStore struct {
@@ -1998,10 +1990,6 @@ func (f *mutableFakeChannelScanner) CaptureChannel(ctx context.Context, account 
 	}, nil
 }
 
-func (f *mutableFakeChannelScanner) LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error) {
-	return LiveAddressResult{URL: "https://example.test/live.m3u8", URLID: "test-url-id", ExpireTime: "2026-06-24 12:00:00", Protocol: "hls"}, nil
-}
-
 func channelsByNo(channels []Channel) map[int]Channel {
 	result := map[int]Channel{}
 	for _, channel := range channels {
@@ -2030,10 +2018,6 @@ func (f *countingFakeChannelScanner) CaptureChannel(ctx context.Context, account
 		FullImagePath:      url,
 		FullImageExpiresAt: &expiresAt,
 	}, nil
-}
-
-func (f *countingFakeChannelScanner) LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error) {
-	return LiveAddressResult{URL: "https://example.test/live.m3u8", URLID: "test-url-id", ExpireTime: "2026-06-24 12:00:00", Protocol: "hls"}, nil
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

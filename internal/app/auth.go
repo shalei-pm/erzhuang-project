@@ -224,6 +224,10 @@ func (h *Handler) authCallbackHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet && isCrossSiteLogoutRequest(r) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "不允许跨站触发退出登录"})
+		return
+	}
 	h.recordAuthLogout(r)
 	h.revokeLocalAuthSession(r)
 	h.clearAuthCookie(w, r)
@@ -236,6 +240,12 @@ func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func isCrossSiteLogoutRequest(r *http.Request) bool {
+	// Modern browsers attach Sec-Fetch-Site to navigation requests. An empty
+	// value remains allowed for older corporate browsers and server-side probes.
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "cross-site")
 }
 
 func (h *Handler) revokeLocalAuthSession(r *http.Request) {

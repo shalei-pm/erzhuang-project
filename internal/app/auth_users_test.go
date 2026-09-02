@@ -11,7 +11,7 @@ func TestAuthUserPermissionsIncludeAuditViewForAdminOnly(t *testing.T) {
 		want          []string
 		wantAuditView bool
 	}{
-		{role: RoleAdmin, want: []string{RoleAdmin, PermissionStoreRead, PermissionStoreWrite, PermissionUserManage, PermissionAuditView}, wantAuditView: true},
+		{role: RoleAdmin, want: []string{RoleAdmin, PermissionStoreRead, PermissionStoreWrite, PermissionStoreExport, PermissionUserManage, PermissionAuditView}, wantAuditView: true},
 		{role: RoleEditor, want: []string{RoleEditor, PermissionStoreRead, PermissionStoreWrite}},
 		{role: RoleViewer, want: []string{RoleViewer, PermissionStoreRead}},
 	}

@@ -32,8 +32,6 @@ import (
 )
 
 func TestHealth(t *testing.T) {
-	const wantVersion = "v2"
-
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	recorder := httptest.NewRecorder()
 
@@ -48,20 +46,22 @@ func TestHealth(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	if response.App != AppName {
-		t.Fatalf("expected app %q, got %q", AppName, response.App)
-	}
 	if response.Status != "ok" {
 		t.Fatalf("expected status ok, got %q", response.Status)
 	}
-	if response.Version != wantVersion {
-		t.Fatalf("expected version %q, got %q", wantVersion, response.Version)
+	if recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("health cache control = %q", recorder.Header().Get("Cache-Control"))
 	}
-	if response.Database != "memory" {
-		t.Fatalf("expected database memory, got %q", response.Database)
-	}
-	if response.AssetStore != "local" {
-		t.Fatalf("expected asset store local, got %q", response.AssetStore)
+	for header, want := range map[string]string{
+		"Content-Security-Policy": "base-uri 'self'; frame-ancestors 'self'; object-src 'none'",
+		"Permissions-Policy":      "camera=(), geolocation=(), microphone=()",
+		"Referrer-Policy":         "strict-origin-when-cross-origin",
+		"X-Content-Type-Options":  "nosniff",
+		"X-Frame-Options":         "SAMEORIGIN",
+	} {
+		if got := recorder.Header().Get(header); got != want {
+			t.Fatalf("header %s = %q, want %q", header, got, want)
+		}
 	}
 }
 
@@ -83,9 +83,6 @@ func TestHealthDegradedWhenStorePingFails(t *testing.T) {
 	if response.Status != "degraded" {
 		t.Fatalf("expected status degraded, got %q", response.Status)
 	}
-	if response.Database != "error" {
-		t.Fatalf("expected database error, got %q", response.Database)
-	}
 }
 
 func TestHealthUnderConfiguredBasePath(t *testing.T) {
@@ -104,9 +101,6 @@ func TestHealthUnderConfiguredBasePath(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	if response.App != AppName {
-		t.Fatalf("expected app %q, got %q", AppName, response.App)
-	}
 	if response.Status != "ok" {
 		t.Fatalf("expected status ok, got %q", response.Status)
 	}
@@ -466,7 +460,7 @@ func TestAuthUserPermissionsForAdminEditorViewer(t *testing.T) {
 		role string
 		want []string
 	}{
-		{role: "admin", want: []string{"admin", "store:read", "store:write", "user:manage", PermissionAuditView}},
+		{role: "admin", want: []string{"admin", "store:read", "store:write", PermissionStoreExport, "user:manage", PermissionAuditView}},
 		{role: "editor", want: []string{"editor", "store:read", "store:write"}},
 		{role: "viewer", want: []string{"viewer", "store:read"}},
 		{role: "", want: []string{"viewer", "store:read"}},
@@ -788,6 +782,78 @@ func TestStoreSpaceWriteRequiresStoreWritePermission(t *testing.T) {
 
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusForbidden, recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestStoreSpaceLegacyReadAndExportRequireManagementPermission(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+	store := NewMemoryStore()
+	if err := store.setAuthUserForTest(AuthUserRecord{ID: 11, Email: "legacy-viewer@example.com", Role: RoleViewer, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	token := signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{"mail": "legacy-viewer@example.com", "display": "普通查看用户"},
+		"exp":  time.Now().Add(time.Hour).Unix(),
+		"sub":  "lite.sy.soyoung.com",
+	})
+	for _, path := range []string{
+		"/api/store-space/stores",
+		"/api/store-space/stores/1",
+		"/api/store-space/stores/1/design-plan-data",
+		"/api/store-space/stores/1/channel-data",
+		"/api/store-space/stores/1/channel-mappings/export.xlsx",
+		"/api/store-space/channel-snapshots/example.jpg",
+	} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: token})
+			recorder := httptest.NewRecorder()
+			NewHandlerWithStore(store).ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusForbidden {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestStoreSpaceExportRequiresAdminAndWritesAudit(t *testing.T) {
+	privateKey := newTestRSAKey(t)
+	t.Setenv("SSO_ENABLED", "true")
+	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
+	store := NewMemoryStore()
+	if err := store.setAuthUserForTest(AuthUserRecord{ID: 12, Email: "export-admin@example.com", DisplayName: "导出管理员", Role: RoleAdmin, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/store-space/stores/1/channel-mappings/export.xlsx", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]any{"mail": "export-admin@example.com", "display": "导出管理员"},
+		"exp":  time.Now().Add(time.Hour).Unix(),
+		"sub":  "lite.sy.soyoung.com",
+	})})
+	recorder := httptest.NewRecorder()
+
+	NewHandlerWithStore(store).ServeHTTP(recorder, request)
+	if recorder.Code == http.StatusForbidden || recorder.Code == http.StatusUnauthorized || recorder.Code == http.StatusServiceUnavailable {
+		t.Fatalf("export should pass the authorization and audit guards, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	logs, err := store.ListAuditLogs(context.Background(), AuditLogFilter{Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs.Items) != 1 || logs.Items[0].Action != "store_space.channel_mapping.export" {
+		t.Fatalf("export audit logs = %#v", logs.Items)
+	}
+}
+
+func TestRemovedEzvizDiagnosticRouteReturnsNotFound(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/store-space/diagnostics/ezviz/live-address", nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -2150,12 +2216,12 @@ func setMySQLAssetInventoryRunnerForTest(runner mysqlAssetInventoryRunner) func(
 }
 
 type recordingSQLDriver struct {
-	driverName      string
-	mu              sync.Mutex
-	execCalls       []recordingSQLCall
+	driverName       string
+	mu               sync.Mutex
+	execCalls        []recordingSQLCall
 	execRowsAffected int64
-	execErr         error
-	queryExists     bool
+	execErr          error
+	queryExists      bool
 }
 
 type recordingSQLCall struct {
@@ -2166,9 +2232,9 @@ type recordingSQLCall struct {
 func newRecordingSQLDriver(t *testing.T) *recordingSQLDriver {
 	t.Helper()
 	driver := &recordingSQLDriver{
-		driverName:      "recording-sql-" + strings.ReplaceAll(t.Name(), "/", "-"),
+		driverName:       "recording-sql-" + strings.ReplaceAll(t.Name(), "/", "-"),
 		execRowsAffected: 1,
-		queryExists:     true,
+		queryExists:      true,
 	}
 	sql.Register(driver.driverName, driver)
 	return driver

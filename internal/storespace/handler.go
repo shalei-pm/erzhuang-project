@@ -45,7 +45,7 @@ func RegisterRoutesWithWriteGuard(mux *http.ServeMux, service *Service, writeGua
 	RegisterRoutesWithGuards(mux, service, nil, writeGuard)
 }
 
-func RegisterRoutesWithGuards(mux *http.ServeMux, service *Service, readGuard RouteMiddleware, writeGuard RouteMiddleware) {
+func RegisterRoutesWithGuards(mux *http.ServeMux, service *Service, readGuard RouteMiddleware, writeGuard RouteMiddleware, exportGuards ...RouteMiddleware) {
 	handler := NewHandler(service)
 	read := func(next http.HandlerFunc) http.HandlerFunc {
 		if readGuard == nil {
@@ -59,9 +59,12 @@ func RegisterRoutesWithGuards(mux *http.ServeMux, service *Service, readGuard Ro
 		}
 		return read(writeGuard(next))
 	}
+	export := read
+	if len(exportGuards) > 0 && exportGuards[0] != nil {
+		export = exportGuards[0]
+	}
 	mux.HandleFunc("GET /api/store-space/ezviz-accounts", read(handler.listEzvizAccounts))
 	mux.HandleFunc("POST /api/store-space/ezviz-accounts", write(handler.createEzvizAccount))
-	mux.HandleFunc("POST /api/store-space/diagnostics/ezviz/live-address", write(handler.getEzvizLiveAddress))
 	mux.HandleFunc("GET /api/store-space/stores", read(handler.listStores))
 	mux.HandleFunc("POST /api/store-space/stores", write(handler.createStore))
 	mux.HandleFunc("POST /api/store-space/stores/check-duplicate", read(handler.checkDuplicate))
@@ -69,7 +72,7 @@ func RegisterRoutesWithGuards(mux *http.ServeMux, service *Service, readGuard Ro
 	mux.HandleFunc("PATCH /api/store-space/stores/{id}", write(handler.updateStoreBasicInfo))
 	mux.HandleFunc("GET /api/store-space/stores/{id}/design-plan-data", read(handler.getStoreDesignPlanData))
 	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-data", read(handler.getStoreChannelData))
-	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-mappings/export.xlsx", read(handler.exportChannelMappings))
+	mux.HandleFunc("GET /api/store-space/stores/{id}/channel-mappings/export.xlsx", export(handler.exportChannelMappings))
 	mux.HandleFunc("PUT /api/store-space/stores/{id}/design-plan", write(handler.saveDesignPlan))
 	mux.HandleFunc("POST /api/store-space/stores/{id}/recorders", write(handler.addRecorder))
 	mux.HandleFunc("DELETE /api/store-space/stores/{id}", write(handler.deleteStore))
@@ -106,19 +109,6 @@ func (h *Handler) createEzvizAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, account)
-}
-
-func (h *Handler) getEzvizLiveAddress(w http.ResponseWriter, r *http.Request) {
-	var input LiveAddressInput
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	result, err := h.service.GetLiveAddress(r.Context(), input)
-	if err != nil {
-		handleServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {

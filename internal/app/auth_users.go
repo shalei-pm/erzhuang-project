@@ -17,10 +17,11 @@ const (
 	RoleEditor = "editor"
 	RoleViewer = "viewer"
 
-	PermissionStoreRead  = "store:read"
-	PermissionStoreWrite = "store:write"
-	PermissionUserManage = "user:manage"
-	PermissionAuditView  = "audit.view"
+	PermissionStoreRead   = "store:read"
+	PermissionStoreWrite  = "store:write"
+	PermissionStoreExport = "store:export"
+	PermissionUserManage  = "user:manage"
+	PermissionAuditView   = "audit.view"
 
 	ResourceTypeStore = "store"
 	ScopeMonitorView  = "monitor:view"
@@ -94,7 +95,7 @@ type AuthUserMutationAuditStore interface {
 func (record AuthUserRecord) permissions() []string {
 	switch strings.ToLower(strings.TrimSpace(record.Role)) {
 	case RoleAdmin:
-		return []string{RoleAdmin, PermissionStoreRead, PermissionStoreWrite, PermissionUserManage, PermissionAuditView}
+		return []string{RoleAdmin, PermissionStoreRead, PermissionStoreWrite, PermissionStoreExport, PermissionUserManage, PermissionAuditView}
 	case RoleEditor:
 		return []string{RoleEditor, PermissionStoreRead, PermissionStoreWrite}
 	default:

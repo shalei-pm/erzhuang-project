@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
@@ -27,18 +26,15 @@ import (
 )
 
 const (
-	AppName            = "erzhuang-project"
-	Version            = "v2"
-	defaultAppBasePath = "/erzhuang-project"
-	legacyAppBasePath  = "/erzhuang"
+	AppName             = "erzhuang-project"
+	Version             = "v2"
+	defaultAppBasePath  = "/erzhuang-project"
+	legacyAppBasePath   = "/erzhuang"
+	maxRequestBodyBytes = 8 << 20
 )
 
 type HealthResponse struct {
-	App        string `json:"app"`
-	Status     string `json:"status"`
-	Version    string `json:"version"`
-	Database   string `json:"database"`
-	AssetStore string `json:"asset_store"`
+	Status string `json:"status"`
 }
 
 type Task struct {
@@ -157,7 +153,7 @@ func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.S
 	mux.HandleFunc("GET /api/admin/ops/mysql-canary-validate", handler.mysqlCanaryValidateHandler)
 	mux.HandleFunc("GET /api/admin/ops/mysql-asset-inventory", handler.mysqlAssetInventoryHandler)
 	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
-	storespace.RegisterRoutesWithGuards(mux, storeSpaceService, handler.monitorVisibilityMiddleware, handler.storeWriteGuard)
+	storespace.RegisterRoutesWithGuards(mux, storeSpaceService, handler.storeWriteGuard, nil, handler.storeExportGuard)
 	resourceview.RegisterRoutesWithReadGuard(mux, resourceViewService, handler.resourceViewMonitorAccess, handler.storeReadGuard)
 	mux.HandleFunc("GET /api/store-space-resource-view/stores/{tenantId}/cameras/{cameraId}/snapshot", handler.storeReadGuard(handler.resourceViewLegacySnapshotHandler))
 	mux.HandleFunc("POST /api/store-space/stores/{storeId}/channels/{channelId}/snapshot/view", handler.storeReadGuard(handler.recordChannelSnapshotView))
@@ -169,7 +165,7 @@ func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.S
 		h5monitor.RegisterRoutesWithAuthorizer(mux, h5MonitorService, h5MonitorAuthorizer{handler: handler})
 	}
 	registerFrontendRoutes(mux)
-	return withBasePathAPIPrefixes(handler.authGate(mux))
+	return withBasePathAPIPrefixes(withHTTPHardening(handler.authGate(mux)))
 }
 
 func (h *Handler) monitorModeHandler(w http.ResponseWriter, _ *http.Request) {
@@ -279,19 +275,35 @@ func (h *Handler) storeReadGuard(next http.HandlerFunc) http.HandlerFunc {
 	return h.requirePermissionHandler(PermissionStoreRead, next)
 }
 
-func (h *Handler) monitorVisibilityMiddleware(next http.HandlerFunc) http.HandlerFunc {
+// storeExportGuard keeps screenshot-bearing legacy exports to administrators
+// and makes a persisted audit record a precondition for the export.
+func (h *Handler) storeExportGuard(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		resolver := storespace.MonitorVisibilityResolver(func(ctx context.Context, externalOrgID string) (bool, error) {
-			user, err := h.currentAuthUser(r)
-			if errors.Is(err, errUnauthorizedAuth) || errors.Is(err, errForbiddenAuth) {
-				return false, nil
+		if _, ok := h.requirePermission(w, r, PermissionStoreExport); !ok {
+			return
+		}
+
+		storeID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("id")), 10, 64)
+		if err == nil && storeID > 0 {
+			detail, _ := json.Marshal(map[string]any{
+				"summary":  "导出通道映射",
+				"store_id": storeID,
+			})
+			event := auditlog.AuditEvent{
+				Action:     "store_space.channel_mapping.export",
+				EntityType: "store",
+				EntityID:   int64Pointer(storeID),
+				StoreID:    int64Pointer(storeID),
+				Result:     "success",
+				DetailJSON: detail,
 			}
-			if err != nil {
-				return false, err
+			if err := h.recordMonitorAudit(r.Context(), r, event); err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "audit_unavailable", "error": "导出审计记录失败，请稍后重试"})
+				return
 			}
-			return h.store.CanUserViewMonitorStore(ctx, user, externalOrgID)
-		})
-		next(w, r.WithContext(storespace.WithMonitorVisibilityResolver(r.Context(), resolver)))
+		}
+
+		next(w, r)
 	}
 }
 
@@ -368,6 +380,23 @@ func withBasePathAPIPrefixes(next http.Handler) http.Handler {
 	})
 }
 
+func withHTTPHardening(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "base-uri 'self'; frame-ancestors 'self'; object-src 'none'")
+		w.Header().Set("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/health" {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func configuredBasePaths() []string {
 	basePath := normalizeBasePath(os.Getenv("APP_BASE_PATH"))
 	paths := []string{basePath}
@@ -426,19 +455,11 @@ func frontendPath(frontendDir string, name string) string {
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
 	status := "ok"
-	database := h.store.Name()
 	if err := h.store.Ping(r.Context()); err != nil {
 		status = "degraded"
-		database = "error"
 	}
 
-	writeJSON(w, http.StatusOK, HealthResponse{
-		App:        AppName,
-		Status:     status,
-		Version:    Version,
-		Database:   database,
-		AssetStore: assets.ModeFromEnv(),
-	})
+	writeJSON(w, http.StatusOK, HealthResponse{Status: status})
 }
 
 func (h *Handler) tasksHandler(w http.ResponseWriter, r *http.Request) {

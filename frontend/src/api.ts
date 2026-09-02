@@ -146,21 +146,6 @@ export type SnapshotDiagnostics = {
   detail?: string;
 };
 
-export type LiveAddressPayload = {
-  ezvizAccountId?: number | "";
-  accountName?: string;
-  deviceSerial: string;
-  channelNo: number;
-  code?: string;
-};
-
-export type LiveAddressResult = {
-  url: string;
-  urlId: string;
-  expireTime: string;
-  protocol: string;
-};
-
 export type StoreListResponse = {
   items: StoreSummary[];
   page: number;
@@ -501,15 +486,6 @@ type BackendUploadResult = {
   thumbnail_path: string;
   preview_url: string;
   thumbnail_url: string;
-};
-
-type BackendLiveAddressResult = {
-  url: string;
-  url_id?: string;
-  urlId?: string;
-  expire_time?: string;
-  expireTime?: string;
-  protocol?: string;
 };
 
 type BackendRecognitionResult = {
@@ -2023,20 +1999,6 @@ const storeSpaceHttpAdapter = {
     return mapBackendSnapshotDiagnostics(response);
   },
 
-  async getLiveAddress(payload: LiveAddressPayload): Promise<LiveAddressResult> {
-    const response = await requestJSON<BackendLiveAddressResult>(`${STORE_SPACE_API_BASE}/diagnostics/ezviz/live-address`, {
-      method: "POST",
-      body: JSON.stringify({
-        ezviz_account_id: payload.ezvizAccountId ? Number(payload.ezvizAccountId) : 0,
-        account_name: payload.accountName?.trim() ?? "",
-        device_serial: payload.deviceSerial.trim(),
-        channel_no: Number(payload.channelNo),
-        code: payload.code?.trim() ?? "",
-      }),
-    });
-    return mapBackendLiveAddress(response);
-  },
-
   async confirmChannel(channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/channels/${channelId}/confirmation`, {
       method: "PUT",
@@ -2417,18 +2379,6 @@ export const storeSpaceApi = {
       };
     }
     return storeSpaceHttpAdapter.diagnoseChannelSnapshot(snapshotName);
-  },
-
-  async getLiveAddress(payload: LiveAddressPayload): Promise<LiveAddressResult> {
-    if (API_MODE === "mock") {
-      return {
-        url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-        urlId: "mock-url-id",
-        expireTime: "mock",
-        protocol: "hls",
-      };
-    }
-    return storeSpaceHttpAdapter.getLiveAddress(payload);
   },
 
   async confirmChannel(storeId: number, channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
@@ -3105,15 +3055,6 @@ function mapBackendSnapshotDiagnostics(diagnostics: BackendSnapshotDiagnostics):
     snapshotKey: diagnostics.snapshot_key ?? diagnostics.snapshotKey ?? "",
     exists: Boolean(diagnostics.exists),
     detail: diagnostics.detail ?? "",
-  };
-}
-
-function mapBackendLiveAddress(result: BackendLiveAddressResult): LiveAddressResult {
-  return {
-    url: result.url ?? "",
-    urlId: result.url_id ?? result.urlId ?? "",
-    expireTime: result.expire_time ?? result.expireTime ?? "",
-    protocol: result.protocol ?? "hls",
   };
 }
 

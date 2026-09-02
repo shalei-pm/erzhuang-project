@@ -86,55 +86,14 @@ func (s *Service) DiagnoseChannelSnapshot(ctx context.Context, name string) Snap
 type ChannelScanner interface {
 	ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error)
 	CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error)
-	LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error)
 }
 
 type ChannelRecognizer interface {
 	RecognizeChannel(ctx context.Context, imageURL string) (ChannelRecognitionResult, error)
 }
 
-type LiveAddressInput struct {
-	AccountID    int64  `json:"ezviz_account_id"`
-	AccountName  string `json:"account_name"`
-	DeviceSerial string `json:"device_serial"`
-	ChannelNo    int    `json:"channel_no"`
-	Code         string `json:"code"`
-}
-
-type LiveAddressResult struct {
-	URL        string `json:"url"`
-	URLID      string `json:"url_id"`
-	ExpireTime string `json:"expire_time"`
-	Protocol   string `json:"protocol"`
-}
-
 func (s *Service) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error) {
 	return s.repo.ListEzvizAccounts(ctx)
-}
-
-func (s *Service) GetLiveAddress(ctx context.Context, input LiveAddressInput) (LiveAddressResult, error) {
-	if s.scanner == nil {
-		return LiveAddressResult{}, ErrNotImplemented
-	}
-	deviceSerial := strings.ToUpper(strings.TrimSpace(input.DeviceSerial))
-	if deviceSerial == "" {
-		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"device_serial": "录像机设备编码必填"}}
-	}
-	if input.ChannelNo <= 0 {
-		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"channel_no": "通道号必须大于 0"}}
-	}
-	account := EzvizAccount{ID: input.AccountID, AccountName: strings.TrimSpace(input.AccountName)}
-	if account.ID > 0 {
-		stored, err := s.repo.GetEzvizAccount(ctx, account.ID)
-		if err != nil {
-			return LiveAddressResult{}, err
-		}
-		account = *stored
-	}
-	if strings.TrimSpace(account.AccountName) == "" {
-		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"ezviz_account_id": "请选择萤石云账号区域"}}
-	}
-	return s.scanner.LiveAddress(ctx, account, Recorder{DeviceCode: deviceSerial}, input.ChannelNo, strings.TrimSpace(input.Code))
 }
 
 func (s *Service) SyncEzvizAccountNames(ctx context.Context, accountNames []string) error {

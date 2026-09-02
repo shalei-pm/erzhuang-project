@@ -58,6 +58,23 @@ func TestAPISIXSSOLogoutGetRejectsUnsafeRedirect(t *testing.T) {
 	}
 }
 
+func TestAPISIXSSOLogoutGetRejectsCrossSiteNavigation(t *testing.T) {
+	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
+	t.Setenv("SSO_ENABLED", "true")
+	request := httptest.NewRequest(http.MethodGet, "https://lite.sy.soyoung.com/erzhuang-project/logout", nil)
+	request.Header.Set("Sec-Fetch-Site", "cross-site")
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: "token-value"})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if len(recorder.Result().Cookies()) != 0 {
+		t.Fatalf("cross-site request must not clear cookies: %#v", recorder.Result().Cookies())
+	}
+}
+
 func TestAPISIXSSOLogoutRecordsServerSideActorSnapshot(t *testing.T) {
 	store, handler, privateKey := newAuthAuditTestHandler(t)
 	request := httptest.NewRequest(http.MethodPost, "https://lite.sy.soyoung.com/api/auth/logout", nil)

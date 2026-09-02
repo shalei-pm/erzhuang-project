@@ -8,7 +8,6 @@ import {
   type ResourceStoreListSummary,
   type ResourceStoreSummary,
 } from "./api";
-import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
 import { ResourceStoreDetail } from "./components/ResourceStoreDetail";
 import { ResourceStoreList } from "./components/ResourceStoreList";
 import { SystemTopBar } from "./components/SystemTopBar";
@@ -104,10 +103,6 @@ function AdminApp() {
   const detailRequestIdRef = useRef(0);
   const authRedirectingRef = useRef(false);
   const companyEntryRedirectAttemptedRef = useRef(false);
-
-  if (new URLSearchParams(window.location.search).get("tool") === "ezviz-live-demo") {
-    return <EzvizLiveDemo appVersion={APP_VERSION} />;
-  }
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const visibleStores = stores;
