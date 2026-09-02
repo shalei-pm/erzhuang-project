@@ -37,6 +37,7 @@ func newIdleSessionTestHandler(t *testing.T, sessions authSessionStore, now time
 		now:         func() time.Time { return now },
 		idleTimeout: defaultAuthIdleTimeout,
 	}
+	store.now = h.authNow
 	return h, privateKey
 }
 
@@ -180,7 +181,11 @@ func TestIdleAuthGateExpiresSessionAndAuditsWithoutLeakingToken(t *testing.T) {
 	if got.revokeReason != "idle_timeout" || got.revokedAt.IsZero() {
 		t.Fatalf("session revoke = reason %q at %s", got.revokeReason, got.revokedAt)
 	}
-	logs, err := h.store.ListAuditLogs(context.Background(), AuditLogFilter{
+	auditStore, ok := h.store.(AuditLogStore)
+	if !ok {
+		t.Fatal("idle session test store does not implement AuditLogStore")
+	}
+	logs, err := auditStore.ListAuditLogs(context.Background(), AuditLogFilter{
 		StartAt: time.Unix(0, 0), EndAt: expiredAt.Add(time.Hour), PageSize: 100,
 	})
 	if err != nil {
@@ -312,7 +317,11 @@ func TestManualLogoutRevokesLocalSessionAndClearsCookies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := idleSessionRequest(t, privateKey, "/api/auth/logout", now)
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
+		"data": map[string]string{"mail": "idle@example.com", "username": "idle-user", "display": "Idle User"},
+		"exp":  now.Add(time.Hour).Unix(),
+	})})
 	request.AddCookie(&http.Cookie{Name: authSessionCookieName, Value: token})
 	recorder := httptest.NewRecorder()
 	h.authLogoutHandler(recorder, request)

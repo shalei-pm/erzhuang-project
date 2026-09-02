@@ -55,6 +55,11 @@ type Store interface {
 	AuthUserStore
 }
 
+// memoryStoreMarker identifies the local adapter even when it is wrapped by a test store.
+type memoryStoreMarker interface {
+	isMemoryStore()
+}
+
 type Handler struct {
 	store                    Store
 	auth                     AuthConfig
@@ -112,7 +117,7 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	var sessionStore authSessionStore
 	if candidate, ok := store.(authSessionStore); ok {
 		sessionStore = candidate
-	} else if _, ok := store.(*MemoryStore); ok {
+	} else if _, ok := store.(memoryStoreMarker); ok {
 		// The memory adapter is only a local/test persistence substitute.
 		sessionStore = newMemoryAuthSessionStore()
 	}

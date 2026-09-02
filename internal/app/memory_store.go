@@ -77,6 +77,8 @@ func (s *MemoryStore) Name() string {
 	return "memory"
 }
 
+func (*MemoryStore) isMemoryStore() {}
+
 func (s *MemoryStore) Ping(ctx context.Context) error {
 	return nil
 }

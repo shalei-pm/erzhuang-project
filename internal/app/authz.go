@@ -29,9 +29,9 @@ type authenticatedAuthContext struct {
 }
 
 type authSessionAuthentication struct {
-	identity    authenticatedAuthContext
-	newToken    string
-	createdNew  bool
+	identity   authenticatedAuthContext
+	newToken   string
+	createdNew bool
 }
 
 func (h *Handler) currentAuthUser(r *http.Request) (AuthUserRecord, error) {
@@ -54,18 +54,23 @@ func (h *Handler) currentAuthIdentity(r *http.Request) (authenticatedAuthContext
 }
 
 func (h *Handler) authenticateRequest(r *http.Request) (authSessionAuthentication, error) {
-	if !h.auth.Enabled {
-		return authSessionAuthentication{identity: authenticatedAuthContext{
-			record: AuthUserRecord{Role: RoleAdmin, Enabled: true},
-		}}, nil
-	}
 	cookie, err := r.Cookie(h.auth.CookieName)
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		if !h.auth.Enabled {
+			return authSessionAuthentication{identity: authenticatedAuthContext{
+				record: AuthUserRecord{Role: RoleAdmin, Enabled: true},
+			}}, nil
+		}
 		return authSessionAuthentication{}, errUnauthorizedAuth
 	}
 	now := h.authNow()
 	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, now)
 	if err != nil {
+		if !h.auth.Enabled {
+			return authSessionAuthentication{identity: authenticatedAuthContext{
+				record: AuthUserRecord{Role: RoleAdmin, Enabled: true},
+			}}, nil
+		}
 		return authSessionAuthentication{}, errUnauthorizedAuth
 	}
 	claimsUser := claims.authUser()
@@ -76,18 +81,21 @@ func (h *Handler) authenticateRequest(r *http.Request) (authSessionAuthenticatio
 	if err != nil {
 		return authSessionAuthentication{}, err
 	}
+	identity := authenticatedAuthContext{record: record, user: claimsUser}
+	if !h.auth.Enabled {
+		return authSessionAuthentication{identity: identity}, nil
+	}
 	if h.authSessionStore == nil {
 		return authSessionAuthentication{}, errAuthSessionUnavailable
 	}
-	identity := authenticatedAuthContext{record: record, user: claimsUser}
 	localCookie, localErr := r.Cookie(authSessionCookieName)
 	if localErr != nil || strings.TrimSpace(localCookie.Value) == "" {
 		token, err := h.authSessionStore.CreateAuthSession(r.Context(), AuthSessionCreate{
-			UserID:    record.ID,
+			UserID:     record.ID,
 			SSOSubject: claims.Sub,
-			IPAddress: requestIPAddress(r),
-			UserAgent: strings.TrimSpace(r.UserAgent()),
-			Now:       now,
+			IPAddress:  requestIPAddress(r),
+			UserAgent:  strings.TrimSpace(r.UserAgent()),
+			Now:        now,
 		})
 		if err != nil || strings.TrimSpace(token) == "" {
 			return authSessionAuthentication{}, errAuthSessionUnavailable

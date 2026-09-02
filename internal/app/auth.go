@@ -111,10 +111,6 @@ func isTruthy(value string) bool {
 }
 
 func (h *Handler) authMeHandler(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.Enabled {
-		h.writeLocalAdminAuth(w)
-		return
-	}
 	identity, err := h.currentAuthIdentity(r)
 	if err != nil {
 		h.writeAuthError(w, r, err)
@@ -122,6 +118,10 @@ func (h *Handler) authMeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	record := identity.record
 	user := identity.user
+	if user.Email == "" {
+		h.writeLocalAdminAuth(w)
+		return
+	}
 	record, err = h.store.UpdateAuthUserProfile(r.Context(), AuthUserPatch{
 		Email:        user.Email,
 		Username:     user.Username,

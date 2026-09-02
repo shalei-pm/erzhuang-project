@@ -1,7 +1,7 @@
 -- DBA migration for tb_auth_sessions.
 -- The preflight queries are read-only. The procedure below is idempotent for
 -- the table, column, and index existence cases described by the preflight.
--- Application startup does not execute this migration.
+-- This file is never executed by application startup.
 
 -- ============================================================================
 -- 1. Read-only preflight
