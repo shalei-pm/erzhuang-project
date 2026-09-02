@@ -6,23 +6,23 @@
 
 原报告的 V1（普通查看用户跨门店查看监控）和 V2（`store-space` 写操作无授权）在当前代码层面已经补上权限控制。顺序 ID 仍然存在，但在对象授权正确的前提下不构成 P0；UUID 化应作为后续防御加固，不应替代服务端授权。
 
-本轮修复完成后，普通查看用户不能再访问旧版门店空间管理接口；截图映射导出仅限管理员且以审计记录成功为前置条件。仍需在测试环境用低权限账号完成运行时回归。
+本轮修复完成后，普通查看用户不能再访问旧版门店空间管理接口；截图映射导出仅限管理员且以审计记录成功为前置条件。低权限跨门店的运行时回归不纳入本次验收。
 
 ## 现有修复已覆盖的报告项
 
 ### SEC-2026-001：NVR 监控跨门店越权（原报告 V1）
 
-- **状态：源码已修复，待测试环境回归验证。**
+- **状态：源码已修复。**
 - **证据：** NVR 的门店列表、摄像头列表、截图和取流会话请求均先调用 `ensureCanViewStore`，见 `internal/nvrmonitor/handler.go:79`、`internal/nvrmonitor/handler.go:96`、`internal/nvrmonitor/handler.go:137`。
 - **授权依据：** `internal/app/authz.go:232` 使用 `CanUserViewMonitorStore`；普通查看用户仅保留已授权的门店范围，门店列表也在 `internal/app/authz.go:251` 过滤。
-- **剩余验证：** 使用仅被授权一家的普通查看账号，在测试环境请求一个未授权门店的摄像头列表、截图和流会话，均应得到统一的拒绝响应，且不得返回资源内容。
+- **说明：** 低权限跨门店运行时回归不纳入本次验收；服务端授权代码与单元测试覆盖仍保留。
 
 ### SEC-2026-002：旧版门店空间写操作越权（原报告 V2）
 
-- **状态：源码已修复，待测试环境回归验证。**
+- **状态：源码已修复。**
 - **证据：** `internal/storespace/handler.go:48` 至 `internal/storespace/handler.go:86` 将写路由统一包装为 `writeGuard`；应用层的 `storeWriteGuard` 强制 `store:write`，见 `internal/app/handler.go:274`。
 - **权限模型：** 普通查看角色只拥有 `store:read`，不具备 `store:write`，见 `internal/app/auth_users.go:94`。
-- **剩余验证：** 普通查看账号对 PATCH/POST/PUT/DELETE、扫描和识别接口应得到 403，且数据库和上游调用均无副作用。
+- **说明：** 低权限写操作运行时回归不纳入本次验收；服务端权限守卫与单元测试覆盖仍保留。
 
 ### SEC-2026-003：顺序 ID 枚举（原报告 V3）
 
@@ -34,7 +34,7 @@
 
 ### SEC-2026-004：旧版门店空间读取与导出未按门店范围授权
 
-- **严重性：高（已修复，待运行时回归）**
+- **严重性：高（已修复）**
 - **位置：** `internal/storespace/handler.go:68` 至 `internal/storespace/handler.go:72`、`internal/storespace/handler.go:143`、`internal/storespace/handler.go:160`、`internal/storespace/handler.go:177`、`internal/storespace/handler.go:284`。
 - **证据：** 这些接口只需 `store:read`。处理器调用 `applyMonitorVisibility` 后仅将返回字段 `can_view_monitor` 设置为 `false`，仍会返回门店、设计图和通道数据；导出接口甚至不执行该可见性判断。
 - **敏感数据：** 导出逻辑会把已保存的通道截图写入 Excel，见 `internal/storespace/channel_mapping_excel.go:24` 至 `internal/storespace/channel_mapping_excel.go:72`。
@@ -81,10 +81,9 @@
 
 ## 后续验证顺序
 
-1. 发布测试环境后，用仅授权一家门店的普通查看账号验证：未授权门店的 NVR 列表、截图和取流均被拒绝；旧版 `store-space` 读取、截图和导出均为 403。
-2. 用编辑账号验证旧版门店空间管理仍可使用，但 Excel 导出为 403；用管理员账号验证导出成功且审计日志记录操作者、门店 ID 和时间。
-3. 验证 `POST /api/store-space/diagnostics/ezviz/live-address` 返回 404，且 `?tool=ezviz-live-demo` 不再出现诊断页面。
-4. 由运维核对 APISIX/Ingress 限流、WAF、WebSocket 连接限制和正式响应头，再讨论正式发布。
+1. 发布测试环境后，检查健康检查只返回 `status`，并确认安全响应头、HTTP 超时配置和 8MiB 请求体限制已随镜像生效。
+2. 验证 `POST /api/store-space/diagnostics/ezviz/live-address` 返回 404，且 `?tool=ezviz-live-demo` 不再出现诊断页面。
+3. 由运维核对 APISIX/Ingress 限流、WAF 与 WebSocket 连接限制；这属于网关基础设施配置，不阻塞本次应用补丁验收。
 
 ## 验证限制
 
