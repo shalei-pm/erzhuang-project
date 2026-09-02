@@ -369,12 +369,14 @@ function AdminApp() {
         {settingsSection === "audit" ? (
           <AuditLogManagement onToast={setToast} onAuthRequired={handleAuthRequired} />
         ) : settingsSection === "security" ? (
-          <section className="user-scope-panel" aria-label="安全设置">
-            <div className="user-switch-field">
-              <span className="user-switch-copy"><strong>监控截图水印</strong><em>截图右上角展示账号姓名与服务端时间</em></span>
+          <section className="security-settings-page" aria-label="安全设置">
+            <div className="security-settings-card">
+              <div className="security-setting-row">
+                <span className="security-setting-copy"><strong>监控截图水印</strong><em>截图右上角展示账号姓名与服务端时间</em></span>
               <button type="button" className={`switch-control ${screenshotWatermarkEnabled ? "is-on" : ""}`} disabled={screenshotWatermarkEnabled === null || savingScreenshotWatermark} onClick={() => void toggleScreenshotWatermark()}>
                 {screenshotWatermarkEnabled ? "已开启" : "已关闭"}
               </button>
+              </div>
             </div>
           </section>
         ) : (

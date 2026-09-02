@@ -6296,3 +6296,9 @@ git pull --ff-only
 - 用户点击截图写入 `monitor.screenshot` 审计事件；缩略图加载、打开大图、首帧缩略图回填、刷新缩略图不写该事件。管理员变更开关写入 `system.monitor_screenshot_watermark.update`，日志摘要展示“监控截图水印：启用 -> 停用”或反向变化。
 - 本地验证：`internal/app` 定向测试通过，前端 Vitest `16 files / 92 tests` 与生产构建通过，`go build ./...` 与 `git diff --check` 通过。全仓 `go test ./...` 仅既有 `internal/nvrlab` 和 `internal/nvrmonitor` 的两项 HTTP 客户端测试因当前沙箱禁止监听 IPv6 `::1` 失败；本次相关 `internal/app` 包通过。
 - 发布目标仅为 GitLab 测试分支 `codex/containerize-single-image` / Wharf `752`；尚未推送或验证测试页面，不操作 `main`、正式环境、数据库 DDL 或 K8s Secret。
+
+### 2026-09-02 3.4.3 安全设置布局校正
+
+- 浏览器插件实测 `3.4.2` 在 `2560px` 宽屏下错误复用了用户门店授权的全宽容器，安全设置面板实际宽度为 `2448px`，而系统设置的内容基准为 `1440px`。
+- 安全设置改为独立的紧凑设置面板：与系统设置 Tab 左边界对齐，最大宽度为 `720px`；开关保持右对齐，标题与说明采用既有系统 13px/12px 信息层级。仅调整前端样式与语义 class，不改变水印开关、权限或审计逻辑。
+- 发布目标仍仅为 GitLab 测试分支 `codex/containerize-single-image` / Wharf `752`，不操作 `main`、正式环境、数据库或 K8s 配置。
