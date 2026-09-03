@@ -112,31 +112,6 @@ func (s *Service) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error)
 	return s.repo.ListEzvizAccounts(ctx)
 }
 
-func (s *Service) GetLiveAddress(ctx context.Context, input LiveAddressInput) (LiveAddressResult, error) {
-	if s.scanner == nil {
-		return LiveAddressResult{}, ErrNotImplemented
-	}
-	deviceSerial := strings.ToUpper(strings.TrimSpace(input.DeviceSerial))
-	if deviceSerial == "" {
-		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"device_serial": "录像机设备编码必填"}}
-	}
-	if input.ChannelNo <= 0 {
-		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"channel_no": "通道号必须大于 0"}}
-	}
-	account := EzvizAccount{ID: input.AccountID, AccountName: strings.TrimSpace(input.AccountName)}
-	if account.ID > 0 {
-		stored, err := s.repo.GetEzvizAccount(ctx, account.ID)
-		if err != nil {
-			return LiveAddressResult{}, err
-		}
-		account = *stored
-	}
-	if strings.TrimSpace(account.AccountName) == "" {
-		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"ezviz_account_id": "请选择萤石云账号区域"}}
-	}
-	return s.scanner.LiveAddress(ctx, account, Recorder{DeviceCode: deviceSerial}, input.ChannelNo, strings.TrimSpace(input.Code))
-}
-
 func (s *Service) SyncEzvizAccountNames(ctx context.Context, accountNames []string) error {
 	seen := map[string]struct{}{}
 	for _, accountName := range accountNames {

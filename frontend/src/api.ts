@@ -146,21 +146,6 @@ export type SnapshotDiagnostics = {
   detail?: string;
 };
 
-export type LiveAddressPayload = {
-  ezvizAccountId?: number | "";
-  accountName?: string;
-  deviceSerial: string;
-  channelNo: number;
-  code?: string;
-};
-
-export type LiveAddressResult = {
-  url: string;
-  urlId: string;
-  expireTime: string;
-  protocol: string;
-};
-
 export type StoreListResponse = {
   items: StoreSummary[];
   page: number;
@@ -175,6 +160,158 @@ export type StoreListSummary = {
   consultationCount: number;
   treatmentCount: number;
   beautyCount: number;
+};
+
+export type ResourceIssueSeverity = "error" | "warning" | "info";
+export type ResourceIssueType =
+  | "unbound_camera"
+  | "inactive_bound_space"
+  | "missing_camera"
+  | "missing_space"
+  | "missing_nvr"
+  | "offline_edge"
+  | "offline_nvr"
+  | "offline_camera"
+  | "camera_bound_many_spaces"
+  | "space_bound_many_cameras";
+
+export type ResourceStoreListSummary = {
+  storeCount: number;
+  edgeCount: number;
+  nvrCount: number;
+  cameraCount: number;
+  spaceCount: number;
+  consultationCameraCount: number;
+  treatmentCameraCount: number;
+  boundCameraCount: number;
+  unboundCameraCount: number;
+  offlineDeviceCount: number;
+  warningCount: number;
+};
+
+export type ResourceCityOption = {
+  cityId: number;
+  name: string;
+  count: number;
+};
+
+export type ResourceStoreSummary = {
+  tenantId: number;
+  storeName: string;
+  hospitalName: string;
+  cityId: number;
+  cityName: string;
+  edgeCount: number;
+  nvrCount: number;
+  cameraCount: number;
+  spaceCount: number;
+  consultationCameraCount: number;
+  treatmentCameraCount: number;
+  boundCameraCount: number;
+  unboundCameraCount: number;
+  offlineDeviceCount: number;
+  warningCount: number;
+  camerasFullyBound: boolean;
+  updatedAt: string;
+  canViewMonitor: boolean;
+  monitorUrl?: string;
+};
+
+export type ResourceDevice = {
+  id: number;
+  parentId: number;
+  tenantId: number;
+  name: string;
+  hardwareId: string;
+  sn?: string;
+  ip?: string;
+  category: "edge" | "nvr" | "camera" | string;
+  provider?: string;
+  status: number;
+  statusText: string;
+  onlineStatus: number;
+  onlineText: string;
+  extSummary?: string;
+  heartbeatAt?: string;
+};
+
+export type ResourceCamera = ResourceDevice & {
+  channelNo?: number;
+  nvrId: number;
+  nvrName?: string;
+  spacePaths: string[];
+  thumbnailKind?: string;
+  thumbnailUrl?: string;
+};
+
+export type ResourceSpace = {
+  id: number;
+  tenantId: number;
+  parentId: number;
+  name: string;
+  code?: string;
+  level: number;
+  status: number;
+  statusText: string;
+  dictId: number;
+  sortOrder: number;
+  boundCameraIds: number[];
+  boundCameraCount: number;
+};
+
+export type ResourceAreaDeviceRelation = {
+  id: number;
+  deviceId: number;
+  areaId: number;
+  functionType: string;
+};
+
+export type ResourceSpaceNode = ResourceSpace & {
+  boundCameras: ResourceCamera[];
+  children: ResourceSpaceNode[];
+};
+
+export type ResourceDeviceTree = {
+  edges: ResourceDevice[];
+  nvrs: Array<ResourceDevice & { cameras: ResourceCamera[] }>;
+};
+
+export type ResourceIssue = {
+  severity: ResourceIssueSeverity;
+  type: ResourceIssueType;
+  message: string;
+  entityType: string;
+  entityId: number;
+};
+
+export type ResourceStoreDetail = {
+  tenantId: number;
+  storeName: string;
+  hospitalName: string;
+  cityId: number;
+  cityName: string;
+  camerasFullyBound: boolean;
+  updatedAt: string;
+  summary: ResourceStoreListSummary;
+  edges: ResourceDevice[];
+  nvrs: ResourceDevice[];
+  cameras: ResourceCamera[];
+  spaces: ResourceSpace[];
+  relations: ResourceAreaDeviceRelation[];
+  spaceTree: ResourceSpaceNode[];
+  deviceTree: ResourceDeviceTree;
+  issues: ResourceIssue[];
+  canViewMonitor: boolean;
+  monitorUrl?: string;
+};
+
+export type ResourceStoreListResponse = {
+  items: ResourceStoreSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
+  summary: ResourceStoreListSummary;
+  cities: ResourceCityOption[];
 };
 
 export type UploadResult = {
@@ -242,6 +379,10 @@ export type AISettings = {
   label: string;
 };
 
+export type MonitorScreenshotWatermarkSettings = {
+  enabled: boolean;
+};
+
 export type ManagedUserRole = "admin" | "editor" | "viewer";
 
 export type MonitorStoreScope = {
@@ -270,6 +411,25 @@ export type ManagedUserPayload = {
   role: ManagedUserRole;
   enabled: boolean;
   monitorStoreScopeIds: number[];
+};
+
+export type AuditLogItem = {
+  actorDisplayName: string;
+  userEmail: string;
+  action: string;
+  entityType: string;
+  entityId?: number;
+  externalOrgId: string;
+  result: "success" | "denied" | "failed" | string;
+  createdAt: string;
+  summary: string;
+};
+
+export type AuditLogPage = {
+  items: AuditLogItem[];
+  page: number;
+  pageSize: number;
+  total: number;
 };
 
 type ApiMode = "auto" | "http" | "mock";
@@ -326,15 +486,6 @@ type BackendUploadResult = {
   thumbnail_path: string;
   preview_url: string;
   thumbnail_url: string;
-};
-
-type BackendLiveAddressResult = {
-  url: string;
-  url_id?: string;
-  urlId?: string;
-  expire_time?: string;
-  expireTime?: string;
-  protocol?: string;
 };
 
 type BackendRecognitionResult = {
@@ -493,6 +644,18 @@ type BackendMonitorStoreScope = {
   externalOrgId?: string;
 };
 
+type BackendAuditLogItem = {
+  actor_display_name?: string;
+  user_email?: string;
+  action?: string;
+  entity_type?: string;
+  entity_id?: number;
+  external_org_id?: string;
+  result?: string;
+  created_at?: string;
+  summary?: string;
+};
+
 type BackendStoreSpaceListResponse = {
   items: BackendStoreSpaceSummary[];
   page: number;
@@ -513,6 +676,197 @@ type BackendStoreListSummary = {
   treatmentCount?: number;
   beauty_count?: number;
   beautyCount?: number;
+};
+
+type BackendResourceStoreListResponse = {
+  items?: BackendResourceStoreSummary[];
+  page?: number;
+  page_size?: number;
+  pageSize?: number;
+  total?: number;
+  summary?: BackendResourceStoreListSummary;
+  cities?: BackendResourceCityOption[];
+};
+
+type BackendResourceCityOption = {
+  city_id?: number;
+  cityId?: number;
+  name?: string;
+  count?: number;
+};
+
+type BackendResourceStoreListSummary = {
+  store_count?: number;
+  storeCount?: number;
+  edge_count?: number;
+  edgeCount?: number;
+  nvr_count?: number;
+  nvrCount?: number;
+  camera_count?: number;
+  cameraCount?: number;
+  space_count?: number;
+  spaceCount?: number;
+  consultation_camera_count?: number;
+  consultationCameraCount?: number;
+  treatment_camera_count?: number;
+  treatmentCameraCount?: number;
+  bound_camera_count?: number;
+  boundCameraCount?: number;
+  unbound_camera_count?: number;
+  unboundCameraCount?: number;
+  offline_device_count?: number;
+  offlineDeviceCount?: number;
+  warning_count?: number;
+  warningCount?: number;
+};
+
+type BackendResourceStoreSummary = {
+  tenant_id?: number;
+  tenantId?: number;
+  store_name?: string;
+  storeName?: string;
+  hospital_name?: string;
+  hospitalName?: string;
+  city_id?: number;
+  cityId?: number;
+  city_name?: string;
+  cityName?: string;
+  edge_count?: number;
+  edgeCount?: number;
+  nvr_count?: number;
+  nvrCount?: number;
+  camera_count?: number;
+  cameraCount?: number;
+  space_count?: number;
+  spaceCount?: number;
+  consultation_camera_count?: number;
+  consultationCameraCount?: number;
+  treatment_camera_count?: number;
+  treatmentCameraCount?: number;
+  bound_camera_count?: number;
+  boundCameraCount?: number;
+  unbound_camera_count?: number;
+  unboundCameraCount?: number;
+  offline_device_count?: number;
+  offlineDeviceCount?: number;
+  warning_count?: number;
+  warningCount?: number;
+  cameras_fully_bound?: boolean;
+  camerasFullyBound?: boolean;
+  updated_at?: string;
+  updatedAt?: string;
+  can_view_monitor?: boolean;
+  canViewMonitor?: boolean;
+  monitor_url?: string;
+  monitorUrl?: string;
+};
+
+type BackendResourceDevice = {
+  id?: number;
+  parent_id?: number;
+  parentId?: number;
+  tenant_id?: number;
+  tenantId?: number;
+  name?: string;
+  hardware_id?: string;
+  hardwareId?: string;
+  sn?: string;
+  ip?: string;
+  category?: string;
+  provider?: string;
+  status?: number;
+  status_text?: string;
+  statusText?: string;
+  online_status?: number;
+  onlineStatus?: number;
+  online_text?: string;
+  onlineText?: string;
+  ext_summary?: string;
+  extSummary?: string;
+  heartbeat_at?: string;
+  heartbeatAt?: string;
+};
+
+type BackendResourceCamera = BackendResourceDevice & {
+  channel_no?: number;
+  channelNo?: number;
+  nvr_id?: number;
+  nvrId?: number;
+  nvr_name?: string;
+  nvrName?: string;
+  space_paths?: string[];
+  spacePaths?: string[];
+  thumbnail_kind?: string;
+  thumbnailKind?: string;
+  thumbnail_url?: string;
+  thumbnailUrl?: string;
+};
+
+type BackendResourceSpace = {
+  id?: number;
+  tenant_id?: number;
+  tenantId?: number;
+  parent_id?: number;
+  parentId?: number;
+  name?: string;
+  code?: string;
+  level?: number;
+  status?: number;
+  status_text?: string;
+  statusText?: string;
+  dict_id?: number;
+  dictId?: number;
+  sort_order?: number;
+  sortOrder?: number;
+  bound_camera_ids?: number[];
+  boundCameraIds?: number[];
+  bound_camera_count?: number;
+  boundCameraCount?: number;
+};
+
+type BackendResourceAreaDeviceRelation = {
+  id?: number;
+  device_id?: number;
+  deviceId?: number;
+  area_id?: number;
+  areaId?: number;
+  function_type?: string;
+  functionType?: string;
+};
+
+type BackendResourceSpaceNode = BackendResourceSpace & {
+  bound_cameras?: BackendResourceCamera[];
+  boundCameras?: BackendResourceCamera[];
+  children?: BackendResourceSpaceNode[];
+};
+
+type BackendResourceDeviceTree = {
+  edges?: BackendResourceDevice[];
+  nvrs?: Array<BackendResourceDevice & { cameras?: BackendResourceCamera[] }>;
+};
+
+type BackendResourceIssue = {
+  severity?: ResourceIssueSeverity;
+  type?: ResourceIssueType;
+  message?: string;
+  entity_type?: string;
+  entityType?: string;
+  entity_id?: number;
+  entityId?: number;
+};
+
+type BackendResourceStoreDetail = BackendResourceStoreSummary & {
+  summary?: BackendResourceStoreListSummary;
+  edges?: BackendResourceDevice[];
+  nvrs?: BackendResourceDevice[];
+  cameras?: BackendResourceCamera[];
+  spaces?: BackendResourceSpace[];
+  relations?: BackendResourceAreaDeviceRelation[];
+  space_tree?: BackendResourceSpaceNode[];
+  spaceTree?: BackendResourceSpaceNode[];
+  device_tree?: BackendResourceDeviceTree;
+  deviceTree?: BackendResourceDeviceTree;
+  issues?: BackendResourceIssue[];
 };
 
 type BackendStoreSpaceSummary = {
@@ -644,6 +998,7 @@ const API_BASE = trimTrailingSlash(import.meta.env.VITE_DESIGN_PLAN_API_BASE || 
 const DEFAULT_STORE_SPACE_API_BASE = defaultApiBase("store-space", import.meta.env.BASE_URL);
 const STORE_SPACE_API_BASE = trimTrailingSlash(import.meta.env.VITE_STORE_SPACE_API_BASE || DEFAULT_STORE_SPACE_API_BASE);
 const APP_API_BASE = STORE_SPACE_API_BASE.replace(/\/api\/store-space$/, "/api");
+const RESOURCE_VIEW_API_BASE = `${APP_API_BASE}/store-space-resource-view`;
 const API_MODE = normalizeApiMode(import.meta.env.VITE_DESIGN_PLAN_API_MODE);
 const MOCK_PLAN_IMAGE = sampleStoreFloorPlanUrl;
 const MOCK_ORIGINAL_PDF_PATH = "mock/uploads/sample-store-floor-plan.pdf";
@@ -1163,6 +1518,201 @@ const mockAdapter = {
   },
 };
 
+const mockResourceViewAdapter = {
+  async listStores(query = "", page = 1, pageSize = PAGE_SIZE, cityId: number | "all" = "all"): Promise<ResourceStoreListResponse> {
+    await delay(120);
+    const filtered = mockStores
+      .map(mockStoreToResourceDetail)
+      .filter((store) => {
+        const queryValue = query.trim().toLowerCase();
+        return !queryValue || `${store.storeName} ${store.hospitalName} ${store.tenantId}`.toLowerCase().includes(queryValue);
+      })
+      .filter((store) => cityId === "all" || store.cityId === cityId)
+      .sort((left, right) => left.tenantId - right.tenantId);
+    const cityCounts = new Map<number, ResourceCityOption>();
+    for (const store of filtered) {
+      if (!store.cityId) continue;
+      const current = cityCounts.get(store.cityId);
+      cityCounts.set(store.cityId, {
+        cityId: store.cityId,
+        name: store.cityName,
+        count: (current?.count ?? 0) + 1,
+      });
+    }
+    const start = (page - 1) * pageSize;
+    return {
+      items: filtered.slice(start, start + pageSize).map(resourceDetailToSummary),
+      page,
+      pageSize,
+      total: filtered.length,
+      summary: summarizeResourceStoreSummaries(filtered.map(resourceDetailToSummary)),
+      cities: [...cityCounts.values()].sort((left, right) => left.cityId - right.cityId),
+    };
+  },
+
+  async getStore(tenantId: number): Promise<ResourceStoreDetail> {
+    await delay(100);
+    const detail = mockStores.map(mockStoreToResourceDetail).find((store) => store.tenantId === tenantId);
+    if (!detail) throw new ApiError(404, "门店不存在");
+    return clone(detail);
+  },
+};
+
+function mockStoreToResourceDetail(store: StoreDetail): ResourceStoreDetail {
+  const tenantId = Number(store.externalOrgId.replace(/\D/g, "")) || 10000 + store.id;
+  const edge: ResourceDevice = {
+    id: tenantId * 10 + 1,
+    parentId: 0,
+    tenantId,
+    name: `${store.name} 工控机`,
+    hardwareId: `EDGE-${tenantId}`,
+    category: "edge",
+    status: 1,
+    statusText: "启用",
+    onlineStatus: 1,
+    onlineText: "在线",
+  };
+  const nvr: ResourceDevice = {
+    id: tenantId * 10 + 2,
+    parentId: 0,
+    tenantId,
+    name: `${store.name} NVR`,
+    hardwareId: `NVR-${tenantId}`,
+    category: "nvr",
+    status: 1,
+    statusText: "启用",
+    onlineStatus: store.status === "needs_review" ? 2 : 1,
+    onlineText: store.status === "needs_review" ? "离线" : "在线",
+  };
+  const cameras: ResourceCamera[] = store.areas.slice(0, 6).map((areaItem, index) => ({
+    id: tenantId * 100 + index + 1,
+    parentId: nvr.id,
+    tenantId,
+    name: `摄像头 ${index + 1}`,
+    hardwareId: `NVRCHANNEL:${nvr.id}-${index + 1}`,
+    category: "camera",
+    status: 1,
+    statusText: "启用",
+    onlineStatus: 1,
+    onlineText: "在线",
+    channelNo: index + 1,
+    nvrId: nvr.id,
+    nvrName: nvr.name,
+    spacePaths: [`${areaItem.type || "业务空间"} / ${areaItem.name}`],
+  }));
+  const spaces: ResourceSpaceNode[] = store.areas.map((areaItem, index) => {
+    const camera = cameras[index % Math.max(1, cameras.length)];
+    return {
+      id: tenantId * 1000 + index + 1,
+      tenantId,
+      parentId: 0,
+      name: areaItem.name,
+      code: areaItem.number,
+      level: 2,
+      status: 1,
+      statusText: "启用",
+      dictId: 0,
+      sortOrder: index + 1,
+      boundCameraIds: camera ? [camera.id] : [],
+      boundCameraCount: camera ? 1 : 0,
+      boundCameras: camera ? [camera] : [],
+      children: [],
+    };
+  });
+  const issues: ResourceIssue[] =
+    store.status === "needs_review"
+      ? [
+          {
+            severity: "warning",
+            type: "offline_nvr",
+            message: "NVR 离线，请检查业务库设备状态",
+            entityType: "device",
+            entityId: nvr.id,
+          },
+        ]
+      : [];
+  const summary = summarizeResourceStoreSummaries([
+    {
+      tenantId,
+      storeName: store.name,
+      hospitalName: store.name,
+      cityId: mockCityId(store.city),
+      cityName: store.city || "未分城市",
+      edgeCount: 1,
+      nvrCount: 1,
+      cameraCount: cameras.length,
+      spaceCount: store.areas.length,
+      consultationCameraCount: store.areas.slice(0, 6).filter((area) => area.type === "consultation").length,
+      treatmentCameraCount: store.areas.slice(0, 6).filter((area) => area.type === "treatment" || area.type === "vip_treatment").length,
+      boundCameraCount: cameras.length,
+      unboundCameraCount: 0,
+      offlineDeviceCount: store.status === "needs_review" ? 1 : 0,
+      warningCount: issues.length,
+      camerasFullyBound: cameras.length > 0,
+      updatedAt: store.updatedAt,
+      canViewMonitor: store.canViewMonitor,
+      monitorUrl: store.canViewMonitor ? `/erzhuang-project/h5/orgs/${tenantId}/monitor` : undefined,
+    },
+  ]);
+  return {
+    tenantId,
+    storeName: store.name,
+    hospitalName: store.name,
+    cityId: mockCityId(store.city),
+    cityName: store.city || "未分城市",
+    camerasFullyBound: cameras.length > 0,
+    updatedAt: store.updatedAt,
+    summary,
+    edges: [edge],
+    nvrs: [nvr],
+    cameras,
+    spaces,
+    relations: spaces.flatMap((space) => space.boundCameraIds.map((cameraId) => ({ id: cameraId + space.id, deviceId: cameraId, areaId: space.id, functionType: "camera" }))),
+    spaceTree: spaces,
+    deviceTree: { edges: [edge], nvrs: [{ ...nvr, cameras }] },
+    issues,
+    canViewMonitor: store.canViewMonitor,
+    monitorUrl: store.canViewMonitor ? `/erzhuang-project/h5/orgs/${tenantId}/monitor` : undefined,
+  };
+}
+
+function resourceDetailToSummary(detail: ResourceStoreDetail): ResourceStoreSummary {
+  return {
+    tenantId: detail.tenantId,
+    storeName: detail.storeName,
+    hospitalName: detail.hospitalName,
+    cityId: detail.cityId,
+    cityName: detail.cityName,
+    edgeCount: detail.summary.edgeCount,
+    nvrCount: detail.summary.nvrCount,
+    cameraCount: detail.summary.cameraCount,
+    spaceCount: detail.summary.spaceCount,
+    consultationCameraCount: detail.summary.consultationCameraCount,
+    treatmentCameraCount: detail.summary.treatmentCameraCount,
+    boundCameraCount: detail.summary.boundCameraCount,
+    unboundCameraCount: detail.summary.unboundCameraCount,
+    offlineDeviceCount: detail.summary.offlineDeviceCount,
+    warningCount: detail.summary.warningCount,
+    camerasFullyBound: detail.camerasFullyBound,
+    updatedAt: detail.updatedAt,
+    canViewMonitor: detail.canViewMonitor,
+    monitorUrl: detail.monitorUrl,
+  };
+}
+
+function mockCityId(city: string) {
+  const known: Record<string, number> = {
+    北京: 1,
+    上海: 9,
+    杭州: 175,
+    广州: 289,
+    深圳: 291,
+    成都: 385,
+    南京: 125,
+  };
+  return known[city] ?? 0;
+}
+
 const httpAdapter = {
   async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {
     const search = storeListSearchParams({ query, cityFilter, page, pageSize });
@@ -1241,6 +1791,17 @@ const storeSpaceHttpAdapter = {
     return requestJSON<AISettings>(`${APP_API_BASE}/ai-settings/toggle`, { method: "POST" });
   },
 
+  async getMonitorScreenshotWatermarkSettings(): Promise<MonitorScreenshotWatermarkSettings> {
+    return requestJSON<MonitorScreenshotWatermarkSettings>(`${APP_API_BASE}/monitor-screenshot-watermark-settings`);
+  },
+
+  async setMonitorScreenshotWatermarkSettings(enabled: boolean): Promise<MonitorScreenshotWatermarkSettings> {
+    return requestJSON<MonitorScreenshotWatermarkSettings>(`${APP_API_BASE}/monitor-screenshot-watermark-settings`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    });
+  },
+
   async getAuthMe(): Promise<AuthState> {
     return requestJSON<AuthState>(`${APP_API_BASE}/auth/me`);
   },
@@ -1273,6 +1834,29 @@ const storeSpaceHttpAdapter = {
   async listMonitorStoreScopeCandidates(): Promise<MonitorStoreScope[]> {
     const response = await requestJSON<{ stores: BackendMonitorStoreScope[] }>(`${APP_API_BASE}/users/monitor-store-scope-candidates`);
     return (response.stores ?? []).map(mapMonitorStoreScope);
+  },
+
+  async listAuditLogs(startDate: string, endDate: string, userId = "", action = "", page = 1): Promise<AuditLogPage> {
+    const params = new URLSearchParams({ start_time: startDate, end_time: endDate, page: String(page), page_size: "20" });
+    if (userId) params.set("user_id", userId);
+    if (action) params.set("action", action);
+    const response = await requestJSON<{ items?: BackendAuditLogItem[]; page?: number; page_size?: number; total?: number }>(`${APP_API_BASE}/admin/audit-logs?${params.toString()}`);
+    return {
+      items: (response.items ?? []).map((item) => ({
+        actorDisplayName: item.actor_display_name ?? "",
+        userEmail: item.user_email ?? "",
+        action: item.action ?? "",
+        entityType: item.entity_type ?? "",
+        entityId: item.entity_id,
+        externalOrgId: item.external_org_id ?? "",
+        result: item.result ?? "",
+        createdAt: item.created_at ?? "",
+        summary: item.summary ?? "",
+      })),
+      page: response.page ?? page,
+      pageSize: response.page_size ?? 20,
+      total: response.total ?? 0,
+    };
   },
 
   async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
@@ -1402,25 +1986,17 @@ const storeSpaceHttpAdapter = {
     return mapBackendChannel(response, 0, "");
   },
 
+  async recordChannelSnapshotView(storeId: number, channelId: number): Promise<void> {
+    await requestJSON<void>(`${STORE_SPACE_API_BASE}/stores/${storeId}/channels/${channelId}/snapshot/view`, {
+      method: "POST",
+    });
+  },
+
   async diagnoseChannelSnapshot(snapshotName: string): Promise<SnapshotDiagnostics> {
     const response = await requestJSON<BackendSnapshotDiagnostics>(
       `${STORE_SPACE_API_BASE}/channel-snapshots/${encodeURIComponent(snapshotName)}/diagnostics`,
     );
     return mapBackendSnapshotDiagnostics(response);
-  },
-
-  async getLiveAddress(payload: LiveAddressPayload): Promise<LiveAddressResult> {
-    const response = await requestJSON<BackendLiveAddressResult>(`${STORE_SPACE_API_BASE}/diagnostics/ezviz/live-address`, {
-      method: "POST",
-      body: JSON.stringify({
-        ezviz_account_id: payload.ezvizAccountId ? Number(payload.ezvizAccountId) : 0,
-        account_name: payload.accountName?.trim() ?? "",
-        device_serial: payload.deviceSerial.trim(),
-        channel_no: Number(payload.channelNo),
-        code: payload.code?.trim() ?? "",
-      }),
-    });
-    return mapBackendLiveAddress(response);
   },
 
   async confirmChannel(channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
@@ -1466,6 +2042,22 @@ const storeSpaceHttpAdapter = {
 
   async exportChannelMappings(storeId: number): Promise<void> {
     await downloadFile(`${STORE_SPACE_API_BASE}/stores/${storeId}/channel-mappings/export.xlsx`);
+  },
+};
+
+const resourceViewHttpAdapter = {
+  async listStores(query = "", page = 1, pageSize = PAGE_SIZE, cityId: number | "all" = "all"): Promise<ResourceStoreListResponse> {
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    const cleanQuery = query.trim();
+    if (cleanQuery) params.set("q", cleanQuery);
+    if (cityId !== "all") params.set("city_id", String(cityId));
+    const response = await requestJSON<BackendResourceStoreListResponse>(`${resourceViewStoresPath()}?${params.toString()}`);
+    return mapResourceStoreListResponse(response, page, pageSize);
+  },
+
+  async getStore(tenantId: number): Promise<ResourceStoreDetail> {
+    const response = await requestJSON<BackendResourceStoreDetail>(resourceViewStorePath(tenantId));
+    return mapResourceStoreDetail(response);
   },
 };
 
@@ -1542,6 +2134,16 @@ export const storeSpaceApi = {
     return storeSpaceHttpAdapter.toggleAISettings();
   },
 
+  async getMonitorScreenshotWatermarkSettings(): Promise<MonitorScreenshotWatermarkSettings> {
+    if (API_MODE === "mock") return { enabled: true };
+    return storeSpaceHttpAdapter.getMonitorScreenshotWatermarkSettings();
+  },
+
+  async setMonitorScreenshotWatermarkSettings(enabled: boolean): Promise<MonitorScreenshotWatermarkSettings> {
+    if (API_MODE === "mock") return { enabled };
+    return storeSpaceHttpAdapter.setMonitorScreenshotWatermarkSettings(enabled);
+  },
+
   async getAuthMe(): Promise<AuthState> {
     if (API_MODE === "mock") {
       return {
@@ -1613,6 +2215,13 @@ export const storeSpaceApi = {
         .map((store) => ({ storeId: store.id, city: store.city, name: store.name, externalOrgId: store.externalOrgId }));
     }
     return storeSpaceHttpAdapter.listMonitorStoreScopeCandidates();
+  },
+
+  async listAuditLogs(startDate: string, endDate: string, userId = "", action = "", page = 1): Promise<AuditLogPage> {
+    if (API_MODE === "mock") {
+      return { items: [], page, pageSize: 20, total: 0 };
+    }
+    return storeSpaceHttpAdapter.listAuditLogs(startDate, endDate, userId, action, page);
   },
 
   async listStores(query: string, page: number, pageSize = PAGE_SIZE, cityFilter = "all"): Promise<StoreListResponse> {
@@ -1753,6 +2362,11 @@ export const storeSpaceApi = {
     return storeSpaceHttpAdapter.refreshChannelSnapshot(channelId);
   },
 
+  async recordChannelSnapshotView(storeId: number, channelId: number): Promise<void> {
+    if (API_MODE === "mock") return;
+    return storeSpaceHttpAdapter.recordChannelSnapshotView(storeId, channelId);
+  },
+
   async diagnoseChannelSnapshot(snapshotName: string): Promise<SnapshotDiagnostics> {
     if (API_MODE === "mock") {
       return {
@@ -1765,18 +2379,6 @@ export const storeSpaceApi = {
       };
     }
     return storeSpaceHttpAdapter.diagnoseChannelSnapshot(snapshotName);
-  },
-
-  async getLiveAddress(payload: LiveAddressPayload): Promise<LiveAddressResult> {
-    if (API_MODE === "mock") {
-      return {
-        url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-        urlId: "mock-url-id",
-        expireTime: "mock",
-        protocol: "hls",
-      };
-    }
-    return storeSpaceHttpAdapter.getLiveAddress(payload);
   },
 
   async confirmChannel(storeId: number, channelId: number, patch: Partial<VideoChannel>): Promise<StoreDetail> {
@@ -1826,6 +2428,28 @@ export const storeSpaceApi = {
   },
 };
 
+export const storeSpaceResourceViewApi = {
+  endpoints: {
+    base: RESOURCE_VIEW_API_BASE,
+    stores: resourceViewStoresPath(),
+    store: resourceViewStorePath,
+  },
+
+  async listStores(query = "", page = 1, pageSize = PAGE_SIZE, cityId: number | "all" = "all"): Promise<ResourceStoreListResponse> {
+    if (API_MODE === "mock") {
+      return mockResourceViewAdapter.listStores(query, page, pageSize, cityId);
+    }
+    return resourceViewHttpAdapter.listStores(query, page, pageSize, cityId);
+  },
+
+  async getStore(tenantId: number): Promise<ResourceStoreDetail> {
+    if (API_MODE === "mock") {
+      return mockResourceViewAdapter.getStore(tenantId);
+    }
+    return resourceViewHttpAdapter.getStore(tenantId);
+  },
+};
+
 async function withFallback<T>(httpCall: () => Promise<T>, mockCall: () => Promise<T>): Promise<T> {
   if (API_MODE === "mock") {
     return mockCall();
@@ -1847,12 +2471,13 @@ async function withFallback<T>(httpCall: () => Promise<T>, mockCall: () => Promi
 
 async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(url, {
+    ...options,
+    credentials: "include",
     headers: {
       Accept: "application/json",
       ...(options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
     },
-    ...options,
   });
 
   if (response.status === 204) {
@@ -1885,14 +2510,22 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
 const channelMappingExcelMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 async function downloadFile(url: string): Promise<void> {
-  const response = await fetch(url, { headers: { Accept: channelMappingExcelMime } });
+  const response = await fetch(url, { credentials: "include", headers: { Accept: channelMappingExcelMime } });
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.includes("application/json")) {
       const data = await response.json();
       const fields = data && typeof data === "object" && "fields" in data && isStringRecord(data.fields) ? data.fields : {};
-      const message = data && typeof data === "object" && "error" in data ? String(data.error) : `HTTP ${response.status}`;
-      throw new ApiError(response.status, message, fields);
+      const message =
+        data && typeof data === "object" && "message" in data
+          ? String(data.message)
+          : data && typeof data === "object" && "error" in data
+            ? String(data.error)
+            : `HTTP ${response.status}`;
+      const code = data && typeof data === "object" && "code" in data ? String(data.code) : "";
+      const stage = data && typeof data === "object" && "stage" in data ? String(data.stage) : "";
+      const detail = data && typeof data === "object" && "detail" in data ? String(data.detail) : "";
+      throw new ApiError(response.status, message, fields, code, stage, detail);
     }
     throw new ApiError(response.status, `HTTP ${response.status}`);
   }
@@ -2092,6 +2725,198 @@ function summarizeStoreSummaries(stores: StoreSummary[]): StoreListSummary {
   );
 }
 
+function mapResourceStoreListResponse(response: BackendResourceStoreListResponse, fallbackPage = 1, fallbackPageSize = PAGE_SIZE): ResourceStoreListResponse {
+  const items = (response.items ?? []).map(mapResourceStoreSummary);
+  return {
+    items,
+    page: response.page ?? fallbackPage,
+    pageSize: response.page_size ?? response.pageSize ?? fallbackPageSize,
+    total: response.total ?? items.length,
+    summary: response.summary ? mapResourceStoreListSummary(response.summary) : summarizeResourceStoreSummaries(items),
+    cities: (response.cities ?? []).map(mapResourceCityOption),
+  };
+}
+
+function mapResourceCityOption(option: BackendResourceCityOption): ResourceCityOption {
+  return {
+    cityId: option.city_id ?? option.cityId ?? 0,
+    name: option.name ?? "",
+    count: option.count ?? 0,
+  };
+}
+
+function mapResourceStoreSummary(store: BackendResourceStoreSummary): ResourceStoreSummary {
+  return {
+    tenantId: store.tenant_id ?? store.tenantId ?? 0,
+    storeName: store.store_name ?? store.storeName ?? "",
+    hospitalName: store.hospital_name ?? store.hospitalName ?? "",
+    cityId: store.city_id ?? store.cityId ?? 0,
+    cityName: store.city_name ?? store.cityName ?? "",
+    edgeCount: store.edge_count ?? store.edgeCount ?? 0,
+    nvrCount: store.nvr_count ?? store.nvrCount ?? 0,
+    cameraCount: store.camera_count ?? store.cameraCount ?? 0,
+    spaceCount: store.space_count ?? store.spaceCount ?? 0,
+    consultationCameraCount: store.consultation_camera_count ?? store.consultationCameraCount ?? 0,
+    treatmentCameraCount: store.treatment_camera_count ?? store.treatmentCameraCount ?? 0,
+    boundCameraCount: store.bound_camera_count ?? store.boundCameraCount ?? 0,
+    unboundCameraCount: store.unbound_camera_count ?? store.unboundCameraCount ?? 0,
+    offlineDeviceCount: store.offline_device_count ?? store.offlineDeviceCount ?? 0,
+    warningCount: store.warning_count ?? store.warningCount ?? 0,
+    camerasFullyBound: store.cameras_fully_bound ?? store.camerasFullyBound ?? false,
+    updatedAt: store.updated_at ?? store.updatedAt ?? "",
+    canViewMonitor: store.can_view_monitor ?? store.canViewMonitor ?? false,
+    monitorUrl: store.monitor_url ?? store.monitorUrl,
+  };
+}
+
+function mapResourceStoreListSummary(summary: BackendResourceStoreListSummary): ResourceStoreListSummary {
+  return {
+    storeCount: summary.store_count ?? summary.storeCount ?? 0,
+    edgeCount: summary.edge_count ?? summary.edgeCount ?? 0,
+    nvrCount: summary.nvr_count ?? summary.nvrCount ?? 0,
+    cameraCount: summary.camera_count ?? summary.cameraCount ?? 0,
+    spaceCount: summary.space_count ?? summary.spaceCount ?? 0,
+    consultationCameraCount: summary.consultation_camera_count ?? summary.consultationCameraCount ?? 0,
+    treatmentCameraCount: summary.treatment_camera_count ?? summary.treatmentCameraCount ?? 0,
+    boundCameraCount: summary.bound_camera_count ?? summary.boundCameraCount ?? 0,
+    unboundCameraCount: summary.unbound_camera_count ?? summary.unboundCameraCount ?? 0,
+    offlineDeviceCount: summary.offline_device_count ?? summary.offlineDeviceCount ?? 0,
+    warningCount: summary.warning_count ?? summary.warningCount ?? 0,
+  };
+}
+
+function summarizeResourceStoreSummaries(stores: ResourceStoreSummary[]): ResourceStoreListSummary {
+  return stores.reduce(
+    (summary, store) => ({
+      storeCount: summary.storeCount + 1,
+      edgeCount: summary.edgeCount + store.edgeCount,
+      nvrCount: summary.nvrCount + store.nvrCount,
+      cameraCount: summary.cameraCount + store.cameraCount,
+      spaceCount: summary.spaceCount + store.spaceCount,
+      consultationCameraCount: summary.consultationCameraCount + store.consultationCameraCount,
+      treatmentCameraCount: summary.treatmentCameraCount + store.treatmentCameraCount,
+      boundCameraCount: summary.boundCameraCount + store.boundCameraCount,
+      unboundCameraCount: summary.unboundCameraCount + store.unboundCameraCount,
+      offlineDeviceCount: summary.offlineDeviceCount + store.offlineDeviceCount,
+      warningCount: summary.warningCount + store.warningCount,
+    }),
+    {
+      storeCount: 0,
+      edgeCount: 0,
+      nvrCount: 0,
+      cameraCount: 0,
+      spaceCount: 0,
+      consultationCameraCount: 0,
+      treatmentCameraCount: 0,
+      boundCameraCount: 0,
+      unboundCameraCount: 0,
+      offlineDeviceCount: 0,
+      warningCount: 0,
+    },
+  );
+}
+
+function mapResourceStoreDetail(store: BackendResourceStoreDetail): ResourceStoreDetail {
+  return {
+    ...mapResourceStoreSummary(store),
+    summary: store.summary ? mapResourceStoreListSummary(store.summary) : summarizeResourceStoreSummaries([mapResourceStoreSummary(store)]),
+    edges: (store.edges ?? []).map(mapResourceDevice),
+    nvrs: (store.nvrs ?? []).map(mapResourceDevice),
+    cameras: (store.cameras ?? []).map(mapResourceCamera),
+    spaces: (store.spaces ?? []).map(mapResourceSpace),
+    relations: (store.relations ?? []).map(mapResourceRelation),
+    spaceTree: (store.space_tree ?? store.spaceTree ?? []).map(mapResourceSpaceNode),
+    deviceTree: mapResourceDeviceTree(store.device_tree ?? store.deviceTree),
+    issues: (store.issues ?? []).map(mapResourceIssue),
+  };
+}
+
+function mapResourceDevice(device: BackendResourceDevice): ResourceDevice {
+  return {
+    id: device.id ?? 0,
+    parentId: device.parent_id ?? device.parentId ?? 0,
+    tenantId: device.tenant_id ?? device.tenantId ?? 0,
+    name: device.name ?? "",
+    hardwareId: device.hardware_id ?? device.hardwareId ?? "",
+    sn: device.sn,
+    ip: device.ip,
+    category: device.category ?? "",
+    provider: device.provider,
+    status: device.status ?? 0,
+    statusText: device.status_text ?? device.statusText ?? "",
+    onlineStatus: device.online_status ?? device.onlineStatus ?? 0,
+    onlineText: device.online_text ?? device.onlineText ?? "",
+    extSummary: device.ext_summary ?? device.extSummary,
+    heartbeatAt: device.heartbeat_at ?? device.heartbeatAt,
+  };
+}
+
+function mapResourceCamera(camera: BackendResourceCamera): ResourceCamera {
+  return {
+    ...mapResourceDevice(camera),
+    channelNo: camera.channel_no ?? camera.channelNo,
+    nvrId: camera.nvr_id ?? camera.nvrId ?? 0,
+    nvrName: camera.nvr_name ?? camera.nvrName,
+    spacePaths: camera.space_paths ?? camera.spacePaths ?? [],
+    thumbnailKind: camera.thumbnail_kind ?? camera.thumbnailKind,
+    thumbnailUrl: toDisplayImageUrl(camera.thumbnail_url ?? camera.thumbnailUrl),
+  };
+}
+
+function mapResourceSpace(space: BackendResourceSpace): ResourceSpace {
+  return {
+    id: space.id ?? 0,
+    tenantId: space.tenant_id ?? space.tenantId ?? 0,
+    parentId: space.parent_id ?? space.parentId ?? 0,
+    name: space.name ?? "",
+    code: space.code,
+    level: space.level ?? 0,
+    status: space.status ?? 0,
+    statusText: space.status_text ?? space.statusText ?? "",
+    dictId: space.dict_id ?? space.dictId ?? 0,
+    sortOrder: space.sort_order ?? space.sortOrder ?? 0,
+    boundCameraIds: space.bound_camera_ids ?? space.boundCameraIds ?? [],
+    boundCameraCount: space.bound_camera_count ?? space.boundCameraCount ?? 0,
+  };
+}
+
+function mapResourceRelation(relation: BackendResourceAreaDeviceRelation): ResourceAreaDeviceRelation {
+  return {
+    id: relation.id ?? 0,
+    deviceId: relation.device_id ?? relation.deviceId ?? 0,
+    areaId: relation.area_id ?? relation.areaId ?? 0,
+    functionType: relation.function_type ?? relation.functionType ?? "",
+  };
+}
+
+function mapResourceSpaceNode(node: BackendResourceSpaceNode): ResourceSpaceNode {
+  return {
+    ...mapResourceSpace(node),
+    boundCameras: (node.bound_cameras ?? node.boundCameras ?? []).map(mapResourceCamera),
+    children: (node.children ?? []).map(mapResourceSpaceNode),
+  };
+}
+
+function mapResourceDeviceTree(tree: BackendResourceDeviceTree | undefined): ResourceDeviceTree {
+  return {
+    edges: (tree?.edges ?? []).map(mapResourceDevice),
+    nvrs: (tree?.nvrs ?? []).map((nvr) => ({
+      ...mapResourceDevice(nvr),
+      cameras: (nvr.cameras ?? []).map(mapResourceCamera),
+    })),
+  };
+}
+
+function mapResourceIssue(issue: BackendResourceIssue): ResourceIssue {
+  return {
+    severity: issue.severity ?? "info",
+    type: issue.type ?? "unbound_camera",
+    message: issue.message ?? "",
+    entityType: issue.entity_type ?? issue.entityType ?? "",
+    entityId: issue.entity_id ?? issue.entityId ?? 0,
+  };
+}
+
 function mapStoreSpaceDetail(store: BackendStoreSpaceDetail): StoreDetail {
   const designPlan = firstStoreSpaceDesignPlan(store);
   const hasAreas = store.areas !== undefined;
@@ -2230,15 +3055,6 @@ function mapBackendSnapshotDiagnostics(diagnostics: BackendSnapshotDiagnostics):
     snapshotKey: diagnostics.snapshot_key ?? diagnostics.snapshotKey ?? "",
     exists: Boolean(diagnostics.exists),
     detail: diagnostics.detail ?? "",
-  };
-}
-
-function mapBackendLiveAddress(result: BackendLiveAddressResult): LiveAddressResult {
-  return {
-    url: result.url ?? "",
-    urlId: result.url_id ?? result.urlId ?? "",
-    expireTime: result.expire_time ?? result.expireTime ?? "",
-    protocol: result.protocol ?? "hls",
   };
 }
 
@@ -2411,8 +3227,16 @@ function toStoreSpaceChannelConfirmationPayload(patch: Partial<VideoChannel>) {
 }
 
 function toDisplayImageUrl(value?: string) {
-  const apiBase = value?.startsWith("/api/store-space/") ? STORE_SPACE_API_BASE : API_BASE;
+  const apiBase = value?.startsWith("/api/store-space/") ? STORE_SPACE_API_BASE : value?.startsWith("/api/h5/nvr-monitor/") ? APP_API_BASE : API_BASE;
   return displayImageUrl(value, { apiBase, mockPlanImage: MOCK_PLAN_IMAGE });
+}
+
+function resourceViewStoresPath() {
+  return `${RESOURCE_VIEW_API_BASE}/stores`;
+}
+
+function resourceViewStorePath(tenantId: number) {
+  return `${resourceViewStoresPath()}/${tenantId}`;
 }
 
 function toStoredPath(value: string, fallback: string) {
@@ -2423,6 +3247,8 @@ function toStoredPath(value: string, fallback: string) {
 }
 
 export const __testing = {
+  resourceViewStoresPath,
+  resourceViewStorePath,
   summarizeStoreSummaries,
   toDisplayImageUrl,
   toStoredPath,

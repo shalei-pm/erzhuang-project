@@ -3,6 +3,7 @@ import { storeSpaceApi, type AreaType, type StoreArea, type StoreDetail } from "
 import { createManualArea, isAreaNumberOptional, mergeRecognizedAreas, normalizeAreaForSave, withGeneratedAreaFields } from "../domain/areas";
 import { clampBox, type DragState, planFileNameForStore, resizeBox, stageText, type UploadStage } from "../domain/designPlan";
 import { errorMessage } from "../domain/format";
+import { isIdleSessionTimeout } from "../domain/auth";
 import { AreaCardList } from "./AreaCardList";
 import { FloorPlanCanvas } from "./FloorPlanCanvas";
 
@@ -21,9 +22,10 @@ type DesignPlanTabProps = {
   canEdit: boolean;
   onStoreUpdated: (update: StoreDetail | ((store: StoreDetail) => StoreDetail)) => void;
   onToast: (message: string) => void;
+  onAuthRequired?: (error?: unknown) => void;
 };
 
-export function DesignPlanTab({ store, saving, canEdit, onStoreUpdated, onToast }: DesignPlanTabProps) {
+export function DesignPlanTab({ store, saving, canEdit, onStoreUpdated, onToast, onAuthRequired }: DesignPlanTabProps) {
   const [storeId, setStoreId] = useState(store.id);
   const [fileName, setFileName] = useState(store.fileName);
   const [uploadId, setUploadId] = useState<string | undefined>();
@@ -177,6 +179,7 @@ export function DesignPlanTab({ store, saving, canEdit, onStoreUpdated, onToast 
       setUploadStage("ready");
       setUploadMessage("图纸预览已生成，正在加载新图纸。");
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       const message = errorMessage(error, "设计图解析失败，请重新上传 PDF。");
       setPreviewUrl(previousPreviewUrl);
       setPendingPreviewUrl("");
@@ -210,6 +213,7 @@ export function DesignPlanTab({ store, saving, canEdit, onStoreUpdated, onToast 
         setFileName(planFileNameForStore(recognition.storeName, fileName));
       }
     } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
       const message = errorMessage(error, "AI 识别失败，可手动维护。");
       setUploadStage("failed");
       setUploadMessage(message);
@@ -262,25 +266,30 @@ export function DesignPlanTab({ store, saving, canEdit, onStoreUpdated, onToast 
       onToast(result.fieldErrors[0] || `还有 ${Object.keys(result.areaErrors).length} 个区域未完善。`);
       return;
     }
-    const saved = await storeSpaceApi.saveStore({
-      id: store.id,
-      city: store.city,
-      name: store.name,
-      externalOrgId: store.externalOrgId,
-      fileName,
-      originalPath,
-      previewPath,
-      thumbnailPath,
-      pageCount,
-      previewUrl,
-      thumbnailUrl: thumbnailUrl || previewUrl,
-      uploadId,
-      recognitionResult,
-      areas: areas.map(normalizeAreaForSave),
-      recorders: store.recorders,
-    });
-    onStoreUpdated(saved);
-    onToast("设计图标注已保存。");
+    try {
+      const saved = await storeSpaceApi.saveStore({
+        id: store.id,
+        city: store.city,
+        name: store.name,
+        externalOrgId: store.externalOrgId,
+        fileName,
+        originalPath,
+        previewPath,
+        thumbnailPath,
+        pageCount,
+        previewUrl,
+        thumbnailUrl: thumbnailUrl || previewUrl,
+        uploadId,
+        recognitionResult,
+        areas: areas.map(normalizeAreaForSave),
+        recorders: store.recorders,
+      });
+      onStoreUpdated(saved);
+      onToast("设计图标注已保存。");
+    } catch (error) {
+      if (handleIdleSessionTimeout(error, onAuthRequired)) return;
+      onToast(errorMessage(error, "设计图标注保存失败，请稍后重试。"));
+    }
   }
 
   return (
@@ -453,4 +462,10 @@ function areaTypeLabel(type: AreaType) {
   if (type === "vip_treatment") return "VIP治疗室";
   if (type === "consultation") return "面诊室";
   return "美容室";
+}
+
+function handleIdleSessionTimeout(error: unknown, onAuthRequired?: (error?: unknown) => void): boolean {
+  if (!isIdleSessionTimeout(error) || !onAuthRequired) return false;
+  onAuthRequired(error);
+  return true;
 }

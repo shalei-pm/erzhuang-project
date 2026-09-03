@@ -16,6 +16,9 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
+	"github.com/shalei-pm/erzhuang-project/internal/nvrlab"
+	"github.com/shalei-pm/erzhuang-project/internal/nvrmonitor"
+	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -24,6 +27,10 @@ import (
 func main() {
 	addr := getenv("ADDR", "127.0.0.1:18080")
 	handler := app.NewHandler()
+	var resourceViewService *resourceview.Service
+	var nvrLabService *nvrlab.Service
+	var nvrMonitorService *nvrmonitor.Service
+	monitorPlaybackMode := app.MonitorPlaybackModeFromEnv()
 
 	if config, err := databaseConfigFromEnv(); err != nil {
 		log.Fatalf("database config failed: %v", err)
@@ -44,6 +51,22 @@ func main() {
 		var designPlanService *designplan.Service
 		mysqlAppStore := app.NewMySQLStore(db)
 		mysqlStoreSpaceRepo := storespace.NewMySQLStore(db)
+		resourceViewRepository := resourceview.NewMySQLRepository(db)
+		resourceViewService = resourceview.NewService(resourceViewRepository)
+		if authorization := nvrLabAuthorizationFromEnv(); authorization != "" {
+			nvrLabService = nvrlab.NewService(resourceViewRepository, nvrlab.NewHTTPAuthorizationClient(nil, authorization))
+			nvrMonitorService = nvrmonitor.NewServiceWithSnapshotStore(resourceViewRepository, nvrmonitor.NewHTTPAuthorizationClient(nil, authorization), nvrmonitor.NewAssetSnapshotStore(assetStore))
+			resourceViewService.UseCameraSnapshotURLResolver(func(ctx context.Context, tenantID int64, cameraID int64) string {
+				if !nvrMonitorService.HasSnapshot(ctx, tenantID, cameraID) {
+					return ""
+				}
+				return nvrmonitor.SnapshotURL(tenantID, cameraID)
+			})
+			log.Print("nvr stream authorization enabled")
+		} else if monitorPlaybackMode == app.MonitorPlaybackModeNVR {
+			monitorPlaybackMode = app.MonitorPlaybackModeLegacy
+			log.Print("nvr monitor requested without authorization secret; using legacy monitor")
+		}
 		appStore = mysqlAppStore
 		storeSpaceRepo = mysqlStoreSpaceRepo
 		h5RepositoryFactory = func(accounts []ezviz.Account) h5monitor.StoreRepository {
@@ -67,20 +90,30 @@ func main() {
 			h5MonitorService = h5monitor.NewService(h5RepositoryFactory(ezvizAccounts), ezviz.NewClient(ezviz.ClientOptions{}))
 			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
-		handler = app.NewHandlerWithServicesAndH5Monitor(appStore, designPlanService, storeSpaceService, h5MonitorService)
-		log.Printf("database store enabled: %s", config.Driver)
+		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode)
+		log.Printf("database store and resource view enabled: %s", config.Driver)
 	} else {
+		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(app.NewMemoryStore(), designplan.NewService(designplan.NewMemoryStore()), storespace.NewService(storespace.NewMemoryStore()), nil, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode)
 		log.Print("database store disabled: using memory store")
 	}
 
-	server := &http.Server{
-		Addr:    addr,
-		Handler: handler,
-	}
+	server := newHTTPServer(addr, handler)
 
 	log.Printf("erzhuang-project listening on %s", addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server failed: %v", err)
+	}
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    32 << 10,
 	}
 }
 
@@ -117,7 +150,7 @@ func mysqlDSNWithParseTime(dsn string) string {
 		return dsn
 	}
 	separator := "?"
-	if strings.Contains(dsn, "?") {
+	if queryStart := strings.LastIndex(dsn, "?"); queryStart > strings.LastIndex(dsn, "/") {
 		separator = "&"
 	}
 	return dsn + separator + "parseTime=true"
@@ -151,6 +184,10 @@ func envValue(keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func nvrLabAuthorizationFromEnv() string {
+	return envValue("K8S_SECRET_NVR_STREAM_AUTHORIZATION", "NVR_STREAM_AUTHORIZATION")
 }
 
 func getenv(key, fallback string) string {

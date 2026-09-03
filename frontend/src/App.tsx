@@ -1,28 +1,29 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import {
   ApiError,
+  storeSpaceResourceViewApi,
   storeSpaceApi,
-  type AISettings,
-  type CreateStoreSpacePayload,
-  type EzvizAccount,
-  type StoreDetail as StoreDetailType,
-  type StoreListSummary,
-  type StoreSummary,
-  type UpdateStoreBasicInfoPayload,
+  type ResourceCityOption,
+  type ResourceStoreDetail as ResourceStoreDetailType,
+  type ResourceStoreListSummary,
+  type ResourceStoreSummary,
 } from "./api";
-import { CreateStoreModal } from "./components/CreateStoreModal";
-import { EditStoreModal } from "./components/EditStoreModal";
-import { EzvizLiveDemo } from "./components/EzvizLiveDemo";
-import { StoreDetail, type StoreDetailTab } from "./components/StoreDetail";
-import { StoreList } from "./components/StoreList";
+import { ResourceStoreDetail } from "./components/ResourceStoreDetail";
+import { ResourceStoreList } from "./components/ResourceStoreList";
 import { SystemTopBar } from "./components/SystemTopBar";
 import { UserManagement } from "./components/UserManagement";
+import { AuditLogManagement } from "./components/AuditLogManagement";
 import {
   authCompanyEntryPath,
+  claimIdleSessionTimeoutRedirect,
+  claimSessionRedirect,
   authLoginPath,
   authLogoutPath,
-  canEditStores,
   canManageUsers,
+  idleSessionTimeoutRedirectKey,
+  isIdleSessionTimeout,
+  removeSessionStorage,
+  safeSessionStorage,
   shouldBlockBusinessData,
   shouldShowForbiddenAccess,
   shouldShowLoginWelcome,
@@ -36,29 +37,38 @@ import {
   readH5MonitorActiveTabFromSearch,
   type H5MonitorTabKey,
 } from "./domain/h5-monitor-active-tab";
-import {
-  createStoreDetailCache,
-  canOpenH5Monitor,
-  detailTabFromSummary,
-  h5MonitorPath,
-  makePendingStoreDetail,
-  mergeStoreDetailTab,
-  type StoreDetailNavigationTab,
-  storeDetailTabFromDetail,
-} from "./domain/store-detail-navigation";
+import { nvrLabApi } from "./api-nvr-lab";
+import { parseNVRLabRoute, nvrLabRoutePath, nvrMonitorRoutePath } from "./domain/nvr-lab";
 
 const PAGE_SIZE = 20;
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "local-dev";
-const EMPTY_STORE_LIST_SUMMARY: StoreListSummary = { storeCount: 0, consultationCount: 0, treatmentCount: 0, beautyCount: 0 };
+const EMPTY_RESOURCE_LIST_SUMMARY: ResourceStoreListSummary = {
+  storeCount: 0,
+  edgeCount: 0,
+  nvrCount: 0,
+  cameraCount: 0,
+  spaceCount: 0,
+  consultationCameraCount: 0,
+  treatmentCameraCount: 0,
+  boundCameraCount: 0,
+  unboundCameraCount: 0,
+  offlineDeviceCount: 0,
+  warningCount: 0,
+};
 
 const H5MonitorPage = lazy(() => import("./pages/H5Monitor").then((module) => ({ default: module.H5Monitor })));
 const H5MonitorChannelPage = lazy(() =>
   import("./pages/H5MonitorChannel").then((module) => ({ default: module.H5MonitorChannel })),
 );
+const NVRLabMonitorPage = lazy(() => import("./pages/NVRLabMonitor").then((module) => ({ default: module.NVRLabMonitor })));
+const NVRLabCameraPage = lazy(() => import("./pages/NVRLabCamera").then((module) => ({ default: module.NVRLabCamera })));
 
 type H5Route =
   | { name: "home"; externalOrgId: string; tab?: H5MonitorTabKey }
   | { name: "channel"; externalOrgId: string; channelId: number; tab?: H5MonitorTabKey }
+	| { name: "nvr-camera"; externalOrgId: string; cameraId: number }
+  | { name: "nvr-lab-home" }
+  | { name: "nvr-lab-camera"; cameraId: number }
   | null;
 
 function App() {
@@ -73,38 +83,26 @@ function App() {
 function AdminApp() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [stores, setStores] = useState<StoreSummary[]>([]);
-  const [accounts, setAccounts] = useState<EzvizAccount[]>([]);
+  const [stores, setStores] = useState<ResourceStoreSummary[]>([]);
   const [query, setQuery] = useState("");
-  const [cityFilter, setCityFilter] = useState("all");
-  const [cityOptions, setCityOptions] = useState<string[]>([]);
+  const [cityFilter, setCityFilter] = useState<number | "all">("all");
+  const [cityOptions, setCityOptions] = useState<ResourceCityOption[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [listSummary, setListSummary] = useState<StoreListSummary>(EMPTY_STORE_LIST_SUMMARY);
+  const [listSummary, setListSummary] = useState<ResourceStoreListSummary>(EMPTY_RESOURCE_LIST_SUMMARY);
   const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editingStore, setEditingStore] = useState<StoreSummary | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [toast, setToast] = useState("");
-  const [activeStore, setActiveStore] = useState<StoreDetailType | null>(null);
-  const [loadingDetailTabs, setLoadingDetailTabs] = useState<Set<StoreDetailTab>>(() => new Set());
-  const [loadedDetailTabs, setLoadedDetailTabs] = useState<Set<StoreDetailTab>>(() => new Set());
-  const [activeTab, setActiveTab] = useState<StoreDetailTab>("design-plan");
-  const [aiSettings, setAISettings] = useState<AISettings | null>(null);
-  const [switchingAIModel, setSwitchingAIModel] = useState(false);
-  const [deletingStoreIds, setDeletingStoreIds] = useState<Set<number>>(() => new Set());
+  const [activeStore, setActiveStore] = useState<ResourceStoreDetailType | null>(null);
   const [openingStoreIds, setOpeningStoreIds] = useState<Set<number>>(() => new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<"users" | "audit" | "security">("users");
+  const [screenshotWatermarkEnabled, setScreenshotWatermarkEnabled] = useState<boolean | null>(null);
+  const [savingScreenshotWatermark, setSavingScreenshotWatermark] = useState(false);
   const listRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
-  const detailCacheRef = useRef(createStoreDetailCache());
-  const activeStoreRef = useRef<StoreDetailType | null>(null);
-
-  if (new URLSearchParams(window.location.search).get("tool") === "ezviz-live-demo") {
-    return <EzvizLiveDemo appVersion={APP_VERSION} />;
-  }
+  const authRedirectingRef = useRef(false);
+  const companyEntryRedirectAttemptedRef = useRef(false);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const visibleStores = stores;
@@ -113,20 +111,43 @@ function AdminApp() {
   const visibleLastIndex = visibleStores.length === 0 ? 0 : visibleFirstIndex + visibleStores.length - 1;
   const showLogoutEntry = shouldShowLogoutEntry(auth);
   const canManageSystemUsers = canManageUsers(auth);
-  const canEditStoreResources = canEditStores(auth);
   const systemSettingsAction = canManageSystemUsers ? (
-    <button type="button" className="topbar-settings-button" onClick={() => setSettingsOpen(true)}>
+    <button type="button" className="topbar-settings-button" onClick={() => { setSettingsSection("users"); setSettingsOpen(true); }}>
       系统设置
     </button>
   ) : null;
 
+  function handleAuthRequired(error?: unknown) {
+    const idleTimeout = isIdleSessionTimeout(error);
+    const logoutPath = authLogoutPath();
+    setAuth({
+      enabled: true,
+      authenticated: false,
+      code: idleTimeout ? "session_idle_timeout" : undefined,
+      login_url: idleTimeout ? logoutPath : authLoginPath(),
+    });
+    if (idleTimeout && !authRedirectingRef.current) {
+      authRedirectingRef.current = true;
+      if (claimIdleSessionTimeoutRedirect(safeSessionStorage())) {
+        window.location.assign(logoutPath);
+      }
+    }
+  }
+
   useEffect(() => {
+    if (auth?.authenticated) {
+      window.sessionStorage.removeItem("erzhuang:sso-entry-redirected");
+    }
+  }, [auth]);
+
+  useEffect(() => {
+    if (settingsOpen || authLoading || shouldBlockBusinessData(auth)) return;
     void storeSpaceApi
       .getAuthMe()
       .then(setAuth)
       .catch((error) => {
         if (error instanceof Error && "status" in error && (error as { status?: number }).status === 401) {
-          setAuth({ enabled: true, authenticated: false, login_url: "/erzhuang-project/_/auth/callback" });
+          handleAuthRequired(error);
           return;
         }
         if (error instanceof Error && "status" in error && (error as { status?: number }).status === 403) {
@@ -145,36 +166,34 @@ function AdminApp() {
   }, [page, query, cityFilter, authLoading, auth, settingsOpen]);
 
   useEffect(() => {
-    activeStoreRef.current = activeStore;
-  }, [activeStore]);
-
-  useEffect(() => {
     if (auth?.authenticated) {
-      window.sessionStorage.removeItem("erzhuang:sso-entry-redirected");
+      removeSessionStorage("erzhuang:sso-entry-redirected");
+      removeSessionStorage(idleSessionTimeoutRedirectKey);
     }
   }, [auth]);
 
   useEffect(() => {
-    if (settingsOpen || authLoading || shouldBlockBusinessData(auth)) return;
+    if (!settingsOpen || settingsSection !== "security" || !canManageSystemUsers) return;
     void storeSpaceApi
-      .listEzvizAccounts()
-      .then(setAccounts)
-      .catch((error) => setToast(errorMessage(error, "萤石云账号加载失败。")));
-  }, [authLoading, auth, settingsOpen]);
-
-  useEffect(() => {
-    if (settingsOpen || authLoading || shouldBlockBusinessData(auth) || !canManageSystemUsers) return;
-    void loadAISettings();
-  }, [authLoading, auth, settingsOpen, canManageSystemUsers]);
+      .getMonitorScreenshotWatermarkSettings()
+      .then((settings) => setScreenshotWatermarkEnabled(settings.enabled))
+      .catch((error) => {
+        if (isIdleSessionTimeout(error)) {
+          handleAuthRequired(error);
+          return;
+        }
+        setToast(errorMessage(error, "截图水印设置加载失败。"));
+      });
+  }, [canManageSystemUsers, settingsOpen, settingsSection]);
 
   useEffect(() => {
     if (!shouldShowLoginWelcome(auth)) return;
     const companyEntryPath = authCompanyEntryPath();
     if (!companyEntryPath) return;
+    if (companyEntryRedirectAttemptedRef.current) return;
+    companyEntryRedirectAttemptedRef.current = true;
     const redirectKey = "erzhuang:sso-entry-redirected";
-    if (window.sessionStorage.getItem(redirectKey) === "1") return;
-    window.sessionStorage.setItem(redirectKey, "1");
-    window.location.replace(companyEntryPath);
+    if (claimSessionRedirect(redirectKey, safeSessionStorage())) window.location.replace(companyEntryPath);
   }, [auth]);
 
   async function loadStores(nextQuery = query, nextCityFilter = cityFilter, nextPage = page) {
@@ -182,18 +201,26 @@ function AdminApp() {
     listRequestIdRef.current = requestId;
     setLoading(true);
     try {
-      const response = await storeSpaceApi.listStores(nextQuery.trim(), nextPage, PAGE_SIZE, nextCityFilter);
+      const response = await storeSpaceResourceViewApi.listStores(nextQuery.trim(), nextPage, PAGE_SIZE, nextCityFilter);
       if (listRequestIdRef.current !== requestId) return;
       setStores(response.items);
       setTotal(response.total);
       setListSummary(response.summary);
-      setCityOptions(response.cities);
+      if (nextCityFilter === "all") {
+        setCityOptions(response.cities);
+      }
     } catch (error) {
       if (listRequestIdRef.current !== requestId) return;
+      if (isIdleSessionTimeout(error)) {
+        handleAuthRequired(error);
+        return;
+      }
       setStores([]);
       setTotal(0);
-      setListSummary(EMPTY_STORE_LIST_SUMMARY);
-      setCityOptions([]);
+      setListSummary(EMPTY_RESOURCE_LIST_SUMMARY);
+      if (nextCityFilter === "all") {
+        setCityOptions([]);
+      }
       setToast(storeListLoadErrorMessage(error));
     } finally {
       if (listRequestIdRef.current === requestId) {
@@ -208,204 +235,33 @@ function AdminApp() {
     setPage(1);
   }
 
-  function handleCityFilter(value: string) {
+  function handleCityFilter(value: number | "all") {
     setCityFilter(value);
     setPage(1);
   }
 
-  async function openStore(storeId: number, tab?: StoreDetailTab) {
-    if (openingStoreIds.has(storeId)) return;
-    const summary = stores.find((store) => store.id === storeId);
+  async function openStore(tenantId: number) {
+    if (openingStoreIds.has(tenantId)) return;
     const requestId = detailRequestIdRef.current + 1;
     detailRequestIdRef.current = requestId;
-    setOpeningStoreIds((current) => new Set(current).add(storeId));
-    if (summary) {
-      setActiveStore(makePendingStoreDetail(summary));
-      const initialTab = tab ?? detailTabFromSummary(summary);
-      setActiveTab(initialTab);
-      setLoadedDetailTabs(new Set());
-      setLoadingDetailTabs(new Set([initialTab]));
-    }
+    setOpeningStoreIds((current) => new Set(current).add(tenantId));
     try {
-      const initialTab = tab ?? (summary ? detailTabFromSummary(summary) : "channels");
-      const cached = summary ? detailCacheRef.current.get(storeId, summary.updatedAt, initialTab) : null;
-      if (cached) {
-        if (detailRequestIdRef.current !== requestId) return;
-        setActiveStore(cached);
-        setActiveTab(initialTab);
-        setLoadedDetailTabs(detailCacheRef.current.loadedTabs(storeId, cached.updatedAt));
-        setLoadingDetailTabs(new Set());
-        return;
-      }
       const startedAt = performance.now();
-      const detail = await loadStoreDetailTab(storeId, initialTab);
+      const detail = await storeSpaceResourceViewApi.getStore(tenantId);
       if (detailRequestIdRef.current !== requestId) return;
-      const nextDetail = mergeStoreDetailTab(summary ? makePendingStoreDetail(summary) : detail, detail, initialTab);
-      detailCacheRef.current.set(nextDetail, [initialTab]);
-      console.info(`[store-detail] loaded ${storeId}/${initialTab} in ${Math.round(performance.now() - startedAt)}ms`);
-      setActiveStore(nextDetail);
-      setActiveTab(initialTab);
-      setLoadedDetailTabs(new Set([initialTab]));
-      setLoadingDetailTabs(new Set());
+      console.info(`[resource-view] loaded ${tenantId} in ${Math.round(performance.now() - startedAt)}ms`);
+      setActiveStore(detail);
     } catch (error) {
       if (detailRequestIdRef.current !== requestId) return;
+      if (isIdleSessionTimeout(error)) {
+        handleAuthRequired(error);
+        return;
+      }
       setActiveStore(null);
-      setLoadedDetailTabs(new Set());
-      setLoadingDetailTabs(new Set());
       setToast(errorMessage(error, "门店详情加载失败。"));
     } finally {
-      setOpeningStoreIds((current) => removeIdFromSet(current, storeId));
+      setOpeningStoreIds((current) => removeIdFromSet(current, tenantId));
     }
-  }
-
-  async function ensureDetailTabLoaded(tab: StoreDetailTab) {
-    const currentStore = activeStoreRef.current;
-    if (!currentStore || loadingDetailTabs.has(tab) || loadedDetailTabs.has(tab)) return;
-    const requestId = detailRequestIdRef.current;
-    setActiveTab(tab);
-    const cached = detailCacheRef.current.get(currentStore.id, currentStore.updatedAt, tab);
-    if (cached) {
-      setActiveStore(cached);
-      setLoadedDetailTabs(detailCacheRef.current.loadedTabs(currentStore.id, cached.updatedAt));
-      return;
-    }
-    setLoadingDetailTabs((current) => new Set(current).add(tab));
-    try {
-      const startedAt = performance.now();
-      const detail = await loadStoreDetailTab(currentStore.id, tab);
-      if (detailRequestIdRef.current !== requestId) return;
-      console.info(`[store-detail] loaded ${currentStore.id}/${tab} in ${Math.round(performance.now() - startedAt)}ms`);
-      handleStoreUpdated((store) => mergeStoreDetailTab(store, detail, tab), [tab]);
-      setLoadedDetailTabs((current) => new Set(current).add(tab));
-    } catch (error) {
-      if (detailRequestIdRef.current !== requestId) return;
-      setToast(errorMessage(error, tab === "channels" ? "通道映射加载失败。" : "设计图标注加载失败。"));
-    } finally {
-      if (detailRequestIdRef.current === requestId) {
-        setLoadingDetailTabs((current) => removeFromSet(current, tab));
-      }
-    }
-  }
-
-  function loadStoreDetailTab(storeId: number, tab: StoreDetailNavigationTab) {
-    return tab === "channels" ? storeSpaceApi.getStoreChannelData(storeId) : storeSpaceApi.getStoreDesignPlanData(storeId);
-  }
-
-  async function loadAISettings() {
-    try {
-      const settings = await storeSpaceApi.getAISettings();
-      setAISettings(settings);
-    } catch (error) {
-      setToast(errorMessage(error, "识别模型状态加载失败。"));
-    }
-  }
-
-  async function toggleAIModel() {
-    if (switchingAIModel) return;
-    setSwitchingAIModel(true);
-    try {
-      const settings = await storeSpaceApi.toggleAISettings();
-      setAISettings(settings);
-      setToast(`已切换识别模型：${settings.label}`);
-    } catch (error) {
-      setToast(errorMessage(error, "识别模型切换失败。"));
-    } finally {
-      setSwitchingAIModel(false);
-    }
-  }
-
-  async function createStore(payload: CreateStoreSpacePayload) {
-    setSaving(true);
-    try {
-      const duplicate = await storeSpaceApi.checkDuplicate(payload.name);
-      if (duplicate.exactMatch) {
-        setToast("同名门店已存在，请修改门店名称。");
-        return;
-      }
-      if (duplicate.similarMatches.length > 0) {
-        const ok = window.confirm(`发现 ${duplicate.similarMatches.length} 个疑似同名门店，是否继续创建？`);
-        if (!ok) return;
-      }
-      const detail = await storeSpaceApi.createStore(payload);
-      detailCacheRef.current.set(detail, ["design-plan", "channels"]);
-      setCreateOpen(false);
-      setActiveStore(detail);
-      setLoadedDetailTabs(new Set(["design-plan", "channels"]));
-      setLoadingDetailTabs(new Set());
-      setActiveTab(storeDetailTabFromDetail(detail));
-      setToast("门店已创建，请继续完善空间资源。");
-      await loadStores();
-    } catch (error) {
-      setToast(errorMessage(error, "创建门店失败。"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function updateStoreBasicInfo(payload: UpdateStoreBasicInfoPayload) {
-    setSaving(true);
-    try {
-      const duplicate = await storeSpaceApi.checkDuplicate(payload.name, payload.id);
-      if (duplicate.exactMatch) {
-        setToast("同名门店已存在，请修改门店名称。");
-        return;
-      }
-      if (duplicate.similarMatches.length > 0) {
-        const ok = window.confirm(`发现 ${duplicate.similarMatches.length} 个疑似同名门店，是否继续保存？`);
-        if (!ok) return;
-      }
-      const detail = await storeSpaceApi.updateStoreBasicInfo(payload);
-      detailCacheRef.current.set(detail, ["design-plan", "channels"]);
-      setEditingStore(null);
-      setStores((items) => items.map((item) => (item.id === detail.id ? detail : item)));
-      if (activeStore?.id === detail.id) {
-        setActiveStore(detail);
-      }
-      setToast("机构信息已更新。");
-      await loadStores();
-    } catch (error) {
-      setToast(errorMessage(error, "更新机构信息失败。"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function uploadPdf(file: File) {
-    setUploading(true);
-    try {
-      return await storeSpaceApi.uploadPdf(file);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function deleteStore(store: StoreSummary) {
-    const ok = window.confirm("删除后将清除该门店的设计图、区域、录像机、通道、截图和识别结果，且无法恢复。是否确认删除？");
-    if (!ok) return;
-    setDeletingStoreIds((current) => new Set(current).add(store.id));
-    try {
-      await storeSpaceApi.deleteStore(store.id);
-      detailCacheRef.current.delete(store.id);
-      setToast(`已删除：${store.name}`);
-      if (activeStore?.id === store.id) {
-        setActiveStore(null);
-      }
-      await loadStores();
-    } catch (error) {
-      setToast(errorMessage(error, "删除门店失败。"));
-    } finally {
-      setDeletingStoreIds((current) => removeIdFromSet(current, store.id));
-    }
-  }
-
-  function handleStoreUpdated(update: StoreDetailType | ((store: StoreDetailType) => StoreDetailType), loadedTabs: StoreDetailTab[] = ["design-plan", "channels"]) {
-    const currentStore = activeStoreRef.current;
-    if (!currentStore && typeof update === "function") return;
-    const nextStore = typeof update === "function" ? update(currentStore as StoreDetailType) : update;
-    activeStoreRef.current = nextStore;
-    detailCacheRef.current.set(nextStore, loadedTabs);
-    setActiveStore(nextStore);
-    setStores((items) => items.map((item) => (item.id === nextStore.id ? nextStore : item)));
   }
 
   async function logout() {
@@ -431,9 +287,26 @@ function AdminApp() {
     detailRequestIdRef.current += 1;
     setActiveStore(null);
     setSettingsOpen(false);
-    setLoadedDetailTabs(new Set());
-    setLoadingDetailTabs(new Set());
+    setSettingsSection("users");
     void loadStores();
+  }
+
+  async function toggleScreenshotWatermark() {
+    if (screenshotWatermarkEnabled === null || savingScreenshotWatermark) return;
+    setSavingScreenshotWatermark(true);
+    try {
+      const settings = await storeSpaceApi.setMonitorScreenshotWatermarkSettings(!screenshotWatermarkEnabled);
+      setScreenshotWatermarkEnabled(settings.enabled);
+      setToast(settings.enabled ? "已开启监控截图水印" : "已关闭监控截图水印");
+    } catch (error) {
+      if (isIdleSessionTimeout(error)) {
+        handleAuthRequired(error);
+        return;
+      }
+      setToast(errorMessage(error, "截图水印设置保存失败。"));
+    } finally {
+      setSavingScreenshotWatermark(false);
+    }
   }
 
   if (activeStore) {
@@ -447,23 +320,70 @@ function AdminApp() {
           rightExtra={systemSettingsAction}
         />
         {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
-        <StoreDetail
+        <ResourceStoreDetail
           store={activeStore}
-          initialTab={activeTab}
-          loadingTabs={loadingDetailTabs}
-          loadedTabs={loadedDetailTabs}
-          saving={saving}
-          accounts={accounts}
-          aiSettings={aiSettings}
-          switchingAIModel={switchingAIModel}
-          canEdit={canEditStoreResources}
-          canManageSettings={canManageSystemUsers}
-          h5MonitorUrl={canOpenH5Monitor(activeStore) ? h5MonitorPath(activeStore.externalOrgId) : undefined}
-          onTabChange={(tab) => void ensureDetailTabLoaded(tab)}
-          onToggleAIModel={toggleAIModel}
-          onStoreUpdated={handleStoreUpdated}
-          onToast={setToast}
+          onOpenMonitor={(url) => window.location.assign(url)}
         />
+        <footer className="app-version" aria-label="当前版本">
+          版本 {APP_VERSION}
+        </footer>
+      </main>
+    );
+  }
+
+  if (authLoading) {
+    return (
+      <main className="app-shell">
+        <div className="auth-loading">正在确认登录状态...</div>
+      </main>
+    );
+  }
+
+  if (shouldShowLoginWelcome(auth)) {
+    return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
+  }
+
+  if (shouldShowForbiddenAccess(auth)) {
+    return <ForbiddenAccess appVersion={APP_VERSION} />;
+  }
+
+  if (settingsOpen && canManageSystemUsers) {
+    return (
+      <main className="app-shell">
+        <SystemTopBar
+          backAction={{ label: "返回列表", onClick: returnToStoreList }}
+          auth={showLogoutEntry ? auth : null}
+          loggingOut={loggingOut}
+          onLogout={logout}
+        />
+        {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
+        <nav className="settings-tabs" aria-label="系统设置菜单">
+          <button type="button" className={settingsSection === "users" ? "is-active" : ""} onClick={() => setSettingsSection("users")}>
+            用户管理
+          </button>
+          <button type="button" className={settingsSection === "audit" ? "is-active" : ""} onClick={() => setSettingsSection("audit")}>
+            操作日志
+          </button>
+          <button type="button" className={settingsSection === "security" ? "is-active" : ""} onClick={() => setSettingsSection("security")}>
+            安全设置
+          </button>
+        </nav>
+        {settingsSection === "audit" ? (
+          <AuditLogManagement onToast={setToast} onAuthRequired={handleAuthRequired} />
+        ) : settingsSection === "security" ? (
+          <section className="security-settings-page" aria-label="安全设置">
+            <div className="security-settings-card">
+              <div className="security-setting-row">
+                <span className="security-setting-copy"><strong>监控截图水印</strong><em>截图右上角展示账号姓名与服务端时间</em></span>
+              <button type="button" className={`switch-control ${screenshotWatermarkEnabled ? "is-on" : ""}`} disabled={screenshotWatermarkEnabled === null || savingScreenshotWatermark} onClick={() => void toggleScreenshotWatermark()}>
+                {screenshotWatermarkEnabled ? "已开启" : "已关闭"}
+              </button>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <UserManagement onToast={setToast} onAuthRequired={handleAuthRequired} />
+        )}
         <footer className="app-version" aria-label="当前版本">
           版本 {APP_VERSION}
         </footer>
@@ -518,16 +438,8 @@ function AdminApp() {
       <SystemTopBar auth={showLogoutEntry ? auth : null} loggingOut={loggingOut} onLogout={logout} rightExtra={systemSettingsAction} />
       <header className="page-header">
         <div>
-          <p className="eyebrow">空间资源管理</p>
-          <h1>门店空间资源管理系统</h1>
-        </div>
-        <div className="page-header-actions">
-          {canEditStoreResources ? (
-            <button className="primary-button" onClick={() => setCreateOpen(true)}>
-              <span aria-hidden="true">+</span>
-              添加门店
-            </button>
-          ) : null}
+          <p className="eyebrow">门店空间资源查看</p>
+          <h1>门店空间资源查看</h1>
         </div>
       </header>
 
@@ -542,9 +454,10 @@ function AdminApp() {
               共 {visibleSummary.storeCount} 家门店
               {visibleSummary.storeCount > 0 ? `，当前 ${visibleFirstIndex}-${visibleLastIndex}` : ""}
             </span>
-            <span>面诊室 {visibleSummary.consultationCount}</span>
-            <span>治疗室 {visibleSummary.treatmentCount}</span>
-            <span>美容室 {visibleSummary.beautyCount}</span>
+            <span>工控机 {visibleSummary.edgeCount}</span>
+            <span>录像机 {visibleSummary.nvrCount}</span>
+            <span>摄像头 {visibleSummary.cameraCount}</span>
+            <span>已绑定 {visibleSummary.boundCameraCount}</span>
           </div>
         </div>
         <div className="city-filter" role="radiogroup" aria-label="城市筛选">
@@ -555,12 +468,12 @@ function AdminApp() {
             <button
               type="button"
               role="radio"
-              aria-checked={cityFilter === city}
-              className={cityFilter === city ? "is-active" : ""}
-              key={city}
-              onClick={() => handleCityFilter(city)}
+              aria-checked={cityFilter === city.cityId}
+              className={cityFilter === city.cityId ? "is-active" : ""}
+              key={city.cityId}
+              onClick={() => handleCityFilter(city.cityId)}
             >
-              {city}
+              {city.name || `城市 ${city.cityId}`}
             </button>
           ))}
         </div>
@@ -568,17 +481,16 @@ function AdminApp() {
 
       {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
 
-      <StoreList
+      <ResourceStoreList
         stores={visibleStores}
         loading={loading}
         page={page}
         pageSize={PAGE_SIZE}
-        deletingStoreIds={deletingStoreIds}
         openingStoreIds={openingStoreIds}
-        canEdit={canEditStoreResources}
         onOpenStore={openStore}
-        onEditStore={setEditingStore}
-        onDeleteStore={deleteStore}
+        onOpenMonitor={(store) => {
+          if (store.monitorUrl) window.location.assign(store.monitorUrl);
+        }}
       />
 
       <nav className="pagination" aria-label="分页">
@@ -597,24 +509,6 @@ function AdminApp() {
         版本 {APP_VERSION}
       </footer>
 
-      {createOpen ? (
-        <CreateStoreModal
-          accounts={accounts}
-          uploading={uploading}
-          saving={saving}
-          onUploadPdf={uploadPdf}
-          onClose={() => setCreateOpen(false)}
-          onSubmit={createStore}
-        />
-      ) : null}
-      {editingStore ? (
-        <EditStoreModal
-          store={editingStore}
-          saving={saving}
-          onClose={() => setEditingStore(null)}
-          onSubmit={updateStoreBasicInfo}
-        />
-      ) : null}
     </main>
   );
 }
@@ -678,7 +572,29 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
+  const authRedirectingRef = useRef(false);
+  const companyEntryRedirectAttemptedRef = useRef(false);
+  const [monitorMode, setMonitorMode] = useState<"legacy" | "nvr">("legacy");
+  const [monitorModeLoading, setMonitorModeLoading] = useState(true);
   const showLogoutEntry = shouldShowLogoutEntry(auth);
+
+  function handleAuthRequired(error?: unknown) {
+    const idleTimeout = isIdleSessionTimeout(error);
+    const logoutPath = authLogoutPath();
+    setAuth({
+      enabled: true,
+      authenticated: false,
+      code: idleTimeout ? "session_idle_timeout" : undefined,
+      login_url: idleTimeout ? logoutPath : authLoginPath(),
+    });
+    setAuthMessage(idleTimeout ? "登录已因长时间未操作失效，请重新扫码登录。" : "");
+    if (idleTimeout && !authRedirectingRef.current) {
+      authRedirectingRef.current = true;
+      if (claimIdleSessionTimeoutRedirect(safeSessionStorage())) {
+        window.location.assign(logoutPath);
+      }
+    }
+  }
 
   useEffect(() => {
     const onPopState = () => setRoute(parseH5Route());
@@ -695,7 +611,7 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
       })
       .catch((error) => {
         if (error instanceof Error && "status" in error && (error as { status?: number }).status === 401) {
-          setAuth({ enabled: true, authenticated: false, login_url: authLoginPath() });
+          handleAuthRequired(error);
           return;
         }
         if (error instanceof Error && "status" in error && (error as { status?: number }).status === 403) {
@@ -710,18 +626,42 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
 
   useEffect(() => {
     if (auth?.authenticated) {
-      window.sessionStorage.removeItem("erzhuang:h5-sso-entry-redirected");
+      removeSessionStorage("erzhuang:h5-sso-entry-redirected");
+      removeSessionStorage(idleSessionTimeoutRedirectKey);
     }
   }, [auth]);
+
+  useEffect(() => {
+    if (!auth?.authenticated) {
+      setMonitorMode("legacy");
+      setMonitorModeLoading(false);
+      return;
+    }
+    setMonitorModeLoading(true);
+    let cancelled = false;
+    nvrLabApi.getMonitorMode().then((response) => {
+      if (!cancelled) setMonitorMode(response.mode === "nvr" ? "nvr" : "legacy");
+    }).catch((error) => {
+      if (cancelled) return;
+      if (isIdleSessionTimeout(error)) {
+        handleAuthRequired(error);
+        return;
+      }
+      setMonitorMode("legacy");
+    }).finally(() => {
+      if (!cancelled) setMonitorModeLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [auth?.authenticated]);
 
   useEffect(() => {
     if (!shouldShowLoginWelcome(auth)) return;
     const companyEntryPath = authCompanyEntryPath();
     if (!companyEntryPath) return;
+    if (companyEntryRedirectAttemptedRef.current) return;
+    companyEntryRedirectAttemptedRef.current = true;
     const redirectKey = "erzhuang:h5-sso-entry-redirected";
-    if (window.sessionStorage.getItem(redirectKey) === "1") return;
-    window.sessionStorage.setItem(redirectKey, "1");
-    window.location.replace(companyEntryPath);
+    if (claimSessionRedirect(redirectKey, safeSessionStorage())) window.location.replace(companyEntryPath);
   }, [auth]);
 
   async function logout() {
@@ -741,11 +681,6 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     } finally {
       setLoggingOut(false);
     }
-  }
-
-  function handleAuthRequired() {
-    setAuth({ enabled: true, authenticated: false, login_url: authLoginPath() });
-    setAuthMessage("");
   }
 
   if (!route) {
@@ -768,17 +703,56 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     return <ForbiddenAccess appVersion={APP_VERSION} />;
   }
 
-  if (shouldShowLoginWelcome(auth) && authCompanyEntryPath()) {
-    return (
-      <main className="app-shell">
-        <div className="auth-loading">正在进入公司 SSO 登录...</div>
-      </main>
-    );
-  }
-
   if (shouldShowLoginWelcome(auth)) {
     return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
   }
+
+	if (monitorModeLoading) {
+		return <main className="app-shell"><div className="auth-loading">正在加载监控配置...</div></main>;
+	}
+
+	if (monitorMode === "nvr" && route.name === "home") {
+		return <Suspense fallback={<div className="h5-loading">加载中...</div>}><NVRLabMonitorPage
+			externalOrgId={route.externalOrgId}
+			auth={showLogoutEntry ? auth : null}
+			loggingOut={loggingOut}
+			authMessage={authMessage}
+			onLogout={logout}
+			onAuthRequired={handleAuthRequired}
+			onOpenCamera={(cameraId) => {
+				window.history.pushState({}, "", nvrMonitorRoutePath({ name: "camera", externalOrgId: route.externalOrgId, cameraId }));
+				setRoute({ name: "nvr-camera", externalOrgId: route.externalOrgId, cameraId });
+			}}
+			onSelectStore={(externalOrgId) => {
+				window.history.pushState({}, "", nvrMonitorRoutePath({ name: "home", externalOrgId }));
+				setRoute({ name: "home", externalOrgId });
+			}}
+		/></Suspense>;
+	}
+
+	if (monitorMode === "nvr" && route.name === "nvr-camera") {
+		return <Suspense fallback={<div className="h5-loading">加载中...</div>}><NVRLabCameraPage
+			externalOrgId={route.externalOrgId}
+			cameraId={route.cameraId}
+			auth={showLogoutEntry ? auth : null}
+			loggingOut={loggingOut}
+			authMessage={authMessage}
+			onLogout={logout}
+			onAuthRequired={handleAuthRequired}
+			onBack={() => {
+				window.history.replaceState({}, "", nvrMonitorRoutePath({ name: "home", externalOrgId: route.externalOrgId }));
+				setRoute({ name: "home", externalOrgId: route.externalOrgId });
+			}}
+		/></Suspense>;
+	}
+
+	if (monitorMode === "nvr" && route.name === "channel") {
+		return <main className="h5-page h5-monitor-page"><SystemTopBar auth={showLogoutEntry ? auth : null} loggingOut={loggingOut} onLogout={logout} /><div className="h5-empty">监控地址已更新，请返回摄像头列表继续查看。<button type="button" onClick={() => { window.history.replaceState({}, "", nvrMonitorRoutePath({ name: "home", externalOrgId: route.externalOrgId })); setRoute({ name: "home", externalOrgId: route.externalOrgId }); }}>返回摄像头列表</button></div></main>;
+	}
+
+	if (route.name === "nvr-camera") {
+		return <main className="h5-page h5-monitor-page"><div className="h5-empty">当前监控模式不支持该摄像头地址。</div></main>;
+	}
 
   if (route.name === "home") {
     return (
@@ -817,6 +791,47 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     );
   }
 
+  if (route.name === "nvr-lab-home") {
+    return (
+      <Suspense fallback={<div className="h5-loading">加载中...</div>}>
+        <NVRLabMonitorPage
+		  externalOrgId="10001"
+          auth={showLogoutEntry ? auth : null}
+          loggingOut={loggingOut}
+          authMessage={authMessage}
+          onLogout={logout}
+          onAuthRequired={handleAuthRequired}
+          onOpenCamera={(cameraId) => {
+            const nextRoute: H5Route = { name: "nvr-lab-camera", cameraId };
+            window.history.pushState({}, "", nvrLabRoutePath({ name: "camera", cameraId }));
+            setRoute(nextRoute);
+          }}
+		  onSelectStore={() => undefined}
+        />
+      </Suspense>
+    );
+  }
+
+  if (route.name === "nvr-lab-camera") {
+    return (
+      <Suspense fallback={<div className="h5-loading">加载中...</div>}>
+        <NVRLabCameraPage
+		  externalOrgId="10001"
+          cameraId={route.cameraId}
+          auth={showLogoutEntry ? auth : null}
+          loggingOut={loggingOut}
+          authMessage={authMessage}
+          onLogout={logout}
+          onAuthRequired={handleAuthRequired}
+          onBack={() => {
+            window.history.replaceState({}, "", nvrLabRoutePath({ name: "home" }));
+            setRoute({ name: "nvr-lab-home" });
+          }}
+        />
+      </Suspense>
+    );
+  }
+
   return (
     <Suspense fallback={<div className="h5-loading">加载中...</div>}>
       <H5MonitorChannelPage
@@ -839,7 +854,18 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
 
 function parseH5Route(): H5Route {
   const path = window.location.pathname;
+  const nvrLabRoute = parseNVRLabRoute(path);
+  if (nvrLabRoute?.name === "home") return { name: "nvr-lab-home" };
+  if (nvrLabRoute?.name === "camera") return { name: "nvr-lab-camera", cameraId: nvrLabRoute.cameraId };
   const h5Path = stripKnownBasePrefix(path);
+	const nvrCameraMatch = h5Path.match(/^\/h5\/orgs\/([^/]+)\/monitor\/cameras\/([^/]+)$/);
+	if (nvrCameraMatch) {
+		const cameraId = Number.parseInt(nvrCameraMatch[2], 10);
+		if (Number.isInteger(cameraId) && cameraId > 0) {
+			return { name: "nvr-camera", externalOrgId: decodeURIComponent(nvrCameraMatch[1]), cameraId };
+		}
+		return null;
+	}
   const tab = normalizeH5RouteTab(readH5MonitorActiveTabFromSearch(window.location.search));
 
   const channelMatch = h5Path.match(/^\/h5\/orgs\/([^/]+)\/monitor\/channels\/([^/]+)$/);

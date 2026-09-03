@@ -3,14 +3,20 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
 
 type MySQLStore struct {
 	db *sql.DB
 }
+
+var errAuditLogTransactionNil = errors.New("audit log transaction is nil")
 
 const mysqlUserResourceScopesTableDDL = `
 	create table if not exists tb_user_resource_scopes (
@@ -29,12 +35,118 @@ const mysqlUserResourceScopesTableDDL = `
 	) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_general_ci
 `
 
+const mysqlAuthSessionCreateSQL = `
+	insert into tb_auth_sessions (
+		session_token_hash, user_id, sso_subject, ip_address, user_agent,
+		created_at, last_activity_at, expires_at
+	) values (?, ?, ?, ?, ?, utc_timestamp(3), utc_timestamp(3),
+		date_add(utc_timestamp(3), interval 30 minute))
+`
+
+const mysqlAuthSessionTouchSQL = `
+	update tb_auth_sessions
+	set last_activity_at = greatest(last_activity_at, utc_timestamp(3)),
+		expires_at = greatest(expires_at, date_add(utc_timestamp(3), interval 30 minute))
+	where session_token_hash = ?
+		and user_id = ?
+		and revoked_at is null
+		and expires_at > utc_timestamp(3)
+`
+
+const mysqlAuthSessionValidSQL = `
+	select 1
+	from tb_auth_sessions
+	where session_token_hash = ?
+		and user_id = ?
+		and revoked_at is null
+		and expires_at > utc_timestamp(3)
+	for update
+`
+
+const mysqlAuthSessionRevokeSQL = `
+	update tb_auth_sessions
+	set revoked_at = ?, revoked_reason = ?
+	where session_token_hash = ?
+		and user_id = ?
+		and revoked_at is null
+`
+
 func NewMySQLStore(db *sql.DB) *MySQLStore {
 	return &MySQLStore{db: db}
 }
 
 func (s *MySQLStore) Name() string {
 	return "mysql"
+}
+
+func (s *MySQLStore) CreateAuthSession(ctx context.Context, input AuthSessionCreate) (string, error) {
+	token, err := newAuthSessionToken()
+	if err != nil {
+		return "", err
+	}
+	hash := hashAuthSessionToken(token)
+	_, err = s.db.ExecContext(ctx, mysqlAuthSessionCreateSQL,
+		hex.EncodeToString(hash[:]),
+		input.UserID,
+		strings.TrimSpace(input.SSOSubject),
+		sanitizeAuditMetadata(input.IPAddress, 64),
+		sanitizeAuditMetadata(input.UserAgent, 512),
+	)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func (s *MySQLStore) TouchAuthSession(ctx context.Context, token string, userID int64, _ time.Time, _ time.Duration) (bool, error) {
+	hash := hashAuthSessionToken(token)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, mysqlAuthSessionTouchSQL,
+		hex.EncodeToString(hash[:]),
+		userID,
+	)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if affected == 1 {
+		return true, tx.Commit()
+	}
+	if affected != 0 {
+		return false, nil
+	}
+
+	var exists int
+	err = tx.QueryRowContext(ctx, mysqlAuthSessionValidSQL,
+		hex.EncodeToString(hash[:]),
+		userID,
+	).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
+func (s *MySQLStore) RevokeAuthSession(ctx context.Context, token string, userID int64, reason string, now time.Time) error {
+	hash := hashAuthSessionToken(token)
+	_, err := s.db.ExecContext(ctx, mysqlAuthSessionRevokeSQL,
+		now,
+		sanitizeAuditMetadata(reason, 255),
+		hex.EncodeToString(hash[:]),
+		userID,
+	)
+	return err
 }
 
 func (s *MySQLStore) Ping(ctx context.Context) error {
@@ -71,6 +183,167 @@ func (s *MySQLStore) ListTasks(ctx context.Context) ([]Task, error) {
 	return tasks, rows.Err()
 }
 
+func (s *MySQLStore) CreateAuditLog(ctx context.Context, log AuditLog) error {
+	return s.RecordAudit(ctx, log)
+}
+
+// RecordAudit adapts the shared audit write port to the legacy app store API.
+func (s *MySQLStore) RecordAudit(ctx context.Context, event AuditLog) error {
+	return insertAuditLog(ctx, s.db, event)
+}
+
+// RecorderForTx returns an audit writer bound to a caller-owned transaction.
+func (s *MySQLStore) RecorderForTx(tx *sql.Tx) auditlog.AuditRecorder {
+	return mysqlAuditLogTxRecorder{tx: tx}
+}
+
+type mysqlAuditLogTxRecorder struct {
+	tx *sql.Tx
+}
+
+func (r mysqlAuditLogTxRecorder) RecordAudit(ctx context.Context, event auditlog.AuditEvent) error {
+	if r.tx == nil {
+		return errAuditLogTransactionNil
+	}
+	return insertAuditLog(ctx, r.tx, event)
+}
+
+type auditLogExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func insertAuditLog(ctx context.Context, executor auditLogExecer, log AuditLog) error {
+	detailJSON := sanitizeAuditDetail(log.DetailJSON)
+	_, err := executor.ExecContext(ctx, `
+		insert into tb_audit_logs (
+			user_id, actor_display_name, user_email, action, entity_type, entity_id,
+			store_id, external_org_id, channel_id, asset_logical_key, ip_address, user_agent, request_id,
+			result, detail_json
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		log.UserID,
+		strings.TrimSpace(log.ActorDisplayName),
+		strings.TrimSpace(log.UserEmail),
+		strings.TrimSpace(log.Action),
+		strings.TrimSpace(log.EntityType),
+		log.EntityID,
+		log.StoreID,
+		strings.TrimSpace(log.ExternalOrgID),
+		log.ChannelID,
+		strings.TrimSpace(log.AssetLogicalKey),
+		sanitizeAuditMetadata(log.IPAddress, 64),
+		sanitizeAuditMetadata(log.UserAgent, 512),
+		sanitizeAuditMetadata(log.RequestID, 128),
+		strings.TrimSpace(log.Result),
+		detailJSON,
+	)
+	return err
+}
+
+func (s *MySQLStore) ListAuditLogs(ctx context.Context, filter AuditLogFilter) (AuditLogPage, error) {
+	filter, offset := normalizeAuditLogFilter(filter)
+	where, args := mysqlAuditLogWhere(filter)
+
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+		select count(*)
+		from tb_audit_logs
+		where `+where,
+		args...,
+	).Scan(&total); err != nil {
+		return AuditLogPage{}, err
+	}
+
+	rowArgs := append(append([]any(nil), args...), filter.PageSize, offset)
+	rows, err := s.db.QueryContext(ctx, `
+		select id, user_id, actor_display_name, user_email, action, entity_type,
+			entity_id, store_id, external_org_id, channel_id, asset_logical_key,
+			ip_address, user_agent, request_id, result, detail_json, created_at
+		from tb_audit_logs
+		where `+where+`
+		order by created_at desc, id desc
+		limit ? offset ?
+	`, rowArgs...)
+	if err != nil {
+		return AuditLogPage{}, err
+	}
+	defer rows.Close()
+
+	items := make([]AuditLog, 0)
+	for rows.Next() {
+		log, err := scanAuditLog(rows)
+		if err != nil {
+			return AuditLogPage{}, err
+		}
+		items = append(items, log)
+	}
+	if err := rows.Err(); err != nil {
+		return AuditLogPage{}, err
+	}
+	return AuditLogPage{Items: items, Page: filter.Page, PageSize: filter.PageSize, Total: total}, nil
+}
+
+func mysqlAuditLogWhere(filter AuditLogFilter) (string, []any) {
+	clauses := []string{"created_at >= ?", "created_at < ?", "action <> ?"}
+	args := []any{filter.StartAt, filter.EndAt}
+	args = append(args, internalAuditActionSnapshotRefreshPrepare)
+	if filter.UserID != nil {
+		clauses = append(clauses, "user_id = ?")
+		args = append(args, *filter.UserID)
+	}
+	if filter.Action != "" {
+		clauses = append(clauses, "action = ?")
+		args = append(args, filter.Action)
+	}
+	return strings.Join(clauses, " and "), args
+}
+
+func scanAuditLog(scanner interface {
+	Scan(dest ...any) error
+}) (AuditLog, error) {
+	var log AuditLog
+	var userID, entityID, storeID, channelID sql.NullInt64
+	var detailJSON sql.NullString
+	if err := scanner.Scan(
+		&log.ID,
+		&userID,
+		&log.ActorDisplayName,
+		&log.UserEmail,
+		&log.Action,
+		&log.EntityType,
+		&entityID,
+		&storeID,
+		&log.ExternalOrgID,
+		&channelID,
+		&log.AssetLogicalKey,
+		&log.IPAddress,
+		&log.UserAgent,
+		&log.RequestID,
+		&log.Result,
+		&detailJSON,
+		&log.CreatedAt,
+	); err != nil {
+		return AuditLog{}, err
+	}
+	if userID.Valid {
+		log.UserID = &userID.Int64
+	}
+	if entityID.Valid {
+		log.EntityID = &entityID.Int64
+	}
+	if storeID.Valid {
+		log.StoreID = &storeID.Int64
+	}
+	if channelID.Valid {
+		log.ChannelID = &channelID.Int64
+	}
+	log.AssetLogicalKey = strings.TrimSpace(log.AssetLogicalKey)
+	if detailJSON.Valid {
+		log.DetailJSON = sanitizeAuditDetail([]byte(detailJSON.String))
+	}
+	return log, nil
+}
+
 func (s *MySQLStore) GetAIProvider(ctx context.Context) (string, error) {
 	var value string
 	err := s.db.QueryRowContext(ctx, `
@@ -92,6 +365,37 @@ func (s *MySQLStore) SetAIProvider(ctx context.Context, provider string) error {
 			value = values(value),
 			updated_at = values(updated_at)
 	`, NormalizeAIProvider(provider))
+	return err
+}
+
+func (s *MySQLStore) GetMonitorScreenshotWatermarkEnabled(ctx context.Context) (bool, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `
+		select value
+		from tb_app_settings
+		where `+"`key`"+` = ?
+	`, monitorScreenshotWatermarkSettingKey).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return NormalizeMonitorScreenshotWatermarkEnabled(value), nil
+}
+
+func (s *MySQLStore) SetMonitorScreenshotWatermarkEnabled(ctx context.Context, enabled bool) error {
+	value := "false"
+	if enabled {
+		value = "true"
+	}
+	_, err := s.db.ExecContext(ctx, `
+		insert into tb_app_settings (`+"`key`"+`, value, updated_at)
+		values (?, ?, current_timestamp(3))
+		on duplicate key update
+			value = values(value),
+			updated_at = values(updated_at)
+	`, monitorScreenshotWatermarkSettingKey, value)
 	return err
 }
 
@@ -119,6 +423,10 @@ func (s *MySQLStore) GetAuthUserByEmail(ctx context.Context, email string) (Auth
 		return AuthUserRecord{}, errAuthUserNotFound
 	}
 	return record, err
+}
+
+func (s *MySQLStore) GetAuthUserByID(ctx context.Context, id int64) (AuthUserRecord, error) {
+	return s.getAuthUserByID(ctx, id)
 }
 
 func (s *MySQLStore) UpdateAuthUserProfile(ctx context.Context, patch AuthUserPatch) (AuthUserRecord, error) {
@@ -187,13 +495,21 @@ func (s *MySQLStore) ListAuthUsers(ctx context.Context) ([]AuthUserRecord, error
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if err := s.attachMonitorScopeCounts(ctx, users); err != nil {
+	if err := s.attachMonitorScopes(ctx, users); err != nil {
 		return nil, err
 	}
 	return users, nil
 }
 
 func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation) (AuthUserRecord, error) {
+	return s.createAuthUser(ctx, input, nil)
+}
+
+func (s *MySQLStore) CreateAuthUserWithAudit(ctx context.Context, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error) {
+	return s.createAuthUser(ctx, input, &event)
+}
+
+func (s *MySQLStore) createAuthUser(ctx context.Context, input AuthUserMutation, event *auditlog.AuditEvent) (AuthUserRecord, error) {
 	if normalizeRole(input.Role) == RoleViewer {
 		if err := s.ensureUserResourceScopesTable(ctx); err != nil {
 			return AuthUserRecord{}, err
@@ -227,6 +543,12 @@ func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation)
 	if err := setMySQLUserMonitorScopes(ctx, tx, id, input.Role, input.MonitorStoreScopeIDs); err != nil {
 		return AuthUserRecord{}, err
 	}
+	if event != nil {
+		event.EntityID = &id
+		if err := (mysqlAuditLogTxRecorder{tx: tx}).RecordAudit(ctx, *event); err != nil {
+			return AuthUserRecord{}, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return AuthUserRecord{}, err
 	}
@@ -234,6 +556,14 @@ func (s *MySQLStore) CreateAuthUser(ctx context.Context, input AuthUserMutation)
 }
 
 func (s *MySQLStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error) {
+	return s.updateAuthUser(ctx, id, input, nil)
+}
+
+func (s *MySQLStore) UpdateAuthUserWithAudit(ctx context.Context, id int64, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error) {
+	return s.updateAuthUser(ctx, id, input, &event)
+}
+
+func (s *MySQLStore) updateAuthUser(ctx context.Context, id int64, input AuthUserMutation, event *auditlog.AuditEvent) (AuthUserRecord, error) {
 	if normalizeRole(input.Role) == RoleViewer {
 		if err := s.ensureUserResourceScopesTable(ctx); err != nil {
 			return AuthUserRecord{}, err
@@ -268,6 +598,12 @@ func (s *MySQLStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUse
 	}
 	if err := setMySQLUserMonitorScopes(ctx, tx, id, input.Role, input.MonitorStoreScopeIDs); err != nil {
 		return AuthUserRecord{}, err
+	}
+	if event != nil {
+		event.EntityID = &id
+		if err := (mysqlAuditLogTxRecorder{tx: tx}).RecordAudit(ctx, *event); err != nil {
+			return AuthUserRecord{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return AuthUserRecord{}, err
@@ -427,7 +763,7 @@ func (s *MySQLStore) CanUserViewMonitorStore(ctx context.Context, user AuthUserR
 	var exists int
 	err := s.db.QueryRowContext(ctx, `
 		select 1
-		from tb_user_resource_scopes
+		from tb_user_resource_scopes urs
 		where user_id = ?
 			and resource_type = ?
 			and external_key = ?
@@ -440,19 +776,22 @@ func (s *MySQLStore) CanUserViewMonitorStore(ctx context.Context, user AuthUserR
 	return err == nil, err
 }
 
-func (s *MySQLStore) attachMonitorScopeCounts(ctx context.Context, users []AuthUserRecord) error {
+func (s *MySQLStore) attachMonitorScopes(ctx context.Context, users []AuthUserRecord) error {
 	if len(users) == 0 {
 		return nil
 	}
 	if err := s.ensureUserResourceScopesTable(ctx); err != nil {
 		return err
 	}
-	counts := map[int64]int{}
+	scopesByUserID := map[int64][]AuthUserResourceScope{}
 	rows, err := s.db.QueryContext(ctx, `
-		select user_id, count(*)
-		from tb_user_resource_scopes
-		where resource_type = ? and scope = ?
-		group by user_id
+		select urs.user_id, s.id, s.city, s.name, s.external_org_id
+		from tb_user_resource_scopes urs
+		join tb_stores s on s.id = urs.resource_id
+		where urs.resource_type = ?
+			and urs.scope = ?
+			and nullif(trim(s.external_org_id), '') is not null
+		order by urs.user_id, s.city, s.name, s.id
 	`, ResourceTypeStore, ScopeMonitorView)
 	if err != nil {
 		return err
@@ -460,17 +799,18 @@ func (s *MySQLStore) attachMonitorScopeCounts(ctx context.Context, users []AuthU
 	defer rows.Close()
 	for rows.Next() {
 		var userID int64
-		var count int
-		if err := rows.Scan(&userID, &count); err != nil {
+		var scope AuthUserResourceScope
+		if err := rows.Scan(&userID, &scope.StoreID, &scope.City, &scope.Name, &scope.ExternalOrgID); err != nil {
 			return err
 		}
-		counts[userID] = count
+		scopesByUserID[userID] = append(scopesByUserID[userID], scope)
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	for index := range users {
-		users[index].MonitorStoreScopeCount = counts[users[index].ID]
+		users[index].MonitorStoreScopes = scopesByUserID[users[index].ID]
+		users[index].MonitorStoreScopeCount = len(users[index].MonitorStoreScopes)
 	}
 	return nil
 }

@@ -4,31 +4,37 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
-	"github.com/shalei-pm/erzhuang-project/internal/assets"
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
+	"github.com/shalei-pm/erzhuang-project/internal/nvrlab"
+	"github.com/shalei-pm/erzhuang-project/internal/nvrmonitor"
 	"github.com/shalei-pm/erzhuang-project/internal/osssmoke"
+	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
 )
 
 const (
-	AppName            = "erzhuang-project"
-	Version            = "v2"
-	defaultAppBasePath = "/erzhuang-project"
-	legacyAppBasePath  = "/erzhuang"
+	AppName             = "erzhuang-project"
+	Version             = "v2"
+	defaultAppBasePath  = "/erzhuang-project"
+	legacyAppBasePath   = "/erzhuang"
+	maxRequestBodyBytes = 8 << 20
 )
 
 type HealthResponse struct {
-	App        string `json:"app"`
-	Status     string `json:"status"`
-	Version    string `json:"version"`
-	Database   string `json:"database"`
-	AssetStore string `json:"asset_store"`
+	Status string `json:"status"`
 }
 
 type Task struct {
@@ -45,9 +51,18 @@ type Store interface {
 	AuthUserStore
 }
 
+// memoryStoreMarker identifies the local adapter even when it is wrapped by a test store.
+type memoryStoreMarker interface {
+	isMemoryStore()
+}
+
 type Handler struct {
 	store                    Store
 	auth                     AuthConfig
+	authSessionStore         authSessionStore
+	now                      func() time.Time
+	idleTimeout              time.Duration
+	auditRecorder            auditlog.AuditRecorder
 	ossSmokeRunner           ossSmokeRunner
 	assetMigrationRunner     assetMigrationRunner
 	assetStateBackfillRunner assetStateBackfillRunner
@@ -56,6 +71,10 @@ type Handler struct {
 	mysqlCanaryRunner        mysqlCanaryImportRunner
 	mysqlValidateRunner      mysqlCanaryValidateRunner
 	mysqlInventoryRunner     mysqlAssetInventoryRunner
+	storeSpaceService        *storespace.Service
+	resourceViewService      *resourceview.Service
+	nvrMonitorService        *nvrmonitor.Service
+	monitorPlaybackMode      MonitorPlaybackMode
 }
 
 func NewHandler() http.Handler {
@@ -67,24 +86,52 @@ func NewHandlerWithStore(store Store) http.Handler {
 }
 
 func NewHandlerWithStores(store Store, designPlanRepo designplan.Repository, storeSpaceRepo storespace.Repository) http.Handler {
-	return newHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo), nil)
+	return newHandlerWithServices(store, designplan.NewService(designPlanRepo), storespace.NewService(storeSpaceRepo), nil, nil, nil, nil, MonitorPlaybackModeLegacy)
 }
 
 func NewHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, nil)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, nil, nil, nil, nil, MonitorPlaybackModeLegacy)
 }
 
 func NewHandlerWithServicesAndH5Monitor(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService)
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, nil, nil, nil, MonitorPlaybackModeLegacy)
 }
 
-func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service) http.Handler {
-	handler := &Handler{store: store, auth: AuthConfigFromEnv(), ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner}
+func NewHandlerWithServicesAndH5MonitorAndResourceView(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service) http.Handler {
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nil, nil, MonitorPlaybackModeLegacy)
+}
+
+func NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRLab(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service) http.Handler {
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nil, MonitorPlaybackModeLegacy)
+}
+
+func NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
+	return newHandlerWithServices(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode)
+}
+
+func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
+	var sessionStore authSessionStore
+	if candidate, ok := store.(authSessionStore); ok {
+		sessionStore = candidate
+	} else if _, ok := store.(memoryStoreMarker); ok {
+		// The memory adapter is only a local/test persistence substitute.
+		sessionStore = newMemoryAuthSessionStore()
+	}
+	return newHandlerWithAuthSessionStore(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode, sessionStore)
+}
+
+func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, monitorPlaybackMode MonitorPlaybackMode, sessionStore authSessionStore) http.Handler {
+	var auditRecorder auditlog.AuditRecorder
+	if recorder, ok := store.(auditlog.AuditRecorder); ok {
+		auditRecorder = recorder
+	}
+	handler := &Handler{store: store, auth: AuthConfigFromEnv(), authSessionStore: sessionStore, now: time.Now, idleTimeout: defaultAuthIdleTimeout, auditRecorder: auditRecorder, ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner, storeSpaceService: storeSpaceService, resourceViewService: resourceViewService, nvrMonitorService: nvrMonitorService, monitorPlaybackMode: monitorPlaybackMode}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
 	mux.HandleFunc("GET /api/auth/me", handler.authMeHandler)
 	mux.HandleFunc("POST /api/auth/logout", handler.authLogoutHandler)
+	mux.HandleFunc("GET /api/h5/monitor-mode", handler.requirePermissionHandler(PermissionStoreRead, handler.monitorModeHandler))
 	mux.HandleFunc("GET /_/auth/callback", handler.authCallbackHandler)
 	mux.HandleFunc("GET /logout", handler.authLogoutHandler)
 	mux.HandleFunc("GET /api/users/monitor-store-scope-candidates", handler.listMonitorStoreScopeCandidatesHandler)
@@ -93,6 +140,9 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("PUT /api/users/{id}", handler.updateUserHandler)
 	mux.HandleFunc("GET /api/ai-settings", handler.aiSettingsHandler)
 	mux.HandleFunc("POST /api/ai-settings/toggle", handler.requirePermissionHandler(PermissionUserManage, handler.toggleAISettingsHandler))
+	mux.HandleFunc("GET /api/monitor-screenshot-watermark-settings", handler.requirePermissionHandler(PermissionUserManage, handler.monitorScreenshotWatermarkSettingsHandler))
+	mux.HandleFunc("POST /api/monitor-screenshot-watermark-settings", handler.requirePermissionHandler(PermissionUserManage, handler.updateMonitorScreenshotWatermarkSettingsHandler))
+	mux.HandleFunc("GET /api/admin/audit-logs", handler.requirePermissionHandler(PermissionAuditView, handler.auditLogsHandler))
 	mux.HandleFunc("GET /api/admin/ops/env-check", handler.ossEnvCheckHandler)
 	mux.HandleFunc("POST /api/admin/ops/oss-smoke", handler.ossSmokeHandler)
 	mux.HandleFunc("POST /api/admin/ops/asset-migrate", handler.assetMigrationHandler)
@@ -103,12 +153,108 @@ func newHandlerWithServices(store Store, designPlanService *designplan.Service, 
 	mux.HandleFunc("GET /api/admin/ops/mysql-canary-validate", handler.mysqlCanaryValidateHandler)
 	mux.HandleFunc("GET /api/admin/ops/mysql-asset-inventory", handler.mysqlAssetInventoryHandler)
 	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
-	storespace.RegisterRoutesWithGuards(mux, storeSpaceService, handler.monitorVisibilityMiddleware, handler.storeWriteGuard)
-	if h5MonitorService != nil {
+	storespace.RegisterRoutesWithGuards(mux, storeSpaceService, handler.storeWriteGuard, nil, handler.storeExportGuard)
+	resourceview.RegisterRoutesWithReadGuard(mux, resourceViewService, handler.resourceViewMonitorAccess, handler.storeReadGuard)
+	mux.HandleFunc("GET /api/store-space-resource-view/stores/{tenantId}/cameras/{cameraId}/snapshot", handler.storeReadGuard(handler.resourceViewLegacySnapshotHandler))
+	mux.HandleFunc("POST /api/store-space/stores/{storeId}/channels/{channelId}/snapshot/view", handler.storeReadGuard(handler.recordChannelSnapshotView))
+	nvrlab.RegisterRoutesWithAudit(mux, nvrLabService, handler.nvrLabAdminGuard, nvrMonitorAuthorizer{handler: handler})
+	if monitorPlaybackMode == MonitorPlaybackModeNVR && nvrMonitorService != nil {
+		nvrmonitor.RegisterRoutesWithAuthorizer(mux, nvrMonitorService, nvrMonitorAuthorizer{handler: handler})
+		mux.HandleFunc("POST /api/h5/nvr-monitor/orgs/{externalOrgId}/cameras/{cameraId}/screenshot-metadata", handler.storeReadGuard(handler.nvrScreenshotMetadataHandler))
+	} else if h5MonitorService != nil {
 		h5monitor.RegisterRoutesWithAuthorizer(mux, h5MonitorService, h5MonitorAuthorizer{handler: handler})
 	}
 	registerFrontendRoutes(mux)
-	return withBasePathAPIPrefixes(mux)
+	return withBasePathAPIPrefixes(withHTTPHardening(handler.authGate(mux)))
+}
+
+func (h *Handler) monitorModeHandler(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"mode": string(h.monitorPlaybackMode)})
+}
+
+func (h *Handler) resourceViewLegacySnapshotHandler(w http.ResponseWriter, r *http.Request) {
+	if h.resourceViewService == nil || h.storeSpaceService == nil {
+		http.NotFound(w, r)
+		return
+	}
+	tenantID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("tenantId")), 10, 64)
+	if err != nil || tenantID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	cameraID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("cameraId")), 10, 64)
+	if err != nil || cameraID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	access, err := h.resourceViewMonitorAccess(r, tenantID)
+	if err != nil || !access.CanViewMonitor {
+		http.NotFound(w, r)
+		return
+	}
+	name, err := h.resourceViewService.LegacySnapshotName(r.Context(), tenantID, cameraID, access)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	reader, contentType, err := h.storeSpaceService.OpenChannelSnapshot(r.Context(), name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer reader.Close()
+	w.Header().Set("Cache-Control", "private, no-store")
+	if strings.TrimSpace(contentType) != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	if _, err := io.Copy(w, reader); err != nil {
+		log.Printf("resource view: serve legacy snapshot failed: %v", err)
+	}
+}
+
+func (h *Handler) recordChannelSnapshotView(w http.ResponseWriter, r *http.Request) {
+	storeID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("storeId")), 10, 64)
+	if err != nil || storeID <= 0 || h.storeSpaceService == nil {
+		http.NotFound(w, r)
+		return
+	}
+	channelID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("channelId")), 10, 64)
+	if err != nil || channelID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	store, err := h.storeSpaceService.GetStore(r.Context(), storeID)
+	if err != nil || store == nil {
+		http.NotFound(w, r)
+		return
+	}
+	belongsToStore := false
+	for _, recorder := range store.Recorders {
+		for _, channel := range recorder.Channels {
+			if channel.ID == channelID {
+				belongsToStore = true
+				break
+			}
+		}
+		if belongsToStore {
+			break
+		}
+	}
+	if !belongsToStore {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.recordMonitorAudit(r.Context(), r, auditlog.AuditEvent{
+		Action:        "snapshot.view",
+		EntityType:    "channel",
+		EntityID:      &channelID,
+		ExternalOrgID: strings.TrimSpace(store.ExternalOrgID),
+		Result:        "success",
+	}); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "audit_unavailable", "error": "截图审计失败，请稍后重试"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type ossSmokeResult = osssmoke.Result
@@ -125,20 +271,74 @@ func (h *Handler) storeWriteGuard(next http.HandlerFunc) http.HandlerFunc {
 	return h.requirePermissionHandler(PermissionStoreWrite, next)
 }
 
-func (h *Handler) monitorVisibilityMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func (h *Handler) storeReadGuard(next http.HandlerFunc) http.HandlerFunc {
+	return h.requirePermissionHandler(PermissionStoreRead, next)
+}
+
+// storeExportGuard keeps screenshot-bearing legacy exports to administrators
+// and makes a persisted audit record a precondition for the export.
+func (h *Handler) storeExportGuard(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		resolver := storespace.MonitorVisibilityResolver(func(ctx context.Context, externalOrgID string) (bool, error) {
-			user, err := h.currentAuthUser(r)
-			if errors.Is(err, errUnauthorizedAuth) || errors.Is(err, errForbiddenAuth) {
-				return false, nil
+		if _, ok := h.requirePermission(w, r, PermissionStoreExport); !ok {
+			return
+		}
+
+		storeID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("id")), 10, 64)
+		if err == nil && storeID > 0 {
+			detail, _ := json.Marshal(map[string]any{
+				"summary":  "导出通道映射",
+				"store_id": storeID,
+			})
+			event := auditlog.AuditEvent{
+				Action:     "store_space.channel_mapping.export",
+				EntityType: "store",
+				EntityID:   int64Pointer(storeID),
+				StoreID:    int64Pointer(storeID),
+				Result:     "success",
+				DetailJSON: detail,
 			}
-			if err != nil {
-				return false, err
+			if err := h.recordMonitorAudit(r.Context(), r, event); err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "audit_unavailable", "error": "导出审计记录失败，请稍后重试"})
+				return
 			}
-			return h.store.CanUserViewMonitorStore(ctx, user, externalOrgID)
-		})
-		next(w, r.WithContext(storespace.WithMonitorVisibilityResolver(r.Context(), resolver)))
+		}
+
+		next(w, r)
 	}
+}
+
+func (h *Handler) resourceViewMonitorAccess(r *http.Request, tenantID int64) (resourceview.MonitorAccess, error) {
+	externalOrgID := strconv.FormatInt(tenantID, 10)
+	user, err := h.currentAuthUser(r)
+	if err != nil {
+		return resourceview.MonitorAccess{}, err
+	}
+	ok, err := h.store.CanUserViewMonitorStore(r.Context(), user, externalOrgID)
+	if err != nil {
+		return resourceview.MonitorAccess{}, err
+	}
+	if !ok {
+		return resourceview.MonitorAccess{}, nil
+	}
+	if h.monitorPlaybackMode == MonitorPlaybackModeNVR {
+		if h.nvrMonitorService == nil {
+			return resourceview.MonitorAccess{}, nil
+		}
+		cameras, err := h.nvrMonitorService.GetCameras(r.Context(), externalOrgID)
+		if errors.Is(err, nvrmonitor.ErrStoreNotFound) || errors.Is(err, nvrmonitor.ErrNotConfigured) {
+			return resourceview.MonitorAccess{}, nil
+		}
+		if err != nil {
+			return resourceview.MonitorAccess{}, err
+		}
+		if len(cameras.Cameras) == 0 {
+			return resourceview.MonitorAccess{}, nil
+		}
+	}
+	return resourceview.MonitorAccess{
+		CanViewMonitor: true,
+		MonitorURL:     normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/h5/orgs/" + url.PathEscape(externalOrgID) + "/monitor",
+	}, nil
 }
 
 func withBasePathAPIPrefixes(next http.Handler) http.Handler {
@@ -176,6 +376,23 @@ func withBasePathAPIPrefixes(next http.Handler) http.Handler {
 			}
 		}
 
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withHTTPHardening(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "base-uri 'self'; frame-ancestors 'self'; object-src 'none'")
+		w.Header().Set("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/health" {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -238,19 +455,11 @@ func frontendPath(frontendDir string, name string) string {
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
 	status := "ok"
-	database := h.store.Name()
 	if err := h.store.Ping(r.Context()); err != nil {
 		status = "degraded"
-		database = "error"
 	}
 
-	writeJSON(w, http.StatusOK, HealthResponse{
-		App:        AppName,
-		Status:     status,
-		Version:    Version,
-		Database:   database,
-		AssetStore: assets.ModeFromEnv(),
-	})
+	writeJSON(w, http.StatusOK, HealthResponse{Status: status})
 }
 
 func (h *Handler) tasksHandler(w http.ResponseWriter, r *http.Request) {
@@ -286,6 +495,174 @@ func (h *Handler) toggleAISettingsHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, AISettingsFromProvider(nextProvider))
+}
+
+const auditLogDateLayout = "2006-01-02"
+
+var auditLogActionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$`)
+
+type auditLogItemResponse struct {
+	ActorDisplayName string    `json:"actor_display_name"`
+	UserEmail        string    `json:"user_email"`
+	Action           string    `json:"action"`
+	EntityType       string    `json:"entity_type"`
+	EntityID         *int64    `json:"entity_id"`
+	StoreID          *int64    `json:"store_id"`
+	ExternalOrgID    string    `json:"external_org_id"`
+	ChannelID        *int64    `json:"channel_id"`
+	Result           string    `json:"result"`
+	CreatedAt        time.Time `json:"created_at"`
+	Summary          string    `json:"summary"`
+}
+
+type auditLogListResponse struct {
+	Items    []auditLogItemResponse `json:"items"`
+	Page     int                    `json:"page"`
+	PageSize int                    `json:"page_size"`
+	Total    int                    `json:"total"`
+}
+
+func (h *Handler) auditLogsHandler(w http.ResponseWriter, r *http.Request) {
+	filter, err := parseAuditLogFilter(r.URL.Query())
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	auditLogStore, ok := h.store.(AuditLogStore)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "audit log store unavailable"})
+		return
+	}
+	page, err := auditLogStore.ListAuditLogs(r.Context(), filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list audit logs failed"})
+		return
+	}
+
+	items := make([]auditLogItemResponse, 0, len(page.Items))
+	for _, log := range page.Items {
+		items = append(items, auditLogItemResponse{
+			ActorDisplayName: strings.TrimSpace(log.ActorDisplayName),
+			UserEmail:        strings.TrimSpace(log.UserEmail),
+			Action:           strings.TrimSpace(log.Action),
+			EntityType:       strings.TrimSpace(log.EntityType),
+			EntityID:         log.EntityID,
+			StoreID:          log.StoreID,
+			ExternalOrgID:    strings.TrimSpace(log.ExternalOrgID),
+			ChannelID:        log.ChannelID,
+			Result:           strings.TrimSpace(log.Result),
+			CreatedAt:        log.CreatedAt,
+			Summary:          auditLogSummary(log),
+		})
+	}
+	writeJSON(w, http.StatusOK, auditLogListResponse{
+		Items:    items,
+		Page:     page.Page,
+		PageSize: page.PageSize,
+		Total:    page.Total,
+	})
+}
+
+func parseAuditLogFilter(values url.Values) (AuditLogFilter, error) {
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return AuditLogFilter{}, errors.New("load audit log timezone failed")
+	}
+	startAt, err := parseAuditLogDate(values.Get("start_time"), location)
+	if err != nil {
+		return AuditLogFilter{}, errors.New("invalid start_time")
+	}
+	endDate, err := parseAuditLogDate(values.Get("end_time"), location)
+	if err != nil {
+		return AuditLogFilter{}, errors.New("invalid end_time")
+	}
+	if startAt.After(endDate) {
+		return AuditLogFilter{}, errors.New("start_time must not be after end_time")
+	}
+	if endDate.After(startAt.AddDate(0, 3, 0)) {
+		return AuditLogFilter{}, errors.New("audit log date range must not exceed three months")
+	}
+
+	filter := AuditLogFilter{
+		StartAt: startAt,
+		EndAt:   endDate.AddDate(0, 0, 1),
+	}
+	if value := strings.TrimSpace(values.Get("user_id")); value != "" {
+		userID, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || userID <= 0 {
+			return AuditLogFilter{}, errors.New("invalid user_id")
+		}
+		filter.UserID = &userID
+	}
+	filter.Action = strings.TrimSpace(values.Get("action"))
+	if filter.Action != "" && (len(filter.Action) > 64 || !auditLogActionPattern.MatchString(filter.Action)) {
+		return AuditLogFilter{}, errors.New("invalid action")
+	}
+
+	page, err := parseOptionalPositiveAuditLogInt(values.Get("page"))
+	if err != nil {
+		return AuditLogFilter{}, errors.New("invalid page")
+	}
+	filter.Page = page
+	pageSize, err := parseOptionalPositiveAuditLogInt(values.Get("page_size"))
+	if err != nil {
+		return AuditLogFilter{}, errors.New("invalid page_size")
+	}
+	filter.PageSize = pageSize
+	return filter, nil
+}
+
+func parseAuditLogDate(value string, location *time.Location) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, errors.New("missing date")
+	}
+	parsed, err := time.ParseInLocation(auditLogDateLayout, value, location)
+	if err != nil || parsed.Format(auditLogDateLayout) != value {
+		return time.Time{}, errors.New("invalid date")
+	}
+	return parsed, nil
+}
+
+func parseOptionalPositiveAuditLogInt(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0, errors.New("invalid positive integer")
+	}
+	return parsed, nil
+}
+
+func auditLogSummary(log AuditLog) string {
+	if detail := sanitizeAuditDetail(log.DetailJSON); len(detail) > 0 {
+		var values map[string]json.RawMessage
+		if err := json.Unmarshal(detail, &values); err == nil {
+			if strings.TrimSpace(log.Action) == "system.monitor_screenshot_watermark.update" {
+				var previousEnabled, enabled bool
+				previousOK := json.Unmarshal(values["previous_enabled"], &previousEnabled) == nil
+				enabledOK := json.Unmarshal(values["enabled"], &enabled) == nil
+				if previousOK && enabledOK {
+					return "监控截图水印：" + auditEnabledLabel(previousEnabled) + " -> " + auditEnabledLabel(enabled)
+				}
+			}
+			var summary string
+			if raw, ok := values["summary"]; ok && json.Unmarshal(raw, &summary) == nil {
+				summary = strings.TrimSpace(summary)
+				if summary != "" && summary != strings.TrimSpace(log.Action) {
+					return summary
+				}
+			}
+		}
+	}
+	action := strings.TrimSpace(log.Action)
+	if auditLogActionPattern.MatchString(action) {
+		return "Audit event: " + action
+	}
+	return "Audit event"
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

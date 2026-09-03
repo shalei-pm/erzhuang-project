@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -83,6 +85,43 @@ func TestMySQLDSNWithParseTimePreservesExistingQuery(t *testing.T) {
 	want := "u:p@tcp(mysql:3306)/erzhuang?charset=utf8mb4&parseTime=true"
 	if got != want {
 		t.Fatalf("dsn = %q, want %q", got, want)
+	}
+}
+
+func TestMySQLDSNWithParseTimeAllowsQuestionMarkInPassword(t *testing.T) {
+	got := mysqlDSNWithParseTime("u:p?with@mark@tcp(mysql:3306)/erzhuang")
+	want := "u:p?with@mark@tcp(mysql:3306)/erzhuang?parseTime=true"
+	if got != want {
+		t.Fatalf("dsn = %q, want %q", got, want)
+	}
+}
+
+func TestResourceViewUsesPrimaryMySQLOnly(t *testing.T) {
+	content, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(content)
+	for _, banned := range []string{
+		"BUSINESS_MYSQL_DSN",
+		"K8S_SECRET_BUSINESS_MYSQL_DSN",
+		"businessDatabaseConfigFromEnv",
+	} {
+		if strings.Contains(source, banned) {
+			t.Fatalf("main.go still contains %q", banned)
+		}
+	}
+	if !strings.Contains(source, "resourceview.NewMySQLRepository(db)") {
+		t.Fatal("main.go does not build resource view from the primary mysql database")
+	}
+}
+
+func TestNVRLabAuthorizationReadsKubernetesSecretFirst(t *testing.T) {
+	t.Setenv("NVR_STREAM_AUTHORIZATION", "fallback-value")
+	t.Setenv("K8S_SECRET_NVR_STREAM_AUTHORIZATION", "secret-value")
+
+	if got := nvrLabAuthorizationFromEnv(); got != "secret-value" {
+		t.Fatalf("authorization = %q, want Kubernetes secret value", got)
 	}
 }
 

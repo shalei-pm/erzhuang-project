@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { h5Api, H5ApiError } from "../api-h5";
 import { H5StoreSwitcher } from "../components/H5StoreSwitcher";
 import { SystemTopBar } from "../components/SystemTopBar";
+import { cameraPlaceholderURL, legacyCameraThumbnailKind } from "../domain/camera-placeholder";
 import { h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from "../domain/h5-channel-display";
 import { h5MonitorTabs, readH5MonitorActiveTab, storeH5MonitorActiveTab, type H5MonitorTabKey } from "../domain/h5-monitor-active-tab";
-import type { AuthState } from "../domain/auth";
+import { writeSessionStorage, type AuthState } from "../domain/auth";
 import type { H5MonitorChannel, H5MonitorHomeResponse } from "../domain/h5-types";
 
 interface H5MonitorProps {
@@ -16,7 +17,7 @@ interface H5MonitorProps {
   onOpenChannel: (channelId: number, activeTab: H5MonitorTabKey) => void;
   onSelectTab?: (tab: H5MonitorTabKey) => void;
   onSelectStore: (externalOrgId: string) => void;
-  onAuthRequired?: () => void;
+  onAuthRequired?: (error?: unknown) => void;
   onLogout?: () => void | Promise<void>;
   refreshKey?: number;
 }
@@ -64,7 +65,7 @@ export function H5Monitor({
       .catch((err) => {
         if (cancelled) return;
         if (err instanceof H5ApiError && err.status === 401) {
-          onAuthRequired?.();
+          onAuthRequired?.(err);
           return;
         }
         if (err instanceof H5ApiError && err.status === 403) {
@@ -209,7 +210,7 @@ export function H5Monitor({
             key={channel.id}
             channel={channel}
             onClick={() => {
-              sessionStorage.setItem("h5-monitor-active-channel-name", h5ChannelDisplayText(channel).title);
+              writeSessionStorage("h5-monitor-active-channel-name", h5ChannelDisplayText(channel).title);
               onOpenChannel(channel.id, activeTab);
             }}
           />
@@ -243,15 +244,18 @@ export function H5Monitor({
 
 function CameraBubble({ channel, onClick }: { channel: H5MonitorChannel; onClick: () => void }) {
   const displayText = h5ChannelDisplayText(channel);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const verifiedThumbnailURL = channel.thumbnail_url
+    ? displayImageURL(channel.thumbnail_url)
+    : "";
+  const thumbnailURL = !thumbnailFailed && verifiedThumbnailURL
+    ? verifiedThumbnailURL
+    : cameraPlaceholderURL(legacyCameraThumbnailKind({ areaType: channel.area_type, category: channel.category, sceneType: channel.scene_type }));
 
   return (
     <button className="h5-camera-bubble" onClick={onClick} aria-label={`查看${displayText.title}`}>
       <span className="h5-camera-frame">
-        {channel.thumbnail_url ? (
-          <img src={displayImageURL(channel.thumbnail_url)} alt={displayText.title} loading="lazy" />
-        ) : (
-          <span className="h5-camera-placeholder">暂无画面</span>
-        )}
+        <img src={thumbnailURL} alt={!thumbnailFailed && verifiedThumbnailURL ? displayText.title : "摄像头默认缩略图"} loading="lazy" onError={() => setThumbnailFailed(true)} />
       </span>
       <span className="h5-camera-title">{displayText.title}</span>
       <span className="h5-camera-subtitle">{displayText.subtitle}</span>

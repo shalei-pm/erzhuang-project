@@ -19,6 +19,14 @@ assertEqual(
 );
 
 assertEqual(
+  displayImageUrl("/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot", {
+    apiBase: "/erzhuang-project/api",
+    mockPlanImage,
+  }),
+  "/erzhuang-project/api/h5/nvr-monitor/orgs/10001/cameras/111/snapshot",
+);
+
+assertEqual(
   displayImageUrl("uploads/tmp_123/thumbnail.png", {
     apiBase: "/erzhuang/api/design-plan",
     mockPlanImage,

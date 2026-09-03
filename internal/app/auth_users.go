@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 )
 
 const (
@@ -15,9 +17,11 @@ const (
 	RoleEditor = "editor"
 	RoleViewer = "viewer"
 
-	PermissionStoreRead  = "store:read"
-	PermissionStoreWrite = "store:write"
-	PermissionUserManage = "user:manage"
+	PermissionStoreRead   = "store:read"
+	PermissionStoreWrite  = "store:write"
+	PermissionStoreExport = "store:export"
+	PermissionUserManage  = "user:manage"
+	PermissionAuditView   = "audit.view"
 
 	ResourceTypeStore = "store"
 	ScopeMonitorView  = "monitor:view"
@@ -74,10 +78,24 @@ type AuthUserStore interface {
 	CanUserViewMonitorStore(ctx context.Context, user AuthUserRecord, externalOrgID string) (bool, error)
 }
 
+// authUserByIDStore is optional so stores that support user mutations can
+// enrich audit records without widening the shared Store contract.
+type authUserByIDStore interface {
+	GetAuthUserByID(ctx context.Context, id int64) (AuthUserRecord, error)
+}
+
+// AuthUserMutationAuditStore commits a user/role/scope mutation and its audit
+// event in one storage transaction. Production MySQL storage implements this;
+// the memory implementation mirrors the contract for local verification.
+type AuthUserMutationAuditStore interface {
+	CreateAuthUserWithAudit(ctx context.Context, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error)
+	UpdateAuthUserWithAudit(ctx context.Context, id int64, input AuthUserMutation, event auditlog.AuditEvent) (AuthUserRecord, error)
+}
+
 func (record AuthUserRecord) permissions() []string {
 	switch strings.ToLower(strings.TrimSpace(record.Role)) {
 	case RoleAdmin:
-		return []string{RoleAdmin, PermissionStoreRead, PermissionStoreWrite, PermissionUserManage}
+		return []string{RoleAdmin, PermissionStoreRead, PermissionStoreWrite, PermissionStoreExport, PermissionUserManage, PermissionAuditView}
 	case RoleEditor:
 		return []string{RoleEditor, PermissionStoreRead, PermissionStoreWrite}
 	default:

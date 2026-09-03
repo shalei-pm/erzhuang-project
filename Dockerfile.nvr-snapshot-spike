@@ -1,0 +1,22 @@
+# syntax=docker/dockerfile:1
+
+FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/exec-go:1.22-bullseye AS builder
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY internal/nvrlab ./internal/nvrlab
+COPY internal/resourceview ./internal/resourceview
+COPY internal/nvrsnapshot ./internal/nvrsnapshot
+COPY cmd/nvr-snapshot-spike ./cmd/nvr-snapshot-spike
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /out/nvr-snapshot-spike ./cmd/nvr-snapshot-spike
+
+FROM debian:bullseye-slim
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /out/nvr-snapshot-spike /usr/local/bin/nvr-snapshot-spike
+
+ENTRYPOINT ["/usr/local/bin/nvr-snapshot-spike"]

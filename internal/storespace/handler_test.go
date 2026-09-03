@@ -773,10 +773,6 @@ func (planLimitScanner) CaptureChannel(ctx context.Context, account EzvizAccount
 	return ChannelSnapshotInput{}, nil
 }
 
-func (planLimitScanner) LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error) {
-	return LiveAddressResult{}, nil
-}
-
 type unexpectedScanErrorScanner struct{}
 
 func (unexpectedScanErrorScanner) ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error) {
@@ -785,10 +781,6 @@ func (unexpectedScanErrorScanner) ScanRecorderChannels(ctx context.Context, acco
 
 func (unexpectedScanErrorScanner) CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error) {
 	return ChannelSnapshotInput{}, nil
-}
-
-func (unexpectedScanErrorScanner) LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error) {
-	return LiveAddressResult{}, nil
 }
 
 type failingSnapshotStore struct{}

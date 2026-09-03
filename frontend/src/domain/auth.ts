@@ -13,11 +13,78 @@ export type AuthUser = {
 export type AuthState = {
   enabled: boolean;
   authenticated: boolean;
+  code?: string;
   forbidden?: boolean;
   login_url?: string;
   user?: AuthUser;
   permissions?: string[];
 };
+
+export type SessionStorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+export const idleSessionTimeoutRedirectKey = "erzhuang:idle-session-timeout-redirected";
+
+export function claimSessionRedirect(
+  key: string,
+  storage: Pick<Storage, "getItem" | "setItem"> | null,
+  unavailableResult = false,
+): boolean {
+  if (!storage) return unavailableResult;
+  try {
+    if (storage.getItem(key) === "1") return false;
+    storage.setItem(key, "1");
+    return true;
+  } catch {
+    return unavailableResult;
+  }
+}
+
+export function isIdleSessionTimeout(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { status?: unknown; code?: unknown };
+  return candidate.status === 401 && candidate.code === "session_idle_timeout";
+}
+
+export function claimIdleSessionTimeoutRedirect(storage: Pick<Storage, "getItem" | "setItem"> | null): boolean {
+  return claimSessionRedirect(idleSessionTimeoutRedirectKey, storage, true);
+}
+
+export function safeSessionStorage(): SessionStorageLike | null {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function readSessionStorage(key: string, storage: Pick<SessionStorageLike, "getItem"> | null = safeSessionStorage()): string | null {
+  if (!storage) return null;
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+export function writeSessionStorage(key: string, value: string, storage: Pick<SessionStorageLike, "setItem"> | null = safeSessionStorage()): boolean {
+  if (!storage) return false;
+  try {
+    storage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function removeSessionStorage(key: string, storage: Pick<SessionStorageLike, "removeItem"> | null = safeSessionStorage()): boolean {
+  if (!storage) return false;
+  try {
+    storage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function shouldShowLoginWelcome(auth: Pick<AuthState, "enabled" | "authenticated" | "forbidden"> | null) {
   return Boolean(auth?.enabled && !auth.authenticated && !auth.forbidden);
@@ -43,11 +110,13 @@ export function authCompanyEntryPath(hostname = currentHostname()) {
   return "";
 }
 
-export function authLogoutPath(hostname = currentHostname(), protocol = currentProtocol()) {
+export function authLogoutPath(hostname = currentHostname()) {
   if (isCompanySSODomain(hostname)) {
+    const normalizedHostname = normalizeCompanyHostname(hostname);
+    const origin = companySSOOrigin(normalizedHostname);
     const gatewayParams = new URLSearchParams({
-      from_host: hostname,
-      from_uri: `${normalizedProtocol(protocol)}//${hostname}${authBasePath()}/`,
+      from_host: normalizedHostname,
+      from_uri: `${origin}${authBasePath()}/`,
     });
     const gatewayLogout = `https://security-test.sy.soyoung.com/api/g/sso/logouttogether?${gatewayParams.toString()}`;
     const localParams = new URLSearchParams({ redirect: gatewayLogout });
@@ -93,14 +162,18 @@ function currentHostname() {
   return typeof window === "undefined" ? "" : window.location.hostname;
 }
 
-function currentProtocol() {
-  return typeof window === "undefined" ? "https:" : window.location.protocol;
-}
-
-function normalizedProtocol(protocol: string) {
-  return protocol === "http:" ? "http:" : "https:";
-}
-
 function isCompanySSODomain(hostname: string) {
-  return hostname === "lite.sy.soyoung.com" || hostname === "lite.soyoung.com";
+  const normalized = normalizeCompanyHostname(hostname);
+  return normalized === "lite.sy.soyoung.com" || normalized === "lite.soyoung.com";
+}
+
+function companySSOOrigin(hostname: string) {
+  const normalized = normalizeCompanyHostname(hostname);
+  if (normalized === "lite.sy.soyoung.com") return "https://lite.sy.soyoung.com";
+  if (normalized === "lite.soyoung.com") return "http://lite.soyoung.com";
+  return "";
+}
+
+function normalizeCompanyHostname(hostname: string) {
+  return hostname.trim().toLowerCase().replace(/\.$/, "");
 }

@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import type { H5RecordSegment } from "../domain/h5-types";
 import { clampSegmentOffset, segmentDurationSeconds, segmentOffsetToUnix, shouldShowSegmentSlider } from "../domain/h5-playback";
+
+export type PlaybackSegmentTiming = {
+  start_time: number;
+  end_time: number;
+};
 
 export function PlaybackSegmentSlider({
   segment,
@@ -11,7 +15,7 @@ export function PlaybackSegmentSlider({
   visible = true,
   onCommit,
 }: {
-  segment: H5RecordSegment;
+  segment: PlaybackSegmentTiming;
   disabled: boolean;
   currentStartTime?: number | null;
   overlay?: boolean;

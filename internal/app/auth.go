@@ -42,6 +42,8 @@ type AuthConfig struct {
 type AuthResponse struct {
 	Enabled       bool              `json:"enabled"`
 	Authenticated bool              `json:"authenticated"`
+	Code          string            `json:"code,omitempty"`
+	Message       string            `json:"message,omitempty"`
 	LoginURL      string            `json:"login_url,omitempty"`
 	User          *AuthUserResponse `json:"user,omitempty"`
 	Permissions   []string          `json:"permissions,omitempty"`
@@ -109,33 +111,15 @@ func isTruthy(value string) bool {
 }
 
 func (h *Handler) authMeHandler(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie(h.auth.CookieName)
-	if err != nil || strings.TrimSpace(cookie.Value) == "" {
-		if h.auth.Enabled {
-			h.writeUnauthorizedAuth(w)
-			return
-		}
-		h.writeLocalAdminAuth(w)
-		return
-	}
-
-	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, time.Now())
+	identity, err := h.currentAuthIdentity(r)
 	if err != nil {
-		if h.auth.Enabled {
-			h.writeUnauthorizedAuth(w)
-			return
-		}
+		h.writeAuthError(w, r, err)
+		return
+	}
+	record := identity.record
+	user := identity.user
+	if user.Email == "" {
 		h.writeLocalAdminAuth(w)
-		return
-	}
-	user := claims.authUser()
-	record, err := h.store.GetAuthUserByEmail(r.Context(), user.Email)
-	if errors.Is(err, errAuthUserNotFound) || (err == nil && !record.Enabled) {
-		h.writeForbiddenAuth(w)
-		return
-	}
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "load auth user failed"})
 		return
 	}
 	record, err = h.store.UpdateAuthUserProfile(r.Context(), AuthUserPatch{
@@ -192,6 +176,40 @@ func (h *Handler) writeUnauthorizedAuth(w http.ResponseWriter) {
 	})
 }
 
+func (h *Handler) writeSessionIdleTimeoutAuth(w http.ResponseWriter, r *http.Request) {
+	h.clearAuthCookie(w, r)
+	writeJSON(w, http.StatusUnauthorized, AuthResponse{
+		Enabled:       true,
+		Authenticated: false,
+		Code:          "session_idle_timeout",
+		Message:       "登录已因长时间未操作失效，请重新扫码登录",
+		LoginURL:      normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/_/auth/callback",
+	})
+}
+
+func (h *Handler) writeAuthSessionUnavailable(w http.ResponseWriter, r *http.Request) {
+	h.clearAuthCookie(w, r)
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+		"code":  "auth_session_unavailable",
+		"error": "authentication session unavailable",
+	})
+}
+
+func (h *Handler) writeAuthError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, errSessionIdleTimeout):
+		h.writeSessionIdleTimeoutAuth(w, r)
+	case errors.Is(err, errAuthSessionUnavailable):
+		h.writeAuthSessionUnavailable(w, r)
+	case errors.Is(err, errUnauthorizedAuth):
+		h.writeUnauthorizedAuth(w)
+	case errors.Is(err, errForbiddenAuth):
+		h.writeForbiddenAuth(w)
+	default:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "load auth user failed"})
+	}
+}
+
 func (h *Handler) writeForbiddenAuth(w http.ResponseWriter) {
 	writeJSON(w, http.StatusForbidden, AuthResponse{
 		Enabled:       true,
@@ -201,10 +219,17 @@ func (h *Handler) writeForbiddenAuth(w http.ResponseWriter) {
 }
 
 func (h *Handler) authCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	h.recordAuthLogin(r)
 	http.Redirect(w, r, normalizeBasePath(os.Getenv("APP_BASE_PATH"))+"/", http.StatusFound)
 }
 
 func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet && isCrossSiteLogoutRequest(r) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "不允许跨站触发退出登录"})
+		return
+	}
+	h.recordAuthLogout(r)
+	h.revokeLocalAuthSession(r)
 	h.clearAuthCookie(w, r)
 	if r.Method == http.MethodGet {
 		redirectTo := safeLogoutRedirect(r.URL.Query().Get("redirect"))
@@ -215,6 +240,36 @@ func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func isCrossSiteLogoutRequest(r *http.Request) bool {
+	// Modern browsers attach Sec-Fetch-Site to navigation requests. An empty
+	// value remains allowed for older corporate browsers and server-side probes.
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "cross-site")
+}
+
+func (h *Handler) revokeLocalAuthSession(r *http.Request) {
+	if h.authSessionStore == nil {
+		return
+	}
+	localCookie, err := r.Cookie(authSessionCookieName)
+	if err != nil || strings.TrimSpace(localCookie.Value) == "" {
+		return
+	}
+	ssoCookie, err := r.Cookie(h.auth.CookieName)
+	if err != nil || strings.TrimSpace(ssoCookie.Value) == "" {
+		return
+	}
+	claims, err := h.auth.validateAPISIXSSOToken(ssoCookie.Value, h.authNow())
+	if err != nil {
+		return
+	}
+	claimsUser := claims.authUser()
+	record, err := h.store.GetAuthUserByEmail(r.Context(), claimsUser.Email)
+	if err != nil || !record.Enabled {
+		return
+	}
+	_ = h.authSessionStore.RevokeAuthSession(r.Context(), localCookie.Value, record.ID, "manual_logout", h.authNow())
 }
 
 func safeLogoutRedirect(value string) string {
@@ -230,19 +285,29 @@ func safeLogoutRedirect(value string) string {
 
 func (h *Handler) clearAuthCookie(w http.ResponseWriter, r *http.Request) {
 	for _, domain := range authCookieClearDomains(r.Host) {
-		cookie := &http.Cookie{
-			Name:     h.auth.CookieName,
-			Value:    "",
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   -1,
-		}
-		if domain != "" {
-			cookie.Domain = domain
-		}
-		http.SetCookie(w, cookie)
+		http.SetCookie(w, expiredAuthCookie(h.auth.CookieName, domain))
 	}
+	http.SetCookie(w, expiredAuthCookie(authSessionCookieName, ""))
+}
+
+func expiredAuthCookie(name, domain string) *http.Cookie {
+	cookie := &http.Cookie{Name: name, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1}
+	if domain != "" {
+		cookie.Domain = domain
+	}
+	return cookie
+}
+
+func (h *Handler) setAuthSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	secure := r.TLS != nil || strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
+	http.SetCookie(w, &http.Cookie{
+		Name:     authSessionCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 func authCookieClearDomains(host string) []string {

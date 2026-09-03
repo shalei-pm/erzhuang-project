@@ -104,6 +104,23 @@ func (s *LocalStore) DeletePrefix(ctx context.Context, prefix string) error {
 	return nil
 }
 
+func (s *LocalStore) Delete(ctx context.Context, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	path, err := s.pathForKey(key)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); errors.Is(err, os.ErrNotExist) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	_ = os.Remove(path + ".content-type")
+	return nil
+}
+
 func (s *LocalStore) pathForKey(key string) (string, error) {
 	clean, err := cleanKey(key)
 	if err != nil {

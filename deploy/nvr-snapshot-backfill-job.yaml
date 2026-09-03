@@ -1,0 +1,22 @@
+# One-shot, serial NVR thumbnail backfill. It only reads candidate cameras and
+# stores successful JPEGs in existing private OSS. Keep a single fixed Job name
+# so Kubernetes rejects a concurrent submission while this run is active.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: erzhuang-nvr-snapshot-backfill
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  parallelism: 1
+  completions: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: nvr-snapshot-backfill
+          image: REPLACE_WITH_RUNNER_IMAGE
+          args: ["--tenant-id=10001", "--camera-id=111", "--request-interval=2s"]
+          envFrom:
+            - secretRef:
+                name: REPLACE_WITH_EXISTING_TEST_RUNTIME_SECRET

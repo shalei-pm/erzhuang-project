@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { __testing } from "./api";
+import { storeSpaceApi } from "./api";
+import { h5Api, H5ApiError } from "./api-h5";
+import { nvrLabApi, NVRLabApiError } from "./api-nvr-lab";
 import { h5CameraColumnCount, h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from "./domain/h5-channel-display";
 import {
   h5DecodePathForEnvironment,
@@ -61,6 +64,60 @@ describe("design plan API path helpers", () => {
   });
 });
 
+describe("authenticated API requests", () => {
+  it("includes the HttpOnly session cookie on JSON requests", async () => {
+    const calls: RequestInit[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push(init ?? {});
+        return jsonResponse({ enabled: true, authenticated: true });
+      }),
+    );
+
+    await storeSpaceApi.getAuthMe();
+    await h5Api.getMonitorHome("10001");
+    await nvrLabApi.listCameras("10001");
+
+    expect(calls).toHaveLength(3);
+    expect(calls.every((init) => init.credentials === "include")).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("preserves session timeout codes from every API client", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ code: "session_idle_timeout", message: "expired" }, 401)),
+    );
+
+    await expect(storeSpaceApi.getAuthMe()).rejects.toMatchObject({ status: 401, code: "session_idle_timeout" });
+    const h5Request = h5Api.getMonitorHome("10001");
+    await expect(h5Request).rejects.toBeInstanceOf(H5ApiError);
+    await expect(h5Request).rejects.toMatchObject({ status: 401, code: "session_idle_timeout" });
+    const nvrRequest = nvrLabApi.listCameras("10001");
+    await expect(nvrRequest).rejects.toBeInstanceOf(NVRLabApiError);
+    await expect(nvrRequest).rejects.toMatchObject({ status: 401, code: "session_idle_timeout" });
+    vi.unstubAllGlobals();
+  });
+});
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers({ "content-type": "application/json" }),
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  } as Response;
+}
+
+describe("store space resource view api", () => {
+  it("uses the 3.0 read-only resource view paths", () => {
+    expect(__testing.resourceViewStoresPath()).toBe("/erzhuang-project/api/store-space-resource-view/stores");
+    expect(__testing.resourceViewStorePath(10019)).toBe("/erzhuang-project/api/store-space-resource-view/stores/10019");
+  });
+});
+
 describe("store list summary", () => {
   it("summarizes all filtered stores instead of the current page only", () => {
     const stores = [
@@ -102,7 +159,6 @@ describe("auth helpers", () => {
 
   it("uses the project entry path on the company domain so apisix keeps the full return state", () => {
     expect(authCompanyEntryPath("lite.sy.soyoung.com")).toBe("/erzhuang-project/");
-    expect(authCompanyEntryPath("lite.soyoung.com")).toBe("/erzhuang-project/");
     expect(authCompanyEntryPath("127.0.0.1")).toBe("");
   });
 
@@ -111,20 +167,15 @@ describe("auth helpers", () => {
     expect(authLogoutPath("lite.sy.soyoung.com")).toBe(
       "/erzhuang-project/logout?redirect=https%3A%2F%2Fsecurity-test.sy.soyoung.com%2Fapi%2Fg%2Fsso%2Flogouttogether%3Ffrom_host%3Dlite.sy.soyoung.com%26from_uri%3Dhttps%253A%252F%252Flite.sy.soyoung.com%252Ferzhuang-project%252F",
     );
-    expect(authLogoutPath("lite.soyoung.com", "http:")).toBe(
-      "/erzhuang-project/logout?redirect=https%3A%2F%2Fsecurity-test.sy.soyoung.com%2Fapi%2Fg%2Fsso%2Flogouttogether%3Ffrom_host%3Dlite.soyoung.com%26from_uri%3Dhttp%253A%252F%252Flite.soyoung.com%252Ferzhuang-project%252F",
-    );
   });
 
   it("uses a top-level same-origin logout hop on the company domain", () => {
     expect(shouldSkipLocalLogoutBeforeRedirect("lite.sy.soyoung.com")).toBe(true);
-    expect(shouldSkipLocalLogoutBeforeRedirect("lite.soyoung.com")).toBe(true);
     expect(shouldSkipLocalLogoutBeforeRedirect("127.0.0.1")).toBe(false);
   });
 
   it("shows logout on the company sso domain even while backend auth remains in compatibility mode", () => {
     expect(shouldShowLogoutEntry({ enabled: false, authenticated: true }, "lite.sy.soyoung.com")).toBe(true);
-    expect(shouldShowLogoutEntry({ enabled: false, authenticated: true }, "lite.soyoung.com")).toBe(true);
     expect(shouldShowLogoutEntry({ enabled: false, authenticated: true }, "127.0.0.1")).toBe(false);
     expect(shouldShowLogoutEntry({ enabled: true, authenticated: true }, "127.0.0.1")).toBe(true);
   });
