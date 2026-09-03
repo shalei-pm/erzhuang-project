@@ -41,6 +41,43 @@ func TestAPISIXSSOLogoutGetCanRedirectToGatewayLogoutAfterClearingCookies(t *tes
 	}
 }
 
+func TestAPISIXSSOLogoutGetCanRedirectToProductionGatewayLogout(t *testing.T) {
+	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
+	t.Setenv("SSO_ENABLED", "true")
+
+	gatewayLogout := "https://security.soyoung.com/api/g/sso/logouttogether?from_host=lite.soyoung.com&from_uri=http%3A%2F%2Flite.soyoung.com%2Ferzhuang-project%2F"
+	request := httptest.NewRequest(http.MethodGet, "http://lite.soyoung.com/erzhuang-project/logout?redirect="+url.QueryEscape(gatewayLogout), nil)
+	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: "token-value"})
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("expected status %d, got %d", http.StatusFound, recorder.Code)
+	}
+	if recorder.Header().Get("Location") != gatewayLogout {
+		t.Fatalf("unexpected redirect location: %s", recorder.Header().Get("Location"))
+	}
+}
+
+func TestAPISIXSSOLogoutGetRejectsGatewayFromDifferentEnvironment(t *testing.T) {
+	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
+	t.Setenv("SSO_ENABLED", "true")
+
+	testGatewayLogout := "https://security-test.sy.soyoung.com/api/g/sso/logouttogether"
+	request := httptest.NewRequest(http.MethodGet, "http://lite.soyoung.com/erzhuang-project/logout?redirect="+url.QueryEscape(testGatewayLogout), nil)
+	recorder := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("expected status %d, got %d", http.StatusFound, recorder.Code)
+	}
+	if recorder.Header().Get("Location") != "/erzhuang-project/" {
+		t.Fatalf("unexpected redirect location: %s", recorder.Header().Get("Location"))
+	}
+}
+
 func TestAPISIXSSOLogoutGetRejectsUnsafeRedirect(t *testing.T) {
 	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
 	t.Setenv("SSO_ENABLED", "true")

@@ -119,7 +119,7 @@ describe("company SSO logout paths", () => {
     const gatewayURL = new URL(logoutURL.searchParams.get("redirect") ?? "");
 
     expect(logoutURL.pathname).toBe("/erzhuang-project/logout");
-    expect(gatewayURL.origin).toBe("https://security-test.sy.soyoung.com");
+    expect(gatewayURL.origin).toBe("https://security.soyoung.com");
     expect(gatewayURL.pathname).toBe("/api/g/sso/logouttogether");
     expect(gatewayURL.searchParams.get("from_host")).toBe("lite.soyoung.com");
     expect(gatewayURL.searchParams.get("from_uri")).toBe("http://lite.soyoung.com/erzhuang-project/");
