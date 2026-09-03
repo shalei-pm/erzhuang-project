@@ -280,8 +280,11 @@ func TestStreamSessionAuditsLiveAndPlaybackBeforeResponding(t *testing.T) {
 			if event.Action != tt.action || event.EntityType != "camera" || event.ExternalOrgID != "10001" || event.EntityID == nil || *event.EntityID != 111 || event.Result != "success" {
 				t.Fatalf("event = %#v", event)
 			}
-			if len(event.DetailJSON) != 0 || strings.Contains(string(event.DetailJSON), "wss://") {
-				t.Fatalf("event contains sensitive detail: %s", event.DetailJSON)
+			if !strings.Contains(string(event.DetailJSON), "门店：北京保利总部店（10001）") ||
+				!strings.Contains(string(event.DetailJSON), "摄像头区域：治疗室 / 产研中心1-2") ||
+				!strings.Contains(string(event.DetailJSON), "摄像头：治疗室4（ID：111）") ||
+				strings.Contains(string(event.DetailJSON), "wss://") {
+				t.Fatalf("event detail = %s", event.DetailJSON)
 			}
 		})
 	}
@@ -441,7 +444,7 @@ func TestStreamSessionAuditsSuccessBeforeReturningURL(t *testing.T) {
 	if event.Action != "monitor.live_view" || event.Result != "success" || event.EntityType != "camera" || event.EntityID == nil || *event.EntityID != 111 {
 		t.Fatalf("audit event = %#v", event)
 	}
-	if strings.Contains(response.Body.String(), "service-secret") || len(event.DetailJSON) != 0 {
+	if strings.Contains(response.Body.String(), "service-secret") || !strings.Contains(string(event.DetailJSON), "门店：北京保利总部店（10001）") {
 		t.Fatalf("sensitive data leaked: body=%s event=%#v", response.Body.String(), event)
 	}
 }

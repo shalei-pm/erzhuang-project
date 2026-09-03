@@ -56,6 +56,18 @@ type CameraListResponse struct {
 	Cameras       []Camera `json:"cameras"`
 }
 
+// CameraAuditTarget contains the user-facing location captured alongside a
+// security audit event. It comes from the server-side camera lookup, never
+// from request input.
+type CameraAuditTarget struct {
+	ExternalOrgID string
+	StoreName     string
+	CameraID      int64
+	CameraName    string
+	SpaceType     string
+	SpaceName     string
+}
+
 type StreamSessionRequest struct {
 	Mode      Mode  `json:"mode"`
 	StartTime int64 `json:"start_time,omitempty"`

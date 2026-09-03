@@ -109,7 +109,12 @@ func TestNVRMonitorScreenshotMetadataAuthorizesCameraAndWritesAudit(t *testing.T
 	t.Setenv("SSO_JWT_PUBLIC_KEY", publicKeyPEM(t, &privateKey.PublicKey))
 	repository := monitorScreenshotRepository{records: resourceview.StoreRecords{
 		Tenant:  resourceview.BusinessTenant{ID: 10001, Name: "测试门店"},
-		Devices: []resourceview.BusinessDevice{{ID: 111, TenantID: 10001, Category: "camera", Provider: "HikVisionNvrChannel", Status: 1}},
+		Devices: []resourceview.BusinessDevice{{ID: 111, TenantID: 10001, Name: "治疗室4", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1}},
+		Spaces: []resourceview.BusinessSpace{
+			{ID: 2665, TenantID: 10001, Name: "产研中心", Level: 2},
+			{ID: 2667, TenantID: 10001, ParentID: 2665, Name: "产研中心1-2", Level: 3},
+		},
+		Relations: []resourceview.BusinessAreaDeviceRelation{{ID: 1, DeviceID: 111, AreaID: 2667}},
 	}}
 	handler := NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(
 		store,
@@ -143,6 +148,9 @@ func TestNVRMonitorScreenshotMetadataAuthorizesCameraAndWritesAudit(t *testing.T
 	}
 	if len(logs.Items) != 1 || logs.Items[0].Action != "monitor.screenshot" || logs.Items[0].ExternalOrgID != "10001" {
 		t.Fatalf("audit logs = %#v", logs.Items)
+	}
+	if summary := auditLogSummary(logs.Items[0]); summary != "门店：测试门店（10001）；摄像头区域：治疗室 / 产研中心1-2；摄像头：治疗室4（ID：111）" {
+		t.Fatalf("audit summary = %q", summary)
 	}
 }
 

@@ -185,27 +185,51 @@ func (s *Service) SaveSnapshotWithRollback(ctx context.Context, externalOrgID st
 }
 
 func (s *Service) CreateSession(ctx context.Context, externalOrgID string, cameraID int64, request StreamSessionRequest) (StreamSessionResponse, error) {
+	response, _, err := s.CreateSessionWithAuditTarget(ctx, externalOrgID, cameraID, request)
+	return response, err
+}
+
+// CreateSessionWithAuditTarget returns the server-resolved camera context that
+// is needed to make a media-view audit entry understandable to reviewers.
+func (s *Service) CreateSessionWithAuditTarget(ctx context.Context, externalOrgID string, cameraID int64, request StreamSessionRequest) (StreamSessionResponse, CameraAuditTarget, error) {
 	if err := validateStreamSessionRequest(request); err != nil {
-		return StreamSessionResponse{}, err
+		return StreamSessionResponse{}, CameraAuditTarget{}, err
 	}
 	response, err := s.GetCameras(ctx, externalOrgID)
 	if err != nil {
-		return StreamSessionResponse{}, err
+		return StreamSessionResponse{}, CameraAuditTarget{}, err
 	}
-	if !containsCamera(response.Cameras, cameraID) {
-		return StreamSessionResponse{}, ErrCameraNotFound
+	var target CameraAuditTarget
+	found := false
+	for _, camera := range response.Cameras {
+		if camera.ID != cameraID {
+			continue
+		}
+		target = CameraAuditTarget{
+			ExternalOrgID: response.ExternalOrgID,
+			StoreName:     response.StoreName,
+			CameraID:      camera.ID,
+			CameraName:    camera.Name,
+			SpaceType:     camera.SpaceType,
+			SpaceName:     camera.SpaceName,
+		}
+		found = true
+		break
+	}
+	if !found {
+		return StreamSessionResponse{}, CameraAuditTarget{}, ErrCameraNotFound
 	}
 	if s.authorization == nil {
-		return StreamSessionResponse{}, ErrNotConfigured
+		return StreamSessionResponse{}, target, ErrNotConfigured
 	}
 	streamURL, err := s.authorization.CreateStreamURL(ctx, cameraID, request)
 	if err != nil {
-		return StreamSessionResponse{}, err
+		return StreamSessionResponse{}, target, err
 	}
 	if strings.TrimSpace(streamURL) == "" {
-		return StreamSessionResponse{}, ErrAuthorizationFailed
+		return StreamSessionResponse{}, target, ErrAuthorizationFailed
 	}
-	return StreamSessionResponse{URL: streamURL, Mode: request.Mode}, nil
+	return StreamSessionResponse{URL: streamURL, Mode: request.Mode}, target, nil
 }
 
 func (s *Service) storeRecords(ctx context.Context, externalOrgID string) (resourceview.StoreRecords, error) {

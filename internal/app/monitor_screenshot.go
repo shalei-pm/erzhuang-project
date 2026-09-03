@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
+	"github.com/shalei-pm/erzhuang-project/internal/nvrmonitor"
 )
 
 const monitorScreenshotTimeLayout = "2006-01-02 15:04:05"
@@ -116,14 +117,21 @@ func (h *Handler) nvrScreenshotMetadataHandler(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "未找到可用摄像头"})
 		return
 	}
-	found := false
+	var cameraTarget nvrmonitor.CameraAuditTarget
 	for _, camera := range cameras.Cameras {
 		if camera.ID == cameraID {
-			found = true
+			cameraTarget = nvrmonitor.CameraAuditTarget{
+				ExternalOrgID: cameras.ExternalOrgID,
+				StoreName:     cameras.StoreName,
+				CameraID:      camera.ID,
+				CameraName:    camera.Name,
+				SpaceType:     camera.SpaceType,
+				SpaceName:     camera.SpaceName,
+			}
 			break
 		}
 	}
-	if !found {
+	if cameraTarget.CameraID == 0 {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "未找到可用摄像头"})
 		return
 	}
@@ -142,7 +150,7 @@ func (h *Handler) nvrScreenshotMetadataHandler(w http.ResponseWriter, r *http.Re
 		response.DisplayName = screenshotWatermarkDisplayName(identity)
 		response.CapturedAt = monitorScreenshotTime(h.authNow())
 	}
-	detail, _ := json.Marshal(map[string]string{"summary": "监控截图", "captured_at": response.CapturedAt})
+	detail, _ := json.Marshal(map[string]string{"summary": nvrmonitor.CameraAuditSummary(cameraTarget), "captured_at": response.CapturedAt})
 	if err := h.recordMonitorAudit(r.Context(), r, auditlog.AuditEvent{Action: "monitor.screenshot", EntityType: "camera", EntityID: int64Pointer(cameraID), ExternalOrgID: externalOrgID, Result: "success", DetailJSON: detail}); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "截图审计记录失败，请重试"})
 		return

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net"
@@ -117,17 +118,17 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	response, err := h.service.CreateSession(r.Context(), externalOrgID, cameraID, request)
+	response, target, err := h.service.CreateSessionWithAuditTarget(r.Context(), externalOrgID, cameraID, request)
 	action := "monitor.live_view"
 	if request.Mode == ModePlayback {
 		action = "monitor.playback_view"
 	}
 	if err != nil {
-		_ = h.recordAudit(r, newCameraAuditEvent(r, action, "failed", externalOrgID, cameraID))
+		_ = h.recordAudit(r, newCameraAuditEvent(r, action, "failed", externalOrgID, cameraID, target))
 		writeServiceError(w, err)
 		return
 	}
-	if err := h.recordAudit(r, newCameraAuditEvent(r, action, "success", externalOrgID, cameraID)); err != nil {
+	if err := h.recordAudit(r, newCameraAuditEvent(r, action, "success", externalOrgID, cameraID, target)); err != nil {
 		writeAuditError(w)
 		return
 	}
@@ -207,7 +208,7 @@ func (h *Handler) saveSnapshot(w http.ResponseWriter, r *http.Request) {
 	// The prepare event is the write gate; the final event is recorded only
 	// after SaveSnapshot succeeds. If final auditing fails, a real asset store
 	// rolls back the deterministic object before the request is rejected.
-	if auditEnabled && h.recordAudit(r, newCameraAuditEvent(r, snapshotRefreshPrepareAction, "success", externalOrgID, cameraID)) != nil {
+	if auditEnabled && h.recordAudit(r, newCameraAuditEvent(r, snapshotRefreshPrepareAction, "success", externalOrgID, cameraID, CameraAuditTarget{})) != nil {
 		writeAuditError(w)
 		return
 	}
@@ -220,12 +221,12 @@ func (h *Handler) saveSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	if saveErr != nil {
 		if auditEnabled {
-			_ = h.recordAudit(r, newCameraAuditEvent(r, "snapshot.refresh", "failed", externalOrgID, cameraID))
+			_ = h.recordAudit(r, newCameraAuditEvent(r, "snapshot.refresh", "failed", externalOrgID, cameraID, CameraAuditTarget{}))
 		}
 		writeServiceError(w, saveErr)
 		return
 	}
-	if auditEnabled && h.recordAudit(r, newCameraAuditEvent(r, "snapshot.refresh", "success", externalOrgID, cameraID)) != nil {
+	if auditEnabled && h.recordAudit(r, newCameraAuditEvent(r, "snapshot.refresh", "success", externalOrgID, cameraID, CameraAuditTarget{})) != nil {
 		if rollbackErr := rollback.Rollback(r.Context()); rollbackErr != nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "nvr_snapshot_rollback_failed", "error": "截图刷新审计失败且回滚失败，请立即检查截图状态"})
 			return
@@ -339,8 +340,8 @@ func (h *Handler) hasAuditAuthorizer() bool {
 	return h.authorizer != nil
 }
 
-func newCameraAuditEvent(r *http.Request, action string, result string, externalOrgID string, cameraID int64) auditlog.AuditEvent {
-	return auditlog.AuditEvent{
+func newCameraAuditEvent(r *http.Request, action string, result string, externalOrgID string, cameraID int64, target CameraAuditTarget) auditlog.AuditEvent {
+	event := auditlog.AuditEvent{
 		Action:        action,
 		EntityType:    "camera",
 		EntityID:      int64Pointer(cameraID),
@@ -350,6 +351,41 @@ func newCameraAuditEvent(r *http.Request, action string, result string, external
 		RequestID:     strings.TrimSpace(r.Header.Get("X-Request-ID")),
 		Result:        result,
 	}
+	if summary := cameraAuditSummary(target, externalOrgID, cameraID); summary != "" {
+		detail, _ := json.Marshal(map[string]string{"summary": summary})
+		event.DetailJSON = detail
+	}
+	return event
+}
+
+// CameraAuditSummary returns the audit-safe, human-readable target of a
+// monitor action. It intentionally contains no stream URL or authorization data.
+func CameraAuditSummary(target CameraAuditTarget) string {
+	return cameraAuditSummary(target, target.ExternalOrgID, target.CameraID)
+}
+
+func cameraAuditSummary(target CameraAuditTarget, externalOrgID string, cameraID int64) string {
+	storeName := strings.TrimSpace(target.StoreName)
+	if storeName == "" {
+		storeName = "机构ID：" + strings.TrimSpace(externalOrgID)
+	} else if externalOrgID = strings.TrimSpace(externalOrgID); externalOrgID != "" {
+		storeName += "（" + externalOrgID + "）"
+	}
+	parts := []string{"门店：" + storeName}
+	space := strings.Trim(strings.Join([]string{strings.TrimSpace(target.SpaceType), strings.TrimSpace(target.SpaceName)}, " / "), " / ")
+	if space == "" {
+		space = "未绑定空间"
+	}
+	parts = append(parts, "摄像头区域："+space)
+	name := strings.TrimSpace(target.CameraName)
+	if name == "" {
+		name = "未命名"
+	}
+	if target.CameraID > 0 {
+		cameraID = target.CameraID
+	}
+	parts = append(parts, fmt.Sprintf("摄像头：%s（ID：%d）", name, cameraID))
+	return strings.Join(parts, "；")
 }
 
 func newDeniedAuditEvent(r *http.Request, action string, externalOrgID string) auditlog.AuditEvent {

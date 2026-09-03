@@ -8,6 +8,7 @@ const actionLabels: Record<string, string> = {
   "auth.logout": "退出登录",
   "monitor.live_view": "查看直播",
   "monitor.playback_view": "查看回放",
+  "monitor.screenshot": "监控截图",
   "snapshot.view": "查看截图",
   // Keep rendering records written before the explicit-view audit endpoint.
   "snapshot.download": "查看截图",
