@@ -1,294 +1,161 @@
--- Erzhuang production schema DDL package.
--- Full baseline only. Do not use this file to upgrade an existing production
--- schema; use db/mysql_production_schema_delta.sql instead.
--- Scope: additive DDL for db_pm_erzhuang. No DROP TABLE, DELETE, tb_crm_* DDL, or tb_nvr_camera_snapshots.
--- Review and execute using the approved production MySQL change process.
+-- Erzhuang incremental production schema DDL.
+-- Prerequisite: the original 14 base tb_ tables already exist in db_pm_erzhuang.
+-- This package contains later-added tables plus later changes to the original tables.
+-- Before execution, compare information_schema and apply only the ALTER/INDEX statements that are missing.
+-- No tb_crm_* DDL and no tb_nvr_camera_snapshots DDL are included.
 
 
 -- ============================================================================
--- Source: db/mysql_schema_tb.sql
+-- Source: db/mysql_business_schema_patch_tb.sql
 -- ============================================================================
-create table if not exists tb_tasks (
-  id int not null,
-  title varchar(255) not null,
-  done tinyint(1) not null default 0,
-  primary key (id)
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+-- Business schema patch proposal for existing 14 tb_ tables.
+-- This file is a reviewable ALTER/INDEX draft. It is intended for a first run against
+-- the current empty 14-table Stage A test schema, not as a repeatable/idempotent migration.
+-- Repeated runs need a rebuilt schema or an information_schema-guarded migration.
+-- Do not run blindly in production.
+-- Before execution, confirm MySQL version, sql_mode, backup, and stage A/B state.
+-- MySQL 8.0.13 does not support fully reliable CHECK enforcement and may not support all
+-- modern idempotent DDL syntax. Convert this proposal into a versioned migration after
+-- inspecting the target schema with information_schema.
 
-create table if not exists tb_app_settings (
-  `key` varchar(191) not null,
-  value text not null,
-  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
-  primary key (`key`)
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+-- Recommended session guard for migration/patch execution.
+set session sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO';
 
-create table if not exists tb_design_plan_stores (
-  id bigint not null auto_increment,
-  name varchar(255) not null,
-  normalized_name varchar(255) not null,
-  pdf_file_name varchar(512) not null default '',
-  original_pdf_path varchar(1024) not null default '',
-  preview_image_path varchar(1024) not null default '',
-  thumbnail_path varchar(1024) not null default '',
-  page_count int not null default 0,
-  status varchar(32) not null default 'completed',
-  recognition_result json null,
-  created_at datetime(3) not null default current_timestamp(3),
-  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
-  primary key (id),
-  unique key uq_tb_design_plan_stores_normalized_name (normalized_name),
-  key idx_tb_design_plan_stores_updated_at (updated_at),
-  constraint chk_tb_design_plan_stores_status
-    check (status in ('completed', 'needs_review', 'incomplete'))
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+-- 1. Fix NOT NULL TEXT columns that block current insert paths.
+-- Current app stores and displays institution short names.
+alter table tb_stores
+  add column short_name varchar(255) not null default '' after name;
 
-create table if not exists tb_design_plan_store_areas (
-  id bigint not null auto_increment,
-  store_id bigint not null,
-  display_order int not null,
-  name varchar(255) not null,
-  area_type varchar(32) not null,
-  area_number int null,
-  confidence varchar(16) not null default 'high',
-  needs_review tinyint(1) not null default 0,
-  box_x decimal(18,10) not null,
-  box_y decimal(18,10) not null,
-  box_width decimal(18,10) not null,
-  box_height decimal(18,10) not null,
-  created_at datetime(3) not null default current_timestamp(3),
-  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
-  primary key (id),
-  unique key uq_tb_design_plan_area_number (store_id, area_type, area_number),
-  key idx_tb_design_plan_areas_store_order (store_id, display_order),
-  constraint fk_tb_design_plan_areas_store
-    foreign key (store_id) references tb_design_plan_stores(id) on delete cascade,
-  constraint chk_tb_design_plan_areas_type
-    check (area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty')),
-  constraint chk_tb_design_plan_areas_confidence
-    check (confidence in ('high', 'medium', 'low')),
-  constraint chk_tb_design_plan_areas_box
-    check (
-      box_x >= 0 and box_x <= 1 and
-      box_y >= 0 and box_y <= 1 and
-      box_width > 0 and box_width <= 1 and
-      box_height > 0 and box_height <= 1 and
-      box_x + box_width <= 1 and
-      box_y + box_height <= 1
-    )
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+-- Current app syncs/creates ezviz accounts with account_name/status only.
+alter table tb_ezviz_accounts
+  modify column app_secret_ciphertext text null,
+  modify column access_token_ciphertext text null;
 
-create table if not exists tb_design_plan_operation_logs (
-  id bigint not null auto_increment,
-  action varchar(32) not null,
-  store_id bigint null,
-  store_name varchar(255) not null,
-  actor varchar(128) not null default 'admin',
-  summary text not null,
-  created_at datetime(3) not null default current_timestamp(3),
-  primary key (id),
-  key idx_tb_design_plan_logs_store_id (store_id, created_at),
-  constraint chk_tb_design_plan_logs_action
-    check (action in ('create', 'update', 'delete', 'replace'))
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+-- Current channel insert/upsert paths often omit area_note. Use varchar to allow default.
+alter table tb_video_channels
+  modify column area_note varchar(1024) not null default '';
 
-create table if not exists tb_stores (
-  id bigint not null auto_increment,
-  city varchar(128) not null default '',
-  name varchar(255) not null,
-  short_name varchar(255) not null default '',
-  normalized_name varchar(255) not null,
-  external_org_id varchar(255) not null default '',
-  design_plan_status varchar(32) not null default 'not_uploaded',
-  overall_status varchar(32) not null default 'partial',
-  created_at datetime(3) not null default current_timestamp(3),
-  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
-  primary key (id),
-  unique key uq_tb_stores_normalized_name (normalized_name),
-  key idx_tb_stores_updated_at (updated_at),
-  constraint chk_tb_stores_design_plan_status
-    check (design_plan_status in ('not_uploaded', 'pending_recognition', 'pending_annotation', 'completed')),
-  constraint chk_tb_stores_overall_status
-    check (overall_status in ('incomplete', 'partial', 'completed', 'exception'))
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+-- 2. Reserve external business area/bed identifiers.
+alter table tb_store_areas
+  add column external_area_id varchar(255) not null default '' after display_name;
 
-create table if not exists tb_store_areas (
-  id bigint not null auto_increment,
-  store_id bigint not null,
-  area_type varchar(32) not null,
-  area_number int not null,
-  display_name varchar(255) not null,
-  source varchar(32) not null default 'manual',
-  status varchar(32) not null default 'confirmed',
-  created_at datetime(3) not null default current_timestamp(3),
-  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
-  primary key (id),
-  unique key uq_tb_store_areas_number (store_id, area_type, area_number),
-  constraint fk_tb_store_areas_store
-    foreign key (store_id) references tb_stores(id) on delete cascade,
-  constraint chk_tb_store_areas_type
-    check (area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty')),
-  constraint chk_tb_store_areas_source
-    check (source in ('manual', 'design_plan', 'video_channel', 'multiple')),
-  constraint chk_tb_store_areas_status
-    check (status in ('candidate', 'confirmed')),
-  constraint chk_tb_store_areas_number
-    check ((area_type = 'vip_treatment' and area_number >= 0) or (area_type <> 'vip_treatment' and area_number > 0))
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+alter table tb_video_channels
+  add column bed_label varchar(64) not null default '' after area_number;
 
-create table if not exists tb_store_design_plans (
-  id bigint not null auto_increment,
-  store_id bigint not null,
-  upload_id varchar(255) not null default '',
-  pdf_file_name varchar(512) not null default '',
-  original_pdf_path varchar(1024) not null default '',
-  preview_image_path varchar(1024) not null default '',
-  thumbnail_path varchar(1024) not null default '',
-  page_count int not null default 0,
-  recognition_status varchar(32) not null default 'not_started',
-  recognition_result json null,
-  created_at datetime(3) not null default current_timestamp(3),
-  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
-  primary key (id),
-  key idx_tb_store_design_plans_store_id (store_id),
-  constraint fk_tb_store_design_plans_store
-    foreign key (store_id) references tb_stores(id) on delete cascade,
-  constraint chk_tb_store_design_plans_status
-    check (recognition_status in ('not_started', 'running', 'failed', 'completed'))
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+alter table tb_video_channels
+  add column external_area_id varchar(255) not null default '' after area_id;
 
-create table if not exists tb_design_plan_annotations (
-  id bigint not null auto_increment,
-  design_plan_id bigint not null,
-  area_id bigint not null,
-  box_x decimal(18,10) not null,
-  box_y decimal(18,10) not null,
-  box_width decimal(18,10) not null,
-  box_height decimal(18,10) not null,
-  status varchar(32) not null default 'pending',
-  created_at datetime(3) not null default current_timestamp(3),
-  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
-  primary key (id),
-  unique key uq_tb_design_plan_annotations_area (design_plan_id, area_id),
-  key idx_tb_design_plan_annotations_area_id (area_id),
-  constraint fk_tb_design_plan_annotations_plan
-    foreign key (design_plan_id) references tb_store_design_plans(id) on delete cascade,
-  constraint fk_tb_design_plan_annotations_area
-    foreign key (area_id) references tb_store_areas(id) on delete cascade,
-  constraint chk_tb_design_plan_annotations_status
-    check (status in ('pending', 'confirmed')),
-  constraint chk_tb_design_plan_annotations_box
-    check (
-      box_x >= 0 and box_x <= 1 and
-      box_y >= 0 and box_y <= 1 and
-      box_width > 0 and box_width <= 1 and
-      box_height > 0 and box_height <= 1 and
-      box_x + box_width <= 1 and
-      box_y + box_height <= 1
-    )
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+alter table tb_video_channels
+  add column external_bed_id varchar(255) not null default '' after external_area_id;
 
-create table if not exists tb_ezviz_accounts (
-  id bigint not null auto_increment,
-  account_name varchar(255) not null,
-  app_key varchar(255) not null default '',
-  app_secret_ciphertext text not null,
-  access_token_ciphertext text not null,
-  status varchar(32) not null default 'unverified',
-  last_verified_at datetime(3) null,
-  created_at datetime(3) not null default current_timestamp(3),
-  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
-  primary key (id),
-  unique key uq_tb_ezviz_accounts_account_name (account_name),
-  constraint chk_tb_ezviz_accounts_status
-    check (status in ('unverified', 'available', 'unavailable'))
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+-- 3. Soft-delete columns are a product/implementation decision.
+-- Keep these commented until main thread confirms delete semantics and code support.
+-- alter table tb_stores
+--   add column deleted_at datetime(3) null after updated_at,
+--   add column deleted_by bigint null after deleted_at,
+--   add key idx_tb_stores_deleted_at (deleted_at);
+--
+-- alter table tb_video_recorders
+--   add column deleted_at datetime(3) null after updated_at,
+--   add column deleted_by bigint null after deleted_at,
+--   add key idx_tb_video_recorders_deleted_at (deleted_at);
+--
+-- alter table tb_video_channels
+--   add column deleted_at datetime(3) null after updated_at,
+--   add column deleted_by bigint null after deleted_at,
+--   add key idx_tb_video_channels_deleted_at (deleted_at);
 
-create table if not exists tb_video_recorders (
-  id bigint not null auto_increment,
-  store_id bigint not null,
-  ezviz_account_id bigint null,
-  device_code varchar(255) not null,
-  status varchar(32) not null default 'offline',
-  effective_channel_count int not null default 0,
-  last_scanned_at datetime(3) null,
-  created_at datetime(3) not null default current_timestamp(3),
-  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
-  primary key (id),
-  unique key uq_tb_video_recorders_device_code (device_code),
-  key idx_tb_video_recorders_store_id (store_id),
-  key idx_tb_video_recorders_ezviz_account_id (ezviz_account_id),
-  constraint fk_tb_video_recorders_store
-    foreign key (store_id) references tb_stores(id) on delete cascade,
-  constraint fk_tb_video_recorders_ezviz_account
-    foreign key (ezviz_account_id) references tb_ezviz_accounts(id),
-  constraint chk_tb_video_recorders_status
-    check (status in ('online', 'offline')),
-  constraint chk_tb_video_recorders_channel_count
-    check (effective_channel_count >= 0)
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+-- 4. Snapshot logical key support. Existing thumbnail_path/full_image_path
+-- should be normalized by migration scripts; snapshot_key is a stable canonical key.
+alter table tb_channel_snapshots
+  add column snapshot_key varchar(1024) not null default '' after channel_id;
 
-create table if not exists tb_video_channels (
-  id bigint not null auto_increment,
-  recorder_id bigint not null,
-  channel_no int not null,
-  channel_name varchar(255) not null default '',
-  status varchar(32) not null default 'pending_recognition',
-  is_active tinyint(1) not null default 1,
-  scene_type varchar(32) not null default 'unknown',
-  area_type varchar(32) null,
-  area_number int null,
-  bed_label varchar(64) not null default '',
-  area_note text not null,
-  area_id bigint null,
-  recognition_attempts int not null default 0,
-  recognition_result json null,
-  confirmed_at datetime(3) null,
-  created_at datetime(3) not null default current_timestamp(3),
-  updated_at datetime(3) not null default current_timestamp(3) on update current_timestamp(3),
-  primary key (id),
-  unique key uq_tb_video_channels_channel (recorder_id, channel_no),
-  key idx_tb_video_channels_area_id (area_id),
-  constraint fk_tb_video_channels_recorder
-    foreign key (recorder_id) references tb_video_recorders(id) on delete cascade,
-  constraint fk_tb_video_channels_area
-    foreign key (area_id) references tb_store_areas(id),
-  constraint chk_tb_video_channels_status
-    check (status in ('pending_recognition', 'pending_confirmation', 'confirmed_business', 'confirmed_non_business', 'recognition_failed', 'inactive')),
-  constraint chk_tb_video_channels_scene_type
-    check (scene_type in ('treatment', 'vip_treatment', 'consultation', 'beauty', 'front_desk', 'corridor', 'passage', 'waiting_area', 'hall', 'entrance', 'storage', 'pharmacy', 'machine_room', 'unknown')),
-  constraint chk_tb_video_channels_area_type
-    check (area_type is null or area_type in ('treatment', 'vip_treatment', 'consultation', 'beauty')),
-  constraint chk_tb_video_channels_channel_no
-    check (channel_no > 0),
-  constraint chk_tb_video_channels_attempts
-    check (recognition_attempts >= 0)
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+alter table tb_channel_snapshots
+  add column snapshot_key_hash char(64) not null default '' after snapshot_key;
 
-create table if not exists tb_channel_snapshots (
-  id bigint not null auto_increment,
-  channel_id bigint not null,
-  thumbnail_path varchar(1024) not null default '',
-  full_image_path varchar(1024) not null default '',
-  full_image_expires_at datetime(3) null,
-  created_at datetime(3) not null default current_timestamp(3),
-  primary key (id),
-  key idx_tb_channel_snapshots_channel_id (channel_id, created_at),
-  constraint fk_tb_channel_snapshots_channel
-    foreign key (channel_id) references tb_video_channels(id) on delete cascade
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+-- Backfill strategy draft, execute only after confirming exact path formats.
+-- update tb_channel_snapshots
+-- set snapshot_key = case
+--   when thumbnail_path like '/api/store-space/channel-snapshots/%'
+--     then concat('channel-snapshots/', substring_index(thumbnail_path, '/', -1))
+--   when thumbnail_path like 'channel-snapshots/%'
+--     then thumbnail_path
+--   when full_image_path like '/api/store-space/channel-snapshots/%'
+--     then concat('channel-snapshots/', substring_index(full_image_path, '/', -1))
+--   when full_image_path like 'channel-snapshots/%'
+--     then full_image_path
+--   else ''
+-- end
+-- where snapshot_key = '';
 
-create table if not exists tb_operation_logs (
-  id bigint not null auto_increment,
-  action varchar(64) not null,
-  entity_type varchar(64) not null,
-  entity_id bigint null,
-  store_id bigint null,
-  actor varchar(128) not null default 'admin',
-  summary text not null,
-  created_at datetime(3) not null default current_timestamp(3),
-  primary key (id),
-  key idx_tb_operation_logs_store_id (store_id, created_at)
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+-- snapshot_key_hash should be SHA2(snapshot_key, 256) after snapshot_key backfill.
+-- update tb_channel_snapshots
+-- set snapshot_key_hash = sha2(snapshot_key, 256)
+-- where snapshot_key <> '' and snapshot_key_hash = '';
+
+-- 5. Store listing, search/filter, and H5 Monitor indexes.
+create index idx_tb_stores_city_updated_at
+  on tb_stores (city, updated_at, id);
+
+create index idx_tb_stores_external_org_id
+  on tb_stores (external_org_id);
+
+create index idx_tb_stores_city_name_updated_at
+  on tb_stores (city, normalized_name, updated_at, id);
+
+create index idx_tb_store_areas_store_type
+  on tb_store_areas (store_id, area_type, status);
+
+create index idx_tb_store_areas_external_area
+  on tb_store_areas (external_area_id);
+
+create index idx_tb_store_design_plans_store_updated
+  on tb_store_design_plans (store_id, updated_at, id);
+
+create index idx_tb_video_recorders_store_status
+  on tb_video_recorders (store_id, status, id);
+
+create index idx_tb_video_channels_active_status
+  on tb_video_channels (recorder_id, is_active, status, channel_no);
+
+create index idx_tb_video_channels_area_status
+  on tb_video_channels (area_id, status, is_active);
+
+create index idx_tb_video_channels_scene_status
+  on tb_video_channels (scene_type, status);
+
+create index idx_tb_video_channels_bed_lookup
+  on tb_video_channels (area_type, area_number, bed_label);
+
+create index idx_tb_video_channels_external_area_bed
+  on tb_video_channels (external_area_id, external_bed_id);
+
+create index idx_tb_operation_logs_entity_time
+  on tb_operation_logs (entity_type, entity_id, created_at);
+
+-- Replace or keep existing snapshot index depending on current test DB state.
+-- If idx_tb_channel_snapshots_channel_id exists, drop it before creating the latest index.
+-- drop index idx_tb_channel_snapshots_channel_id on tb_channel_snapshots;
+create index idx_tb_channel_snapshots_latest
+  on tb_channel_snapshots (channel_id, created_at, id);
+
+create index idx_tb_channel_snapshots_key_hash
+  on tb_channel_snapshots (snapshot_key_hash);
+
+-- 6. Optional FK for deleted_by after tb_users exists.
+-- Enable only after db/mysql_governance_schema_tb.sql has been applied.
+-- alter table tb_stores
+--   add constraint fk_tb_stores_deleted_by foreign key (deleted_by) references tb_users(id);
+-- alter table tb_video_recorders
+--   add constraint fk_tb_video_recorders_deleted_by foreign key (deleted_by) references tb_users(id);
+-- alter table tb_video_channels
+--   add constraint fk_tb_video_channels_deleted_by foreign key (deleted_by) references tb_users(id);
+
+-- 7. Deferred decisions that need main-thread confirmation:
+-- - Whether formal deletes should be replaced by application-level soft delete in stage A.
+-- - Whether snapshot_key should replace thumbnail_path/full_image_path in API responses.
+-- - Whether external_area_id/external_bed_id should remain columns or move to a mapping table.
+-- - Whether duplicate external_org_id is invalid in all cases.
 
 -- ============================================================================
 -- Source: db/mysql_governance_schema_tb.sql
@@ -1009,8 +876,8 @@ delimiter ;
 -- order by index_name;
 
 -- ============================================================================
--- Add actor display name when upgrading an older tb_audit_logs table.
--- New tables created by the governance baseline already contain this column.
+-- Later audit-log field addition for databases that created tb_audit_logs
+-- before the actor nickname enhancement.
 -- ============================================================================
 set @erzhuang_schema_name := database();
 set @erzhuang_audit_actor_column_sql := (
