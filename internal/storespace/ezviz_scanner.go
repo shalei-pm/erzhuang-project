@@ -139,36 +139,3 @@ func (s *EzvizScanner) CaptureChannel(ctx context.Context, account EzvizAccount,
 		FullImageExpiresAt: &expiresAt,
 	}, nil
 }
-
-func (s *EzvizScanner) LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error) {
-	if s == nil || s.client == nil {
-		return LiveAddressResult{}, ErrNotImplemented
-	}
-	credentials, ok := s.accounts[account.AccountName]
-	if !ok {
-		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"ezviz_account_id": "找不到萤石云账号配置"}}
-	}
-	if strings.TrimSpace(credentials.AppKey) == "" {
-		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"app_key": "缺少萤石云 appKey"}}
-	}
-	if strings.TrimSpace(credentials.AppSecret) == "" {
-		return LiveAddressResult{}, &ValidationError{Fields: map[string]string{"app_secret": "缺少萤石云 appSecret"}}
-	}
-	result, err := s.client.LiveAddress(ctx, credentials, ezviz.LiveAddressRequest{
-		DeviceSerial: recorder.DeviceCode,
-		ChannelNo:    channelNo,
-		Protocol:     2,
-		Quality:      2,
-		ExpireTime:   600,
-		Code:         code,
-	})
-	if err != nil {
-		return LiveAddressResult{}, err
-	}
-	return LiveAddressResult{
-		URL:        result.URL,
-		URLID:      result.ID,
-		ExpireTime: result.ExpireTime,
-		Protocol:   "hls",
-	}, nil
-}

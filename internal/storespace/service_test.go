@@ -1990,10 +1990,6 @@ func (f *mutableFakeChannelScanner) CaptureChannel(ctx context.Context, account 
 	}, nil
 }
 
-func (f *mutableFakeChannelScanner) LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error) {
-	return LiveAddressResult{URL: "https://example.test/live.m3u8", URLID: "test-url-id", ExpireTime: "2026-06-24 12:00:00", Protocol: "hls"}, nil
-}
-
 func channelsByNo(channels []Channel) map[int]Channel {
 	result := map[int]Channel{}
 	for _, channel := range channels {
@@ -2022,10 +2018,6 @@ func (f *countingFakeChannelScanner) CaptureChannel(ctx context.Context, account
 		FullImagePath:      url,
 		FullImageExpiresAt: &expiresAt,
 	}, nil
-}
-
-func (f *countingFakeChannelScanner) LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error) {
-	return LiveAddressResult{URL: "https://example.test/live.m3u8", URLID: "test-url-id", ExpireTime: "2026-06-24 12:00:00", Protocol: "hls"}, nil
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

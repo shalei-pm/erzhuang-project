@@ -86,26 +86,10 @@ func (s *Service) DiagnoseChannelSnapshot(ctx context.Context, name string) Snap
 type ChannelScanner interface {
 	ScanRecorderChannels(ctx context.Context, account EzvizAccount, recorder Recorder) ([]ScannedChannel, error)
 	CaptureChannel(ctx context.Context, account EzvizAccount, recorder Recorder, channel Channel) (ChannelSnapshotInput, error)
-	LiveAddress(ctx context.Context, account EzvizAccount, recorder Recorder, channelNo int, code string) (LiveAddressResult, error)
 }
 
 type ChannelRecognizer interface {
 	RecognizeChannel(ctx context.Context, imageURL string) (ChannelRecognitionResult, error)
-}
-
-type LiveAddressInput struct {
-	AccountID    int64  `json:"ezviz_account_id"`
-	AccountName  string `json:"account_name"`
-	DeviceSerial string `json:"device_serial"`
-	ChannelNo    int    `json:"channel_no"`
-	Code         string `json:"code"`
-}
-
-type LiveAddressResult struct {
-	URL        string `json:"url"`
-	URLID      string `json:"url_id"`
-	ExpireTime string `json:"expire_time"`
-	Protocol   string `json:"protocol"`
 }
 
 func (s *Service) ListEzvizAccounts(ctx context.Context) ([]EzvizAccount, error) {

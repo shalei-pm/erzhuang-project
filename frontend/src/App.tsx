@@ -135,13 +135,6 @@ function AdminApp() {
   }
 
   useEffect(() => {
-    if (auth?.authenticated) {
-      window.sessionStorage.removeItem("erzhuang:sso-entry-redirected");
-    }
-  }, [auth]);
-
-  useEffect(() => {
-    if (settingsOpen || authLoading || shouldBlockBusinessData(auth)) return;
     void storeSpaceApi
       .getAuthMe()
       .then(setAuth)
@@ -384,48 +377,6 @@ function AdminApp() {
         ) : (
           <UserManagement onToast={setToast} onAuthRequired={handleAuthRequired} />
         )}
-        <footer className="app-version" aria-label="当前版本">
-          版本 {APP_VERSION}
-        </footer>
-      </main>
-    );
-  }
-
-  if (authLoading) {
-    return (
-      <main className="app-shell">
-        <div className="auth-loading">正在确认登录状态...</div>
-      </main>
-    );
-  }
-
-  if (shouldShowLoginWelcome(auth) && authCompanyEntryPath()) {
-    return (
-      <main className="app-shell">
-        <div className="auth-loading">正在进入公司 SSO 登录...</div>
-      </main>
-    );
-  }
-
-  if (shouldShowLoginWelcome(auth)) {
-    return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
-  }
-
-  if (shouldShowForbiddenAccess(auth)) {
-    return <ForbiddenAccess appVersion={APP_VERSION} />;
-  }
-
-  if (settingsOpen && canManageSystemUsers) {
-    return (
-      <main className="app-shell">
-        <SystemTopBar
-          backAction={{ label: "返回列表", onClick: returnToStoreList }}
-          auth={showLogoutEntry ? auth : null}
-          loggingOut={loggingOut}
-          onLogout={logout}
-        />
-        {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
-        <UserManagement onToast={setToast} />
         <footer className="app-version" aria-label="当前版本">
           版本 {APP_VERSION}
         </footer>

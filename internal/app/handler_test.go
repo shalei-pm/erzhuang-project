@@ -63,9 +63,6 @@ func TestHealth(t *testing.T) {
 			t.Fatalf("header %s = %q, want %q", header, got, want)
 		}
 	}
-	if response.AssetStore != "local" {
-		t.Fatalf("expected asset store local, got %q", response.AssetStore)
-	}
 }
 
 func TestHealthDegradedWhenStorePingFails(t *testing.T) {
@@ -104,30 +101,6 @@ func TestHealthUnderConfiguredBasePath(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	if response.Status != "ok" {
-		t.Fatalf("expected status ok, got %q", response.Status)
-	}
-}
-
-func TestHealthUnderConfiguredBasePath(t *testing.T) {
-	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
-	request := httptest.NewRequest(http.MethodGet, "/erzhuang-project/health", nil)
-	recorder := httptest.NewRecorder()
-
-	NewHandler().ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
-	}
-
-	var response HealthResponse
-	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-
-	if response.App != AppName {
-		t.Fatalf("expected app %q, got %q", AppName, response.App)
-	}
 	if response.Status != "ok" {
 		t.Fatalf("expected status ok, got %q", response.Status)
 	}
