@@ -232,7 +232,7 @@ func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {
 	h.revokeLocalAuthSession(r)
 	h.clearAuthCookie(w, r)
 	if r.Method == http.MethodGet {
-		redirectTo := safeLogoutRedirect(r.URL.Query().Get("redirect"))
+		redirectTo := safeLogoutRedirect(r.Host, r.URL.Query().Get("redirect"))
 		if redirectTo == "" {
 			redirectTo = normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/"
 		}
@@ -272,15 +272,30 @@ func (h *Handler) revokeLocalAuthSession(r *http.Request) {
 	_ = h.authSessionStore.RevokeAuthSession(r.Context(), localCookie.Value, record.ID, "manual_logout", h.authNow())
 }
 
-func safeLogoutRedirect(value string) string {
+func safeLogoutRedirect(requestHost, value string) string {
 	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "https" || parsed.Host != "security-test.sy.soyoung.com" {
+	if err != nil || parsed.Scheme != "https" || parsed.Host != logoutGatewayHost(requestHost) {
 		return ""
 	}
 	if parsed.Path != "/api/g/sso/logouttogether" {
 		return ""
 	}
 	return parsed.String()
+}
+
+func logoutGatewayHost(host string) string {
+	hostname := strings.ToLower(strings.TrimSpace(host))
+	if colon := strings.Index(hostname, ":"); colon >= 0 {
+		hostname = hostname[:colon]
+	}
+	switch hostname {
+	case "lite.sy.soyoung.com":
+		return "security-test.sy.soyoung.com"
+	case "lite.soyoung.com":
+		return "security.soyoung.com"
+	default:
+		return ""
+	}
 }
 
 func (h *Handler) clearAuthCookie(w http.ResponseWriter, r *http.Request) {

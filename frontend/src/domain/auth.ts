@@ -114,11 +114,12 @@ export function authLogoutPath(hostname = currentHostname()) {
   if (isCompanySSODomain(hostname)) {
     const normalizedHostname = normalizeCompanyHostname(hostname);
     const origin = companySSOOrigin(normalizedHostname);
+    const gatewayOrigin = companySSOGatewayOrigin(normalizedHostname);
     const gatewayParams = new URLSearchParams({
       from_host: normalizedHostname,
       from_uri: `${origin}${authBasePath()}/`,
     });
-    const gatewayLogout = `https://security-test.sy.soyoung.com/api/g/sso/logouttogether?${gatewayParams.toString()}`;
+    const gatewayLogout = `${gatewayOrigin}/api/g/sso/logouttogether?${gatewayParams.toString()}`;
     const localParams = new URLSearchParams({ redirect: gatewayLogout });
     return `${authBasePath()}/logout?${localParams.toString()}`;
   }
@@ -171,6 +172,13 @@ function companySSOOrigin(hostname: string) {
   const normalized = normalizeCompanyHostname(hostname);
   if (normalized === "lite.sy.soyoung.com") return "https://lite.sy.soyoung.com";
   if (normalized === "lite.soyoung.com") return "http://lite.soyoung.com";
+  return "";
+}
+
+function companySSOGatewayOrigin(hostname: string) {
+  const normalized = normalizeCompanyHostname(hostname);
+  if (normalized === "lite.sy.soyoung.com") return "https://security-test.sy.soyoung.com";
+  if (normalized === "lite.soyoung.com") return "https://security.soyoung.com";
   return "";
 }
 
