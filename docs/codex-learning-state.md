@@ -6322,3 +6322,9 @@ git pull --ff-only
 - 本地验证：NVR 取流审计定向测试、播放器截图审计定向测试、前端 Vitest `16 files / 93 tests`、生产构建、`go build ./...` 和 `git diff --check` 通过。NVR 包全量测试仍有本机沙箱禁止 IPv6 `::1` 监听的既有测试限制。
 - 测试发布：功能提交 `0465bac` 正常合并测试分支的远端协作规则后，以 `642228b` 推送 GitHub 备份与 GitLab `codex/containerize-single-image`；Wharf 自动构建部署完成，Chrome 复核测试页版本为 `3.4.7 (container)`。未操作 `main`、正式环境、数据库结构或 K8s 配置。
 - 浏览器验收：新产生的“查看直播”日志显示北京保利总部店（10001）、治疗室 / 治疗室4、治疗室4-客流测试（ID：111）；新产生的“查看回放”日志也按相同口径展示，未绑定摄像头正确显示“未绑定空间”。长摘要在操作内容列自动换行且未造成表格溢出。历史日志不回写。
+
+### 2026-09-03 正式库结构增量基线核对
+
+- 正式线上应用版本 `2.31.8 (container)` 对应 Git 提交 `c95545a`。以该提交的 `db/mysql_governance_schema_tb.sql` 与当前 `3.4.7` 定义比较，2.31.8 已具备用户、角色、权限、资源范围、审计、OSS 资产等表；当前不需要新增表。
+- 正式库待审批的结构增量仅两项：`tb_auth_sessions` 新增 `last_activity_at datetime(3) not null` 和索引 `idx_tb_auth_sessions_user_activity (user_id, last_activity_at)`，用于 30 分钟空闲会话超时；`tb_audit_logs` 新增 `actor_display_name varchar(255) not null default ''`，用于展示 SSO 操作人昵称。
+- 审批用 SQL：`db/mysql_production_v2_31_8_to_v3_4_7.sql`。NVR 快照表草案已废弃，缩略图只写既有 OSS，不创建 `tb_nvr_camera_snapshots`。
