@@ -111,19 +111,6 @@ func (h *Handler) createEzvizAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, account)
 }
 
-func (h *Handler) getEzvizLiveAddress(w http.ResponseWriter, r *http.Request) {
-	var input LiveAddressInput
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	result, err := h.service.GetLiveAddress(r.Context(), input)
-	if err != nil {
-		handleServiceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
 func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.ListStores(r.Context(), StoreFilters{
 		Query:    r.URL.Query().Get("q"),
