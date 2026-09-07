@@ -51,28 +51,25 @@ func idleSessionRequest(t *testing.T, privateKey *rsa.PrivateKey, path string, n
 	return request
 }
 
-func TestIdleAuthGateCreatesHttpOnlyLocalSession(t *testing.T) {
+func TestIdleAuthCallbackCreatesHttpOnlyLocalSessionForGate(t *testing.T) {
 	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	sessions := newFakeAuthSessionStore()
 	h, privateKey := newIdleSessionTestHandler(t, sessions, now)
+	request := idleSessionRequest(t, privateKey, "/api/protected", now)
+	localCookie := loginTestSession(t, http.HandlerFunc(h.authCallbackHandler), request)
+	request.AddCookie(localCookie)
 	called := false
 	recorder := httptest.NewRecorder()
 	h.authGate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusNoContent)
-	})).ServeHTTP(recorder, idleSessionRequest(t, privateKey, "/api/protected", now))
+	})).ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusNoContent || !called {
 		t.Fatalf("gate result = status %d called=%t", recorder.Code, called)
 	}
-	var localCookie *http.Cookie
-	for _, cookie := range recorder.Result().Cookies() {
-		if cookie.Name == authSessionCookieName {
-			localCookie = cookie
-		}
-	}
-	if localCookie == nil || !localCookie.HttpOnly || localCookie.Value == "" {
-		t.Fatalf("local session cookie = %s", summarizeCookie(localCookie))
+	if hasCookie(recorder.Result().Cookies(), authSessionCookieName) {
+		t.Fatal("protected API unexpectedly issued a local session cookie")
 	}
 }
 
@@ -80,8 +77,10 @@ func TestAuthMeUsesIdleSessionGate(t *testing.T) {
 	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	sessions := newFakeAuthSessionStore()
 	h, privateKey := newIdleSessionTestHandler(t, sessions, now)
+	request := idleSessionRequest(t, privateKey, "/api/auth/me", now)
+	request.AddCookie(loginTestSession(t, http.HandlerFunc(h.authCallbackHandler), request))
 	recorder := httptest.NewRecorder()
-	h.authGate(http.HandlerFunc(h.authMeHandler)).ServeHTTP(recorder, idleSessionRequest(t, privateKey, "/api/auth/me", now))
+	h.authGate(http.HandlerFunc(h.authMeHandler)).ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("auth/me status = %d body=%s", recorder.Code, recorder.Body.String())
@@ -93,8 +92,8 @@ func TestAuthMeUsesIdleSessionGate(t *testing.T) {
 	if !response.Authenticated || response.User == nil || response.User.Email != "idle@example.com" {
 		t.Fatalf("auth/me response = %#v", response)
 	}
-	if !hasCookie(recorder.Result().Cookies(), authSessionCookieName) {
-		t.Fatalf("auth/me did not issue local session cookie: %s", summarizeCookies(recorder.Result().Cookies()))
+	if hasCookie(recorder.Result().Cookies(), authSessionCookieName) {
+		t.Fatal("auth/me unexpectedly issued a local session cookie")
 	}
 }
 
@@ -102,23 +101,12 @@ func TestIdleAuthGateTouchesActiveSession(t *testing.T) {
 	createdAt := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	sessions := newFakeAuthSessionStore()
 	h, privateKey := newIdleSessionTestHandler(t, sessions, createdAt)
-	first := httptest.NewRecorder()
-	h.authGate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})).ServeHTTP(first, idleSessionRequest(t, privateKey, "/api/protected", createdAt))
-	var localCookie *http.Cookie
-	for _, cookie := range first.Result().Cookies() {
-		if cookie.Name == authSessionCookieName {
-			localCookie = cookie
-		}
-	}
-	if localCookie == nil {
-		t.Fatal("first request did not create local session cookie")
-	}
+	loginRequest := idleSessionRequest(t, privateKey, "/_/auth/callback", createdAt)
+	localCookie := loginTestSession(t, http.HandlerFunc(h.authCallbackHandler), loginRequest)
 
 	touchAt := createdAt.Add(5 * time.Minute)
 	h.now = func() time.Time { return touchAt }
-	secondRequest := idleSessionRequest(t, privateKey, "/api/protected", touchAt)
+	secondRequest := idleSessionRequest(t, privateKey, "/api/protected", createdAt)
 	secondRequest.AddCookie(localCookie)
 	second := httptest.NewRecorder()
 	h.authGate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,23 +129,12 @@ func TestIdleAuthGateExpiresSessionAndAuditsWithoutLeakingToken(t *testing.T) {
 	createdAt := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	sessions := newFakeAuthSessionStore()
 	h, privateKey := newIdleSessionTestHandler(t, sessions, createdAt)
-	first := httptest.NewRecorder()
-	h.authGate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})).ServeHTTP(first, idleSessionRequest(t, privateKey, "/api/protected", createdAt))
-	var localCookie *http.Cookie
-	for _, cookie := range first.Result().Cookies() {
-		if cookie.Name == authSessionCookieName {
-			localCookie = cookie
-		}
-	}
-	if localCookie == nil {
-		t.Fatal("first request did not create local session cookie")
-	}
+	loginRequest := idleSessionRequest(t, privateKey, "/_/auth/callback", createdAt)
+	localCookie := loginTestSession(t, http.HandlerFunc(h.authCallbackHandler), loginRequest)
 
 	expiredAt := createdAt.Add(defaultAuthIdleTimeout + time.Second)
 	h.now = func() time.Time { return expiredAt }
-	request := idleSessionRequest(t, privateKey, "/api/protected", expiredAt)
+	request := idleSessionRequest(t, privateKey, "/api/protected", createdAt)
 	request.AddCookie(localCookie)
 	recorder := httptest.NewRecorder()
 	h.authGate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +163,7 @@ func TestIdleAuthGateExpiresSessionAndAuditsWithoutLeakingToken(t *testing.T) {
 		t.Fatal("idle session test store does not implement AuditLogStore")
 	}
 	logs, err := auditStore.ListAuditLogs(context.Background(), AuditLogFilter{
+		Action:  "auth.idle_timeout",
 		StartAt: time.Unix(0, 0), EndAt: expiredAt.Add(time.Hour), PageSize: 100,
 	})
 	if err != nil {
@@ -220,23 +198,12 @@ func TestRequirePermissionUsesIdleTimeoutResponse(t *testing.T) {
 	createdAt := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	sessions := newFakeAuthSessionStore()
 	h, privateKey := newIdleSessionTestHandler(t, sessions, createdAt)
-	first := httptest.NewRecorder()
-	h.authGate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})).ServeHTTP(first, idleSessionRequest(t, privateKey, "/api/protected", createdAt))
-	var localCookie *http.Cookie
-	for _, cookie := range first.Result().Cookies() {
-		if cookie.Name == authSessionCookieName {
-			localCookie = cookie
-		}
-	}
-	if localCookie == nil {
-		t.Fatal("first request did not create local session cookie")
-	}
+	loginRequest := idleSessionRequest(t, privateKey, "/_/auth/callback", createdAt)
+	localCookie := loginTestSession(t, http.HandlerFunc(h.authCallbackHandler), loginRequest)
 
 	expiredAt := createdAt.Add(defaultAuthIdleTimeout + time.Second)
 	h.now = func() time.Time { return expiredAt }
-	request := idleSessionRequest(t, privateKey, "/api/protected", expiredAt)
+	request := idleSessionRequest(t, privateKey, "/api/protected", createdAt)
 	request.AddCookie(localCookie)
 	recorder := httptest.NewRecorder()
 	if _, ok := h.requirePermission(recorder, request, PermissionStoreRead); ok {
@@ -313,23 +280,20 @@ func TestManualLogoutRevokesLocalSessionAndClearsCookies(t *testing.T) {
 	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	sessions := newFakeAuthSessionStore()
 	h, privateKey := newIdleSessionTestHandler(t, sessions, now)
-	token, err := sessions.CreateAuthSession(context.Background(), AuthSessionCreate{UserID: 42, Now: now})
-	if err != nil {
-		t.Fatal(err)
-	}
 	request := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
 	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
 		"data": map[string]string{"mail": "idle@example.com", "username": "idle-user", "display": "Idle User"},
 		"exp":  now.Add(time.Hour).Unix(),
 	})})
-	request.AddCookie(&http.Cookie{Name: authSessionCookieName, Value: token})
+	localCookie := loginTestSession(t, http.HandlerFunc(h.authCallbackHandler), request)
+	request.AddCookie(localCookie)
 	recorder := httptest.NewRecorder()
 	h.authLogoutHandler(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("logout status = %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	hash := hashAuthSessionToken(token)
+	hash := hashAuthSessionToken(localCookie.Value)
 	sessions.mu.Lock()
 	got := sessions.sessions[sessionHashKey(hash)]
 	sessions.mu.Unlock()

@@ -40,13 +40,14 @@ type AuthConfig struct {
 }
 
 type AuthResponse struct {
-	Enabled       bool              `json:"enabled"`
-	Authenticated bool              `json:"authenticated"`
-	Code          string            `json:"code,omitempty"`
-	Message       string            `json:"message,omitempty"`
-	LoginURL      string            `json:"login_url,omitempty"`
-	User          *AuthUserResponse `json:"user,omitempty"`
-	Permissions   []string          `json:"permissions,omitempty"`
+	Enabled       bool               `json:"enabled"`
+	Authenticated bool               `json:"authenticated"`
+	Code          string             `json:"code,omitempty"`
+	Message       string             `json:"message,omitempty"`
+	LoginURL      string             `json:"login_url,omitempty"`
+	User          *AuthUserResponse  `json:"user,omitempty"`
+	Permissions   []string           `json:"permissions,omitempty"`
+	Session       *AuthSessionStatus `json:"session,omitempty"`
 }
 
 type AuthUserResponse struct {
@@ -122,6 +123,17 @@ func (h *Handler) authMeHandler(w http.ResponseWriter, r *http.Request) {
 		h.writeLocalAdminAuth(w)
 		return
 	}
+	var session *AuthSessionStatus
+	if h.authRequired(r) {
+		if _, supported := h.authSessionStore.(authSessionStatusStore); supported {
+			status, err := h.readAuthSessionStatus(r, record.ID)
+			if err != nil {
+				h.writeAuthError(w, r, err)
+				return
+			}
+			session = &status
+		}
+	}
 	record, err = h.store.UpdateAuthUserProfile(r.Context(), AuthUserPatch{
 		Email:        user.Email,
 		Username:     user.Username,
@@ -139,7 +151,55 @@ func (h *Handler) authMeHandler(w http.ResponseWriter, r *http.Request) {
 		Authenticated: true,
 		User:          &user,
 		Permissions:   record.permissions(),
+		Session:       session,
 	})
+}
+
+func (h *Handler) readAuthSessionStatus(r *http.Request, userID int64) (AuthSessionStatus, error) {
+	store, ok := h.authSessionStore.(authSessionStatusStore)
+	if !ok {
+		return AuthSessionStatus{}, errAuthSessionUnavailable
+	}
+	cookie, err := r.Cookie(authSessionCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return AuthSessionStatus{}, errSessionLoginRequired
+	}
+	status, err := store.GetAuthSessionStatus(r.Context(), cookie.Value, userID, h.authNow())
+	if err != nil && !errors.Is(err, errSessionIdleTimeout) && !errors.Is(err, errSessionAbsoluteTimeout) {
+		return AuthSessionStatus{}, errAuthSessionUnavailable
+	}
+	return status, err
+}
+
+// This endpoint authenticates independently: passing through authGate would
+// turn the expiry check itself into activity and keep idle browsers signed in.
+func (h *Handler) authSessionStatusHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	identity, err := h.authenticateSSO(r)
+	if err != nil {
+		h.writeAuthError(w, r, err)
+		return
+	}
+	if !h.authRequired(r) {
+		writeJSON(w, http.StatusOK, map[string]bool{"enabled": false})
+		return
+	}
+	status, err := h.readAuthSessionStatus(r, identity.record.ID)
+	if err != nil {
+		if errors.Is(err, errSessionIdleTimeout) || errors.Is(err, errSessionAbsoluteTimeout) {
+			reason := "idle_timeout"
+			if errors.Is(err, errSessionAbsoluteTimeout) {
+				reason = "absolute_timeout"
+			}
+			if cookie, cookieErr := r.Cookie(authSessionCookieName); cookieErr == nil {
+				_ = h.authSessionStore.RevokeAuthSession(r.Context(), cookie.Value, identity.record.ID, reason, h.authNow())
+			}
+			h.recordAuthSessionTimeout(r, identity.record, identity.user, reason)
+		}
+		h.writeAuthError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 func safeAuthLogValue(value string) string {
@@ -177,12 +237,17 @@ func (h *Handler) writeUnauthorizedAuth(w http.ResponseWriter) {
 }
 
 func (h *Handler) writeSessionIdleTimeoutAuth(w http.ResponseWriter, r *http.Request) {
+	h.writeSessionExpiredAuth(w, r, "session_idle_timeout", "登录已因长时间未操作失效，请重新扫码登录")
+}
+
+func (h *Handler) writeSessionExpiredAuth(w http.ResponseWriter, r *http.Request, code, message string) {
 	h.clearAuthCookie(w, r)
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusUnauthorized, AuthResponse{
 		Enabled:       true,
 		Authenticated: false,
-		Code:          "session_idle_timeout",
-		Message:       "登录已因长时间未操作失效，请重新扫码登录",
+		Code:          code,
+		Message:       message,
 		LoginURL:      normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/_/auth/callback",
 	})
 }
@@ -199,6 +264,16 @@ func (h *Handler) writeAuthError(w http.ResponseWriter, r *http.Request, err err
 	switch {
 	case errors.Is(err, errSessionIdleTimeout):
 		h.writeSessionIdleTimeoutAuth(w, r)
+	case errors.Is(err, errSessionAbsoluteTimeout):
+		h.writeSessionExpiredAuth(w, r, "session_absolute_timeout", "登录已超过 8 小时，请重新扫码登录")
+	case errors.Is(err, errSessionReauthenticationRequired):
+		h.writeSessionExpiredAuth(w, r, "session_reauthentication_required", "原登录凭据已使用，请重新扫码登录")
+	case errors.Is(err, errSessionLoginRequired):
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusUnauthorized, AuthResponse{
+			Enabled: true, Code: "session_login_required",
+			LoginURL: normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/_/auth/callback",
+		})
 	case errors.Is(err, errAuthSessionUnavailable):
 		h.writeAuthSessionUnavailable(w, r)
 	case errors.Is(err, errUnauthorizedAuth):
@@ -219,8 +294,88 @@ func (h *Handler) writeForbiddenAuth(w http.ResponseWriter) {
 }
 
 func (h *Handler) authCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if h.authRequired(r) {
+		identity, err := h.authenticateSSO(r)
+		if err != nil {
+			h.writeAuthError(w, r, err)
+			return
+		}
+		if h.authSessionStore == nil {
+			h.writeAuthSessionUnavailable(w, r)
+			return
+		}
+		if cookie, err := r.Cookie(authSessionCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
+			if _, err := h.authenticateRequest(r); err != nil {
+				h.rejectAuthCallback(w, r, err)
+				return
+			}
+		} else {
+			cookie, _ := r.Cookie(h.auth.CookieName) // Validated by authenticateSSO.
+			token, err := h.authSessionStore.CreateAuthSession(r.Context(), AuthSessionCreate{
+				UserID: identity.record.ID, SSOSubject: ssoCredentialFingerprint(cookie.Value),
+				IPAddress: requestIPAddress(r), UserAgent: r.UserAgent(), Now: h.authNow(),
+			})
+			if err != nil {
+				if !errors.Is(err, errSessionReauthenticationRequired) {
+					err = errAuthSessionUnavailable
+				}
+				h.rejectAuthCallback(w, r, err)
+				return
+			}
+			if token == "" {
+				h.writeAuthSessionUnavailable(w, r)
+				return
+			}
+			h.setAuthSessionCookie(w, r, token)
+		}
+		http.SetCookie(w, expiredAuthCookie("erzhuang_reauth_attempt", ""))
+	}
 	h.recordAuthLogin(r)
 	http.Redirect(w, r, normalizeBasePath(os.Getenv("APP_BASE_PATH"))+"/", http.StatusFound)
+}
+
+func (h *Handler) rejectAuthCallback(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errAuthSessionUnavailable) {
+		h.writeAuthSessionUnavailable(w, r)
+		return
+	}
+	gateway := logoutGatewayHost(r.Host)
+	_, alreadyAttempted := r.Cookie("erzhuang_reauth_attempt")
+	if gateway == "" || alreadyAttempted == nil {
+		h.writeAuthError(w, r, err)
+		return
+	}
+	h.clearAuthCookie(w, r)
+	http.SetCookie(w, &http.Cookie{
+		Name: "erzhuang_reauth_attempt", Value: "1", Path: "/", HttpOnly: true,
+		SameSite: http.SameSiteLaxMode, MaxAge: 300,
+		Secure: r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+	})
+	// Return to the callback after the gateway has cleared its own SSO session.
+	host := strings.Split(strings.ToLower(r.Host), ":")[0]
+	origin := companyApplicationOrigin(host)
+	if origin == "" {
+		h.writeAuthError(w, r, err)
+		return
+	}
+	params := url.Values{"from_host": {host}, "from_uri": {origin + normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/_/auth/callback"}}
+	http.Redirect(w, r, "https://"+gateway+"/api/g/sso/logouttogether?"+params.Encode(), http.StatusFound)
+}
+
+func companyApplicationOrigin(host string) string {
+	hostname := strings.ToLower(strings.TrimSpace(host))
+	if colon := strings.Index(hostname, ":"); colon >= 0 {
+		hostname = hostname[:colon]
+	}
+	switch hostname {
+	case "lite.sy.soyoung.com":
+		return "https://lite.sy.soyoung.com"
+	case "lite.soyoung.com":
+		return "http://lite.soyoung.com"
+	default:
+		return ""
+	}
 }
 
 func (h *Handler) authLogoutHandler(w http.ResponseWriter, r *http.Request) {

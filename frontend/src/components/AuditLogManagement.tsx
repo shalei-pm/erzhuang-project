@@ -6,6 +6,8 @@ import { errorMessage, formatDateTime } from "../domain/format";
 const actionLabels: Record<string, string> = {
   "auth.login": "登录",
   "auth.logout": "退出登录",
+  "auth.idle_timeout": "登录空闲失效",
+  "auth.absolute_timeout": "登录满8小时失效",
   "monitor.live_view": "查看直播",
   "monitor.playback_view": "查看回放",
   "monitor.screenshot": "监控截图",

@@ -79,6 +79,7 @@ func assertMonitorAuditEvent(t *testing.T, event auditlog.AuditEvent) {
 func TestH5MonitorAuthorizerRecordsAuditWithServerIdentity(t *testing.T) {
 	recorder := &monitorAuditRecorder{}
 	handler, request := newMonitorAuditTestHandler(t, recorder)
+	request.AddCookie(loginTestSession(t, http.HandlerFunc(handler.authCallbackHandler), request))
 	event := auditlog.AuditEvent{
 		Action:        "monitor.live_view",
 		EntityType:    "channel",
@@ -104,6 +105,7 @@ func TestH5MonitorAuthorizerRecordsAuditWithServerIdentity(t *testing.T) {
 func TestNVRMonitorAuthorizerRecordsAuditWithServerIdentity(t *testing.T) {
 	recorder := &monitorAuditRecorder{}
 	handler, request := newMonitorAuditTestHandler(t, recorder)
+	request.AddCookie(loginTestSession(t, http.HandlerFunc(handler.authCallbackHandler), request))
 	authorizer := nvrMonitorAuthorizer{handler: handler}
 	if allowed, err := authorizer.CanViewStore(request, "10030"); err != nil || !allowed {
 		t.Fatalf("can view store = (%v, %v)", allowed, err)

@@ -47,14 +47,17 @@ func TestMonitorScreenshotWatermarkCanBeDisabled(t *testing.T) {
 
 func TestMonitorScreenshotWatermarkSettingsHandlersPersistAndAuditChanges(t *testing.T) {
 	store, handler, privateKey := newMonitorScreenshotSettingsTestHandler(t)
+	loginRequest := httptest.NewRequest(http.MethodGet, "/_/auth/callback", nil)
+	addAuditLogTestSSOCookie(t, loginRequest, privateKey, "watermark-admin@soyoung.com")
+	loginRequest.AddCookie(loginTestSession(t, handler, loginRequest))
 
-	initial := monitorScreenshotSettingsRequest(t, handler, privateKey, http.MethodGet, "")
+	initial := monitorScreenshotSettingsRequest(t, handler, loginRequest.Cookies(), http.MethodGet, "")
 	if initial.Code != http.StatusOK {
 		t.Fatalf("initial settings status = %d body=%s", initial.Code, initial.Body.String())
 	}
 	assertMonitorScreenshotWatermarkEnabled(t, initial, true)
 
-	updated := monitorScreenshotSettingsRequest(t, handler, privateKey, http.MethodPost, `{"enabled":false}`)
+	updated := monitorScreenshotSettingsRequest(t, handler, loginRequest.Cookies(), http.MethodPost, `{"enabled":false}`)
 	if updated.Code != http.StatusOK {
 		t.Fatalf("update settings status = %d body=%s", updated.Code, updated.Body.String())
 	}
@@ -64,7 +67,7 @@ func TestMonitorScreenshotWatermarkSettingsHandlersPersistAndAuditChanges(t *tes
 	if err != nil || persisted {
 		t.Fatalf("persisted setting = %t err=%v, want false and nil", persisted, err)
 	}
-	logs, err := store.ListAuditLogs(context.Background(), AuditLogFilter{StartAt: time.Now().Add(-time.Hour), EndAt: time.Now().Add(time.Hour), Page: 1, PageSize: 20})
+	logs, err := store.ListAuditLogs(context.Background(), AuditLogFilter{Action: "system.monitor_screenshot_watermark.update", StartAt: time.Now().Add(-time.Hour), EndAt: time.Now().Add(time.Hour), Page: 1, PageSize: 20})
 	if err != nil {
 		t.Fatalf("list audit logs: %v", err)
 	}
@@ -90,6 +93,7 @@ func TestMonitorScreenshotWatermarkSettingsUpdateRequiresAdminPermission(t *test
 	handler := NewHandlerWithStore(store)
 	request := httptest.NewRequest(http.MethodPost, "/api/monitor-screenshot-watermark-settings", strings.NewReader(`{"enabled":false}`))
 	addAuditLogTestSSOCookie(t, request, privateKey, "viewer-watermark@soyoung.com")
+	request.AddCookie(loginTestSession(t, handler, request))
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -128,6 +132,7 @@ func TestNVRMonitorScreenshotMetadataAuthorizesCameraAndWritesAudit(t *testing.T
 	)
 	request := httptest.NewRequest(http.MethodPost, "/api/h5/nvr-monitor/orgs/10001/cameras/111/screenshot-metadata", nil)
 	addAuditLogTestSSOCookie(t, request, privateKey, "camera-watermark@soyoung.com")
+	request.AddCookie(loginTestSession(t, handler, request))
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -142,7 +147,7 @@ func TestNVRMonitorScreenshotMetadataAuthorizesCameraAndWritesAudit(t *testing.T
 	if !payload.WatermarkEnabled || payload.DisplayName != "摄像头管理员" || payload.CapturedAt == "" {
 		t.Fatalf("metadata = %#v", payload)
 	}
-	logs, err := store.ListAuditLogs(context.Background(), AuditLogFilter{StartAt: time.Now().Add(-time.Hour), EndAt: time.Now().Add(time.Hour), Page: 1, PageSize: 20})
+	logs, err := store.ListAuditLogs(context.Background(), AuditLogFilter{Action: "monitor.screenshot", StartAt: time.Now().Add(-time.Hour), EndAt: time.Now().Add(time.Hour), Page: 1, PageSize: 20})
 	if err != nil {
 		t.Fatalf("list audit logs: %v", err)
 	}
@@ -189,10 +194,12 @@ func newMonitorScreenshotSettingsTestHandler(t *testing.T) (*MemoryStore, http.H
 	return store, NewHandlerWithStore(store), privateKey
 }
 
-func monitorScreenshotSettingsRequest(t *testing.T, handler http.Handler, privateKey *rsa.PrivateKey, method, body string) *httptest.ResponseRecorder {
+func monitorScreenshotSettingsRequest(t *testing.T, handler http.Handler, cookies []*http.Cookie, method, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(method, "/api/monitor-screenshot-watermark-settings", strings.NewReader(body))
-	addAuditLogTestSSOCookie(t, request, privateKey, "watermark-admin@soyoung.com")
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response

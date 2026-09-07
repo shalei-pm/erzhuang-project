@@ -130,6 +130,7 @@ func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.S
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
 	mux.HandleFunc("GET /api/auth/me", handler.authMeHandler)
+	mux.HandleFunc("GET /api/auth/session-status", handler.authSessionStatusHandler)
 	mux.HandleFunc("POST /api/auth/logout", handler.authLogoutHandler)
 	mux.HandleFunc("GET /api/h5/monitor-mode", handler.requirePermissionHandler(PermissionStoreRead, handler.monitorModeHandler))
 	mux.HandleFunc("GET /_/auth/callback", handler.authCallbackHandler)

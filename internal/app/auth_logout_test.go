@@ -60,6 +60,18 @@ func TestAPISIXSSOLogoutGetCanRedirectToProductionGatewayLogout(t *testing.T) {
 	}
 }
 
+func TestCompanyApplicationOriginMatchesEnvironment(t *testing.T) {
+	if got := companyApplicationOrigin("lite.sy.soyoung.com"); got != "https://lite.sy.soyoung.com" {
+		t.Fatalf("test origin = %q", got)
+	}
+	if got := companyApplicationOrigin("lite.soyoung.com"); got != "http://lite.soyoung.com" {
+		t.Fatalf("production origin = %q", got)
+	}
+	if got := companyApplicationOrigin("example.com"); got != "" {
+		t.Fatalf("unknown origin = %q", got)
+	}
+}
+
 func TestAPISIXSSOLogoutGetRejectsGatewayFromDifferentEnvironment(t *testing.T) {
 	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
 	t.Setenv("SSO_ENABLED", "true")
@@ -222,6 +234,9 @@ func TestAuthCallbackRecordsLoginForEnabledServerSideUserAndRedirects(t *testing
 	if recorder.Code != http.StatusFound || recorder.Header().Get("Location") != "/erzhuang-project/" {
 		t.Fatalf("unexpected callback redirect: status=%d location=%s", recorder.Code, recorder.Header().Get("Location"))
 	}
+	if !hasCookie(recorder.Result().Cookies(), authSessionCookieName) {
+		t.Fatal("successful callback did not issue a local session")
+	}
 	logs := readAuthAuditLogs(t, store)
 	if len(logs) != 1 || logs[0].Action != "auth.login" || logs[0].Result != "success" {
 		t.Fatalf("expected one successful login audit log, got %#v", logs)
@@ -231,7 +246,7 @@ func TestAuthCallbackRecordsLoginForEnabledServerSideUserAndRedirects(t *testing
 	}
 }
 
-func TestAuthCallbackWithInvalidTokenDoesNotRecordLoginSuccessAndRedirects(t *testing.T) {
+func TestAuthCallbackWithInvalidTokenRejectsWithoutLoginSuccess(t *testing.T) {
 	store, handler, _ := newAuthAuditTestHandler(t)
 	request := httptest.NewRequest(http.MethodGet, "https://lite.sy.soyoung.com/erzhuang-project/_/auth/callback", nil)
 	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: "invalid-token"})
@@ -239,19 +254,23 @@ func TestAuthCallbackWithInvalidTokenDoesNotRecordLoginSuccessAndRedirects(t *te
 
 	handler.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusFound || recorder.Header().Get("Location") != "/erzhuang-project/" {
-		t.Fatalf("unexpected callback redirect: status=%d location=%s", recorder.Code, recorder.Header().Get("Location"))
+	if recorder.Code != http.StatusUnauthorized || recorder.Header().Get("Location") != "" {
+		t.Fatalf("unexpected callback rejection: status=%d location=%s", recorder.Code, recorder.Header().Get("Location"))
 	}
-	logs := readAuthAuditLogs(t, store)
-	if len(logs) != 1 || logs[0].Action != "auth.login" || logs[0].Result == "success" {
-		t.Fatalf("invalid callback recorded login success: %#v", logs)
+	if hasCookie(recorder.Result().Cookies(), authSessionCookieName) {
+		t.Fatal("invalid callback issued a local session")
 	}
-	if logs[0].UserID != nil || logs[0].UserEmail != "" || logs[0].ActorDisplayName != "" {
-		t.Fatalf("invalid callback audit event identified an actor: %#v", logs[0])
+	for _, event := range readAuthAuditLogs(t, store) {
+		if event.Action == "auth.login" && event.Result == "success" {
+			t.Fatalf("invalid callback recorded login success: %#v", event)
+		}
+		if event.UserID != nil || event.UserEmail != "" || event.ActorDisplayName != "" {
+			t.Fatalf("invalid callback audit event identified an actor: %#v", event)
+		}
 	}
 }
 
-func TestAuthCallbackWithValidTokenForUnknownOrDisabledUserRedirectsWithoutLoginSuccess(t *testing.T) {
+func TestAuthCallbackWithValidTokenForUnknownOrDisabledUserRejectsWithoutLoginSuccess(t *testing.T) {
 	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
 
 	tests := []struct {
@@ -273,12 +292,16 @@ func TestAuthCallbackWithValidTokenForUnknownOrDisabledUserRedirectsWithoutLogin
 
 			handler.ServeHTTP(recorder, request)
 
-			if recorder.Code != http.StatusFound || recorder.Header().Get("Location") != "/erzhuang-project/" {
-				t.Fatalf("unexpected callback redirect: status=%d location=%s", recorder.Code, recorder.Header().Get("Location"))
+			if recorder.Code != http.StatusForbidden || recorder.Header().Get("Location") != "" {
+				t.Fatalf("unexpected callback rejection: status=%d location=%s", recorder.Code, recorder.Header().Get("Location"))
 			}
-			logs := readAuthAuditLogs(t, store)
-			if len(logs) != 1 || logs[0].Action != "auth.login" || logs[0].Result == "success" {
-				t.Fatalf("callback recorded login success for %s: %#v", tt.email, logs)
+			if hasCookie(recorder.Result().Cookies(), authSessionCookieName) {
+				t.Fatal("rejected callback issued a local session")
+			}
+			for _, event := range readAuthAuditLogs(t, store) {
+				if event.Action == "auth.login" && event.Result == "success" {
+					t.Fatalf("callback recorded login success for %s: %#v", tt.email, event)
+				}
 			}
 		})
 	}
@@ -316,12 +339,19 @@ func TestAuthMeDoesNotRecordLogin(t *testing.T) {
 		"data": map[string]string{"mail": "logout@example.com"},
 		"exp":  time.Now().Add(time.Hour).Unix(),
 	})})
+	request.AddCookie(loginTestSession(t, handler, request))
+	before := readAuthAuditLogs(t, store)
+	if len(before) != 1 || before[0].Action != "auth.login" || before[0].Result != "success" {
+		t.Fatalf("expected callback login audit before auth/me: %#v", before)
+	}
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
-	for _, event := range readAuthAuditLogs(t, store) {
-		if event.Action == "auth.login" {
-			t.Fatalf("auth login must not be recorded by auth.me: %#v", event)
-		}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("auth/me status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	after := readAuthAuditLogs(t, store)
+	if len(after) != len(before) || after[0].ID != before[0].ID {
+		t.Fatalf("auth/me must not add audit events: before=%#v after=%#v", before, after)
 	}
 }
 
