@@ -1,5 +1,6 @@
 import type { NVRLabCameraListResponse, NVRLabMode, NVRLabStreamSession, NVRMonitorStoresResponse } from "./domain/nvr-lab";
 import type { MonitorScreenshotWatermarkMetadata } from "./domain/screenshot-watermark";
+import { reportSessionAuthError } from "./domain/auth";
 
 const API_BASE = apiBase();
 
@@ -12,12 +13,14 @@ export function nvrLabThumbnailURL(value: string | undefined): string {
 export class NVRLabApiError extends Error {
   status: number;
   code: string;
+  login_url: string;
 
-  constructor(status: number, message: string, code = "") {
+  constructor(status: number, message: string, code = "", login_url = "") {
     super(message);
     this.name = "NVRLabApiError";
     this.status = status;
     this.code = code;
+    this.login_url = login_url;
   }
 }
 
@@ -58,7 +61,7 @@ export const nvrLabApi = {
       const contentType = response.headers.get("content-type") || "";
       const data = contentType.includes("application/json") ? await response.json() : {};
       const body = typeof data === "object" && data ? (data as Record<string, unknown>) : {};
-      throw new NVRLabApiError(response.status, String(body.error || `HTTP ${response.status}`), String(body.code || ""));
+      throw reportSessionAuthError(new NVRLabApiError(response.status, String(body.error || `HTTP ${response.status}`), String(body.code || ""), typeof body.login_url === "string" ? body.login_url : ""));
     }
   },
 
@@ -94,7 +97,7 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
   const data = contentType.includes("application/json") ? await response.json() : await response.text();
   if (!response.ok) {
     const body = typeof data === "object" && data ? (data as Record<string, unknown>) : {};
-    throw new NVRLabApiError(response.status, String(body.error || `HTTP ${response.status}`), String(body.code || ""));
+    throw reportSessionAuthError(new NVRLabApiError(response.status, String(body.error || `HTTP ${response.status}`), String(body.code || ""), typeof body.login_url === "string" ? body.login_url : ""));
   }
   return data as T;
 }

@@ -6320,3 +6320,22 @@ git pull --ff-only
 - NVR 监控的直播、回放和播放器截图审计，改为由服务端已校验的摄像头列表固化门店名称、机构 ID、空间类型、空间名称、摄像头名称和摄像头 ID；不接受前端提交的名称字段，也不记录流地址或鉴权信息。
 - 新日志摘要示例：`门店：北京保利总部店（10001）；摄像头区域：治疗室 / 产研中心1-2；摄像头：治疗室4（ID：111）`。未绑定空间统一展示为“未绑定空间”。历史日志保持原样，不做回写。
 - 本地验证：NVR 取流审计定向测试、播放器截图审计定向测试、前端 Vitest `16 files / 93 tests`、生产构建、`go build ./...` 和 `git diff --check` 通过。NVR 包全量测试仍有本机沙箱禁止 IPv6 `::1` 监听的既有测试限制。
+- 测试发布：功能提交 `0465bac` 正常合并测试分支的远端协作规则后，以 `642228b` 推送 GitHub 备份与 GitLab `codex/containerize-single-image`；Wharf 自动构建部署完成，Chrome 复核测试页版本为 `3.4.7 (container)`。未操作 `main`、正式环境、数据库结构或 K8s 配置。
+- 浏览器验收：新产生的“查看直播”日志显示北京保利总部店（10001）、治疗室 / 治疗室4、治疗室4-客流测试（ID：111）；新产生的“查看回放”日志也按相同口径展示，未绑定摄像头正确显示“未绑定空间”。长摘要在操作内容列自动换行且未造成表格溢出。历史日志不回写。
+
+### 2026-09-03 正式库结构增量基线核对
+
+- 正式线上应用版本 `2.31.8 (container)` 对应 Git 提交 `c95545a`。以该提交的 `db/mysql_governance_schema_tb.sql` 与当前 `3.4.7` 定义比较，2.31.8 已具备用户、角色、权限、资源范围、审计、OSS 资产等表；当前不需要新增表。
+- 正式库待审批的结构增量仅两项：`tb_auth_sessions` 新增 `last_activity_at datetime(3) not null` 和索引 `idx_tb_auth_sessions_user_activity (user_id, last_activity_at)`，用于 30 分钟空闲会话超时；`tb_audit_logs` 新增 `actor_display_name varchar(255) not null default ''`，用于展示 SSO 操作人昵称。
+- 审批用 SQL：`db/mysql_production_v2_31_8_to_v3_4_7.sql`。NVR 快照表草案已废弃，缩略图只写既有 OSS，不创建 `tb_nvr_camera_snapshots`。
+
+### 2026-09-07 3.4.11 会话失效修复（测试发布）
+
+- 生产验收发现 2026-09-04 登录的会话到 2026-09-07 仍可访问。代码复现确认：普通 API 在本地 `erzhuang_session` 缺失时会使用仍有效的公司 SSO Cookie 自动创建新会话；MySQL 续期只依赖 `expires_at`，没有强制检查 `last_activity_at + 30 分钟` 或绝对登录时长。
+- 修复后只有 `/_/auth/callback` 可以创建本地会话；普通 API 缺本地 Cookie 返回 `401/session_login_required`。同一已校验 SSO JWT 仅保存 SHA-256 指纹并只能消费一次，原始 JWT、Cookie 和哈希均不进入日志或响应。
+- 会话同时执行 30 分钟空闲期限和 8 小时绝对期限，MySQL 续期上限固定为 `created_at + 8 小时`。新增不续期的 `/api/auth/session-status`；桌面和 H5 在期限到达或重新进入前台时查询一次共享会话状态，失效即清空业务视图、卸载播放器并进入联合退出。网络失败、503、畸形响应和 10 秒挂起均失败关闭。
+- 公司测试/正式域名即使 `SSO_ENABLED` 误关也不再退回本地管理员免认证；本地开发非公司域行为不变。认证初始化一般故障也不再被前端当作已登录。
+- 不新增表、字段、索引或 DDL，不修改实例、Secret、Dockerfile、nginx 或流水线。复用既有 `tb_auth_sessions.created_at`、`last_activity_at`、`expires_at` 和 `sso_subject`。
+- 本地验证：完整 Go 全仓测试通过；前端 Vitest `17 files / 115 tests` 和生产构建通过；Linux amd64 服务构建、`git diff --check` 通过。独立无头 Chromium 验收桌面/H5 共 `25` 个场景通过，覆盖 callback/logout、全局失效、期限、故障关闭和审计；未操作用户 Chrome 页面。
+- 测试环境仍须验证公司 SSO 联合退出后是否真正要求重新扫码。JWT 当前无可信 `auth_time`，如果上游凭旧 SSO 会话静默签发一枚全新 JWT，本地指纹去重无法证明发生了扫码；该项不能用单元测试或模拟浏览器替代。
+- 详细设计、回滚和验收边界见 `docs/session-expiry-3.4.11.md`。发布目标仅为 GitLab `codex/containerize-single-image` / Wharf `752`，不操作正式 `main`。

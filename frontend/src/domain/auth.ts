@@ -10,6 +10,11 @@ export type AuthUser = {
   role: string;
 };
 
+export type SessionRemaining = {
+  idle_remaining_ms: number;
+  absolute_remaining_ms: number;
+};
+
 export type AuthState = {
   enabled: boolean;
   authenticated: boolean;
@@ -18,11 +23,62 @@ export type AuthState = {
   login_url?: string;
   user?: AuthUser;
   permissions?: string[];
+  session?: SessionRemaining;
 };
 
 export type SessionStorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export const idleSessionTimeoutRedirectKey = "erzhuang:idle-session-timeout-redirected";
+export const sessionLoginRedirectKey = "erzhuang:session-login-redirected";
+
+const jointLogoutCodes = new Set(["session_idle_timeout", "session_absolute_timeout", "session_reauthentication_required"]);
+const sessionAuthListeners = new Set<(error: unknown) => void>();
+
+export function subscribeSessionAuthRequired(listener: (error: unknown) => void): () => void {
+  sessionAuthListeners.add(listener);
+  return () => { sessionAuthListeners.delete(listener); };
+}
+
+export function reportSessionAuthError<T>(error: T): T {
+  if (isIdleSessionTimeout(error) || isSessionLoginRequired(error)) {
+    sessionAuthListeners.forEach((listener) => listener(error));
+  }
+  return error;
+}
+
+export function isSessionLoginRequired(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { status?: unknown; code?: unknown };
+  return candidate.status === 401 && candidate.code === "session_login_required";
+}
+
+export function sessionAuthMessage(code?: string): string {
+  switch (code) {
+    case "session_idle_timeout": return "登录已因长时间未操作失效，请重新扫码登录。";
+    case "session_absolute_timeout": return "本次登录已超过8小时，请重新扫码登录。";
+    case "session_reauthentication_required": return "当前登录凭证已失效，请重新扫码登录。";
+    case "session_login_required": return "需要完成登录验证后继续访问。";
+    case "auth_check_failed": return "登录状态加载失败，请稍后重试。";
+    default: return "";
+  }
+}
+
+export function authStateFromError(error: unknown): AuthState {
+  const candidate = error && typeof error === "object" ? error as { status?: unknown; code?: unknown; login_url?: unknown } : {};
+  return {
+    enabled: true,
+    authenticated: false,
+    forbidden: candidate.status === 403,
+    code: candidate.status === 401 ? (typeof candidate.code === "string" ? candidate.code : undefined) : "auth_check_failed",
+    login_url: typeof candidate.login_url === "string" ? candidate.login_url : undefined,
+  };
+}
+
+export function authEntryPath(auth: AuthState | null, hostname = currentHostname()): string {
+  if (isIdleSessionTimeout({ status: 401, code: auth?.code })) return authLogoutPath(hostname);
+  if (auth?.code === "session_login_required") return authLoginPath(auth.login_url);
+  return authCompanyEntryPath(hostname) || authLoginPath(auth?.login_url);
+}
 
 export function claimSessionRedirect(
   key: string,
@@ -42,7 +98,8 @@ export function claimSessionRedirect(
 export function isIdleSessionTimeout(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { status?: unknown; code?: unknown };
-  return candidate.status === 401 && candidate.code === "session_idle_timeout";
+  // Compatibility entry point for existing child-page timeout handlers.
+  return candidate.status === 401 && typeof candidate.code === "string" && jointLogoutCodes.has(candidate.code);
 }
 
 export function claimIdleSessionTimeoutRedirect(storage: Pick<Storage, "getItem" | "setItem"> | null): boolean {
@@ -87,7 +144,7 @@ export function removeSessionStorage(key: string, storage: Pick<SessionStorageLi
 }
 
 export function shouldShowLoginWelcome(auth: Pick<AuthState, "enabled" | "authenticated" | "forbidden"> | null) {
-  return Boolean(auth?.enabled && !auth.authenticated && !auth.forbidden);
+  return Boolean(auth && !auth.authenticated && !auth.forbidden);
 }
 
 export function shouldShowForbiddenAccess(auth: Pick<AuthState, "forbidden"> | null) {
@@ -95,7 +152,7 @@ export function shouldShowForbiddenAccess(auth: Pick<AuthState, "forbidden"> | n
 }
 
 export function shouldBlockBusinessData(auth: Pick<AuthState, "enabled" | "authenticated" | "forbidden"> | null) {
-  return shouldShowLoginWelcome(auth) || shouldShowForbiddenAccess(auth);
+  return !auth?.authenticated || shouldShowForbiddenAccess(auth);
 }
 
 export function authLoginPath(loginUrl?: string) {

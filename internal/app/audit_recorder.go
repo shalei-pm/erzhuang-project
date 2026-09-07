@@ -91,6 +91,10 @@ func (h *Handler) recordAuthLogin(r *http.Request) {
 }
 
 func (h *Handler) recordAuthIdleTimeout(r *http.Request, record AuthUserRecord, claimsUser AuthUserResponse) {
+	h.recordAuthSessionTimeout(r, record, claimsUser, "idle_timeout")
+}
+
+func (h *Handler) recordAuthSessionTimeout(r *http.Request, record AuthUserRecord, claimsUser AuthUserResponse, reason string) {
 	if h.auditRecorder == nil {
 		return
 	}
@@ -99,12 +103,12 @@ func (h *Handler) recordAuthIdleTimeout(r *http.Request, record AuthUserRecord, 
 		UserID:           actor.userID,
 		ActorDisplayName: actor.displayName,
 		UserEmail:        actor.email,
-		Action:           "auth.idle_timeout",
+		Action:           "auth." + reason,
 		IPAddress:        requestIPAddress(r),
 		UserAgent:        strings.TrimSpace(r.UserAgent()),
 		RequestID:        strings.TrimSpace(r.Header.Get("X-Request-ID")),
 		Result:           "success",
-		DetailJSON:       []byte(`{"reason":"idle_timeout"}`),
+		DetailJSON:       []byte(`{"reason":"` + reason + `"}`),
 	}
 	if err := h.auditRecorder.RecordAudit(r.Context(), event); err != nil {
 		log.Printf("auth: audit record failed action=%s result=%s", event.Action, event.Result)

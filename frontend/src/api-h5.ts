@@ -1,3 +1,4 @@
+import { reportSessionAuthError } from "./domain/auth";
 import type {
   H5MonitorHomeResponse,
   H5MonitorStoresResponse,
@@ -50,7 +51,8 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
       typeof data === "object" && data && "fields" in data
         ? (data as Record<string, Record<string, string>>).fields
         : {};
-    throw new H5ApiError(response.status, message, fields || {}, code);
+    const loginUrl = typeof data === "object" && data && "login_url" in data && typeof data.login_url === "string" ? data.login_url : "";
+    throw reportSessionAuthError(new H5ApiError(response.status, message, fields || {}, code, loginUrl));
   }
 
   return data as T;
@@ -70,13 +72,15 @@ export class H5ApiError extends Error {
   status: number;
   fields: Record<string, string>;
   code: string;
+  login_url: string;
 
-  constructor(status: number, message: string, fields: Record<string, string> = {}, code = "") {
+  constructor(status: number, message: string, fields: Record<string, string> = {}, code = "", login_url = "") {
     super(message);
     this.name = "H5ApiError";
     this.status = status;
     this.fields = fields;
     this.code = code;
+    this.login_url = login_url;
   }
 }
 
