@@ -32,7 +32,9 @@ import {
   shouldShowLoginWelcome,
   shouldShowLogoutEntry,
   shouldSkipLocalLogoutBeforeRedirect,
+  subscribeSessionAuthRequired,
 } from "./domain/auth";
+import { errorMessage } from "./domain/format";
 import { canOpenH5Monitor, h5MonitorPath } from "./domain/store-detail-navigation";
 
 describe("design plan API path helpers", () => {
@@ -65,6 +67,15 @@ describe("design plan API path helpers", () => {
 });
 
 describe("authenticated API requests", () => {
+  it("checks the non-renewing session status endpoint with cookies and no cache", async () => {
+    const remaining = { idle_remaining_ms: 100, absolute_remaining_ms: 200 };
+    const fetch = vi.fn(async () => jsonResponse(remaining));
+    vi.stubGlobal("fetch", fetch);
+    await expect(storeSpaceApi.getSessionStatus()).resolves.toEqual(remaining);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith("/erzhuang-project/api/auth/session-status", expect.objectContaining({ credentials: "include", cache: "no-store" }));
+    vi.unstubAllGlobals();
+  });
   it("includes the HttpOnly session cookie on JSON requests", async () => {
     const calls: RequestInit[] = [];
     vi.stubGlobal(
@@ -84,19 +95,28 @@ describe("authenticated API requests", () => {
     vi.unstubAllGlobals();
   });
 
-  it("preserves session timeout codes from every API client", async () => {
+  it.each(["session_idle_timeout", "session_absolute_timeout", "session_reauthentication_required", "session_login_required"])("preserves and broadcasts %s from every API client", async (code) => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeSessionAuthRequired(listener);
+    const login_url = "/erzhuang-project/_/auth/callback?return_to=h5";
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({ code: "session_idle_timeout", message: "expired" }, 401)),
+      vi.fn(async () => jsonResponse({ code, login_url, message: "expired" }, 401)),
     );
 
-    await expect(storeSpaceApi.getAuthMe()).rejects.toMatchObject({ status: 401, code: "session_idle_timeout" });
+    await expect(storeSpaceApi.getAuthMe()).rejects.toMatchObject({ status: 401, code, login_url });
     const h5Request = h5Api.getMonitorHome("10001");
     await expect(h5Request).rejects.toBeInstanceOf(H5ApiError);
-    await expect(h5Request).rejects.toMatchObject({ status: 401, code: "session_idle_timeout" });
+    await expect(h5Request).rejects.toMatchObject({ status: 401, code, login_url });
     const nvrRequest = nvrLabApi.listCameras("10001");
     await expect(nvrRequest).rejects.toBeInstanceOf(NVRLabApiError);
-    await expect(nvrRequest).rejects.toMatchObject({ status: 401, code: "session_idle_timeout" });
+    await expect(nvrRequest).rejects.toMatchObject({ status: 401, code, login_url });
+    await expect(nvrLabApi.uploadSnapshot("10001", 1, new Blob())).rejects.toMatchObject({ status: 401, code, login_url });
+    await expect(storeSpaceApi.exportChannelMappings(1)).rejects.toMatchObject({ status: 401, code, login_url });
+    expect(listener).toHaveBeenCalledTimes(5);
+    expect(errorMessage(listener.mock.calls[0][0], "fallback")).toContain("登录");
+    expect(errorMessage(listener.mock.calls[1][0], "fallback")).not.toBe("HTTP 401");
+    unsubscribe();
     vi.unstubAllGlobals();
   });
 });

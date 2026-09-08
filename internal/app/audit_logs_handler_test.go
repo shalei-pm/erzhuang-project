@@ -45,6 +45,7 @@ func TestAuditLogsHandlerRequiresAuditViewPermission(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, path, nil)
 			if tt.email != "" {
 				addAuditLogTestSSOCookie(t, request, privateKey, tt.email)
+				request.AddCookie(loginTestSession(t, handler, request))
 			}
 			recorder := httptest.NewRecorder()
 
@@ -63,6 +64,7 @@ func TestAuditLogsHandlerSupportsConfiguredBasePath(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodGet, "/erzhuang-project/api/admin/audit-logs?start_time=2026-08-01&end_time=2026-08-01", nil)
 	addAuditLogTestSSOCookie(t, request, privateKey, "audit-admin@soyoung.com")
+	request.AddCookie(loginTestSession(t, handler, request))
 	recorder := httptest.NewRecorder()
 
 	handler.ServeHTTP(recorder, request)
@@ -74,6 +76,9 @@ func TestAuditLogsHandlerSupportsConfiguredBasePath(t *testing.T) {
 
 func TestAuditLogsHandlerRejectsInvalidQuery(t *testing.T) {
 	_, handler, privateKey := newAuditLogTestHandler(t)
+	loginRequest := httptest.NewRequest(http.MethodGet, "/_/auth/callback", nil)
+	addAuditLogTestSSOCookie(t, loginRequest, privateKey, "audit-admin@soyoung.com")
+	localCookie := loginTestSession(t, handler, loginRequest)
 	tests := []struct {
 		name  string
 		query string
@@ -98,7 +103,8 @@ func TestAuditLogsHandlerRejectsInvalidQuery(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "/api/admin/audit-logs?"+tt.query, nil)
-			addAuditLogTestSSOCookie(t, request, privateKey, "audit-admin@soyoung.com")
+			request.Header = loginRequest.Header.Clone()
+			request.AddCookie(localCookie)
 			recorder := httptest.NewRecorder()
 
 			handler.ServeHTTP(recorder, request)
@@ -112,6 +118,9 @@ func TestAuditLogsHandlerRejectsInvalidQuery(t *testing.T) {
 
 func TestAuditLogsHandlerUsesShanghaiDateBoundary(t *testing.T) {
 	store, handler, privateKey := newAuditLogTestHandler(t)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/audit-logs?start_time=2026-08-31&end_time=2026-08-31", nil)
+	addAuditLogTestSSOCookie(t, request, privateKey, "audit-admin@soyoung.com")
+	request.AddCookie(loginTestSession(t, handler, request))
 	boundary := []struct {
 		actor     string
 		createdAt time.Time
@@ -130,8 +139,6 @@ func TestAuditLogsHandlerUsesShanghaiDateBoundary(t *testing.T) {
 		}
 	}
 
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/audit-logs?start_time=2026-08-31&end_time=2026-08-31", nil)
-	addAuditLogTestSSOCookie(t, request, privateKey, "audit-admin@soyoung.com")
 	recorder := httptest.NewRecorder()
 
 	handler.ServeHTTP(recorder, request)
@@ -191,6 +198,7 @@ func TestAuditLogsHandlerNormalizesPageSizeAndReturnsSafeFields(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/audit-logs?start_time=2026-08-31&end_time=2026-08-31&user_id=42&action=user.update&page=1&page_size=101", nil)
 	addAuditLogTestSSOCookie(t, request, privateKey, "audit-admin@soyoung.com")
+	request.AddCookie(loginTestSession(t, handler, request))
 	recorder := httptest.NewRecorder()
 
 	handler.ServeHTTP(recorder, request)
@@ -254,6 +262,7 @@ func TestAuditLogsHandlerDoesNotLeakStoreError(t *testing.T) {
 	handler := NewHandlerWithStore(auditLogListErrorStore{MemoryStore: store})
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/audit-logs?start_time=2026-08-01&end_time=2026-08-01", nil)
 	addAuditLogTestSSOCookie(t, request, privateKey, "audit-admin@soyoung.com")
+	request.AddCookie(loginTestSession(t, handler, request))
 	recorder := httptest.NewRecorder()
 
 	handler.ServeHTTP(recorder, request)

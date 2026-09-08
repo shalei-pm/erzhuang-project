@@ -396,7 +396,9 @@ func TestAuthMeAcceptsValidAPISIXSSOJWT(t *testing.T) {
 	})})
 	recorder := httptest.NewRecorder()
 
-	NewHandler().ServeHTTP(recorder, request)
+	handler := NewHandler()
+	request.AddCookie(loginTestSession(t, handler, request))
+	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
@@ -435,7 +437,9 @@ func TestAuthMeUsesProvisionedAdminUserFromSSOMail(t *testing.T) {
 	})})
 	recorder := httptest.NewRecorder()
 
-	NewHandler().ServeHTTP(recorder, request)
+	handler := NewHandler()
+	request.AddCookie(loginTestSession(t, handler, request))
+	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
@@ -525,6 +529,7 @@ func TestResourceViewRoutesExposeConfiguredServiceAndMonitorAccess(t *testing.T)
 	})})
 	recorder := httptest.NewRecorder()
 
+	request.AddCookie(loginTestSession(t, handler, request))
 	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
@@ -647,7 +652,9 @@ func TestListAuthUsersRequiresAdmin(t *testing.T) {
 	})})
 	recorder := httptest.NewRecorder()
 
-	NewHandler().ServeHTTP(recorder, request)
+	handler := NewHandler()
+	request.AddCookie(loginTestSession(t, handler, request))
+	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
@@ -695,7 +702,9 @@ func TestListAuthUsersReturnsSeededUsersForAdmin(t *testing.T) {
 	})})
 	recorder := httptest.NewRecorder()
 
-	NewHandler().ServeHTTP(recorder, request)
+	handler := NewHandler()
+	request.AddCookie(loginTestSession(t, handler, request))
+	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
@@ -737,6 +746,7 @@ func TestUserMutationReturnsMonitorStoreScopes(t *testing.T) {
 	})})
 	recorder := httptest.NewRecorder()
 
+	request.AddCookie(loginTestSession(t, handler, request))
 	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusCreated {
@@ -778,7 +788,9 @@ func TestStoreSpaceWriteRequiresStoreWritePermission(t *testing.T) {
 	})})
 	recorder := httptest.NewRecorder()
 
-	NewHandlerWithStore(store).ServeHTTP(recorder, request)
+	handler := NewHandlerWithStore(store)
+	request.AddCookie(loginTestSession(t, handler, request))
+	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusForbidden, recorder.Code, recorder.Body.String())
@@ -798,6 +810,10 @@ func TestStoreSpaceLegacyReadAndExportRequireManagementPermission(t *testing.T) 
 		"exp":  time.Now().Add(time.Hour).Unix(),
 		"sub":  "lite.sy.soyoung.com",
 	})
+	handler := NewHandlerWithStore(store)
+	loginRequest := httptest.NewRequest(http.MethodGet, "/_/auth/callback", nil)
+	loginRequest.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: token})
+	localCookie := loginTestSession(t, handler, loginRequest)
 	for _, path := range []string{
 		"/api/store-space/stores",
 		"/api/store-space/stores/1",
@@ -809,8 +825,9 @@ func TestStoreSpaceLegacyReadAndExportRequireManagementPermission(t *testing.T) 
 		t.Run(path, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, path, nil)
 			request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: token})
+			request.AddCookie(localCookie)
 			recorder := httptest.NewRecorder()
-			NewHandlerWithStore(store).ServeHTTP(recorder, request)
+			handler.ServeHTTP(recorder, request)
 			if recorder.Code != http.StatusForbidden {
 				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 			}
@@ -834,11 +851,14 @@ func TestStoreSpaceExportRequiresAdminAndWritesAudit(t *testing.T) {
 	})})
 	recorder := httptest.NewRecorder()
 
-	NewHandlerWithStore(store).ServeHTTP(recorder, request)
+	handler := NewHandlerWithStore(store)
+	request.AddCookie(loginTestSession(t, handler, request))
+	handler.ServeHTTP(recorder, request)
 	if recorder.Code == http.StatusForbidden || recorder.Code == http.StatusUnauthorized || recorder.Code == http.StatusServiceUnavailable {
 		t.Fatalf("export should pass the authorization and audit guards, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
 	logs, err := store.ListAuditLogs(context.Background(), AuditLogFilter{
+		Action:   "store_space.channel_mapping.export",
 		StartAt:  time.Now().Add(-time.Hour),
 		EndAt:    time.Now().Add(time.Hour),
 		Page:     1,
@@ -879,7 +899,9 @@ func TestStoreSpaceWriteAllowsEditorPastPermissionGuard(t *testing.T) {
 	})})
 	recorder := httptest.NewRecorder()
 
-	NewHandler().ServeHTTP(recorder, request)
+	handler := NewHandler()
+	request.AddCookie(loginTestSession(t, handler, request))
+	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code == http.StatusForbidden || recorder.Code == http.StatusUnauthorized {
 		t.Fatalf("expected editor to pass permission guard, got %d body=%s", recorder.Code, recorder.Body.String())
@@ -903,7 +925,9 @@ func TestAISettingsToggleRequiresAdminPermission(t *testing.T) {
 	})})
 	recorder := httptest.NewRecorder()
 
-	NewHandler().ServeHTTP(recorder, request)
+	handler := NewHandler()
+	request.AddCookie(loginTestSession(t, handler, request))
+	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusForbidden, recorder.Code, recorder.Body.String())
@@ -1372,7 +1396,9 @@ func TestOSSSmokeEndpointRequiresAdminPermission(t *testing.T) {
 	})})
 	recorder := httptest.NewRecorder()
 
-	NewHandlerWithStore(store).ServeHTTP(recorder, request)
+	handler := NewHandlerWithStore(store)
+	request.AddCookie(loginTestSession(t, handler, request))
+	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected status %d, got %d body=%s", http.StatusForbidden, recorder.Code, recorder.Body.String())
@@ -1910,7 +1936,7 @@ func TestAuthMeRejectsAPISIXSSOJWTWithoutMail(t *testing.T) {
 	}
 }
 
-func TestAPISIXSSOCallbackUnderConfiguredBasePathRedirectsHome(t *testing.T) {
+func TestAPISIXSSOCallbackUnderConfiguredBasePathRequiresSSO(t *testing.T) {
 	t.Setenv("APP_BASE_PATH", "/erzhuang-project")
 	t.Setenv("SSO_ENABLED", "true")
 
@@ -1919,11 +1945,14 @@ func TestAPISIXSSOCallbackUnderConfiguredBasePathRedirectsHome(t *testing.T) {
 
 	NewHandler().ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusFound {
-		t.Fatalf("expected status %d, got %d", http.StatusFound, recorder.Code)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
 	}
-	if recorder.Header().Get("Location") != "/erzhuang-project/" {
+	if recorder.Header().Get("Location") != "" {
 		t.Fatalf("unexpected redirect location: %s", recorder.Header().Get("Location"))
+	}
+	if hasCookie(recorder.Result().Cookies(), authSessionCookieName) {
+		t.Fatal("callback without SSO issued a local session")
 	}
 }
 

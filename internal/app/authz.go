@@ -13,12 +13,15 @@ import (
 )
 
 var (
-	errUnauthorizedAuth         = errors.New("auth unauthorized")
-	errForbiddenAuth            = errors.New("auth forbidden")
-	errSessionIdleTimeout       = errors.New("auth session idle timeout")
-	errAuthSessionUnavailable   = errors.New("auth session unavailable")
-	errAuditUnavailable         = errors.New("audit recorder unavailable")
-	errAuditMutationUnavailable = errors.New("transactional audit mutation unavailable")
+	errUnauthorizedAuth                = errors.New("auth unauthorized")
+	errForbiddenAuth                   = errors.New("auth forbidden")
+	errSessionIdleTimeout              = errors.New("auth session idle timeout")
+	errSessionAbsoluteTimeout          = errors.New("auth session absolute timeout")
+	errSessionLoginRequired            = errors.New("auth session login required")
+	errSessionReauthenticationRequired = errors.New("auth session reauthentication required")
+	errAuthSessionUnavailable          = errors.New("auth session unavailable")
+	errAuditUnavailable                = errors.New("audit recorder unavailable")
+	errAuditMutationUnavailable        = errors.New("transactional audit mutation unavailable")
 )
 
 type authContextKey struct{}
@@ -29,9 +32,7 @@ type authenticatedAuthContext struct {
 }
 
 type authSessionAuthentication struct {
-	identity   authenticatedAuthContext
-	newToken   string
-	createdNew bool
+	identity authenticatedAuthContext
 }
 
 func (h *Handler) currentAuthUser(r *http.Request) (AuthUserRecord, error) {
@@ -54,35 +55,11 @@ func (h *Handler) currentAuthIdentity(r *http.Request) (authenticatedAuthContext
 }
 
 func (h *Handler) authenticateRequest(r *http.Request) (authSessionAuthentication, error) {
-	cookie, err := r.Cookie(h.auth.CookieName)
-	if err != nil || strings.TrimSpace(cookie.Value) == "" {
-		if !h.auth.Enabled {
-			return authSessionAuthentication{identity: authenticatedAuthContext{
-				record: AuthUserRecord{Role: RoleAdmin, Enabled: true},
-			}}, nil
-		}
-		return authSessionAuthentication{}, errUnauthorizedAuth
-	}
-	now := h.authNow()
-	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, now)
-	if err != nil {
-		if !h.auth.Enabled {
-			return authSessionAuthentication{identity: authenticatedAuthContext{
-				record: AuthUserRecord{Role: RoleAdmin, Enabled: true},
-			}}, nil
-		}
-		return authSessionAuthentication{}, errUnauthorizedAuth
-	}
-	claimsUser := claims.authUser()
-	record, err := h.store.GetAuthUserByEmail(r.Context(), claimsUser.Email)
-	if errors.Is(err, errAuthUserNotFound) || (err == nil && !record.Enabled) {
-		return authSessionAuthentication{}, errForbiddenAuth
-	}
+	identity, err := h.authenticateSSO(r)
 	if err != nil {
 		return authSessionAuthentication{}, err
 	}
-	identity := authenticatedAuthContext{record: record, user: claimsUser}
-	if !h.auth.Enabled {
+	if !h.authRequired(r) {
 		return authSessionAuthentication{identity: identity}, nil
 	}
 	if h.authSessionStore == nil {
@@ -90,28 +67,60 @@ func (h *Handler) authenticateRequest(r *http.Request) (authSessionAuthenticatio
 	}
 	localCookie, localErr := r.Cookie(authSessionCookieName)
 	if localErr != nil || strings.TrimSpace(localCookie.Value) == "" {
-		token, err := h.authSessionStore.CreateAuthSession(r.Context(), AuthSessionCreate{
-			UserID:     record.ID,
-			SSOSubject: claims.Sub,
-			IPAddress:  requestIPAddress(r),
-			UserAgent:  strings.TrimSpace(r.UserAgent()),
-			Now:        now,
-		})
-		if err != nil || strings.TrimSpace(token) == "" {
-			return authSessionAuthentication{}, errAuthSessionUnavailable
-		}
-		return authSessionAuthentication{identity: identity, newToken: token, createdNew: true}, nil
+		return authSessionAuthentication{}, errSessionLoginRequired
 	}
-	active, err := h.authSessionStore.TouchAuthSession(r.Context(), localCookie.Value, record.ID, now, h.authIdleTimeout())
+	now := h.authNow()
+	active, err := h.authSessionStore.TouchAuthSession(r.Context(), localCookie.Value, identity.record.ID, now, h.authIdleTimeout())
+	if errors.Is(err, errSessionAbsoluteTimeout) {
+		_ = h.authSessionStore.RevokeAuthSession(r.Context(), localCookie.Value, identity.record.ID, "absolute_timeout", now)
+		h.recordAuthSessionTimeout(r, identity.record, identity.user, "absolute_timeout")
+		return authSessionAuthentication{}, errSessionAbsoluteTimeout
+	}
 	if err != nil {
 		return authSessionAuthentication{}, errAuthSessionUnavailable
 	}
 	if !active {
-		_ = h.authSessionStore.RevokeAuthSession(r.Context(), localCookie.Value, record.ID, "idle_timeout", now)
-		h.recordAuthIdleTimeout(r, record, claimsUser)
+		_ = h.authSessionStore.RevokeAuthSession(r.Context(), localCookie.Value, identity.record.ID, "idle_timeout", now)
+		h.recordAuthIdleTimeout(r, identity.record, identity.user)
 		return authSessionAuthentication{}, errSessionIdleTimeout
 	}
 	return authSessionAuthentication{identity: identity}, nil
+}
+
+// Company hosts must never fall back to the local-development bypass.
+func (h *Handler) authRequired(r *http.Request) bool {
+	return h.auth.Enabled || logoutGatewayHost(r.Host) != ""
+}
+
+func (h *Handler) authenticateSSO(r *http.Request) (authenticatedAuthContext, error) {
+	cookie, err := r.Cookie(h.auth.CookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		if !h.authRequired(r) {
+			return authenticatedAuthContext{
+				record: AuthUserRecord{Role: RoleAdmin, Enabled: true},
+			}, nil
+		}
+		return authenticatedAuthContext{}, errUnauthorizedAuth
+	}
+	now := h.authNow()
+	claims, err := h.auth.validateAPISIXSSOToken(cookie.Value, now)
+	if err != nil {
+		if !h.authRequired(r) {
+			return authenticatedAuthContext{
+				record: AuthUserRecord{Role: RoleAdmin, Enabled: true},
+			}, nil
+		}
+		return authenticatedAuthContext{}, errUnauthorizedAuth
+	}
+	claimsUser := claims.authUser()
+	record, err := h.store.GetAuthUserByEmail(r.Context(), claimsUser.Email)
+	if errors.Is(err, errAuthUserNotFound) || (err == nil && !record.Enabled) {
+		return authenticatedAuthContext{}, errForbiddenAuth
+	}
+	if err != nil {
+		return authenticatedAuthContext{}, err
+	}
+	return authenticatedAuthContext{record: record, user: claimsUser}, nil
 }
 
 func (h *Handler) authNow() time.Time {
@@ -130,7 +139,7 @@ func (h *Handler) authIdleTimeout() time.Duration {
 
 func (h *Handler) authGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !h.auth.Enabled || isAuthGateExemptPath(r.URL.Path) || !isAPIPath(r.URL.Path) {
+		if !h.authRequired(r) || isAuthGateExemptPath(r.URL.Path) || !isAPIPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -138,9 +147,6 @@ func (h *Handler) authGate(next http.Handler) http.Handler {
 		if err != nil {
 			h.writeAuthError(w, r, err)
 			return
-		}
-		if authentication.createdNew {
-			h.setAuthSessionCookie(w, r, authentication.newToken)
 		}
 		request := r.WithContext(context.WithValue(r.Context(), authContextKey{}, authentication.identity))
 		next.ServeHTTP(w, request)
@@ -161,7 +167,7 @@ func isAuthGateExemptPath(path string) bool {
 		path = strings.TrimPrefix(path, basePath)
 	}
 	switch path {
-	case "/health", "/_/auth/callback", "/api/auth/logout", "/logout":
+	case "/health", "/_/auth/callback", "/api/auth/logout", "/logout", "/api/auth/session-status":
 		return true
 	default:
 		return false
@@ -276,7 +282,7 @@ func (a nvrMonitorAuthorizer) FilterStores(r *http.Request, response nvrmonitor.
 }
 
 func nvrMonitorAuthError(err error) error {
-	if errors.Is(err, errUnauthorizedAuth) || errors.Is(err, errSessionIdleTimeout) || errors.Is(err, errAuthSessionUnavailable) {
+	if isSessionAuthError(err) {
 		return nvrmonitor.ErrUnauthorized
 	}
 	if errors.Is(err, errForbiddenAuth) {
@@ -336,13 +342,19 @@ func (a h5MonitorAuthorizer) FilterMonitorStores(r *http.Request, response h5mon
 }
 
 func h5MonitorAuthError(err error) error {
-	if errors.Is(err, errUnauthorizedAuth) || errors.Is(err, errSessionIdleTimeout) || errors.Is(err, errAuthSessionUnavailable) {
+	if isSessionAuthError(err) {
 		return h5monitor.ErrUnauthorized
 	}
 	if errors.Is(err, errForbiddenAuth) {
 		return h5monitor.ErrForbidden
 	}
 	return err
+}
+
+func isSessionAuthError(err error) bool {
+	return errors.Is(err, errUnauthorizedAuth) || errors.Is(err, errSessionIdleTimeout) ||
+		errors.Is(err, errSessionAbsoluteTimeout) || errors.Is(err, errSessionLoginRequired) ||
+		errors.Is(err, errSessionReauthenticationRequired) || errors.Is(err, errAuthSessionUnavailable)
 }
 
 func (h *Handler) recordMonitorAudit(ctx context.Context, r *http.Request, event auditlog.AuditEvent) error {

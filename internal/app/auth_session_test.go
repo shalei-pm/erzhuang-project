@@ -278,11 +278,11 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 	store := NewMySQLStore(db)
 	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	token, err := store.CreateAuthSession(context.Background(), AuthSessionCreate{
-		UserID:    7,
+		UserID:     7,
 		SSOSubject: "subject-7",
-		IPAddress: "192.0.2.1",
-		UserAgent: "contract-test",
-		Now:       now,
+		IPAddress:  "192.0.2.1",
+		UserAgent:  "contract-test",
+		Now:        now,
 	})
 	if err != nil {
 		t.Fatalf("create auth session: %v", err)
@@ -339,6 +339,8 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 		"user_id = ?",
 		"revoked_at is null",
 		"expires_at > utc_timestamp(3)",
+		"last_activity_at > date_sub(utc_timestamp(3), interval 30 minute)",
+		"created_at > date_sub(utc_timestamp(3), interval 8 hour)",
 		"for update",
 	} {
 		if !strings.Contains(mysqlAuthSessionValidSQL, want) {
@@ -348,11 +350,14 @@ func TestMySQLAuthSessionPersistenceSQLContract(t *testing.T) {
 	for _, want := range []string{
 		"update tb_auth_sessions",
 		"last_activity_at = greatest(last_activity_at, utc_timestamp(3))",
-		"expires_at = greatest(expires_at, date_add(utc_timestamp(3), interval 30 minute))",
+		"expires_at = least(date_add(created_at, interval 8 hour),",
+		"date_add(greatest(last_activity_at, utc_timestamp(3)), interval 30 minute))",
 		"session_token_hash = ?",
 		"user_id = ?",
 		"revoked_at is null",
 		"expires_at > utc_timestamp(3)",
+		"last_activity_at > date_sub(utc_timestamp(3), interval 30 minute)",
+		"created_at > date_sub(utc_timestamp(3), interval 8 hour)",
 	} {
 		if !strings.Contains(queries[1], want) {
 			t.Fatalf("touch query missing %q: %s", want, queries[1])
@@ -435,7 +440,8 @@ func TestMySQLAuthSessionTouchIgnoresCallerTimeoutAndClock(t *testing.T) {
 	touchQuery := calls[1].query
 	for _, want := range []string{
 		"utc_timestamp(3)",
-		"date_add(utc_timestamp(3), interval 30 minute)",
+		"date_add(greatest(last_activity_at, utc_timestamp(3)), interval 30 minute)",
+		"date_add(created_at, interval 8 hour)",
 		"expires_at > utc_timestamp(3)",
 	} {
 		if !strings.Contains(touchQuery, want) {
@@ -473,8 +479,8 @@ func TestMySQLAuthSessionTouchZeroRowsRejectsWhenActiveLookupHasNoRow(t *testing
 		t.Fatal("session with no active lookup row must not be treated as active")
 	}
 	calls := recorder.calls()
-	if len(calls) != 2 || !strings.Contains(calls[1].query, "select 1") {
-		t.Fatalf("zero-row touch must confirm no active row: %s", summarizeSQLCalls(calls))
+	if len(calls) != 3 || !strings.Contains(calls[1].query, "select 1") || !strings.Contains(calls[2].query, "created_at <= date_sub(utc_timestamp(3), interval 8 hour)") {
+		t.Fatalf("zero-row touch must confirm no active row and classify absolute expiry: %s", summarizeSQLCalls(calls))
 	}
 }
 

@@ -1,4 +1,5 @@
 import { ApiError } from "../api";
+import { isIdleSessionTimeout, isSessionLoginRequired, sessionAuthMessage } from "./auth";
 
 export function formatDateTime(value: string) {
   if (!value) return "-";
@@ -11,6 +12,9 @@ export function formatDateTime(value: string) {
 }
 
 export function errorMessage(error: unknown, fallback: string) {
+  if (isIdleSessionTimeout(error) || isSessionLoginRequired(error)) {
+    return sessionAuthMessage((error as { code: string }).code);
+  }
   if (error instanceof ApiError) {
     const knownMessages: Record<string, string> = {
       "list audit logs failed": "操作日志加载失败，请检查审计日志表配置后重试。",

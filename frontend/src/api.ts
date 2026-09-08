@@ -1,6 +1,6 @@
 import sampleStoreFloorPlanUrl from "../../testdata/design-plans/generated/sample-store-floor-plan.png";
 import { isTreatmentAreaType } from "./domain/areas";
-import type { AuthState } from "./domain/auth";
+import { reportSessionAuthError, type AuthState, type SessionRemaining } from "./domain/auth";
 import { normalizeCityFilter, storeListSearchParams } from "./domain/store-list-query";
 import { defaultApiBase, displayImageUrl, storedImagePath, trimTrailingSlash } from "./url-utils";
 
@@ -981,8 +981,9 @@ export class ApiError extends Error {
   code: string;
   stage: string;
   detail: string;
+  login_url: string;
 
-  constructor(status: number, message: string, fields: Record<string, string> = {}, code = "", stage = "", detail = "") {
+  constructor(status: number, message: string, fields: Record<string, string> = {}, code = "", stage = "", detail = "", login_url = "") {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -990,6 +991,7 @@ export class ApiError extends Error {
     this.code = code;
     this.stage = stage;
     this.detail = detail;
+    this.login_url = login_url;
   }
 }
 
@@ -1803,7 +1805,7 @@ const storeSpaceHttpAdapter = {
   },
 
   async getAuthMe(): Promise<AuthState> {
-    return requestJSON<AuthState>(`${APP_API_BASE}/auth/me`);
+    return requestJSON<AuthState>(`${APP_API_BASE}/auth/me`, { cache: "no-store" });
   },
 
   async logout(): Promise<void> {
@@ -2156,6 +2158,10 @@ export const storeSpaceApi = {
     return storeSpaceHttpAdapter.getAuthMe();
   },
 
+  async getSessionStatus(): Promise<SessionRemaining> {
+    return requestJSON<SessionRemaining>(`${APP_API_BASE}/auth/session-status`, { cache: "no-store" });
+  },
+
   async logout(): Promise<void> {
     if (API_MODE === "mock") return;
     return storeSpaceHttpAdapter.logout();
@@ -2501,7 +2507,8 @@ async function requestJSON<T>(url: string, options: RequestInit = {}): Promise<T
     const code = typeof data === "object" && data && "code" in data ? String(data.code) : "";
     const stage = typeof data === "object" && data && "stage" in data ? String(data.stage) : "";
     const detail = typeof data === "object" && data && "detail" in data ? String(data.detail) : "";
-    throw new ApiError(response.status, message, fields, code, stage, detail);
+    const loginUrl = typeof data === "object" && data && "login_url" in data && typeof data.login_url === "string" ? data.login_url : "";
+    throw reportSessionAuthError(new ApiError(response.status, message, fields, code, stage, detail, loginUrl));
   }
 
   return data as T;
@@ -2525,7 +2532,8 @@ async function downloadFile(url: string): Promise<void> {
       const code = data && typeof data === "object" && "code" in data ? String(data.code) : "";
       const stage = data && typeof data === "object" && "stage" in data ? String(data.stage) : "";
       const detail = data && typeof data === "object" && "detail" in data ? String(data.detail) : "";
-      throw new ApiError(response.status, message, fields, code, stage, detail);
+      const loginUrl = data && typeof data === "object" && typeof data.login_url === "string" ? data.login_url : "";
+      throw reportSessionAuthError(new ApiError(response.status, message, fields, code, stage, detail, loginUrl));
     }
     throw new ApiError(response.status, `HTTP ${response.status}`);
   }

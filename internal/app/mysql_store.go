@@ -43,14 +43,30 @@ const mysqlAuthSessionCreateSQL = `
 		date_add(utc_timestamp(3), interval 30 minute))
 `
 
+const mysqlAuthSessionLockUserSQL = `
+	select id from tb_users
+	where id = ? and enabled = 1
+	for update
+`
+
+const mysqlAuthSessionConsumedSQL = `
+	select id from tb_auth_sessions
+	where user_id = ? and sso_subject = ?
+	limit 1
+	for update
+`
+
 const mysqlAuthSessionTouchSQL = `
 	update tb_auth_sessions
-	set last_activity_at = greatest(last_activity_at, utc_timestamp(3)),
-		expires_at = greatest(expires_at, date_add(utc_timestamp(3), interval 30 minute))
+	set expires_at = least(date_add(created_at, interval 8 hour),
+		date_add(greatest(last_activity_at, utc_timestamp(3)), interval 30 minute)),
+		last_activity_at = greatest(last_activity_at, utc_timestamp(3))
 	where session_token_hash = ?
 		and user_id = ?
 		and revoked_at is null
 		and expires_at > utc_timestamp(3)
+		and last_activity_at > date_sub(utc_timestamp(3), interval 30 minute)
+		and created_at > date_sub(utc_timestamp(3), interval 8 hour)
 `
 
 const mysqlAuthSessionValidSQL = `
@@ -60,7 +76,28 @@ const mysqlAuthSessionValidSQL = `
 		and user_id = ?
 		and revoked_at is null
 		and expires_at > utc_timestamp(3)
+		and last_activity_at > date_sub(utc_timestamp(3), interval 30 minute)
+		and created_at > date_sub(utc_timestamp(3), interval 8 hour)
 	for update
+`
+
+const mysqlAuthSessionAbsoluteExpiredSQL = `
+	select 1
+	from tb_auth_sessions
+	where session_token_hash = ?
+		and user_id = ?
+		and revoked_at is null
+		and created_at <= date_sub(utc_timestamp(3), interval 8 hour)
+	for update
+`
+
+const mysqlAuthSessionStatusSQL = `
+	select
+		timestampdiff(microsecond, utc_timestamp(3), least(expires_at, date_add(last_activity_at, interval 30 minute))) div 1000,
+		timestampdiff(microsecond, utc_timestamp(3), date_add(created_at, interval 8 hour)) div 1000,
+		revoked_at is not null
+	from tb_auth_sessions
+	where session_token_hash = ? and user_id = ?
 `
 
 const mysqlAuthSessionRevokeSQL = `
@@ -85,15 +122,49 @@ func (s *MySQLStore) CreateAuthSession(ctx context.Context, input AuthSessionCre
 		return "", err
 	}
 	hash := hashAuthSessionToken(token)
-	_, err = s.db.ExecContext(ctx, mysqlAuthSessionCreateSQL,
+	subject := strings.TrimSpace(input.SSOSubject)
+	args := []any{
 		hex.EncodeToString(hash[:]),
 		input.UserID,
-		strings.TrimSpace(input.SSOSubject),
+		subject,
 		sanitizeAuditMetadata(input.IPAddress, 64),
 		sanitizeAuditMetadata(input.UserAgent, 512),
-	)
-	if err != nil {
-		return "", err
+	}
+	if isSSOCredentialFingerprint(subject) {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return "", err
+		}
+		defer tx.Rollback()
+
+		// Every fingerprint writer must take this lock, including when no
+		// consumption record exists yet. Expired/revoked records stay consumed.
+		var id int64
+		if err := tx.QueryRowContext(ctx, mysqlAuthSessionLockUserSQL, input.UserID).Scan(&id); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", errSessionReauthenticationRequired
+			}
+			return "", err
+		}
+		err = tx.QueryRowContext(ctx, mysqlAuthSessionConsumedSQL, input.UserID, subject).Scan(&id)
+		if err == nil {
+			return "", errSessionReauthenticationRequired
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+		if _, err := tx.ExecContext(ctx, mysqlAuthSessionCreateSQL, args...); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(); err != nil {
+			return "", err
+		}
+	} else {
+		// Legacy direct-store callers remain compatible; application callbacks
+		// must supply the versioned JWT fingerprint, never an ordinary subject.
+		if _, err := s.db.ExecContext(ctx, mysqlAuthSessionCreateSQL, args...); err != nil {
+			return "", err
+		}
 	}
 	return token, nil
 }
@@ -118,7 +189,10 @@ func (s *MySQLStore) TouchAuthSession(ctx context.Context, token string, userID 
 		return false, err
 	}
 	if affected == 1 {
-		return true, tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 	if affected != 0 {
 		return false, nil
@@ -130,12 +204,45 @@ func (s *MySQLStore) TouchAuthSession(ctx context.Context, token string, userID 
 		userID,
 	).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
+		err = tx.QueryRowContext(ctx, mysqlAuthSessionAbsoluteExpiredSQL,
+			hex.EncodeToString(hash[:]), userID,
+		).Scan(&exists)
+		if err == nil {
+			return false, errSessionAbsoluteTimeout
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return false, err
+		}
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return true, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *MySQLStore) GetAuthSessionStatus(ctx context.Context, token string, userID int64, _ time.Time) (AuthSessionStatus, error) {
+	hash := hashAuthSessionToken(token)
+	var status AuthSessionStatus
+	var revoked bool
+	err := s.db.QueryRowContext(ctx, mysqlAuthSessionStatusSQL, hex.EncodeToString(hash[:]), userID).
+		Scan(&status.IdleRemainingMS, &status.AbsoluteRemainingMS, &revoked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AuthSessionStatus{}, errSessionIdleTimeout
+	}
+	if err != nil {
+		return AuthSessionStatus{}, err
+	}
+	if status.AbsoluteRemainingMS <= 0 {
+		return AuthSessionStatus{}, errSessionAbsoluteTimeout
+	}
+	if revoked || status.IdleRemainingMS <= 0 {
+		return AuthSessionStatus{}, errSessionIdleTimeout
+	}
+	return status, nil
 }
 
 func (s *MySQLStore) RevokeAuthSession(ctx context.Context, token string, userID int64, reason string, now time.Time) error {

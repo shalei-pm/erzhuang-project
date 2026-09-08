@@ -14,16 +14,11 @@ import { SystemTopBar } from "./components/SystemTopBar";
 import { UserManagement } from "./components/UserManagement";
 import { AuditLogManagement } from "./components/AuditLogManagement";
 import {
-  authCompanyEntryPath,
-  claimIdleSessionTimeoutRedirect,
-  claimSessionRedirect,
-  authLoginPath,
+  authEntryPath,
   authLogoutPath,
   canManageUsers,
-  idleSessionTimeoutRedirectKey,
   isIdleSessionTimeout,
-  removeSessionStorage,
-  safeSessionStorage,
+  sessionAuthMessage,
   shouldBlockBusinessData,
   shouldShowForbiddenAccess,
   shouldShowLoginWelcome,
@@ -31,6 +26,7 @@ import {
   shouldSkipLocalLogoutBeforeRedirect,
   type AuthState,
 } from "./domain/auth";
+import { useSessionAuth } from "./domain/use-session-auth";
 import { errorMessage } from "./domain/format";
 import {
   h5MonitorTabSearch,
@@ -81,8 +77,7 @@ function App() {
 }
 
 function AdminApp() {
-  const [auth, setAuth] = useState<AuthState | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const { auth, setAuth, authLoading, handleAuthRequired } = useSessionAuth("erzhuang:sso-entry-redirected");
   const [stores, setStores] = useState<ResourceStoreSummary[]>([]);
   const [query, setQuery] = useState("");
   const [cityFilter, setCityFilter] = useState<number | "all">("all");
@@ -101,8 +96,6 @@ function AdminApp() {
   const [savingScreenshotWatermark, setSavingScreenshotWatermark] = useState(false);
   const listRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
-  const authRedirectingRef = useRef(false);
-  const companyEntryRedirectAttemptedRef = useRef(false);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const visibleStores = stores;
@@ -117,52 +110,18 @@ function AdminApp() {
     </button>
   ) : null;
 
-  function handleAuthRequired(error?: unknown) {
-    const idleTimeout = isIdleSessionTimeout(error);
-    const logoutPath = authLogoutPath();
-    setAuth({
-      enabled: true,
-      authenticated: false,
-      code: idleTimeout ? "session_idle_timeout" : undefined,
-      login_url: idleTimeout ? logoutPath : authLoginPath(),
-    });
-    if (idleTimeout && !authRedirectingRef.current) {
-      authRedirectingRef.current = true;
-      if (claimIdleSessionTimeoutRedirect(safeSessionStorage())) {
-        window.location.assign(logoutPath);
-      }
-    }
-  }
-
-  useEffect(() => {
-    void storeSpaceApi
-      .getAuthMe()
-      .then(setAuth)
-      .catch((error) => {
-        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 401) {
-          handleAuthRequired(error);
-          return;
-        }
-        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 403) {
-          setAuth({ enabled: true, authenticated: false, forbidden: true });
-          return;
-        }
-        setToast(errorMessage(error, "登录状态加载失败。"));
-        setAuth({ enabled: false, authenticated: true });
-      })
-      .finally(() => setAuthLoading(false));
-  }, []);
-
   useEffect(() => {
     if (settingsOpen || authLoading || shouldBlockBusinessData(auth)) return;
     void loadStores(query, cityFilter, page);
   }, [page, query, cityFilter, authLoading, auth, settingsOpen]);
 
   useEffect(() => {
-    if (auth?.authenticated) {
-      removeSessionStorage("erzhuang:sso-entry-redirected");
-      removeSessionStorage(idleSessionTimeoutRedirectKey);
-    }
+    if (!auth || !shouldBlockBusinessData(auth)) return;
+    listRequestIdRef.current += 1;
+    detailRequestIdRef.current += 1;
+    setActiveStore(null);
+    setStores([]);
+    setSettingsOpen(false);
   }, [auth]);
 
   useEffect(() => {
@@ -178,16 +137,6 @@ function AdminApp() {
         setToast(errorMessage(error, "截图水印设置加载失败。"));
       });
   }, [canManageSystemUsers, settingsOpen, settingsSection]);
-
-  useEffect(() => {
-    if (!shouldShowLoginWelcome(auth)) return;
-    const companyEntryPath = authCompanyEntryPath();
-    if (!companyEntryPath) return;
-    if (companyEntryRedirectAttemptedRef.current) return;
-    companyEntryRedirectAttemptedRef.current = true;
-    const redirectKey = "erzhuang:sso-entry-redirected";
-    if (claimSessionRedirect(redirectKey, safeSessionStorage())) window.location.replace(companyEntryPath);
-  }, [auth]);
 
   async function loadStores(nextQuery = query, nextCityFilter = cityFilter, nextPage = page) {
     const requestId = listRequestIdRef.current + 1;
@@ -302,7 +251,7 @@ function AdminApp() {
     }
   }
 
-  if (activeStore) {
+  if (activeStore && !authLoading && !shouldBlockBusinessData(auth)) {
     return (
       <main className="app-shell">
         <SystemTopBar
@@ -477,17 +426,17 @@ function storeListLoadErrorMessage(error: unknown) {
 }
 
 function LoginWelcome({ auth, appVersion }: { auth: AuthState | null; appVersion: string }) {
-  const companyEntryPath = authCompanyEntryPath();
-  const loginPath = companyEntryPath || authLoginPath(auth?.login_url);
+  const loginPath = authEntryPath(auth);
+  const authCheckFailed = auth?.code === "auth_check_failed";
 
   return (
     <main className="auth-page">
       <section className="auth-panel" aria-label="登录">
         <p className="eyebrow">新氧青春</p>
         <h1>门店空间资源管理系统</h1>
-        <p className="auth-copy">请通过公司 APISIX-SSO 网关登录后继续访问后台。</p>
-        <button className="primary-button auth-login-button" onClick={() => window.location.assign(loginPath)}>
-          使用公司 SSO 登录
+        <p className="auth-copy">{sessionAuthMessage(auth?.code) || "请通过公司 APISIX-SSO 网关登录后继续访问后台。"}</p>
+        <button className="primary-button auth-login-button" onClick={() => authCheckFailed ? window.location.reload() : window.location.assign(loginPath)}>
+          {authCheckFailed ? "重试" : "使用公司 SSO 登录"}
         </button>
         <p className="auth-note">登录由公司网关统一处理；权限范围由项目用户表控制。</p>
       </section>
@@ -519,68 +468,18 @@ function ForbiddenAccess({ appVersion }: { appVersion: string }) {
 
 function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
   const [route, setRoute] = useState<H5Route>(initialRoute);
-  const [auth, setAuth] = useState<AuthState | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const { auth, setAuth, authLoading, handleAuthRequired } = useSessionAuth("erzhuang:h5-sso-entry-redirected");
   const [loggingOut, setLoggingOut] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
-  const authRedirectingRef = useRef(false);
-  const companyEntryRedirectAttemptedRef = useRef(false);
   const [monitorMode, setMonitorMode] = useState<"legacy" | "nvr">("legacy");
   const [monitorModeLoading, setMonitorModeLoading] = useState(true);
   const showLogoutEntry = shouldShowLogoutEntry(auth);
-
-  function handleAuthRequired(error?: unknown) {
-    const idleTimeout = isIdleSessionTimeout(error);
-    const logoutPath = authLogoutPath();
-    setAuth({
-      enabled: true,
-      authenticated: false,
-      code: idleTimeout ? "session_idle_timeout" : undefined,
-      login_url: idleTimeout ? logoutPath : authLoginPath(),
-    });
-    setAuthMessage(idleTimeout ? "登录已因长时间未操作失效，请重新扫码登录。" : "");
-    if (idleTimeout && !authRedirectingRef.current) {
-      authRedirectingRef.current = true;
-      if (claimIdleSessionTimeoutRedirect(safeSessionStorage())) {
-        window.location.assign(logoutPath);
-      }
-    }
-  }
 
   useEffect(() => {
     const onPopState = () => setRoute(parseH5Route());
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-
-  useEffect(() => {
-    void storeSpaceApi
-      .getAuthMe()
-      .then((nextAuth) => {
-        setAuth(nextAuth);
-        setAuthMessage("");
-      })
-      .catch((error) => {
-        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 401) {
-          handleAuthRequired(error);
-          return;
-        }
-        if (error instanceof Error && "status" in error && (error as { status?: number }).status === 403) {
-          setAuth({ enabled: true, authenticated: false, forbidden: true });
-          return;
-        }
-        setAuth({ enabled: false, authenticated: false });
-        setAuthMessage(errorMessage(error, "登录状态加载失败，请稍后重试。"));
-      })
-      .finally(() => setAuthLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (auth?.authenticated) {
-      removeSessionStorage("erzhuang:h5-sso-entry-redirected");
-      removeSessionStorage(idleSessionTimeoutRedirectKey);
-    }
-  }, [auth]);
 
   useEffect(() => {
     if (!auth?.authenticated) {
@@ -604,16 +503,6 @@ function H5RouteShell({ initialRoute }: { initialRoute: H5Route }) {
     });
     return () => { cancelled = true; };
   }, [auth?.authenticated]);
-
-  useEffect(() => {
-    if (!shouldShowLoginWelcome(auth)) return;
-    const companyEntryPath = authCompanyEntryPath();
-    if (!companyEntryPath) return;
-    if (companyEntryRedirectAttemptedRef.current) return;
-    companyEntryRedirectAttemptedRef.current = true;
-    const redirectKey = "erzhuang:h5-sso-entry-redirected";
-    if (claimSessionRedirect(redirectKey, safeSessionStorage())) window.location.replace(companyEntryPath);
-  }, [auth]);
 
   async function logout() {
     const logoutPath = authLogoutPath();
