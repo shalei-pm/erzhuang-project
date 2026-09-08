@@ -81,7 +81,7 @@ try {
       const test = await setup(path, { authStatus: 401, auth: { code, login_url } });
       await test.page.waitForURL(code === "session_login_required" ? "**/_/auth/callback?*" : "**/logout?*");
       assert.equal(test.navigations.length, 2);
-      if (code === "session_login_required") assert(test.page.url().endsWith(login_url));
+      if (code === "session_login_required") assert.equal(new URL(test.page.url()).searchParams.get("return_to"), path === "/" ? "h5" : base + path);
       else assert(test.page.url().includes("logouttogether"));
       assert(test.requests.every((url) => url.endsWith("/auth/me")));
       assert.deepEqual(test.errors, []);
@@ -104,7 +104,7 @@ try {
       await assertBlocked(test.page);
       assert.equal(test.navigations.length, 1);
       await test.page.getByRole("button", { name: "使用公司 SSO 登录" }).click();
-      await test.page.waitForURL(code === "session_login_required" ? "**/_/auth/callback" : "**/logout?*");
+      await test.page.waitForURL(code === "session_login_required" ? (url) => url.pathname.endsWith("/_/auth/callback") : "**/logout?*");
       assert.deepEqual(test.errors, []);
       await test.context.close();
       checked++;
@@ -125,6 +125,19 @@ try {
       checked++;
     }
   }
+
+  const destination = `${base}/h5/orgs/10001/monitor`;
+  const returned = await setup(`/?return_to=${encodeURIComponent(destination)}`);
+  await returned.page.waitForURL(`${origin}${destination}`);
+  await returned.page.getByRole("button", { name: "退出登录" }).waitFor();
+  await returned.page.screenshot({ path: "/tmp/session-auth-return.png" });
+  await returned.page.getByRole("button", { name: "退出登录" }).click();
+  await returned.page.waitForURL("**/logout?*");
+  const jointLogout = new URL(new URL(returned.page.url()).searchParams.get("redirect"));
+  assert.equal(jointLogout.searchParams.get("from_uri"), `https://lite.sy.soyoung.com${destination}`);
+  assert.deepEqual(returned.errors, []);
+  await returned.context.close();
+  checked++;
 
   const audit = await setup("/");
   await audit.page.getByRole("button", { name: "系统设置" }).click();

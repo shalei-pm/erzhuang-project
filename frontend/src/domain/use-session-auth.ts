@@ -7,6 +7,7 @@ import {
   authStateFromError,
   claimIdleSessionTimeoutRedirect,
   claimSessionRedirect,
+  consumeAuthReturnPath,
   idleSessionTimeoutRedirectKey,
   isIdleSessionTimeout,
   isSessionLoginRequired,
@@ -54,6 +55,7 @@ export function useSessionAuth(entryRedirectKey: string) {
         handleAuthRequired({ ...nextAuth, status: 401 });
         return;
       }
+      if (nextAuth.authenticated && !nextAuth.forbidden && consumeAuthReturnPath()) return;
       setAuth(nextAuth);
       if (nextAuth.authenticated) {
         removeSessionStorage("erzhuang:sso-entry-redirected");
