@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 )
@@ -332,7 +333,28 @@ func (h *Handler) authCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, expiredAuthCookie("erzhuang_reauth_attempt", ""))
 	}
 	h.recordAuthLogin(r)
-	http.Redirect(w, r, normalizeBasePath(os.Getenv("APP_BASE_PATH"))+"/", http.StatusFound)
+	http.Redirect(w, r, safeAuthReturnPath(r.URL.Query().Get("return_to")), http.StatusFound)
+}
+
+// Only business pages within this application may be login return targets.
+func safeAuthReturnPath(value string) string {
+	home := normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/"
+	u, err := url.Parse(value)
+	if err != nil || u.IsAbs() || u.Host != "" || !strings.HasPrefix(value, home) {
+		return home
+	}
+	clean := path.Clean(u.Path)
+	if strings.ContainsAny(u.Path, "\\%\r\n\t ") || (clean != strings.TrimSuffix(home, "/") && !strings.HasPrefix(clean, home)) {
+		return home
+	}
+	relative := strings.TrimPrefix(clean, home)
+	if relative == "api" || strings.HasPrefix(relative, "api/") || relative == "_" || strings.HasPrefix(relative, "_/") || relative == "logout" || strings.HasPrefix(relative, "logout/") {
+		return home
+	}
+	query := u.Query()
+	query.Del("return_to")
+	u.RawQuery = query.Encode()
+	return u.String()
 }
 
 func (h *Handler) rejectAuthCallback(w http.ResponseWriter, r *http.Request, err error) {
@@ -359,7 +381,11 @@ func (h *Handler) rejectAuthCallback(w http.ResponseWriter, r *http.Request, err
 		h.writeAuthError(w, r, err)
 		return
 	}
-	params := url.Values{"from_host": {host}, "from_uri": {origin + normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/_/auth/callback"}}
+	callback := origin + normalizeBasePath(os.Getenv("APP_BASE_PATH")) + "/_/auth/callback"
+	if target := safeAuthReturnPath(r.URL.Query().Get("return_to")); target != normalizeBasePath(os.Getenv("APP_BASE_PATH"))+"/" {
+		callback += "?" + url.Values{"return_to": {target}}.Encode()
+	}
+	params := url.Values{"from_host": {host}, "from_uri": {callback}}
 	http.Redirect(w, r, "https://"+gateway+"/api/g/sso/logouttogether?"+params.Encode(), http.StatusFound)
 }
 

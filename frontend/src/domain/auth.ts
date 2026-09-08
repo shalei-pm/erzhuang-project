@@ -156,13 +156,53 @@ export function shouldBlockBusinessData(auth: Pick<AuthState, "enabled" | "authe
 }
 
 export function authLoginPath(loginUrl?: string) {
-  if (loginUrl) return loginUrl;
-  return `${authBasePath()}/_/auth/callback`;
+  return withAuthReturnPath(loginUrl || `${authBasePath()}/_/auth/callback`);
+}
+
+export function safeAuthReturnPath(value: string): string {
+  const home = `${authBasePath()}/`;
+  try {
+    if (!value.startsWith(home) || /[\\\x00-\x20]/.test(value)) return home;
+    const parsed = new URL(value, "https://return.invalid");
+    const path = decodeURIComponent(parsed.pathname);
+    if (!path.startsWith(home) || /[\\\x00-\x20]/.test(path) || path.includes("%")) return home;
+    const relative = path.slice(home.length);
+    if (["api", "_", "logout"].some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))) return home;
+    parsed.searchParams.delete("return_to");
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch { return home; }
+}
+
+function currentAuthReturnPath(): string {
+  if (typeof window === "undefined") return `${authBasePath()}/`;
+  const { pathname, search, hash } = window.location;
+  const carried = new URLSearchParams(search).get("return_to");
+  return safeAuthReturnPath(carried || pathname + search + hash);
+}
+
+function withAuthReturnPath(entry: string): string {
+  const target = currentAuthReturnPath();
+  if (target === `${authBasePath()}/`) return entry;
+  const url = new URL(entry, "https://return.invalid");
+  url.searchParams.set("return_to", target);
+  return url.origin === "https://return.invalid" ? url.pathname + url.search + url.hash : url.href;
+}
+
+export function consumeAuthReturnPath(): boolean {
+  const url = new URL(window.location.href);
+  const carried = url.searchParams.get("return_to");
+  if (!carried) return false;
+  const target = safeAuthReturnPath(carried);
+  url.searchParams.delete("return_to");
+  window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  if (target === url.pathname + url.search + url.hash) return false;
+  window.location.replace(target);
+  return true;
 }
 
 export function authCompanyEntryPath(hostname = currentHostname()) {
   if (isCompanySSODomain(hostname)) {
-    return `${authBasePath()}/`;
+    return withAuthReturnPath(`${authBasePath()}/`);
   }
   return "";
 }
@@ -174,7 +214,7 @@ export function authLogoutPath(hostname = currentHostname()) {
     const gatewayOrigin = companySSOGatewayOrigin(normalizedHostname);
     const gatewayParams = new URLSearchParams({
       from_host: normalizedHostname,
-      from_uri: `${origin}${authBasePath()}/`,
+      from_uri: `${origin}${currentAuthReturnPath()}`,
     });
     const gatewayLogout = `${gatewayOrigin}/api/g/sso/logouttogether?${gatewayParams.toString()}`;
     const localParams = new URLSearchParams({ redirect: gatewayLogout });
