@@ -7,6 +7,7 @@ import chartData from "../vendor/digital-twin/chart-data.js?url";
 import charts from "../vendor/digital-twin/charts.js?url";
 import app from "../vendor/digital-twin/app.js?url";
 import demo from "../vendor/digital-twin/demo-data.js?url";
+import logo from "../vendor/digital-twin/soyoung-clinic-logo.png?url";
 
 export function digitalTwinDocument() {
   const doc = new DOMParser().parseFromString(template, "text/html");
@@ -27,6 +28,14 @@ export function digitalTwinDocument() {
   doc.querySelector(".account-summary")!.append(logout);
   override.textContent += "#twin-logout{margin-left:12px;padding:6px 8px;background:transparent;border:0;color:#b6c9bd;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}#twin-logout:hover{color:#fff}#twin-logout:focus-visible{outline:2px solid #00d7a0;outline-offset:2px}#twin-logout:disabled{opacity:.5;cursor:wait}";
   const brand = doc.querySelector(".brand"); brand?.removeAttribute("href");
+  const image = doc.createElement("img");
+  image.src = new URL(logo, location.origin).href;
+  image.alt = "新氧青春诊所 SOYOUNG CLINIC";
+  image.width = 627;
+  image.height = 96;
+  brand?.replaceChildren(image);
+  brand?.setAttribute("aria-label", "新氧青春诊所");
+  override.textContent += ".brand{flex-shrink:0}.brand img{display:block;width:235px;height:auto;aspect-ratio:627/96;object-fit:contain}@media(max-width:650px){.brand img{width:160px}.topbar{height:auto;flex-wrap:wrap}.product-name{border-left:0;padding-left:0}}";
   doc.querySelector(".product-name h1")!.textContent = "门店数字孪生看板";
   doc.querySelector(".product-name>span")!.textContent = "演示人数与趋势 · 真实摄像头";
   for (const url of [model, scenes, core, chartData, charts, app, demo]) {

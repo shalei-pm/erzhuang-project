@@ -16,11 +16,14 @@
 .twin-unmapped>div { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .twin-unmapped button { max-width:100%; overflow-wrap:anywhere; }
 .twin-unmapped small { opacity:.65; }
-.twin-camera-dialog { width:min(1120px,calc(100vw - 40px)); max-height:calc(100dvh - 40px); margin:auto; padding:20px; border:0; border-radius:8px; background:white; overflow:auto; }
+.twin-camera-dialog { width:min(1120px,calc(100vw - 40px)); max-height:calc(100dvh - 40px); margin:auto; padding:20px; border:1px solid #284b37; border-radius:8px; background:#071d14; color:#d5e4d6; color-scheme:dark; overflow:auto; }
 .twin-camera-dialog::backdrop { background:rgb(0 0 0 / .55); }
-.twin-camera-dialog header { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:16px; }
+.twin-camera-dialog header { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid #284b37; }
 .twin-camera-dialog h2 { font-size:16px; line-height:1.5; margin:0; overflow-wrap:anywhere; }
-.twin-camera-dialog h2 small { font-size:12px; color:#667085; }
+.twin-camera-dialog h2 small { font-size:12px; color:#98b7a3; }
+.twin-camera-dialog .plain-button { background:#0b251a; color:#c4e8d3; border:1px solid #3b6c4b; }
+.twin-camera-dialog .plain-button:hover:not(:disabled) { background:#173b27; border-color:#64c59b; }
+.twin-camera-dialog .plain-button:focus-visible { outline:2px solid #00d7a0; outline-offset:3px; }
 .twin-camera-dialog header button { width:32px; height:32px; flex-shrink:0; padding:0; font-size:24px; }
 .twin-camera-dialog .h5-player-shell { width:100%; margin:0; }
 .twin-camera-dialog .h5-player-wrapper { width:100%; }
