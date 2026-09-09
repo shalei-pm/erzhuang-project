@@ -17,6 +17,7 @@ const actionLabels: Record<string, string> = {
   "snapshot.refresh": "刷新截图",
   "user.create": "新增用户",
   "user.update": "更新用户权限",
+  "system.digital_twin_whitelist.update": "更新数字孪生白名单",
 };
 
 const actionOptions = Object.entries(actionLabels).filter(([action]) => action !== "snapshot.download");

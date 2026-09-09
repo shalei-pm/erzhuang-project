@@ -57,6 +57,16 @@ func RegisterRoutesWithAuthorizer(mux *http.ServeMux, service *Service, authoriz
 	mux.HandleFunc("POST /api/h5/nvr-monitor/orgs/{externalOrgId}/cameras/{cameraId}/stream-session", handler.createSession)
 }
 
+// RegisterDigitalTwinRoutes reuses camera validation, session creation and audit,
+// but requires the host to supply the narrower institution-whitelist authorizer.
+func RegisterDigitalTwinRoutes(mux *http.ServeMux, service *Service, authorizer Authorizer) {
+ if authorizer == nil { panic("digital twin authorizer is required") }
+ handler := &Handler{service: service, authorizer: authorizer}
+ mux.HandleFunc("GET /api/digitaltwin/stores", handler.listStores)
+ mux.HandleFunc("GET /api/digitaltwin/orgs/{externalOrgId}/cameras", handler.listCameras)
+ mux.HandleFunc("POST /api/digitaltwin/orgs/{externalOrgId}/cameras/{cameraId}/stream-session", handler.createSession)
+}
+
 func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {
 	if h.service == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "nvr_monitor_not_configured", "error": "工控机监控暂未配置"})

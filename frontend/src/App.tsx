@@ -13,8 +13,11 @@ import { ResourceStoreList } from "./components/ResourceStoreList";
 import { SystemTopBar } from "./components/SystemTopBar";
 import { UserManagement } from "./components/UserManagement";
 import { AuditLogManagement } from "./components/AuditLogManagement";
+import { DigitalTwinSettings } from "./components/DigitalTwinSettings";
+import { digitalTwinPath } from "./domain/digital-twin";
 import {
   authEntryPath,
+  authUserDisplayName,
   authLogoutPath,
   canManageUsers,
   isIdleSessionTimeout,
@@ -58,6 +61,7 @@ const H5MonitorChannelPage = lazy(() =>
 );
 const NVRLabMonitorPage = lazy(() => import("./pages/NVRLabMonitor").then((module) => ({ default: module.NVRLabMonitor })));
 const NVRLabCameraPage = lazy(() => import("./pages/NVRLabCamera").then((module) => ({ default: module.NVRLabCamera })));
+const DigitalTwinPage = lazy(() => import("./pages/DigitalTwin").then(module => ({ default: module.DigitalTwin })));
 
 type H5Route =
   | { name: "home"; externalOrgId: string; tab?: H5MonitorTabKey }
@@ -68,12 +72,34 @@ type H5Route =
   | null;
 
 function App() {
+  if (window.location.pathname.replace(/\/$/, "") === digitalTwinPath().replace(/\/$/, "")) return <DigitalTwinRouteShell />;
   const h5Route = parseH5Route();
   if (h5Route) {
     return <H5RouteShell initialRoute={h5Route} />;
   }
 
   return <AdminApp />;
+}
+
+function DigitalTwinRouteShell() {
+  const { auth, authLoading } = useSessionAuth("erzhuang:digitaltwin-sso-entry-redirected");
+  const [loggingOut, setLoggingOut] = useState(false);
+  if (authLoading) return <main className="app-shell"><div className="auth-loading">正在确认登录状态...</div></main>;
+  if (shouldShowForbiddenAccess(auth)) return <ForbiddenAccess appVersion={APP_VERSION} />;
+  if (shouldShowLoginWelcome(auth) || !auth?.authenticated) return <LoginWelcome auth={auth} appVersion={APP_VERSION} />;
+  async function logout() {
+    setLoggingOut(true);
+    const path = authLogoutPath();
+    if (!shouldSkipLocalLogoutBeforeRedirect()) {
+      try { await storeSpaceApi.logout(); } catch { /* Continue through the existing SSO logout path. */ }
+    }
+    window.location.assign(path);
+  }
+  return <main className="digital-twin-shell">
+    <SystemTopBar backAction={{label:"返回二壮",onClick:()=>window.location.assign(import.meta.env.BASE_URL)}} auth={auth} loggingOut={loggingOut} onLogout={logout} />
+    <Suspense fallback={<div className="twin-empty">正在加载数字孪生...</div>}><DigitalTwinPage displayName={authUserDisplayName(auth.user)} /></Suspense>
+    <footer className="app-version">版本 {APP_VERSION}</footer>
+  </main>;
 }
 
 function AdminApp() {
@@ -91,7 +117,7 @@ function AdminApp() {
   const [activeStore, setActiveStore] = useState<ResourceStoreDetailType | null>(null);
   const [openingStoreIds, setOpeningStoreIds] = useState<Set<number>>(() => new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<"users" | "audit" | "security">("users");
+  const [settingsSection, setSettingsSection] = useState<"users" | "audit" | "security" | "digital-twin">("users");
   const [screenshotWatermarkEnabled, setScreenshotWatermarkEnabled] = useState<boolean | null>(null);
   const [savingScreenshotWatermark, setSavingScreenshotWatermark] = useState(false);
   const listRequestIdRef = useRef(0);
@@ -309,8 +335,11 @@ function AdminApp() {
           <button type="button" className={settingsSection === "security" ? "is-active" : ""} onClick={() => setSettingsSection("security")}>
             安全设置
           </button>
+          <button type="button" className={settingsSection === "digital-twin" ? "is-active" : ""} onClick={() => setSettingsSection("digital-twin")}>
+            数字孪生白名单
+          </button>
         </nav>
-        {settingsSection === "audit" ? (
+        {settingsSection === "digital-twin" ? <DigitalTwinSettings /> : settingsSection === "audit" ? (
           <AuditLogManagement onToast={setToast} onAuthRequired={handleAuthRequired} />
         ) : settingsSection === "security" ? (
           <section className="security-settings-page" aria-label="安全设置">

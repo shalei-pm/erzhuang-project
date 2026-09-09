@@ -16,6 +16,7 @@ type MemoryStore struct {
 	tasks                             []Task
 	aiProvider                        string
 	monitorScreenshotWatermarkEnabled *bool
+	digitalTwinSettingsJSON           *string
 	authUsers                         map[string]AuthUserRecord
 	monitorScopeCandidates            []AuthUserResourceScope
 	monitorScopesByUserID             map[int64][]AuthUserResourceScope
@@ -93,6 +94,13 @@ func (s *MemoryStore) ListTasks(ctx context.Context) ([]Task, error) {
 func (s *MemoryStore) CreateAuditLog(ctx context.Context, log AuditLog) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.createAuditLogLocked(ctx, log)
+}
+
+func (s *MemoryStore) createAuditLogLocked(ctx context.Context, log AuditLog) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.nextAuditLogID++
 	log.ID = s.nextAuditLogID
 	log.CreatedAt = s.now()

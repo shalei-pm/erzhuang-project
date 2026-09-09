@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>新氧青春 · 实验门店数字孪生看板</title><link rel="stylesheet" href="styles.css?v=92474dec4b"></head>
+<body class="dashboard">
+<header class="topbar">
+ <a class="brand" href="index.html" aria-label="新氧青春看板首页"><span class="brand-symbol">✳</span><span>新氧青春<small>SOYOUNG YOUTH</small></span></a>
+ <div class="product-name"><h1>实验门店数字孪生看板</h1><span>STORE DIGITAL TWIN</span></div>
+ <div class="header-meta"><span class="experiment-stores">实验门店数 <strong id="experiment-store-count">1</strong><small>示例</small></span><div class="account-summary"><span class="account-avatar" aria-hidden="true">总</span><span class="account-copy"><span class="account-name">总部用户</span><small>示例账号 · 未接入登录</small></span></div><button id="debug-toggle" class="debug-toggle" aria-controls="debug-panel" aria-expanded="false" title="打开演示设置">☷ <span>演示设置</span></button></div>
+</header>
+<main class="workspace">
+ <section class="twin-panel" aria-labelledby="twin-title">
+  <div class="scene-summary">
+   <div class="store-picker"><label for="store-selector" id="twin-title">当前门店 <span class="sample-tag">示例</span></label><button type="button" id="store-selector" aria-expanded="false" aria-controls="store-menu" aria-describedby="store-selector-help"><span class="store-selected-name">北京保利总部店</span><span class="store-chevron" aria-hidden="true">⌄</span></button><div id="store-menu" class="store-menu" role="region" aria-label="选择门店" hidden><div class="store-menu-heading"><strong>选择门店</strong><span>按城市浏览</span></div><div class="store-menu-groups"></div><p class="store-menu-note"></p></div><span id="store-selector-help" class="sr-only">预留门店切换入口，目前仅配置北京保利总部店，尚未接入门店列表。</span></div>
+   <dl class="store-overview" aria-label="门店到店与值班概览，以下均为模拟数据">
+    <div class="store-metric"><dt>预计到店人数</dt><dd><strong>60</strong><span>人</span></dd></div>
+    <div class="store-metric"><dt>已到店人数</dt><dd><strong>42</strong><span>人</span></dd></div>
+    <div class="store-metric"><dt>值班前台人数</dt><dd><strong>2</strong><span>人</span></dd></div>
+    <div class="store-metric"><dt>值班咨询师人数</dt><dd><strong>3</strong><span>人</span></dd></div>
+    <div class="store-metric"><dt>值班护士人数</dt><dd><strong>4</strong><span>人</span></dd></div>
+    <div class="store-metric"><dt>值班医生人数</dt><dd><strong>2</strong><span>人</span></dd></div>
+   </dl>
+  </div>
+  <div class="scene-modebar"><span>人数演示</span><button id="reset" class="scene-preset">示例人数 · 45</button><button id="peak-demo" class="scene-preset">高峰 · 90 人</button><button id="dense-demo" class="scene-preset">密集 · 每区 60 人</button><small>均为模拟，点击切换</small><div class="legend scene-legend"><span><i class="employee-dot"></i>员工</span><span><i class="guest-dot"></i>顾客</span><span class="click-hint">点击摄像头查看画面</span></div></div>
+  <div class="room-grid" id="room-grid"></div>
+  <section id="treatment-camera-dock" aria-label="治疗室摄像头"></section>
+  <div class="scene-footer"><span><i class="sample-dot"></i>实时场景为模拟数据 · 人物代表人数，不代表真实位置</span><span>固定视角 / 5 个功能区域</span></div>
+ </section>
+ <aside class="right-rail" aria-label="近30天运营图表">
+  <div class="bi-heading"><div><span class="bi-marker"></span><h2>运营趋势</h2><span class="sample-tag">模拟数据</span></div><span>近 30 天 <span class="period-divider">/</span> 08.10 — 09.08</span></div>
+  <div class="bi-charts" id="bi-charts"></div>
+  <p class="bi-disclaimer">样例日期：2026.08.10—09.08 · 仅验证呈现，业务口径待确认</p>
+ </aside>
+</main>
+<aside id="debug-panel" class="debug-panel" aria-labelledby="debug-title" hidden>
+ <div class="debug-heading"><div><span class="eyebrow">DATA KIT · V1.0</span><h2 id="debug-title">演示设置</h2></div><button id="debug-close" class="icon-button" aria-label="关闭演示设置">×</button></div>
+ <p class="rail-description">当前场景 <strong id="total-count">45</strong> 人。演示控件只修改当前人数。下方 JSON 接口可更新所有数据。</p>
+ <div id="count-controls"></div>
+ <div class="control-footer"><span>人物增减与区域内活动</span><span>场景上方可切换人数示例</span></div>
+ <div class="permission-control"><label for="permission">模拟监控权限 <small>演示开关，不是正式鉴权</small></label><input id="permission" type="checkbox" role="switch" checked aria-label="模拟监控权限"></div>
+ <p class="limit-note">加减按钮仅用于0–80人演示；数据接口支持超过80人的输入。默认人物保护范围为每区500人、全场1500人，超出会如实显示人数并明确暂停人物图示。尚未接入真实数据与监控。</p>
+<section class="kit-input-panel" aria-label="数据接入验证"><h3>数据接入验证</h3><p>省略字段保留；null表示未知；0表示无人。</p><textarea id="kit-input" aria-label="数据更新JSON" spellcheck="false">{"mode":"external","regions":{"treatment":{"current":120,"cumulative":10}}}</textarea><div class="kit-actions"><button id="kit-apply">应用JSON</button><button id="kit-example-120">输入120人</button><button id="kit-example-limit">输入1000人</button><button id="kit-demo-reset">恢复模拟数据</button></div><p id="kit-input-status" role="status"></p></section>
+</aside>
+<dialog id="camera-dialog" aria-labelledby="camera-title"><div class="dialog-heading"><div><div class="eyebrow">CAMERA VIEW · DEMO</div><h2 id="camera-title">摄像头画面</h2></div><button id="close-dialog" class="icon-button" aria-label="关闭摄像头画面" autofocus>×</button></div><div class="camera-viewport" role="img" aria-label="直播画面占位，未接入摄像头"><span class="camera-demo-tag">未接入 · 演示</span><div class="camera-placeholder"><span aria-hidden="true">▣</span><strong>直播画面占位</strong><p>未接入摄像头</p></div></div><div class="dialog-note">点击弹窗外或按 Esc 关闭 · 当前仅演示交互，真实视频及服务端授权尚未接入。</div></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="model.js?v=19fb500eba"></script><script src="scenes.js?v=5263d0540d"></script><script src="kit-core.js?v=61848e6fb5"></script><script src="chart-data.js?v=1143f4fdea"></script><script src="charts.js?v=b384ce2671"></script><script src="app.js?v=555ae8b4e1"></script><script src="demo-data.js?v=949c298b36"></script><script src="startup.js?v=63d77e0b6d"></script>
+</body></html>
