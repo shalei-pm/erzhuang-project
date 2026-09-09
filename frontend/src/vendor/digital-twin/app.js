@@ -134,6 +134,7 @@
    $('#permission').checked=state.permissions.canViewCameras;$('#permission').disabled=!demo;
    for(const id of ['peak-demo','dense-demo'])$(`#${id}`).disabled=!demo;
    $('#reset').disabled=!demo;$('#reset').textContent=`示例人数 · ${regions.reduce((n,r)=>n+BigInt(initial.regions[r.id].current||0),0n)}`;
+   if(options.externalCameraDialog){$('.account-copy small').textContent='已登录二壮';all('.experiment-stores small,.store-picker .sample-tag').forEach(n=>n.textContent='已开放');$('.scene-footer span').textContent='人数与运营图表为演示数据 · 摄像头来自真实门店';$('#store-selector-help').textContent='选择已开放且有权限的机构';}
    const serialized=JSON.stringify([state.trends,state.mode]);if(lastTrends!==serialized){TwinCharts.render($('#bi-charts'),state.trends,{mode:state.mode,specs});lastTrends=serialized;}
   }
   function commit(next,instant=false){const previous=state;state=next;try{render(instant);}catch(error){state=previous;throw error;}return {applied:true,revision:state.revision,diagnostics:K.clone(diagnostics)};}

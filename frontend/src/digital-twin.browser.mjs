@@ -23,6 +23,17 @@ try {
   for(const [width,height] of [[1440,900],[1366,768],[390,844]]) {
     const t=await setup(width,height); await t.page.goto(base+"/digitaltwin/");
     const kit=t.page.frameLocator("iframe"); await kit.locator("#room-treatment .room-name").waitFor();
+    assert.equal(await t.page.locator('.system-topbar').count(),0);
+    assert.equal(await kit.getByRole('button',{name:'登出',exact:true}).count(),1);
+    await kit.getByRole('button',{name:'演示设置',exact:true}).click();
+    assert.equal(await kit.locator('#debug-panel').isVisible(),true);
+    assert.equal(await kit.locator('.permission-control').isVisible(),false);
+    assert.equal(await kit.locator('.kit-input-panel').isVisible(),false);
+    const beforeCount=Number(await kit.locator('#output-treatment').innerText());
+    await kit.locator('#plus-treatment').click();
+    assert.equal(Number(await kit.locator('#output-treatment').innerText()),beforeCount+1);
+    assert.equal(await kit.locator('.account-copy small').innerText(),'已登录二壮');
+    await kit.getByRole('button',{name:'关闭演示设置',exact:true}).click();
     assert.equal(await kit.locator(".camera-trigger").count(),6);
     assert.deepEqual(await kit.locator('#room-reception .camera-trigger').evaluateAll(nodes=>nodes.map(node=>node.dataset.cameraId)),["76","75"]);
     assert.equal(await kit.locator('.camera-trigger[data-camera-id="74"]').count(),0);
