@@ -11,7 +11,7 @@ import "./digital-twin.css";
 type ActiveCamera = { storeID: string; storeName: string; camera: NVRLabCamera };
 type KitWindow = Window & { TwinDemo: {create: () => TwinSnapshot} };
 
-export function DigitalTwin({ displayName }: { displayName: string }) {
+export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName: string; onLogout: () => void; loggingOut: boolean }) {
   const [stores, setStores] = useState<NVRMonitorStoreInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [data, setData] = useState<NVRLabCameraListResponse | null>(null);
@@ -24,6 +24,14 @@ export function DigitalTwin({ displayName }: { displayName: string }) {
   const srcDoc = useMemo(digitalTwinDocument, []);
   const directory = useMemo(() => stores.map(store => ({ id: store.external_org_id, name: store.store_name, city: store.city || "其他" })), [stores]);
   const closeCamera = useCallback(() => setActiveCamera(null), []);
+  useEffect(() => {
+    const button = frameDocument?.querySelector<HTMLButtonElement>("#twin-logout");
+    if (!button) return;
+    button.disabled = loggingOut;
+    button.textContent = loggingOut ? "正在登出..." : "登出";
+    button.addEventListener("click", onLogout);
+    return () => button.removeEventListener("click", onLogout);
+  }, [frameDocument, onLogout, loggingOut]);
 
   useEffect(() => {
     let cancelled = false;

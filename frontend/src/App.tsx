@@ -96,8 +96,7 @@ function DigitalTwinRouteShell() {
     window.location.assign(path);
   }
   return <main className="digital-twin-shell">
-    <SystemTopBar backAction={{label:"返回二壮",onClick:()=>window.location.assign(import.meta.env.BASE_URL)}} auth={auth} loggingOut={loggingOut} onLogout={logout} />
-    <Suspense fallback={<div className="twin-empty">正在加载数字孪生...</div>}><DigitalTwinPage displayName={authUserDisplayName(auth.user)} /></Suspense>
+    <Suspense fallback={<div className="twin-empty">正在加载数字孪生...</div>}><DigitalTwinPage displayName={authUserDisplayName(auth.user)} onLogout={logout} loggingOut={loggingOut} /></Suspense>
     <footer className="app-version">版本 {APP_VERSION}</footer>
   </main>;
 }

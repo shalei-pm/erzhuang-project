@@ -11,8 +11,7 @@
 .twin-settings footer { justify-content:flex-end; margin-top:24px; }
 .twin-empty { padding:40px 24px; text-align:center; }
 .digital-twin-shell { min-height:100vh; background:#f6f8f8; }
-.digital-twin-shell>.system-topbar { padding:8px 24px; min-height:44px; }
-.twin-frame { display:block; width:100%; height:calc(100vh - 84px); min-height:700px; border:0; background:#142925; }
+.twin-frame { display:block; width:100%; height:calc(100vh - 24px); min-height:700px; border:0; background:#142925; }
 .twin-unmapped { padding:12px 24px; background:#f7f9f8; font-size:14px; }
 .twin-unmapped>div { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .twin-unmapped button { max-width:100%; overflow-wrap:anywhere; }
