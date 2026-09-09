@@ -47,6 +47,13 @@ try {
     assert.equal(await t.page.getByRole('dialog').evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(7, 29, 20)');
     await t.page.getByText("本地联调不连接真实摄像头",{exact:false}).waitFor();
     await t.page.screenshot({path:`/tmp/digital-twin-dialog-${width}.png`,fullPage:true});
+    const closeButton=t.page.getByRole('button',{name:'关闭摄像头',exact:true});
+    await t.page.mouse.move(0,0);
+    await closeButton.focus();
+    assert.equal(await closeButton.evaluate(node=>getComputedStyle(node).color),'rgb(196, 232, 211)');
+    await closeButton.hover();
+    assert.equal(await closeButton.evaluate(node=>getComputedStyle(node).color),'rgb(255, 255, 255)');
+    await t.page.screenshot({path:`/tmp/digital-twin-close-hover-${width}.png`,fullPage:true});
     assert(t.state.requests.some(r=>r.path.endsWith("/10001/cameras/111/stream-session")));
     assert(t.state.requests.filter(r=>r.path.endsWith("stream-session")).every(r=>r.body.mode==="live"));
     assert.equal(await t.page.getByRole("dialog").getByText("录像",{exact:true}).count(),0);
