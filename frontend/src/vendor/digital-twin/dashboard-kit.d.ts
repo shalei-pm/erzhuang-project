@@ -1,9 +1,10 @@
 /** Browser globals. Load kit scripts before calling TwinDashboard.mount. */
 type TwinRegionId = 'reception' | 'consultation' | 'treatment' | 'aftercare' | 'waiting';
-type TwinChartId = 'visits' | 'stay' | 'wait' | 'upgrade' | 'redemption';
+type TwinChartId = 'visits' | 'stay' | 'wait' | 'upgrade' | 'redemption' | 'service-points';
 type TwinMeasurement = number | null;
 interface TwinCamera { id: string; name: string; occupied: boolean | null; canView: boolean; }
-interface TwinRegion { current: TwinMeasurement; cumulative: TwinMeasurement; staff: TwinMeasurement; cameras: TwinCamera[]; }
+type TwinRegionMeasurementKey = 'current' | 'cumulative' | 'noConsultation' | 'consultationRequired' | 'staff';
+interface TwinRegion { current: TwinMeasurement; cumulative: TwinMeasurement; noConsultation: TwinMeasurement; consultationRequired: TwinMeasurement; staff: TwinMeasurement; staleFields: TwinRegionMeasurementKey[]; cameras: TwinCamera[]; }
 interface TwinStore { id: string; name: string; experimentStoreCount: TwinMeasurement; userName: string; }
 interface TwinOverview { expected: TwinMeasurement; arrived: TwinMeasurement; receptionists: TwinMeasurement; consultants: TwinMeasurement; nurses: TwinMeasurement; doctors: TwinMeasurement; }
 interface TwinTrend {
@@ -13,15 +14,16 @@ interface TwinTrend {
  waitAll: TwinMeasurement; waitNo: TwinMeasurement; waitConsult: TwinMeasurement;
  upgradeAll: TwinMeasurement; upgradeNo: TwinMeasurement; upgradeConsult: TwinMeasurement;
  redemptionAll: TwinMeasurement; redemptionNo: TwinMeasurement; redemptionConsult: TwinMeasurement;
+ servicePointAll: TwinMeasurement; servicePointNo: TwinMeasurement; servicePointConsult: TwinMeasurement;
 }
 interface TwinSnapshot {
  mode: 'demo' | 'external'; revision: number; updatedAt: string | null;
- store: TwinStore; overview: TwinOverview; permissions: { canViewCameras: boolean };
+ store: TwinStore; overview: TwinOverview; staleOverview: (keyof TwinOverview)[]; permissions: { canViewCameras: boolean };
  regions: Record<TwinRegionId, TwinRegion>; trends: TwinTrend[];
 }
 interface TwinPatch {
  mode?: TwinSnapshot['mode']; revision?: number; updatedAt?: string | null;
- store?: Partial<TwinStore>; overview?: Partial<TwinOverview>; permissions?: {canViewCameras?:boolean};
+ store?: Partial<TwinStore>; overview?: Partial<TwinOverview>; staleOverview?: (keyof TwinOverview)[]; permissions?: {canViewCameras?:boolean};
  regions?: Partial<Record<TwinRegionId, Partial<TwinRegion>>>;
  trends?: (Pick<TwinTrend,'date'> & Partial<Omit<TwinTrend,'date'>>)[];
 }

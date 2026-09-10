@@ -10,7 +10,7 @@
  function create(){
   const s=TwinKitCore.emptyData();s.mode='demo';s.store={id:'beijing-poly',name:'北京保利总部店',experimentStoreCount:1,userName:'总部用户'};
   s.overview={expected:60,arrived:42,receptionists:2,consultants:3,nurses:4,doctors:2};s.permissions.canViewCameras=true;
-  for(const r of regions)s.regions[r.id]={current:r.initial,cumulative:r.cumulative??null,staff:TwinScenes.employees[r.id].length,cameras:r.cameras.map((name,i)=>({id:`${r.id}-${i+1}`,name,occupied:r.occupiedCameras?r.occupiedCameras[i]:null,canView:true}))};
+  for(const r of regions)s.regions[r.id]={current:r.initial,cumulative:r.cumulative??null,noConsultation:null,consultationRequired:null,staff:TwinScenes.employees[r.id].length,staleFields:['reception','treatment','waiting'].includes(r.id)?['noConsultation','consultationRequired']:[],cameras:r.cameras.map((name,i)=>({id:`${r.id}-${i+1}`,name,occupied:r.occupiedCameras?r.occupiedCameras[i]:null,canView:true}))};
   s.trends=TwinChartData.buildDemoData();return s;
  }
  root.TwinDemo={create};
