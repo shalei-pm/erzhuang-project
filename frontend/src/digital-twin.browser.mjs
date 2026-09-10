@@ -36,6 +36,42 @@ try {
     assert.equal(Number(await kit.locator('#output-treatment').innerText()),beforeCount+1);
     assert.equal(await kit.locator('.account-copy small').innerText(),'已登录二壮');
     await kit.getByRole('button',{name:'关闭演示设置',exact:true}).click();
+    const normalizeMetric = value => value.replace(/\s+/g, " ").trim();
+    const receptionMetrics = (await kit.locator('#room-reception .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
+    assert.deepEqual(receptionMetrics, ["当前接待 2 人", "已到访 12 人", "无需咨询人数 —", "需要咨询人数 —"]);
+    const waitingMetrics = (await kit.locator('#room-waiting .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
+    assert.deepEqual(waitingMetrics, ["当前等候 30 人", "无需咨询人数 —", "需要咨询人数 —"]);
+    const treatmentMetrics = (await kit.locator('#room-treatment .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
+    assert.deepEqual(treatmentMetrics, ["当前治疗 11 人", "已服务 10 人", "无需咨询人数 —", "需要咨询人数 —"]);
+    assert.equal(await kit.locator(".room-segment.is-stale").count(), 6);
+    assert.equal(await kit.locator(".room-segment.is-stale .metric-stale-dot").count(), 6);
+    const preserved = await kit.locator("body").evaluate(() => {
+      const core = window.TwinKitCore;
+      const state = core.emptyData();
+      state.regions.reception.noConsultation = 0;
+      return core.merge(state, { regions: { reception: { staleFields: ["noConsultation"] } } }).regions.reception;
+    });
+    assert.equal(preserved.noConsultation, 0);
+    assert.deepEqual(preserved.staleFields, ["noConsultation"]);
+    const preservedOverview = await kit.locator("body").evaluate(() => {
+      const core = window.TwinKitCore;
+      const state = core.emptyData();
+      state.overview.arrived = 0;
+      return core.merge(state, { staleOverview: ["arrived"] });
+    });
+    assert.equal(preservedOverview.overview.arrived, 0);
+    assert.deepEqual(preservedOverview.staleOverview, ["arrived"]);
+    assert.equal(await kit.locator("body").evaluate(node => node.scrollWidth <= node.clientWidth), true);
+    assert.equal(await kit.locator(".room-title-row").evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth)), true);
+    assert.equal(await kit.locator(".chart-card").count(), 6);
+    assert.equal(await kit.locator(".chart-card.is-active").count(), 5);
+    assert.equal(await kit.locator("#chart-redemption").isVisible(), true);
+    assert.equal(await kit.locator("#chart-service-points").isVisible(), false);
+    if (width === 1440) {
+      await kit.locator("#chart-service-points").waitFor({ state: "visible", timeout: 8500 });
+      assert.equal(await kit.locator("#chart-redemption").isVisible(), false);
+      assert.equal(await kit.locator(".chart-rotation-status").innerText(), "2/2");
+    }
     assert.equal(await kit.locator(".camera-trigger").count(),6);
     assert.deepEqual(await kit.locator('#room-reception .camera-trigger').evaluateAll(nodes=>nodes.map(node=>node.dataset.cameraId)),["76","75"]);
     assert.equal(await kit.locator('.camera-trigger[data-camera-id="74"]').count(),0);

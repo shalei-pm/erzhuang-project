@@ -158,3 +158,31 @@ dialog{border:1px solid #416347;background:#0b2418;color:var(--text);border-radi
 @media(prefers-reduced-motion:reduce){.consultation-bubble-motion{animation:none!important;opacity:1;transform:none}}
 
 @media(max-width:650px){#camera-dialog{width:calc(100vw - 32px)}}
+
+/* V0.20: expose consultation split counts for reception, waiting, and treatment. */
+.room-heading-copy{flex:0 0 auto}
+.room-metrics{min-width:0}
+.room-segment{font-size:11px;color:#a0b29b;white-space:nowrap;border-left:1px solid #31533b;padding-left:9px;line-height:1.4}
+.room-segment strong{font-size:15px;font-weight:500;color:#d4e2c9;margin:0 2px}
+@media(max-width:1500px){.room-segment{font-size:10px;padding-left:6px}.room-segment strong{font-size:13px}}
+@media(max-width:650px){.room-segment{font-size:10px;padding-left:6px}.room-segment strong{font-size:13px}}
+
+/* V0.21: preserve the last successful measurement and mark stale refreshes quietly. */
+.metric-stale-dot{display:none;flex:0 0 auto;width:4px;height:4px;border-radius:50%;background:#b8a15c;opacity:.62;vertical-align:middle}
+.room-metric.is-stale .metric-stale-dot,.store-metric.is-stale .metric-stale-dot{display:inline-block}
+.room-metric.is-missing .metric-unit,.store-metric.is-missing .metric-unit{display:none}
+.room-metric.is-missing strong,.store-metric.is-missing strong{color:#718b7b}
+.room-metric[title],.store-metric[title]{cursor:help}
+
+/* The fifth BI slot alternates between redemption amount and service points. */
+.chart-slot,.chart-rotation{position:relative;min-width:0;min-height:0}
+.chart-slot>.chart-card{height:100%}
+.chart-rotation>.chart-card{position:absolute;inset:0;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .22s ease}
+.chart-rotation>.chart-card.is-active{opacity:1;visibility:visible;pointer-events:auto}
+.chart-rotation-controls{position:absolute;z-index:6;top:10px;right:52px;display:flex;align-items:center;gap:5px}
+.chart-rotation-dot{width:6px;height:6px;padding:0;border:0;border-radius:50%;background:#486656;opacity:.7;cursor:pointer}
+.chart-rotation-dot:hover,.chart-rotation-dot[aria-current=true]{background:#86b598;opacity:1}
+.chart-rotation-dot:focus-visible{outline:1px solid #a9d5b6;outline-offset:2px}
+.chart-rotation-status{min-width:20px;color:#668675;font-size:8px;font-variant-numeric:tabular-nums;text-align:right}
+@media(max-height:850px) and (min-width:1100px){.chart-rotation-controls{top:8px;right:46px}}
+@media(prefers-reduced-motion:reduce){.chart-rotation>.chart-card{transition:none}}

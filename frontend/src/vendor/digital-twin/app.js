@@ -2,11 +2,11 @@
 (function(root){
  const K=TwinKitCore,instances=new WeakMap();
  const definitions=[
-  {id:'reception',name:'前台',en:'RECEPTION',state:'当前接待',cumulativeLabel:'已到访',caption:'接待登记 · 服务起点'},
+  {id:'reception',name:'前台',en:'RECEPTION',state:'当前接待',cumulativeLabel:'已到访',segmentMetrics:[['noConsultation','无需咨询人数'],['consultationRequired','需要咨询人数']],caption:'接待登记 · 服务起点'},
   {id:'consultation',name:'咨询室',en:'CONSULTATION',state:'当前咨询',cumulativeLabel:'已接待',caption:'一对一咨询 · 沟通需求'},
-  {id:'treatment',name:'治疗室',en:'TREATMENT',state:'当前治疗',cumulativeLabel:'已服务',caption:'专业诊疗 · 安心服务'},
+  {id:'treatment',name:'治疗室',en:'TREATMENT',state:'当前治疗',cumulativeLabel:'已服务',segmentMetrics:[['noConsultation','无需咨询人数'],['consultationRequired','需要咨询人数']],caption:'专业诊疗 · 安心服务'},
   {id:'aftercare',name:'术后护理',en:'AFTERCARE',state:'当前护理',caption:'半躺休息 · 敷膜护理'},
-  {id:'waiting',name:'等候区',en:'WAITING LOUNGE',state:'当前等候',caption:'中央开放等候 · 舒适休息'}
+  {id:'waiting',name:'等候区',en:'WAITING LOUNGE',state:'当前等候',segmentMetrics:[['noConsultation','无需咨询人数'],['consultationRequired','需要咨询人数']],caption:'中央开放等候 · 舒适休息'}
  ];
  function configuration(input={}){
   if(!input||typeof input!=='object'||Array.isArray(input))throw new TypeError('config must be object');
@@ -56,12 +56,14 @@
   on(host,'keydown',e=>{if(e.key==='Escape'&&!storeMenu.hidden){e.preventDefault();toggleStores(false,true);}});
   on(window,'resize',()=>{if(!storeMenu.hidden)placeStoreMenu();});
   const actors={},staffCounts={},removals={},rendered={},observers=new Map();
-  let destroyed=false,toastTimer,selected=null,playerCleanup=null,playerAbort=null,playerGeneration=0,diagnostics={},cameraCache={},lastTrends='';
+  let destroyed=false,toastTimer,selected=null,playerCleanup=null,playerAbort=null,playerGeneration=0,diagnostics={},cameraCache={},lastTrends='',chartCleanup=null;
   const grid=$('#room-grid'),controls=$('#count-controls'),dialog=$('#camera-dialog'),permission=$('#permission'),debug=$('#debug-panel'),debugToggle=$('#debug-toggle'),dock=$('#treatment-camera-dock');
   const placeholder=$('.camera-viewport').innerHTML;
-  grid.replaceChildren();controls.replaceChildren();dock.replaceChildren();$('#bi-charts').style.setProperty('--chart-count',specs.length);
+  grid.replaceChildren();controls.replaceChildren();dock.replaceChildren();$('#bi-charts').style.setProperty('--chart-count',TwinCharts.slotCount(specs));
   let notice=$('#kit-notice');if(!notice){notice=document.createElement('div');notice.id='kit-notice';notice.setAttribute('role','status');grid.before(notice);}notice.hidden=true;
   const value=x=>x===null?'—':String(x);
+  for(const metric of all('.store-metric')){metric.querySelector('dd>span')?.classList.add('metric-unit');if(!metric.querySelector('.metric-stale-dot')){const dot=document.createElement('i');dot.className='metric-stale-dot';dot.setAttribute('aria-hidden','true');metric.querySelector('dd')?.append(dot);}}
+  function setMeasurement(strong,x,stale){const metric=strong.closest('.room-metric,.store-metric');strong.textContent=value(x);metric.classList.toggle('is-missing',x===null);metric.classList.toggle('is-stale',stale);metric.title=stale?(x===null?'本次未获取到数据':'本次未获取到数据，暂时显示上次结果'):'';}
   function alive(){if(destroyed)throw new Error('dashboard instance has been destroyed');}
   function notify(message){const toast=$('#toast');toast.textContent=message;toast.classList.add('visible');clearTimeout(toastTimer);toastTimer=later(()=>toast.classList.remove('visible'),3000);}
   function setDebug(open){debug.hidden=!open;debugToggle.setAttribute('aria-expanded',String(open));if(!open)debugToggle.focus();}
@@ -81,7 +83,8 @@
   for(const r of regions){
    actors[r.id]=new Map();removals[r.id]=new Map();rendered[r.id]=0;
    const card=document.createElement('section');card.id=`room-${r.id}`;card.className='room-card';
-   card.innerHTML=`<div class="room-title-row"><span><span class="room-name"></span><span class="room-en"></span></span><span class="room-metrics"><span class="room-count">${r.state} <strong id="number-${r.id}">—</strong> 人</span>${r.cumulativeLabel?`<span class="room-cumulative">${r.cumulativeLabel} <strong id="cumulative-${r.id}">—</strong> 人</span>`:''}</span></div>${TwinScenes.render(r.id)}<div class="room-bottom"><span></span></div>`;
+   const segmentMarkup=(r.segmentMetrics||[]).map(([key,label])=>`<span class="room-metric room-segment" data-metric="${key}">${label} <strong id="${key}-${r.id}">—</strong> <span class="metric-unit">人</span><i class="metric-stale-dot" aria-hidden="true"></i></span>`).join('');
+   card.innerHTML=`<div class="room-title-row"><span class="room-heading-copy"><span class="room-name"></span><span class="room-en"></span></span><span class="room-metrics"><span class="room-metric room-count">${r.state} <strong id="number-${r.id}">—</strong> <span class="metric-unit">人</span><i class="metric-stale-dot" aria-hidden="true"></i></span>${r.cumulativeLabel?`<span class="room-metric room-cumulative">${r.cumulativeLabel} <strong id="cumulative-${r.id}">—</strong> <span class="metric-unit">人</span><i class="metric-stale-dot" aria-hidden="true"></i></span>`:''}${segmentMarkup}</span></div>${TwinScenes.render(r.id)}<div class="room-bottom"><span></span></div>`;
    card.querySelector('.room-name').textContent=r.name;card.querySelector('.room-en').textContent=r.en;card.querySelector('.room-bottom span').textContent=r.caption;grid.append(card);
    const row=document.createElement('div');row.className='count-row';row.innerHTML=`<span class="count-row-label"></span><div class="stepper"><button id="minus-${r.id}" type="button">−</button><output id="output-${r.id}" aria-live="polite">—</output><button id="plus-${r.id}" type="button">+</button><button class="plus-ten" id="plus-ten-${r.id}" type="button">+10</button></div>`;row.querySelector('.count-row-label').textContent=r.name;controls.append(row);
    for(const [prefix,delta]of [['minus',-1],['plus',1],['plus-ten',10]]){const node=$(`#${prefix}-${r.id}`);node.setAttribute('aria-label',`${r.name}${delta<0?'减少':'增加'}${Math.abs(delta)}人`);on(node,'click',()=>{if(state.mode==='demo')update({regions:{[r.id]:{current:TwinModel.normalizeCount((state.regions[r.id].current||0)+delta,TwinModel.MAX_DEMO_COUNT)}}});});}
@@ -116,7 +119,7 @@
   function render(instant=false){
    const plan=K.renderPlan(state,limits);diagnostics={limits:K.clone(limits),regions:K.clone(plan),mode:state.mode,revision:state.revision};
    const warnings=[];
-   for(const r of regions){const d=state.regions[r.id];$(`#number-${r.id}`).textContent=value(d.current);if(r.cumulativeLabel)$(`#cumulative-${r.id}`).textContent=value(d.cumulative);$(`#output-${r.id}`).textContent=value(d.current);$(`#room-${r.id}`).setAttribute('aria-label',`${r.name}，${r.state}${value(d.current)}人`);
+   for(const r of regions){const d=state.regions[r.id],stale=new Set(d.staleFields);setMeasurement($(`#number-${r.id}`),d.current,stale.has('current'));if(r.cumulativeLabel)setMeasurement($(`#cumulative-${r.id}`),d.cumulative,stale.has('cumulative'));for(const [key]of(r.segmentMetrics||[]))setMeasurement($(`#${key}-${r.id}`),d[key],stale.has(key));$(`#output-${r.id}`).textContent=value(d.current);$(`#room-${r.id}`).setAttribute('aria-label',`${r.name}，${r.state}${value(d.current)}人`);
     $(`#minus-${r.id}`).disabled=state.mode!=='demo'||!d.current;$(`#plus-${r.id}`).disabled=$(`#plus-ten-${r.id}`).disabled=state.mode!=='demo'||(d.current||0)>=TwinModel.MAX_DEMO_COUNT;
     if(plan[r.id].reason){clearActors(r.id);if(d.current!==null)warnings.push(`${r.name}${d.current}人：超出人物渲染保护范围，已暂停该区人物图示`);}else drawGuests(r.id,plan[r.id].rendered,instant);
     drawStaff(r.id,d.staff);if(d.staff>100)warnings.push(`${r.name}员工${d.staff}人：超出100人保护范围，暂停员工图示`);drawCameras(r);
@@ -126,7 +129,7 @@
    const hasUnknown=regions.some(r=>state.regions[r.id].current===null);$('#total-count').textContent=hasUnknown?'—':regions.reduce((n,r)=>n+BigInt(state.regions[r.id].current),0n).toString();
    renderStores();
    $('#store-selector-help').textContent='由宿主通过replace输入完整门店快照切换门店。';$('#experiment-store-count').textContent=value(state.store.experimentStoreCount);$('.account-name').textContent=state.store.userName;
-   for(const [i,k]of K.overviewKeys.entries())all('.store-metric strong')[i].textContent=value(state.overview[k]);
+   for(const [i,k]of K.overviewKeys.entries())setMeasurement(all('.store-metric strong')[i],state.overview[k],state.staleOverview.includes(k));
    const demo=state.mode==='demo';$('.account-copy small').textContent=demo?'示例账号 · 未接入登录':'宿主提供 · 身份未校验';all('.experiment-stores small,.store-picker .sample-tag').forEach(n=>n.textContent=demo?'示例':'输入');
    $('.scene-footer span').textContent=demo?'实时场景为模拟数据 · 人物代表人数，不代表真实位置':'输入数据 · 人物代表区域人数，不代表真实位置';
    $('.bi-heading .sample-tag').textContent=demo?'模拟数据':'输入数据';$('.bi-heading>span').textContent=state.trends.length?`${state.trends.length}天 / ${state.trends[0].date} — ${state.trends.at(-1).date}`:'暂无趋势数据';
@@ -135,7 +138,7 @@
    for(const id of ['peak-demo','dense-demo'])$(`#${id}`).disabled=!demo;
    $('#reset').disabled=!demo;$('#reset').textContent=`示例人数 · ${regions.reduce((n,r)=>n+BigInt(initial.regions[r.id].current||0),0n)}`;
    if(options.externalCameraDialog){$('.account-copy small').textContent='已登录二壮';all('.experiment-stores small,.store-picker .sample-tag').forEach(n=>n.textContent='已开放');$('.scene-footer span').textContent='人数与运营图表为演示数据 · 摄像头来自真实门店';$('#store-selector-help').textContent='选择已开放且有权限的机构';}
-   const serialized=JSON.stringify([state.trends,state.mode]);if(lastTrends!==serialized){TwinCharts.render($('#bi-charts'),state.trends,{mode:state.mode,specs});lastTrends=serialized;}
+   const serialized=JSON.stringify([state.trends,state.mode]);if(lastTrends!==serialized){chartCleanup?.();chartCleanup=TwinCharts.render($('#bi-charts'),state.trends,{mode:state.mode,specs,rotationMs:7000});lastTrends=serialized;}
   }
   function commit(next,instant=false){const previous=state;state=next;try{render(instant);}catch(error){state=previous;throw error;}return {applied:true,revision:state.revision,diagnostics:K.clone(diagnostics)};}
   function update(patch){alive();const next=K.merge(state,patch);if(next.store.id!==state.store.id)throw new Error('Switch stores with replace(fullSnapshot), not update');if(Object.hasOwn(patch,'revision')&&next.revision<=state.revision)return {applied:false,reason:'stale',revision:state.revision};return commit(next);}
@@ -149,8 +152,8 @@
   on($('#reset'),'click',()=>{if(state.mode==='demo'){update({regions:Object.fromEntries(regions.map(r=>[r.id,{current:initial.regions[r.id].current}]))});notify('已恢复初始演示人数');}});
   on($('#dense-demo'),'click',()=>{if(state.mode==='demo'){update({regions:Object.fromEntries(regions.map(r=>[r.id,{current:60}]))});notify('密集演示：每区60人');}});
   on($('#peak-demo'),'click',()=>{if(state.mode==='demo'){const peak=[18,12,16,14,30];update({regions:Object.fromEntries(regions.map((r,i)=>[r.id,{current:peak[i]}]))});notify('高峰演示：90人');}});
-  function destroy(){if(destroyed)return;destroyed=true;toggleStores(false);closeCamera();abort.abort();for(const t of timers)clearTimeout(t);timers.clear();for(const stop of observers.values())stop();observers.clear();grid.replaceChildren();controls.replaceChildren();dock.replaceChildren();$('#bi-charts').replaceChildren();notice.hidden=true;instances.delete(host);}
+  function destroy(){if(destroyed)return;destroyed=true;toggleStores(false);closeCamera();chartCleanup?.();chartCleanup=null;abort.abort();for(const t of timers)clearTimeout(t);timers.clear();for(const stop of observers.values())stop();observers.clear();grid.replaceChildren();controls.replaceChildren();dock.replaceChildren();$('#bi-charts').replaceChildren();notice.hidden=true;instances.delete(host);}
   const api={update,replace,getState:()=>K.clone(state),getDiagnostics:()=>K.clone(diagnostics),destroy};render(true);instances.set(host,api);return api;
  }
- root.TwinDashboard={mount,createEmptyData:TwinKitCore.emptyData,version:'1.0.0',regionIds:[...TwinKitCore.regionIds]};
+ root.TwinDashboard={mount,createEmptyData:TwinKitCore.emptyData,version:'1.2.0',regionIds:[...TwinKitCore.regionIds]};
 })(window);
