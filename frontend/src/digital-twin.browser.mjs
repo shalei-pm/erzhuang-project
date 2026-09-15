@@ -78,6 +78,13 @@ try {
     assert.equal(await kit.locator(".room-title-row").evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth)), true);
     assert.equal(await kit.locator(".chart-card").count(), 6);
     assert.equal(await kit.locator(".chart-card.is-active").count(), 5);
+    await kit.locator('#bi-charts').evaluate(container => {
+      window.TwinCharts.render(container, window.TwinChartData.buildDemoData(), {mode:'demo'});
+    });
+    assert.equal(await kit.locator('#chart-visits rect.data-bar').count(), 30);
+    assert.equal(await kit.locator('#chart-visits polyline').count(), 0);
+    assert.equal(await kit.locator('#chart-stay polyline').count() > 0, true);
+    assert.equal(await kit.locator('#chart-visits .chart-time').innerText(), '30天');
     assert.equal(await kit.locator("#chart-redemption").isVisible(), true);
     assert.equal(await kit.locator("#chart-service-points").isVisible(), false);
     if (width === 1440) {
