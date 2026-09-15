@@ -6339,3 +6339,12 @@ git pull --ff-only
 - 本地验证：完整 Go 全仓测试通过；前端 Vitest `17 files / 115 tests` 和生产构建通过；Linux amd64 服务构建、`git diff --check` 通过。独立无头 Chromium 验收桌面/H5 共 `25` 个场景通过，覆盖 callback/logout、全局失效、期限、故障关闭和审计；未操作用户 Chrome 页面。
 - 测试环境仍须验证公司 SSO 联合退出后是否真正要求重新扫码。JWT 当前无可信 `auth_time`，如果上游凭旧 SSO 会话静默签发一枚全新 JWT，本地指纹去重无法证明发生了扫码；该项不能用单元测试或模拟浏览器替代。
 - 详细设计、回滚和验收边界见 `docs/session-expiry-3.4.11.md`。发布目标仅为 GitLab `codex/containerize-single-image` / Wharf `752`，不操作正式 `main`。
+
+### 2026-09-15 4.5.0 正式生产候选（仅本地）
+
+- 正式基线为 GitLab `main` 的 `bf41906`（`3.4.12`）；已验收测试来源为 `codex/containerize-single-image` 的 `8cb5d16`（`4.5.0`）。候选分支 `codex/prod-release-4.5.0` 仅存在于本机，尚未推送、构建或部署正式环境。
+- 候选包含数字孪生页面、机构白名单、摄像头实时查看、演示配置、三路 `SdyService` Triple RPC、30 秒可见页轮询与失败保留旧值等测试环境最终功能；右侧 7 天 BI 趋势仍为既有演示数据，不纳入本次 RPC 接入。
+- 正式环境 `internal/app/auth.go` 保持 `3.4.12` 实现，继续明确清理 `soyoung.com` 父域 Cookie；未导入测试分支中可能漏清正式父域 Cookie 的通用算法，并增加正式域登出回归断言。
+- 不修改 `Dockerfile`、`nginx.conf` 或 `.gitlab-ci.yml`；不新增表、字段、索引、Secret、TLS/mTLS 或实例配置。数字孪生白名单复用既有 `tb_app_settings`，未配置时默认机构 `10001`。
+- 正式 RPC 依赖运行环境能将 `APP_RUN_ENV` 或 `GO_APP_RUN_ENV` 解析为 `prod`，从公司统一 ZooKeeper 注册中心发现服务。稳定回滚点为 `bf41906`（`3.4.12`），候选采用单独发布提交，必要时可通过正常 revert 恢复，不重写 Git 历史。
+- 完整范围、发布门禁和回滚说明见 `docs/production-release-4.5.0.md`。候选已通过前端 `19 files / 127 tests`、前端生产构建、Go 全仓测试、Linux amd64 全仓构建、正式 SSO 登出定向回归、数字孪生浏览器 `7/7` 场景及四种高分辨率全屏布局验收；`git diff --check` 通过。运行树与测试提交 `8cb5d16` 的差异仅为正式 SSO 保护及测试，以及 NVR 路由注册的格式化。候选达到“建议发布”门禁，但在产品负责人再次明确确认前不推送正式 `main`。

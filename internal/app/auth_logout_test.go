@@ -58,6 +58,13 @@ func TestAPISIXSSOLogoutGetCanRedirectToProductionGatewayLogout(t *testing.T) {
 	if recorder.Header().Get("Location") != gatewayLogout {
 		t.Fatalf("unexpected redirect location: %s", recorder.Header().Get("Location"))
 	}
+	cookies := recorder.Result().Cookies()
+	if !hasClearedAuthCookie(cookies, "sy_sso_token", "") {
+		t.Fatalf("expected logout to clear host-only sso cookie, got %#v", cookies)
+	}
+	if !hasClearedAuthCookie(cookies, "sy_sso_token", "soyoung.com") {
+		t.Fatalf("expected logout to clear production parent-domain sso cookie, got %#v", cookies)
+	}
 }
 
 func TestCompanyApplicationOriginMatchesEnvironment(t *testing.T) {
