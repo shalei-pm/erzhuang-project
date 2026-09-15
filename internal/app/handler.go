@@ -18,6 +18,7 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin"
+	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin/t1bi"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 	"github.com/shalei-pm/erzhuang-project/internal/nvrlab"
 	"github.com/shalei-pm/erzhuang-project/internal/nvrmonitor"
@@ -76,6 +77,7 @@ type Handler struct {
 	resourceViewService      *resourceview.Service
 	nvrMonitorService        *nvrmonitor.Service
 	digitalTwinService       *digitaltwin.Service
+	digitalTwinT1BIService   *t1bi.Service
 	monitorPlaybackMode      MonitorPlaybackMode
 }
 
@@ -112,14 +114,18 @@ func NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(store Store, design
 }
 
 func NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRAndDigitalTwin(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, digitalTwinService *digitaltwin.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
-	return newHandlerWithServicesAndDigitalTwin(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, digitalTwinService, monitorPlaybackMode)
+	return newHandlerWithServicesAndDigitalTwin(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, digitalTwinService, nil, monitorPlaybackMode)
+}
+
+func NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRAndDigitalTwinAndT1BI(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, digitalTwinService *digitaltwin.Service, digitalTwinT1BIService *t1bi.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
+	return newHandlerWithServicesAndDigitalTwin(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, digitalTwinService, digitalTwinT1BIService, monitorPlaybackMode)
 }
 
 func newHandlerWithServices(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
-	return newHandlerWithServicesAndDigitalTwin(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, nil, monitorPlaybackMode)
+	return newHandlerWithServicesAndDigitalTwin(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, nil, nil, monitorPlaybackMode)
 }
 
-func newHandlerWithServicesAndDigitalTwin(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, digitalTwinService *digitaltwin.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
+func newHandlerWithServicesAndDigitalTwin(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, digitalTwinService *digitaltwin.Service, digitalTwinT1BIService *t1bi.Service, monitorPlaybackMode MonitorPlaybackMode) http.Handler {
 	var sessionStore authSessionStore
 	if candidate, ok := store.(authSessionStore); ok {
 		sessionStore = candidate
@@ -127,15 +133,15 @@ func newHandlerWithServicesAndDigitalTwin(store Store, designPlanService *design
 		// The memory adapter is only a local/test persistence substitute.
 		sessionStore = newMemoryAuthSessionStore()
 	}
-	return newHandlerWithAuthSessionStore(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, digitalTwinService, monitorPlaybackMode, sessionStore)
+	return newHandlerWithAuthSessionStore(store, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, digitalTwinService, digitalTwinT1BIService, monitorPlaybackMode, sessionStore)
 }
 
-func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, digitalTwinService *digitaltwin.Service, monitorPlaybackMode MonitorPlaybackMode, sessionStore authSessionStore) http.Handler {
+func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.Service, storeSpaceService *storespace.Service, h5MonitorService *h5monitor.Service, resourceViewService *resourceview.Service, nvrLabService *nvrlab.Service, nvrMonitorService *nvrmonitor.Service, digitalTwinService *digitaltwin.Service, digitalTwinT1BIService *t1bi.Service, monitorPlaybackMode MonitorPlaybackMode, sessionStore authSessionStore) http.Handler {
 	var auditRecorder auditlog.AuditRecorder
 	if recorder, ok := store.(auditlog.AuditRecorder); ok {
 		auditRecorder = recorder
 	}
-	handler := &Handler{store: store, auth: AuthConfigFromEnv(), authSessionStore: sessionStore, now: time.Now, idleTimeout: defaultAuthIdleTimeout, auditRecorder: auditRecorder, ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner, storeSpaceService: storeSpaceService, resourceViewService: resourceViewService, nvrMonitorService: nvrMonitorService, digitalTwinService: digitalTwinService, monitorPlaybackMode: monitorPlaybackMode}
+	handler := &Handler{store: store, auth: AuthConfigFromEnv(), authSessionStore: sessionStore, now: time.Now, idleTimeout: defaultAuthIdleTimeout, auditRecorder: auditRecorder, ossSmokeRunner: currentOSSSmokeRunner, assetMigrationRunner: currentAssetMigrationRunner, assetStateBackfillRunner: currentAssetStateBackfillRunner, stageASampleRunner: currentStageASourceSampleRunner, stageATargetRunner: currentStageATargetSampleRunner, mysqlCanaryRunner: currentMySQLCanaryImportRunner, mysqlValidateRunner: currentMySQLCanaryValidateRunner, mysqlInventoryRunner: currentMySQLAssetInventoryRunner, storeSpaceService: storeSpaceService, resourceViewService: resourceViewService, nvrMonitorService: nvrMonitorService, digitalTwinService: digitalTwinService, digitalTwinT1BIService: digitalTwinT1BIService, monitorPlaybackMode: monitorPlaybackMode}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.healthHandler)
 	mux.HandleFunc("GET /api/tasks", handler.tasksHandler)
@@ -159,6 +165,7 @@ func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.S
 	mux.HandleFunc("GET /api/admin/digital-twin-candidates", handler.requirePermissionHandler(PermissionUserManage, handler.digitalTwinCandidatesHandler))
 	nvrmonitor.RegisterDigitalTwinRoutes(mux, nvrMonitorService, digitalTwinAuthorizer{handler: handler})
 	mux.HandleFunc("GET /api/digitaltwin/orgs/{externalOrgId}/dashboard", handler.digitalTwinDashboardHandler)
+	mux.HandleFunc("GET /api/digitaltwin/orgs/{externalOrgId}/t1-bi", handler.digitalTwinT1BIHandler)
 	mux.HandleFunc("GET /api/admin/ops/env-check", handler.ossEnvCheckHandler)
 	mux.HandleFunc("POST /api/admin/ops/oss-smoke", handler.ossSmokeHandler)
 	mux.HandleFunc("POST /api/admin/ops/asset-migrate", handler.assetMigrationHandler)

@@ -25,6 +25,21 @@ export type DigitalTwinDashboard = {
     postoperative_care: number;
   };
 };
+export type DigitalTwinT1BI = {
+  tenant_id: number;
+  begin_day: string;
+  end_day: string;
+  fetched_at: string;
+  trends: Array<{
+    date: string;
+    visit_all: number | null;
+    stay_all: number | null;
+    wait_all: number | null;
+    upgrade_all: number | null;
+    redemption_all: number | null;
+    service_point_all: number | null;
+  }>;
+};
 const base = `${import.meta.env.BASE_URL}api`;
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -42,5 +57,6 @@ export const digitalTwinApi = {
   stores: () => request<NVRMonitorStoresResponse>("/digitaltwin/stores"),
   cameras: (id: string, signal?: AbortSignal) => request<NVRLabCameraListResponse>(`/digitaltwin/orgs/${encodeURIComponent(id)}/cameras`, { signal }),
   dashboard: (id: string, signal?: AbortSignal) => request<DigitalTwinDashboard>(`/digitaltwin/orgs/${encodeURIComponent(id)}/dashboard`, { signal }),
+  t1BI: (id: string, signal?: AbortSignal) => request<DigitalTwinT1BI>(`/digitaltwin/orgs/${encodeURIComponent(id)}/t1-bi`, { signal }),
   stream: (id: string, cameraId: number, signal?: AbortSignal) => request<NVRLabStreamSession>(`/digitaltwin/orgs/${encodeURIComponent(id)}/cameras/${cameraId}/stream-session`, { method: "POST", body: JSON.stringify({ mode: "live" }), signal }),
 };

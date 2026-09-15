@@ -60,13 +60,11 @@ func RegisterRoutesWithAuthorizer(mux *http.ServeMux, service *Service, authoriz
 // RegisterDigitalTwinRoutes reuses camera validation, session creation and audit,
 // but requires the host to supply the narrower institution-whitelist authorizer.
 func RegisterDigitalTwinRoutes(mux *http.ServeMux, service *Service, authorizer Authorizer) {
-	if authorizer == nil {
-		panic("digital twin authorizer is required")
-	}
-	handler := &Handler{service: service, authorizer: authorizer}
-	mux.HandleFunc("GET /api/digitaltwin/stores", handler.listStores)
-	mux.HandleFunc("GET /api/digitaltwin/orgs/{externalOrgId}/cameras", handler.listCameras)
-	mux.HandleFunc("POST /api/digitaltwin/orgs/{externalOrgId}/cameras/{cameraId}/stream-session", handler.createSession)
+ if authorizer == nil { panic("digital twin authorizer is required") }
+ handler := &Handler{service: service, authorizer: authorizer}
+ mux.HandleFunc("GET /api/digitaltwin/stores", handler.listStores)
+ mux.HandleFunc("GET /api/digitaltwin/orgs/{externalOrgId}/cameras", handler.listCameras)
+ mux.HandleFunc("POST /api/digitaltwin/orgs/{externalOrgId}/cameras/{cameraId}/stream-session", handler.createSession)
 }
 
 func (h *Handler) listStores(w http.ResponseWriter, r *http.Request) {

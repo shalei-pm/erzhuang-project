@@ -2,7 +2,7 @@
 (function(root){
  const regionIds=['reception','consultation','treatment','aftercare','waiting'];
  const overviewKeys=['expected','arrived','receptionists','consultants','nurses','doctors'];
- const trendKeys=['noConsult','consult','stayAll','stayNo','stayConsult','waitAll','waitNo','waitConsult','upgradeAll','upgradeNo','upgradeConsult','redemptionAll','redemptionNo','redemptionConsult','servicePointAll','servicePointNo','servicePointConsult'];
+ const trendKeys=['visitAll','noConsult','consult','stayAll','stayNo','stayConsult','waitAll','waitNo','waitConsult','upgradeAll','upgradeNo','upgradeConsult','redemptionAll','redemptionNo','redemptionConsult','servicePointAll','servicePointNo','servicePointConsult'];
  const regionMeasurementKeys=['current','cumulative','noConsultation','consultationRequired','staff'];
  const clone=x=>structuredClone(x);
  function object(x,path){if(!x||typeof x!=='object'||Array.isArray(x)||Object.prototype.toString.call(x)!=='[object Object]'||(Object.getPrototypeOf(x)!==null&&Object.getPrototypeOf(x)?.constructor?.name!=='Object'))throw new TypeError(`${path}: expected plain object`);}
