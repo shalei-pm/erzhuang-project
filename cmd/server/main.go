@@ -14,6 +14,8 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/assets"
 	"github.com/shalei-pm/erzhuang-project/internal/channelai"
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin"
+	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin/sdyrpc"
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 	"github.com/shalei-pm/erzhuang-project/internal/nvrlab"
@@ -30,6 +32,7 @@ func main() {
 	var resourceViewService *resourceview.Service
 	var nvrLabService *nvrlab.Service
 	var nvrMonitorService *nvrmonitor.Service
+	var digitalTwinService *digitaltwin.Service
 	monitorPlaybackMode := app.MonitorPlaybackModeFromEnv()
 
 	if config, err := databaseConfigFromEnv(); err != nil {
@@ -90,7 +93,13 @@ func main() {
 			h5MonitorService = h5monitor.NewService(h5RepositoryFactory(ezvizAccounts), ezviz.NewClient(ezviz.ClientOptions{}))
 			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
-		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode)
+		if provider, err := sdyrpc.NewProvider(); err != nil {
+			log.Printf("digital twin RPC unavailable: %v", err)
+		} else {
+			digitalTwinService = digitaltwin.NewService(provider)
+			log.Print("digital twin RPC provider initialized")
+		}
+		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRAndDigitalTwin(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, digitalTwinService, monitorPlaybackMode)
 		log.Printf("database store and resource view enabled: %s", config.Driver)
 	} else {
 		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(app.NewMemoryStore(), designplan.NewService(designplan.NewMemoryStore()), storespace.NewService(storespace.NewMemoryStore()), nil, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode)

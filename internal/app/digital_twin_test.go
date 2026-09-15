@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
+	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin"
 	"github.com/shalei-pm/erzhuang-project/internal/nvrmonitor"
 	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 	"github.com/shalei-pm/erzhuang-project/internal/storespace"
@@ -108,5 +109,59 @@ func TestDigitalTwinRejectsNonWhitelistedStoreBeforeService(t *testing.T) {
 	ok, err := a.CanViewStore(httptest.NewRequest(http.MethodGet, "/", nil), "10042")
 	if ok || err != nil {
 		t.Fatalf("allowed=%t err=%v", ok, err)
+	}
+}
+
+type digitalTwinMetricsProviderStub struct{}
+
+func (digitalTwinMetricsProviderStub) GetOverview(context.Context, digitaltwin.Request) (digitaltwin.Overview, error) {
+	return digitaltwin.Overview{ExpectedArrival: 12, Arrived: 8, NoConsult: 3, NeedConsult: 4, NonQuick: 1}, nil
+}
+
+func (digitalTwinMetricsProviderStub) GetDutyStaff(context.Context, digitaltwin.Request) (digitaltwin.DutyStaff, error) {
+	return digitaltwin.DutyStaff{Consultants: 2, Nurses: 1, Doctors: 1}, nil
+}
+
+func (digitalTwinMetricsProviderStub) GetTrafficFlow(context.Context, digitaltwin.Request) (digitaltwin.TrafficFlow, error) {
+	return digitaltwin.TrafficFlow{ReceptionCurrent: 2, Waiting: 3, TreatmentServed: 5}, nil
+}
+
+func TestDigitalTwinDashboardRequiresWhitelistAndReturnsRPCMetrics(t *testing.T) {
+	store := NewMemoryStore()
+	repo := monitorScreenshotRepository{records: resourceview.StoreRecords{
+		Tenant:  resourceview.BusinessTenant{ID: 10001, Name: "北京保利总部店"},
+		Devices: []resourceview.BusinessDevice{{ID: 111, TenantID: 10001, Name: "测试摄像头", Category: "camera", Provider: "HikVisionNvrChannel", Status: 1}},
+	}}
+	handler := NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRAndDigitalTwin(
+		store,
+		designplan.NewService(designplan.NewMemoryStore()),
+		storespace.NewService(storespace.NewMemoryStore()),
+		nil,
+		nil,
+		nil,
+		nvrmonitor.NewService(repo, nil),
+		digitaltwin.NewService(digitalTwinMetricsProviderStub{}),
+		MonitorPlaybackModeNVR,
+	)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/digitaltwin/orgs/10001/dashboard?date=2026-09-14", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var got digitaltwin.Dashboard
+	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Overview.ExpectedArrival != 12 || got.Traffic.TreatmentServed != 5 {
+		t.Fatalf("dashboard = %#v", got)
+	}
+
+	forbidden := httptest.NewRequest(http.MethodGet, "/api/digitaltwin/orgs/10042/dashboard", nil)
+	forbiddenResponse := httptest.NewRecorder()
+	handler.ServeHTTP(forbiddenResponse, forbidden)
+	if forbiddenResponse.Code != http.StatusForbidden {
+		t.Fatalf("forbidden status = %d, body = %s", forbiddenResponse.Code, forbiddenResponse.Body.String())
 	}
 }

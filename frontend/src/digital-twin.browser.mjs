@@ -23,6 +23,19 @@ try {
   for(const [width,height] of [[1440,900],[1366,768],[390,844]]) {
     const t=await setup(width,height); await t.page.goto(base+"/digitaltwin/");
     const kit=t.page.frameLocator("iframe"); await kit.locator("#room-treatment .room-name").waitFor();
+    const overviewMetrics = await kit.locator('.store-overview .store-metric').evaluateAll(nodes => nodes.map(node => ({
+      label: node.querySelector('dt')?.textContent?.trim(),
+      value: node.querySelector('strong')?.textContent?.trim(),
+      key: node.dataset.overviewKey,
+    })));
+    assert.deepEqual(overviewMetrics, [
+      {label:'预计到店人数',value:'60',key:'expected'},
+      {label:'已到店人数',value:'42',key:'arrived'},
+      {label:'值班咨询师人数',value:'3',key:'consultants'},
+      {label:'值班护士人数',value:'4',key:'nurses'},
+      {label:'值班医生人数',value:'2',key:'doctors'},
+    ]);
+    assert.equal(await kit.getByText('值班前台人数',{exact:true}).count(),0);
     const logo=kit.getByRole('img',{name:'新氧青春诊所 SOYOUNG CLINIC',exact:true});
     assert(await logo.evaluate(image=>image.complete && image.naturalWidth===627));
     assert.equal(await t.page.locator('.system-topbar').count(),0);

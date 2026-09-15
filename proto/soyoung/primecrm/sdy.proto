@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package com.soyoung.primecrm;
+
+option go_package = "github.com/shalei-pm/erzhuang-project/internal/digitaltwin/primecrm";
+
+// 沙大爷专用服务，其他人勿用，违令者斩
+service SdyService {
+  rpc GetQuickMedicalBeautyOverview(QuickMedicalBeautyDashboardRequest)
+      returns (QuickMedicalBeautyOverviewResponse);
+  rpc GetQuickMedicalBeautyDutyStaff(QuickMedicalBeautyDashboardRequest)
+      returns (QuickMedicalBeautyDutyStaffResponse);
+  rpc GetQuickMedicalBeautyTrafficFlow(QuickMedicalBeautyDashboardRequest)
+      returns (QuickMedicalBeautyTrafficFlowResponse);
+}
+
+message QuickMedicalBeautyDashboardRequest {
+  int64 tenant_id = 1;
+  string date = 2;
+}
+
+message QuickMedicalBeautyOverviewResponse {
+  int64 expected_arrival_count = 1;
+  int64 arrived_count = 2;
+  int64 no_consult_count = 3;
+  int64 need_consult_count = 4;
+  int64 non_quick_medical_beauty_count = 5;
+}
+
+message QuickMedicalBeautyDutyStaffResponse {
+  int64 consultant_count = 1;
+  int64 nurse_count = 2;
+  int64 doctor_count = 3;
+}
+
+message QuickMedicalBeautyTrafficFlowResponse {
+  int64 reception_current_count = 1;
+  int64 consultation_current_count = 2;
+  int64 consultation_served_count = 3;
+  int64 waiting_count = 4;
+  int64 waiting_no_consult_count = 5;
+  int64 waiting_need_consult_count = 6;
+  int64 waiting_non_quick_medical_beauty_count = 7;
+  int64 treatment_current_count = 8;
+  int64 treatment_served_count = 9;
+  int64 treatment_served_no_consult_count = 10;
+  int64 treatment_served_need_consult_count = 11;
+  int64 treatment_served_non_quick_medical_beauty_count = 12;
+  int64 postoperative_care_count = 13;
+}
