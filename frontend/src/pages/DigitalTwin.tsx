@@ -3,7 +3,15 @@ import { digitalTwinApi, type DigitalTwinDashboard } from "../api-digital-twin";
 import { nvrLabApi } from "../api-nvr-lab";
 import { composeMonitorScreenshot } from "../domain/screenshot-watermark";
 import { NVRLabPlayer } from "../components/NVRLabPlayer";
-import { cameraRegion, chooseTwinStore, regionCameras } from "../domain/digital-twin";
+import {
+  cameraRegion,
+  chooseTwinStore,
+  dashboardRefreshFailed,
+  dashboardRefreshSucceeded,
+  regionCameras,
+  startDigitalTwinRefreshPolling,
+  type DashboardRefreshState,
+} from "../domain/digital-twin";
 import type { NVRLabCamera, NVRLabCameraListResponse, NVRLabStreamSession, NVRMonitorStoreInfo } from "../domain/nvr-lab";
 import { digitalTwinDocument } from "./digital-twin-document";
 import "./digital-twin.css";
@@ -11,17 +19,99 @@ import "./digital-twin.css";
 type ActiveCamera = { storeID: string; storeName: string; camera: NVRLabCamera };
 type KitWindow = Window & { TwinDemo: {create: () => TwinSnapshot} };
 
+const staleOverviewFields: (keyof TwinOverview)[] = ["expected", "arrived", "consultants", "nurses", "doctors"];
+const staleRegionFields: Record<TwinRegionId, TwinRegionMeasurementKey[]> = {
+  reception: ["current", "cumulative", "noConsultation", "consultationRequired"],
+  consultation: ["current", "cumulative", "staff"],
+  waiting: ["current", "noConsultation", "consultationRequired"],
+  treatment: ["current", "cumulative", "noConsultation", "consultationRequired"],
+  aftercare: ["current"],
+};
+
+function dashboardStalePatch(): TwinPatch {
+  return {
+    staleOverview: staleOverviewFields,
+    regions: Object.fromEntries(
+      Object.entries(staleRegionFields).map(([region, staleFields]) => [region, { staleFields }]),
+    ),
+  };
+}
+
+function dashboardPatch(dashboard: DigitalTwinDashboard, stale: boolean): TwinPatch {
+  const staleFields = (region: TwinRegionId) => stale ? staleRegionFields[region] : [];
+  return {
+    mode: "external",
+    updatedAt: dashboard.fetched_at,
+    overview: {
+      expected: dashboard.overview.expected_arrival,
+      arrived: dashboard.overview.arrived,
+      receptionists: null,
+      consultants: dashboard.duty_staff.consultants,
+      nurses: dashboard.duty_staff.nurses,
+      doctors: dashboard.duty_staff.doctors,
+    },
+    staleOverview: stale ? staleOverviewFields : [],
+    regions: {
+      reception: {
+        current: dashboard.traffic_flow.reception_current,
+        cumulative: dashboard.overview.arrived,
+        noConsultation: dashboard.overview.no_consult,
+        consultationRequired: dashboard.overview.need_consult,
+        staleFields: staleFields("reception"),
+      },
+      consultation: {
+        current: dashboard.traffic_flow.consultation_current,
+        cumulative: dashboard.traffic_flow.consultation_served,
+        staff: dashboard.duty_staff.consultants,
+        staleFields: staleFields("consultation"),
+      },
+      waiting: {
+        current: dashboard.traffic_flow.waiting,
+        noConsultation: dashboard.traffic_flow.waiting_no_consult,
+        consultationRequired: dashboard.traffic_flow.waiting_need_consult,
+        staleFields: staleFields("waiting"),
+      },
+      treatment: {
+        current: dashboard.traffic_flow.treatment_current,
+        cumulative: dashboard.traffic_flow.treatment_served,
+        noConsultation: dashboard.traffic_flow.treatment_served_no_consult,
+        consultationRequired: dashboard.traffic_flow.treatment_served_need_consult,
+        staleFields: staleFields("treatment"),
+      },
+      aftercare: {
+        current: dashboard.traffic_flow.postoperative_care,
+        staleFields: staleFields("aftercare"),
+      },
+    },
+  };
+}
+
+function applySnapshotPatch(snapshot: TwinSnapshot, patch: TwinPatch) {
+  if (patch.mode) snapshot.mode = patch.mode;
+  if (patch.updatedAt !== undefined) snapshot.updatedAt = patch.updatedAt;
+  if (patch.overview) Object.assign(snapshot.overview, patch.overview);
+  if (patch.staleOverview) snapshot.staleOverview = patch.staleOverview;
+  for (const [region, values] of Object.entries(patch.regions || {})) {
+    Object.assign(snapshot.regions[region as TwinRegionId], values);
+  }
+}
+
 export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName: string; onLogout: () => void; loggingOut: boolean }) {
   const [stores, setStores] = useState<NVRMonitorStoreInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [data, setData] = useState<NVRLabCameraListResponse | null>(null);
-  const [dashboard, setDashboard] = useState<DigitalTwinDashboard | null>(null);
+  const [dashboardState, setDashboardState] = useState<DashboardRefreshState<DigitalTwinDashboard>>({ value: null, stale: false });
+  const [dashboardRefresh, setDashboardRefresh] = useState(0);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   const [frameDocument, setFrameDocument] = useState<Document | null>(null);
   const [activeCamera, setActiveCamera] = useState<ActiveCamera | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
+  const twinInstance = useRef<TwinInstance | null>(null);
+  const dashboardStateRef = useRef(dashboardState);
+  dashboardStateRef.current = dashboardState;
+  const dashboard = dashboardState.value;
   const srcDoc = useMemo(digitalTwinDocument, []);
   const directory = useMemo(() => stores.map(store => ({ id: store.external_org_id, name: store.store_name, city: store.city || "其他" })), [stores]);
   const closeCamera = useCallback(() => setActiveCamera(null), []);
@@ -36,7 +126,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setData(null); setDashboard(null); setFrameDocument(null); setActiveCamera(null); setMessage("");
+    setLoading(true); setData(null); setDashboardState({ value: null, stale: false }); setFrameDocument(null); setActiveCamera(null); setMessage("");
     void digitalTwinApi.stores().then(result => {
       if (cancelled) return;
       const next = (result.cities || []).flatMap(group => group.stores);
@@ -58,19 +148,29 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
-    setLoading(true); setData(null); setDashboard(null); setFrameDocument(null); setActiveCamera(null); setMessage("");
+    setLoading(true); setData(null); setDashboardState({ value: null, stale: false }); setFrameDocument(null); setActiveCamera(null); setMessage("");
     void digitalTwinApi.cameras(selected, controller.signal).then(result => {
       if (!controller.signal.aborted) setData(result);
     }).catch(error => { if (!controller.signal.aborted) setMessage(error.message || "摄像头加载失败"); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    void digitalTwinApi.dashboard(selected, controller.signal).then(result => {
-      if (!controller.signal.aborted) setDashboard(result);
-    }).catch(() => {
-      // Metrics are optional while the RPC provider is being rolled out. A
-      // failed refresh must not replace the last visible values with zero.
-    });
     return () => controller.abort();
   }, [selected, reload]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const controller = new AbortController();
+    void digitalTwinApi.dashboard(selected, controller.signal).then(result => {
+      if (!controller.signal.aborted) setDashboardState(current => dashboardRefreshSucceeded(current, result));
+    }).catch(() => {
+      if (!controller.signal.aborted) setDashboardState(dashboardRefreshFailed);
+    });
+    return () => controller.abort();
+  }, [selected, reload, dashboardRefresh]);
+
+  useEffect(() => {
+    if (!selected) return;
+    return startDigitalTwinRefreshPolling(() => setDashboardRefresh(value => value + 1));
+  }, [selected]);
 
   useEffect(() => {
     if (!data || !frameDocument) return;
@@ -78,22 +178,11 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     if (!win?.TwinDashboard || !win.TwinDemo) { setMessage("数字孪生组件加载失败，请刷新重试"); return; }
     const snapshot = win.TwinDemo.create();
     snapshot.store = { id: data.external_org_id, name: data.store_name, experimentStoreCount: stores.length, userName: displayName };
-    if (dashboard && dashboard.tenant_id === data.tenant_id) {
-      snapshot.mode = "external";
-      snapshot.updatedAt = dashboard.fetched_at;
-      snapshot.overview = {
-        expected: dashboard.overview.expected_arrival,
-        arrived: dashboard.overview.arrived,
-        receptionists: null,
-        consultants: dashboard.duty_staff.consultants,
-        nurses: dashboard.duty_staff.nurses,
-        doctors: dashboard.duty_staff.doctors,
-      };
-      snapshot.regions.reception = { ...snapshot.regions.reception, current: dashboard.traffic_flow.reception_current, cumulative: dashboard.overview.arrived, noConsultation: dashboard.overview.no_consult, consultationRequired: dashboard.overview.need_consult, staleFields: [] };
-      snapshot.regions.consultation = { ...snapshot.regions.consultation, current: dashboard.traffic_flow.consultation_current, cumulative: dashboard.traffic_flow.consultation_served, staff: dashboard.duty_staff.consultants, staleFields: [] };
-      snapshot.regions.waiting = { ...snapshot.regions.waiting, current: dashboard.traffic_flow.waiting, noConsultation: dashboard.traffic_flow.waiting_no_consult, consultationRequired: dashboard.traffic_flow.waiting_need_consult, staleFields: [] };
-      snapshot.regions.treatment = { ...snapshot.regions.treatment, current: dashboard.traffic_flow.treatment_current, cumulative: dashboard.traffic_flow.treatment_served, noConsultation: dashboard.traffic_flow.treatment_served_no_consult, consultationRequired: dashboard.traffic_flow.treatment_served_need_consult, staleFields: [] };
-      snapshot.regions.aftercare = { ...snapshot.regions.aftercare, current: dashboard.traffic_flow.postoperative_care, staleFields: [] };
+    const currentDashboard = dashboardStateRef.current;
+    if (currentDashboard.value && currentDashboard.value.tenant_id === data.tenant_id) {
+      applySnapshotPatch(snapshot, dashboardPatch(currentDashboard.value, currentDashboard.stale));
+    } else if (currentDashboard.stale) {
+      applySnapshotPatch(snapshot, dashboardStalePatch());
     }
     for (const region of win.TwinDashboard.regionIds) {
       snapshot.regions[region].cameras = regionCameras(data.cameras || [], region).map(camera => ({ id: String(camera.id), name: camera.space_name || camera.name || `摄像头 ${camera.id}`, occupied: null, canView: true }));
@@ -112,6 +201,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
         return () => setActiveCamera(current => current === context ? null : current);
       },
     });
+    twinInstance.current = instance;
     frameDocument.querySelector(".account-copy small")!.textContent = "已登录二壮";
     frameDocument.querySelectorAll(".experiment-stores small,.store-picker .sample-tag").forEach(node => { node.textContent = "已开放"; });
     frameDocument.querySelector(".scene-footer span")!.textContent = "人数与运营图表为演示数据 · 摄像头来自真实门店";
@@ -126,8 +216,22 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     observer.observe(frameDocument.body);
     window.addEventListener("resize", resize);
     resize();
-    return () => { observer.disconnect(); window.removeEventListener("resize", resize); instance.destroy(); };
-  }, [data, dashboard, frameDocument, directory, displayName, stores.length]);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", resize);
+      if (twinInstance.current === instance) twinInstance.current = null;
+      instance.destroy();
+    };
+  }, [data, frameDocument, directory, displayName, stores.length]);
+
+  useEffect(() => {
+    if (!twinInstance.current) return;
+    if (dashboard && dashboard.tenant_id === data?.tenant_id) {
+      twinInstance.current.update(dashboardPatch(dashboard, dashboardState.stale));
+    } else if (dashboardState.stale) {
+      twinInstance.current.update(dashboardStalePatch());
+    }
+  }, [data?.tenant_id, dashboard, dashboardState.stale]);
 
   return <div className="digital-twin-module">
     {loading ? <div className="twin-empty" role="status">正在加载数字孪生...</div> : null}
