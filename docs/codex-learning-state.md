@@ -6418,3 +6418,9 @@ git pull --ff-only
 - 新增 `internal/digitaltwin/sdyrpc/provider.go`：通过公司基础库 `dubbo.GetClient[primecrm.SdyServiceClientImpl]()` 获取服务发现客户端，映射三路 RPC 全部字段；错误包含服务名、方法、门店 ID、日期，客户端 panic 会被转为错误。
 - 已在 `cmd/server/main.go` 注入数据库模式下的数字孪生 Provider；公司基础库继续根据 `APP_RUN_ENV` 选择 ZooKeeper，不在本项目写死 provider 地址，也未修改实例配置、Secret、MySQL 或 SSO。
 - 验证：适配器单测通过；数字孪生及生成包测试通过；使用隔离测试替身编译 `internal/app`、`cmd/server` 和 `go build ./...` 通过。应用测试运行阶段仍受本机 macOS `missing LC_UUID` 动态加载器问题影响；尚未完成测试 Pod 的真实 ZooKeeper/RPC 连通性验证。
+
+### 2026-09-15 4.4.1 公司 RPC 镜像构建兼容
+
+- 4.4.0 测试提交 `9e9524c` 触发 Wharf 构建 `273193`，于 2026-09-15 09:39 失败；本地按 Dockerfile 的 Linux `CGO_ENABLED=0` 参数复现公司 `go/library v1.18.50` 的 qconf 包无可用 Go 文件。
+- 公司基础库 `v1.18.50` 已是最新发布版本。经用户明确确认，Web 服务改用 Linux CGO 构建，并在构建阶段从二进制依赖中识别 `libqconf`，存在动态依赖时复制到 `/app/lib`；NVR 回填工具仍保持原来的纯 Go 静态构建。
+- 该调整只解决镜像构建和运行依赖，不修改 RPC 协议、ZooKeeper 地址、实例配置、Secret、数据库、nginx 或 CI。真实业务数据仍须待 4.4.1 测试镜像成功部署后验证。
