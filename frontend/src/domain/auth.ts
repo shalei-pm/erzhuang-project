@@ -75,7 +75,7 @@ export function authStateFromError(error: unknown): AuthState {
 }
 
 export function authEntryPath(auth: AuthState | null, hostname = currentHostname()): string {
-  if (isIdleSessionTimeout({ status: 401, code: auth?.code })) return authLogoutPath(hostname);
+  if (isIdleSessionTimeout({ status: 401, code: auth?.code })) return authSessionTimeoutLogoutPath(hostname);
   if (auth?.code === "session_login_required") return authLoginPath(auth.login_url);
   return authCompanyEntryPath(hostname) || authLoginPath(auth?.login_url);
 }
@@ -208,13 +208,29 @@ export function authCompanyEntryPath(hostname = currentHostname()) {
 }
 
 export function authLogoutPath(hostname = currentHostname()) {
+  return companyLogoutPath(hostname, currentAuthReturnPath());
+}
+
+// After an idle timeout the SSO gateway must return to an application entry
+// URL that carries return_to. Returning directly to a protected page can make
+// the gateway fall back to its default home after the next QR login.
+export function authSessionTimeoutLogoutPath(hostname = currentHostname()) {
+  const target = currentAuthReturnPath();
+  const entry = `${authBasePath()}/`;
+  const returnURI = target === entry
+    ? `${companySSOOrigin(normalizeCompanyHostname(hostname))}${entry}`
+    : `${companySSOOrigin(normalizeCompanyHostname(hostname))}${entry}?${new URLSearchParams({ return_to: target }).toString()}`;
+  return companyLogoutPath(hostname, target, returnURI);
+}
+
+function companyLogoutPath(hostname: string, target: string, explicitFromURI?: string) {
   if (isCompanySSODomain(hostname)) {
     const normalizedHostname = normalizeCompanyHostname(hostname);
     const origin = companySSOOrigin(normalizedHostname);
     const gatewayOrigin = companySSOGatewayOrigin(normalizedHostname);
     const gatewayParams = new URLSearchParams({
       from_host: normalizedHostname,
-      from_uri: `${origin}${currentAuthReturnPath()}`,
+      from_uri: explicitFromURI || `${origin}${target}`,
     });
     const gatewayLogout = `${gatewayOrigin}/api/g/sso/logouttogether?${gatewayParams.toString()}`;
     const localParams = new URLSearchParams({ redirect: gatewayLogout });

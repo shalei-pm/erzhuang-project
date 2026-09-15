@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { authEntryPath, authLogoutPath, consumeAuthReturnPath, safeAuthReturnPath } from "./auth";
+import { authEntryPath, authLogoutPath, authSessionTimeoutLogoutPath, consumeAuthReturnPath, safeAuthReturnPath } from "./auth";
 
 afterEach(() => vi.unstubAllGlobals());
 const home = "/erzhuang-project/";
@@ -24,6 +24,20 @@ it("returns manual logout to the current page and explicit home to home", () => 
   expect(new URL(logout.searchParams.get("redirect")!).searchParams.get("from_uri")).toBe(`https://lite.sy.soyoung.com${target}`);
   browser(home);
   expect(authEntryPath(null)).toBe(home);
+});
+it("returns an idle-timeout logout to an entry URL carrying the original page", () => {
+  browser(target);
+  const logout = new URL(authSessionTimeoutLogoutPath(), "https://lite.sy.soyoung.com");
+  const gateway = new URL(logout.searchParams.get("redirect")!);
+  expect(gateway.searchParams.get("from_uri")).toBe(
+    `https://lite.sy.soyoung.com${home}?return_to=${encodeURIComponent(target)}`,
+  );
+  const timeoutAuth = { enabled: true, authenticated: false, code: "session_idle_timeout" as const };
+  const timeoutEntry = new URL(authEntryPath(timeoutAuth), "https://lite.sy.soyoung.com");
+  const timeoutGateway = new URL(timeoutEntry.searchParams.get("redirect")!);
+  expect(timeoutGateway.searchParams.get("from_uri")).toBe(
+    `https://lite.sy.soyoung.com${home}?return_to=${encodeURIComponent(target)}`,
+  );
 });
 it("consumes the return target after successful authentication", () => {
   const replace = browser(`${home}?return_to=${encodeURIComponent(target)}`);
