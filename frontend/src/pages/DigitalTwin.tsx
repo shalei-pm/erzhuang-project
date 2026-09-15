@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { digitalTwinApi } from "../api-digital-twin";
+import { digitalTwinApi, type DigitalTwinDashboard } from "../api-digital-twin";
 import { nvrLabApi } from "../api-nvr-lab";
 import { composeMonitorScreenshot } from "../domain/screenshot-watermark";
 import { NVRLabPlayer } from "../components/NVRLabPlayer";
@@ -15,6 +15,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
   const [stores, setStores] = useState<NVRMonitorStoreInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [data, setData] = useState<NVRLabCameraListResponse | null>(null);
+  const [dashboard, setDashboard] = useState<DigitalTwinDashboard | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
@@ -35,7 +36,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setData(null); setFrameDocument(null); setActiveCamera(null); setMessage("");
+    setLoading(true); setData(null); setDashboard(null); setFrameDocument(null); setActiveCamera(null); setMessage("");
     void digitalTwinApi.stores().then(result => {
       if (cancelled) return;
       const next = (result.cities || []).flatMap(group => group.stores);
@@ -57,11 +58,17 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
-    setLoading(true); setData(null); setFrameDocument(null); setActiveCamera(null); setMessage("");
+    setLoading(true); setData(null); setDashboard(null); setFrameDocument(null); setActiveCamera(null); setMessage("");
     void digitalTwinApi.cameras(selected, controller.signal).then(result => {
       if (!controller.signal.aborted) setData(result);
     }).catch(error => { if (!controller.signal.aborted) setMessage(error.message || "摄像头加载失败"); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    void digitalTwinApi.dashboard(selected, controller.signal).then(result => {
+      if (!controller.signal.aborted) setDashboard(result);
+    }).catch(() => {
+      // Metrics are optional while the RPC provider is being rolled out. A
+      // failed refresh must not replace the last visible values with zero.
+    });
     return () => controller.abort();
   }, [selected, reload]);
 
@@ -71,6 +78,23 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     if (!win?.TwinDashboard || !win.TwinDemo) { setMessage("数字孪生组件加载失败，请刷新重试"); return; }
     const snapshot = win.TwinDemo.create();
     snapshot.store = { id: data.external_org_id, name: data.store_name, experimentStoreCount: stores.length, userName: displayName };
+    if (dashboard && dashboard.tenant_id === data.tenant_id) {
+      snapshot.mode = "external";
+      snapshot.updatedAt = dashboard.fetched_at;
+      snapshot.overview = {
+        expected: dashboard.overview.expected_arrival,
+        arrived: dashboard.overview.arrived,
+        receptionists: null,
+        consultants: dashboard.duty_staff.consultants,
+        nurses: dashboard.duty_staff.nurses,
+        doctors: dashboard.duty_staff.doctors,
+      };
+      snapshot.regions.reception = { ...snapshot.regions.reception, current: dashboard.traffic_flow.reception_current, cumulative: dashboard.overview.arrived, noConsultation: dashboard.overview.no_consult, consultationRequired: dashboard.overview.need_consult, staleFields: [] };
+      snapshot.regions.consultation = { ...snapshot.regions.consultation, current: dashboard.traffic_flow.consultation_current, cumulative: dashboard.traffic_flow.consultation_served, staff: dashboard.duty_staff.consultants, staleFields: [] };
+      snapshot.regions.waiting = { ...snapshot.regions.waiting, current: dashboard.traffic_flow.waiting, noConsultation: dashboard.traffic_flow.waiting_no_consult, consultationRequired: dashboard.traffic_flow.waiting_need_consult, staleFields: [] };
+      snapshot.regions.treatment = { ...snapshot.regions.treatment, current: dashboard.traffic_flow.treatment_current, cumulative: dashboard.traffic_flow.treatment_served, noConsultation: dashboard.traffic_flow.treatment_served_no_consult, consultationRequired: dashboard.traffic_flow.treatment_served_need_consult, staleFields: [] };
+      snapshot.regions.aftercare = { ...snapshot.regions.aftercare, current: dashboard.traffic_flow.postoperative_care, staleFields: [] };
+    }
     for (const region of win.TwinDashboard.regionIds) {
       snapshot.regions[region].cameras = regionCameras(data.cameras || [], region).map(camera => ({ id: String(camera.id), name: camera.space_name || camera.name || `摄像头 ${camera.id}`, occupied: null, canView: true }));
     }
@@ -103,7 +127,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     window.addEventListener("resize", resize);
     resize();
     return () => { observer.disconnect(); window.removeEventListener("resize", resize); instance.destroy(); };
-  }, [data, frameDocument, directory, displayName, stores.length]);
+  }, [data, dashboard, frameDocument, directory, displayName, stores.length]);
 
   return <div className="digital-twin-module">
     {loading ? <div className="twin-empty" role="status">正在加载数字孪生...</div> : null}

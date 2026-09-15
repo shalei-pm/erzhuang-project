@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
+	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin"
 	"github.com/shalei-pm/erzhuang-project/internal/nvrmonitor"
 )
 
@@ -96,6 +100,52 @@ func (h *Handler) digitalTwinCandidatesHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 	writeJSON(w, 200, result)
+}
+
+func (h *Handler) digitalTwinDashboardHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	externalOrgID := strings.TrimSpace(r.PathValue("externalOrgId"))
+	if !validExternalOrgID(externalOrgID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "invalid_tenant_id", "error": "机构参数无效"})
+		return
+	}
+	if !h.digitalTwinCanViewStore(w, r, externalOrgID) {
+		return
+	}
+	if h.digitalTwinService == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "digital_twin_metrics_unavailable", "error": "数字孪生实时数据暂未接入，请稍后重试"})
+		return
+	}
+	tenantID, _ := strconv.ParseInt(externalOrgID, 10, 64)
+	result, err := h.digitalTwinService.Get(r.Context(), digitaltwin.Request{TenantID: tenantID, Date: r.URL.Query().Get("date")})
+	if errors.Is(err, digitaltwin.ErrInvalidTenant) || errors.Is(err, digitaltwin.ErrInvalidDate) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "invalid_dashboard_query", "error": "看板日期或机构参数无效"})
+		return
+	}
+	if err != nil {
+		log.Printf("digital twin metrics unavailable: %v", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "digital_twin_metrics_unavailable", "error": "数字孪生实时数据暂时获取失败，已保留上次数据"})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func validExternalOrgID(value string) bool {
+	id, err := strconv.ParseInt(value, 10, 64)
+	return err == nil && id > 0 && strconv.FormatInt(id, 10) == value
+}
+
+func (h *Handler) digitalTwinCanViewStore(w http.ResponseWriter, r *http.Request, externalOrgID string) bool {
+	ok, err := (digitalTwinAuthorizer{handler: h}).CanViewStore(r, externalOrgID)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "digital_twin_access_unavailable", "error": "数字孪生权限校验失败，请稍后重试"})
+		return false
+	}
+	if !ok {
+		writeJSON(w, http.StatusForbidden, map[string]string{"code": "digital_twin_store_forbidden", "error": "该机构未开放数字孪生，或你暂无访问权限"})
+		return false
+	}
+	return true
 }
 
 func (h *Handler) updateDigitalTwinSettingsHandler(w http.ResponseWriter, r *http.Request) {

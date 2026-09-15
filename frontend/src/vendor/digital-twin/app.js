@@ -129,7 +129,7 @@
    const hasUnknown=regions.some(r=>state.regions[r.id].current===null);$('#total-count').textContent=hasUnknown?'—':regions.reduce((n,r)=>n+BigInt(state.regions[r.id].current),0n).toString();
    renderStores();
    $('#store-selector-help').textContent='由宿主通过replace输入完整门店快照切换门店。';$('#experiment-store-count').textContent=value(state.store.experimentStoreCount);$('.account-name').textContent=state.store.userName;
-   for(const [i,k]of K.overviewKeys.entries())setMeasurement(all('.store-metric strong')[i],state.overview[k],state.staleOverview.includes(k));
+   for(const metric of all('.store-metric[data-overview-key]')){const k=metric.dataset.overviewKey;setMeasurement(metric.querySelector('strong'),state.overview[k],state.staleOverview.includes(k));}
    const demo=state.mode==='demo';$('.account-copy small').textContent=demo?'示例账号 · 未接入登录':'宿主提供 · 身份未校验';all('.experiment-stores small,.store-picker .sample-tag').forEach(n=>n.textContent=demo?'示例':'输入');
    $('.scene-footer span').textContent=demo?'实时场景为模拟数据 · 人物代表人数，不代表真实位置':'输入数据 · 人物代表区域人数，不代表真实位置';
    $('.bi-heading .sample-tag').textContent=demo?'模拟数据':'输入数据';$('.bi-heading>span').textContent=state.trends.length?`${state.trends.length}天 / ${state.trends[0].date} — ${state.trends.at(-1).date}`:'暂无趋势数据';
