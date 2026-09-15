@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin"
 	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin/primecrm"
@@ -63,7 +64,9 @@ func TestProviderReturnsContextualErrorForRPCFailure(t *testing.T) {
 	)
 
 	_, err := provider.GetOverview(context.Background(), digitaltwin.Request{TenantID: 10001, Date: "2026-09-14"})
-	if err == nil || !strings.Contains(err.Error(), "SdyService.GetQuickMedicalBeautyOverview tenant_id=10001 date=2026-09-14") {
+	if err == nil || !strings.Contains(err.Error(), "SdyService.GetQuickMedicalBeautyOverview") ||
+		!strings.Contains(err.Error(), "rpc_env=local") ||
+		!strings.Contains(err.Error(), "tenant_id=10001 date=2026-09-14") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -90,6 +93,39 @@ func TestProviderReturnsPreparationFailure(t *testing.T) {
 	_, err := provider.GetOverview(context.Background(), digitaltwin.Request{TenantID: 10001})
 	if err == nil || !strings.Contains(err.Error(), "registry init failed") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRetryingInitializerRetriesAfterCooldownAndStopsAfterSuccess(t *testing.T) {
+	now := time.Date(2026, 9, 15, 10, 0, 0, 0, time.Local)
+	attempts := 0
+	initialize := newRetryingInitializer(func() error {
+		attempts++
+		if attempts == 1 {
+			return errors.New("registry unavailable")
+		}
+		return nil
+	}, func() time.Time { return now }, 30*time.Second)
+
+	if err := initialize(); err == nil {
+		t.Fatal("first initialization should fail")
+	}
+	if err := initialize(); err == nil {
+		t.Fatal("initialization during cooldown should return the previous error")
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts during cooldown = %d, want 1", attempts)
+	}
+
+	now = now.Add(30 * time.Second)
+	if err := initialize(); err != nil {
+		t.Fatalf("retry initialization error = %v", err)
+	}
+	if err := initialize(); err != nil {
+		t.Fatalf("initialized client should remain available: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts after success = %d, want 2", attempts)
 	}
 }
 

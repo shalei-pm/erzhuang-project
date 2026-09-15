@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"dubbo.apache.org/dubbo-go/v3/config"
 	_ "dubbo.apache.org/dubbo-go/v3/imports"
@@ -161,13 +163,36 @@ type rpcRuntimeConfig struct {
 }
 
 func newClientInitializer(client *primecrm.SdyServiceClientImpl) func() error {
-	var once sync.Once
-	var initErr error
+	return newRetryingInitializer(func() error {
+		return initializeClient(client)
+	}, time.Now, 30*time.Second)
+}
+
+func newRetryingInitializer(initialize func() error, now func() time.Time, retryDelay time.Duration) func() error {
+	var mu sync.Mutex
+	var initialized bool
+	var lastErr error
+	var retryAfter time.Time
+
 	return func() error {
-		once.Do(func() {
-			initErr = initializeClient(client)
-		})
-		return initErr
+		mu.Lock()
+		defer mu.Unlock()
+
+		if initialized {
+			return nil
+		}
+		currentTime := now()
+		if lastErr != nil && currentTime.Before(retryAfter) {
+			return lastErr
+		}
+		if err := initialize(); err != nil {
+			lastErr = err
+			retryAfter = currentTime.Add(retryDelay)
+			return err
+		}
+		initialized = true
+		lastErr = nil
+		return nil
 	}
 }
 
@@ -184,6 +209,7 @@ func initializeClient(client *primecrm.SdyServiceClientImpl) (err error) {
 	if err != nil {
 		return err
 	}
+	log.Printf("digital twin RPC client initialize rpc_env=%s application=%s", runtimeConfig.environment, runtimeConfig.application)
 
 	config.SetConsumerService(client)
 	reference := config.NewReferenceConfigBuilder().
@@ -210,22 +236,19 @@ func initializeClient(client *primecrm.SdyServiceClientImpl) (err error) {
 			AddReference("SdyServiceClientImpl", reference).
 			Build())
 	if err := root.Build().Init(); err != nil {
-		return fmt.Errorf("initialize SdyService Triple client: %w", err)
+		log.Printf("digital twin RPC client initialization failed rpc_env=%s application=%s stage=registry error_type=%T", runtimeConfig.environment, runtimeConfig.application, err)
+		return errors.New("initialize SdyService Triple client: registry initialization failed")
 	}
 	if client.GetQuickMedicalBeautyOverview == nil || client.GetQuickMedicalBeautyDutyStaff == nil || client.GetQuickMedicalBeautyTrafficFlow == nil {
+		log.Printf("digital twin RPC client initialization failed rpc_env=%s application=%s stage=methods", runtimeConfig.environment, runtimeConfig.application)
 		return errors.New("initialize SdyService Triple client: generated methods unavailable")
 	}
+	log.Printf("digital twin RPC client initialized rpc_env=%s application=%s", runtimeConfig.environment, runtimeConfig.application)
 	return nil
 }
 
 func rpcConfigForEnvironment(primaryEnv, legacyEnv, appName string) (rpcRuntimeConfig, error) {
-	environment := strings.ToLower(strings.TrimSpace(primaryEnv))
-	if environment == "" {
-		environment = strings.ToLower(strings.TrimSpace(legacyEnv))
-	}
-	if environment == "" {
-		environment = "local"
-	}
+	environment := configuredRPCEnvironment(primaryEnv, legacyEnv)
 	addresses := map[string]string{
 		"local": "10.10.10.100:2181",
 		"test":  "10.10.10.100:2181",
@@ -243,12 +266,24 @@ func rpcConfigForEnvironment(primaryEnv, legacyEnv, appName string) (rpcRuntimeC
 	return rpcRuntimeConfig{environment: environment, application: appName + "-serve", zkAddress: zkAddress}, nil
 }
 
+func configuredRPCEnvironment(primaryEnv, legacyEnv string) string {
+	environment := strings.ToLower(strings.TrimSpace(primaryEnv))
+	if environment == "" {
+		environment = strings.ToLower(strings.TrimSpace(legacyEnv))
+	}
+	if environment == "" {
+		return "local"
+	}
+	return environment
+}
+
 func dashboardRequest(request digitaltwin.Request) *primecrm.QuickMedicalBeautyDashboardRequest {
 	return &primecrm.QuickMedicalBeautyDashboardRequest{TenantId: request.TenantID, Date: request.Date}
 }
 
 func rpcError(method string, request digitaltwin.Request, cause error) error {
-	return fmt.Errorf("SdyService.%s tenant_id=%d date=%s: %w", method, request.TenantID, request.Date, cause)
+	environment := configuredRPCEnvironment(os.Getenv("APP_RUN_ENV"), os.Getenv("GO_APP_RUN_ENV"))
+	return fmt.Errorf("SdyService.%s rpc_env=%s tenant_id=%d date=%s: %w", method, environment, request.TenantID, request.Date, cause)
 }
 
 func recoverRPC(method string, request digitaltwin.Request, target *error) {

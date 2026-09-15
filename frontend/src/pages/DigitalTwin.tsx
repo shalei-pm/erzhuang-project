@@ -28,12 +28,52 @@ const staleRegionFields: Record<TwinRegionId, TwinRegionMeasurementKey[]> = {
   aftercare: ["current"],
 };
 
-function dashboardStalePatch(): TwinPatch {
+function dashboardEmptyPatch(stale: boolean): TwinPatch {
+  const staleFields = (region: TwinRegionId) => stale ? staleRegionFields[region] : [];
   return {
-    staleOverview: staleOverviewFields,
-    regions: Object.fromEntries(
-      Object.entries(staleRegionFields).map(([region, staleFields]) => [region, { staleFields }]),
-    ),
+    mode: "external",
+    updatedAt: null,
+    overview: {
+      expected: null,
+      arrived: null,
+      receptionists: null,
+      consultants: null,
+      nurses: null,
+      doctors: null,
+    },
+    staleOverview: stale ? staleOverviewFields : [],
+    regions: {
+      reception: {
+        current: null,
+        cumulative: null,
+        noConsultation: null,
+        consultationRequired: null,
+        staleFields: staleFields("reception"),
+      },
+      consultation: {
+        current: null,
+        cumulative: null,
+        staff: null,
+        staleFields: staleFields("consultation"),
+      },
+      waiting: {
+        current: null,
+        noConsultation: null,
+        consultationRequired: null,
+        staleFields: staleFields("waiting"),
+      },
+      treatment: {
+        current: null,
+        cumulative: null,
+        noConsultation: null,
+        consultationRequired: null,
+        staleFields: staleFields("treatment"),
+      },
+      aftercare: {
+        current: null,
+        staleFields: staleFields("aftercare"),
+      },
+    },
   };
 }
 
@@ -181,8 +221,8 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     const currentDashboard = dashboardStateRef.current;
     if (currentDashboard.value && currentDashboard.value.tenant_id === data.tenant_id) {
       applySnapshotPatch(snapshot, dashboardPatch(currentDashboard.value, currentDashboard.stale));
-    } else if (currentDashboard.stale) {
-      applySnapshotPatch(snapshot, dashboardStalePatch());
+    } else {
+      applySnapshotPatch(snapshot, dashboardEmptyPatch(currentDashboard.stale));
     }
     for (const region of win.TwinDashboard.regionIds) {
       snapshot.regions[region].cameras = regionCameras(data.cameras || [], region).map(camera => ({ id: String(camera.id), name: camera.space_name || camera.name || `摄像头 ${camera.id}`, occupied: null, canView: true }));
@@ -204,7 +244,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     twinInstance.current = instance;
     frameDocument.querySelector(".account-copy small")!.textContent = "已登录二壮";
     frameDocument.querySelectorAll(".experiment-stores small,.store-picker .sample-tag").forEach(node => { node.textContent = "已开放"; });
-    frameDocument.querySelector(".scene-footer span")!.textContent = "人数与运营图表为演示数据 · 摄像头来自真实门店";
+    frameDocument.querySelector(".scene-footer span")!.textContent = "左侧人数来自实时接口 · 右侧运营图表为演示数据 · 摄像头来自真实门店";
     frameDocument.querySelector(".store-menu-note")!.textContent = "仅展示白名单内且已授权的机构";
     frameDocument.querySelector("#store-selector-help")!.textContent = "选择已开放且有权限的机构";
     const element = frame.current;
@@ -228,8 +268,8 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     if (!twinInstance.current) return;
     if (dashboard && dashboard.tenant_id === data?.tenant_id) {
       twinInstance.current.update(dashboardPatch(dashboard, dashboardState.stale));
-    } else if (dashboardState.stale) {
-      twinInstance.current.update(dashboardStalePatch());
+    } else {
+      twinInstance.current.update(dashboardEmptyPatch(dashboardState.stale));
     }
   }, [data?.tenant_id, dashboard, dashboardState.stale]);
 

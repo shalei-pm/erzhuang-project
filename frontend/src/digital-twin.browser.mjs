@@ -13,7 +13,7 @@ async function setup(width=1440,height=900,options={}) {
   await context.route("**/api/**",route=>{
     const req=route.request(),path=new URL(req.url()).pathname;
     if(options.unauthenticated && path.endsWith("/auth/me")) return route.fulfill({status:401,json:{code:"auth_check_failed",error:"需要登录"}});
-    const [status,body]=fixtureAPI(path,req.method(),req.postDataJSON()||{},state);
+    const [status,body]=fixtureAPI(path,req.method(),req.postDataJSON()||{},state,options);
     return route.fulfill({status,json:body});
   });
   await context.routeWebSocket("**/nvrapi/**",socket=>socket.close());
@@ -29,11 +29,11 @@ try {
       key: node.dataset.overviewKey,
     })));
     assert.deepEqual(overviewMetrics, [
-      {label:'预计到店人数',value:'60',key:'expected'},
-      {label:'已到店人数',value:'42',key:'arrived'},
-      {label:'值班咨询师人数',value:'3',key:'consultants'},
-      {label:'值班护士人数',value:'4',key:'nurses'},
-      {label:'值班医生人数',value:'2',key:'doctors'},
+      {label:'预计到店人数',value:'61',key:'expected'},
+      {label:'已到店人数',value:'43',key:'arrived'},
+      {label:'值班咨询师人数',value:'5',key:'consultants'},
+      {label:'值班护士人数',value:'6',key:'nurses'},
+      {label:'值班医生人数',value:'7',key:'doctors'},
     ]);
     assert.equal(await kit.getByText('值班前台人数',{exact:true}).count(),0);
     const logo=kit.getByRole('img',{name:'新氧青春诊所 SOYOUNG CLINIC',exact:true});
@@ -45,19 +45,19 @@ try {
     assert.equal(await kit.locator('.permission-control').isVisible(),false);
     assert.equal(await kit.locator('.kit-input-panel').isVisible(),false);
     const beforeCount=Number(await kit.locator('#output-treatment').innerText());
-    await kit.locator('#plus-treatment').click();
-    assert.equal(Number(await kit.locator('#output-treatment').innerText()),beforeCount+1);
+    assert.equal(await kit.locator('#plus-treatment').isDisabled(),true);
+    assert.equal(Number(await kit.locator('#output-treatment').innerText()),beforeCount);
     assert.equal(await kit.locator('.account-copy small').innerText(),'已登录二壮');
     await kit.getByRole('button',{name:'关闭演示设置',exact:true}).click();
     const normalizeMetric = value => value.replace(/\s+/g, " ").trim();
     const receptionMetrics = (await kit.locator('#room-reception .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
-    assert.deepEqual(receptionMetrics, ["当前接待 2 人", "已到访 12 人", "无需咨询人数 —", "需要咨询人数 —"]);
+    assert.deepEqual(receptionMetrics, ["当前接待 9 人", "已到访 43 人", "无需咨询人数 13 人", "需要咨询人数 30 人"]);
     const waitingMetrics = (await kit.locator('#room-waiting .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
-    assert.deepEqual(waitingMetrics, ["当前等候 30 人", "无需咨询人数 —", "需要咨询人数 —"]);
+    assert.deepEqual(waitingMetrics, ["当前等候 4 人", "无需咨询人数 1 人", "需要咨询人数 3 人"]);
     const treatmentMetrics = (await kit.locator('#room-treatment .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
-    assert.deepEqual(treatmentMetrics, ["当前治疗 11 人", "已服务 10 人", "无需咨询人数 —", "需要咨询人数 —"]);
-    assert.equal(await kit.locator(".room-segment.is-stale").count(), 6);
-    assert.equal(await kit.locator(".room-segment.is-stale .metric-stale-dot").count(), 6);
+    assert.deepEqual(treatmentMetrics, ["当前治疗 8 人", "已服务 19 人", "无需咨询人数 7 人", "需要咨询人数 12 人"]);
+    assert.equal(await kit.locator(".room-segment.is-stale").count(), 0);
+    assert.equal(await kit.locator(".room-segment.is-stale .metric-stale-dot").count(), 0);
     const preserved = await kit.locator("body").evaluate(() => {
       const core = window.TwinKitCore;
       const state = core.emptyData();
@@ -113,6 +113,20 @@ try {
     assert(!t.state.requests.some(r=>r.path.endsWith("/10001/cameras/73/stream-session")));
     assert.deepEqual(t.errors,[]); await t.context.close(); checked++;
   }
+  const unavailable=await setup(1440,900,{dashboardUnavailable:true});
+  await unavailable.page.goto(base+"/digitaltwin/");
+  const unavailableKit=unavailable.page.frameLocator("iframe");
+  await unavailableKit.locator("#room-treatment .room-name").waitFor();
+  assert.deepEqual(await unavailableKit.locator('.store-overview .store-metric strong').allInnerTexts(),["—","—","—","—","—"]);
+  const unavailableWaiting=(await unavailableKit.locator('#room-waiting .room-metric').evaluateAll(nodes=>nodes.map(node=>node.innerText))).map(value=>value.replace(/\s+/g," ").trim());
+  assert.deepEqual(unavailableWaiting,["当前等候 —","无需咨询人数 —","需要咨询人数 —"]);
+  const unavailableTreatment=(await unavailableKit.locator('#room-treatment .room-metric').evaluateAll(nodes=>nodes.map(node=>node.innerText))).map(value=>value.replace(/\s+/g," ").trim());
+  assert.deepEqual(unavailableTreatment,["当前治疗 —","已服务 —","无需咨询人数 —","需要咨询人数 —"]);
+  assert.equal(await unavailableKit.locator(".room-segment.is-stale .metric-stale-dot").count(),6);
+  assert.equal(await unavailableKit.locator(".store-metric.is-stale .metric-stale-dot").count(),5);
+  assert.equal((await unavailableKit.locator("body").innerText()).includes("当前等候 30 人"),false);
+  await unavailable.page.screenshot({path:"/tmp/digital-twin-rpc-unavailable.png",fullPage:true});
+  assert.deepEqual(unavailable.errors,[]);await unavailable.context.close();checked++;
   const s=await setup(); await s.page.goto(base+"/");
   await s.page.getByRole("button",{name:"系统设置",exact:true}).click();
   await s.page.getByRole("button",{name:"数字孪生白名单",exact:true}).click();
