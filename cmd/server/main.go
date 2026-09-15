@@ -16,6 +16,7 @@ import (
 	"github.com/shalei-pm/erzhuang-project/internal/designplan"
 	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin"
 	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin/sdyrpc"
+	"github.com/shalei-pm/erzhuang-project/internal/digitaltwin/t1bi"
 	"github.com/shalei-pm/erzhuang-project/internal/ezviz"
 	"github.com/shalei-pm/erzhuang-project/internal/h5monitor"
 	"github.com/shalei-pm/erzhuang-project/internal/nvrlab"
@@ -33,6 +34,7 @@ func main() {
 	var nvrLabService *nvrlab.Service
 	var nvrMonitorService *nvrmonitor.Service
 	var digitalTwinService *digitaltwin.Service
+	var digitalTwinT1BIService *t1bi.Service
 	monitorPlaybackMode := app.MonitorPlaybackModeFromEnv()
 
 	if config, err := databaseConfigFromEnv(); err != nil {
@@ -99,7 +101,13 @@ func main() {
 			digitalTwinService = digitaltwin.NewService(provider)
 			log.Print("digital twin RPC provider initialized")
 		}
-		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRAndDigitalTwin(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, digitalTwinService, monitorPlaybackMode)
+		if provider, err := t1bi.NewProvider(envValue("T1_BI_DATA_API_SERVER"), t1BIDurationFromEnv()); err != nil {
+			log.Printf("digital twin T+1 BI unavailable: %v", err)
+		} else {
+			digitalTwinT1BIService = t1bi.NewService(provider)
+			log.Print("digital twin T+1 BI provider initialized")
+		}
+		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVRAndDigitalTwinAndT1BI(appStore, designPlanService, storeSpaceService, h5MonitorService, resourceViewService, nvrLabService, nvrMonitorService, digitalTwinService, digitalTwinT1BIService, monitorPlaybackMode)
 		log.Printf("database store and resource view enabled: %s", config.Driver)
 	} else {
 		handler = app.NewHandlerWithServicesAndH5MonitorAndResourceViewAndNVR(app.NewMemoryStore(), designplan.NewService(designplan.NewMemoryStore()), storespace.NewService(storespace.NewMemoryStore()), nil, resourceViewService, nvrLabService, nvrMonitorService, monitorPlaybackMode)
@@ -197,6 +205,19 @@ func envValue(keys ...string) string {
 
 func nvrLabAuthorizationFromEnv() string {
 	return envValue("K8S_SECRET_NVR_STREAM_AUTHORIZATION", "NVR_STREAM_AUTHORIZATION")
+}
+
+func t1BIDurationFromEnv() time.Duration {
+	value := strings.TrimSpace(os.Getenv("T1_BI_TIMEOUT"))
+	if value == "" {
+		return 8 * time.Second
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 || duration > 60*time.Second {
+		log.Printf("invalid T1_BI_TIMEOUT=%q, using 8s", value)
+		return 8 * time.Second
+	}
+	return duration
 }
 
 func getenv(key, fallback string) string {

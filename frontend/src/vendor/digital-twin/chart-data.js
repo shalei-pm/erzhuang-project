@@ -2,7 +2,7 @@
  const colors={all:'#e3e9d9',no:'#00dca0',consult:'#ff913d'};
  const series=(label,key,color)=>({label,key,color});
  const chartSpecs=[
-  {id:'visits',title:'到访人数趋势',en:'DAILY VISITS',type:'stacked',unit:'人',max:100,series:[series('无需咨询','noConsult',colors.no),series('需要面诊','consult',colors.consult)]},
+  {id:'visits',title:'到访人数趋势',en:'DAILY VISITS',type:'line',unit:'人',max:100,series:[series('全部顾客','visitAll',colors.all)]},
   {id:'stay',title:'平均在店时长',en:'TIME IN STORE',type:'line',unit:'分钟',max:120,series:[series('全部顾客','stayAll',colors.all),series('无需咨询','stayNo',colors.no),series('需要面诊','stayConsult',colors.consult)]},
   {id:'wait',title:'平均等待时长',en:'WAITING TIME',type:'line',unit:'分钟',max:30,series:[series('全部顾客','waitAll',colors.all),series('无需咨询','waitNo',colors.no),series('需要面诊','waitConsult',colors.consult)]},
   {id:'upgrade',title:'升单率趋势',en:'UPGRADE RATE',type:'line',unit:'%',max:50,series:[series('全部顾客','upgradeAll',colors.all),series('无需咨询','upgradeNo',colors.no),series('需要面诊','upgradeConsult',colors.consult)]},
@@ -26,7 +26,7 @@
    const redemptionAll=round((redemptionNo*noConsult+redemptionConsult*consult)/(noConsult+consult));
    const servicePointNo=round(3.2+i*.03+noise(i,9)*.7),servicePointConsult=round(6.4+i*.04+noise(i,10)*1.1);
    const servicePointAll=round((servicePointNo*noConsult+servicePointConsult*consult)/(noConsult+consult));
-   return {date:new Date(Date.UTC(2026,7,10+i)).toISOString().slice(0,10),noConsult,consult,stayNo,stayConsult,stayAll:round((stayNo*noConsult+stayConsult*consult)/(noConsult+consult)),waitNo,waitConsult,waitAll:round((waitNo*noConsult+waitConsult*consult)/(noConsult+consult)),upgradeNo,upgradeConsult,upgradeAll,redemptionNo,redemptionConsult,redemptionAll,servicePointNo,servicePointConsult,servicePointAll};
+   return {date:new Date(Date.UTC(2026,7,10+i)).toISOString().slice(0,10),visitAll:noConsult+consult,noConsult,consult,stayNo,stayConsult,stayAll:round((stayNo*noConsult+stayConsult*consult)/(noConsult+consult)),waitNo,waitConsult,waitAll:round((waitNo*noConsult+waitConsult*consult)/(noConsult+consult)),upgradeNo,upgradeConsult,upgradeAll,redemptionNo,redemptionConsult,redemptionAll,servicePointNo,servicePointConsult,servicePointAll};
   });
  }
  const api={chartSpecs,buildDemoData};

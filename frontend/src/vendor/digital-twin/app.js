@@ -132,8 +132,8 @@
    for(const metric of all('.store-metric[data-overview-key]')){const k=metric.dataset.overviewKey;setMeasurement(metric.querySelector('strong'),state.overview[k],state.staleOverview.includes(k));}
    const demo=state.mode==='demo';$('.account-copy small').textContent=demo?'示例账号 · 未接入登录':'宿主提供 · 身份未校验';all('.experiment-stores small,.store-picker .sample-tag').forEach(n=>n.textContent=demo?'示例':'输入');
    $('.scene-footer span').textContent=demo?'实时场景为模拟数据 · 人物代表人数，不代表真实位置':'输入数据 · 人物代表区域人数，不代表真实位置';
-   $('.bi-heading .sample-tag').textContent=demo?'模拟数据':'输入数据';$('.bi-heading>span').textContent=state.trends.length?`${state.trends.length}天 / ${state.trends[0].date} — ${state.trends.at(-1).date}`:'暂无趋势数据';
-   $('.bi-disclaimer').textContent=`${demo?'合成样例 · 业务口径待确认':'指标直接展示输入值 · 来源由宿主负责'}${state.updatedAt?' · 数据时间 '+state.updatedAt:''}`;
+   $('.bi-heading .sample-tag').textContent=demo?'模拟数据':'T+1数据';$('.bi-heading>span').textContent=state.trends.length?`${state.trends.length}天 / ${state.trends[0].date} — ${state.trends.at(-1).date}`:'暂无趋势数据';
+   $('.bi-disclaimer').textContent=`${demo?'合成样例 · 业务口径待确认':'数据服务返回值 · 未提供分群指标时仅展示全部顾客'}${state.updatedAt?' · 数据时间 '+state.updatedAt:''}`;
    $('#permission').checked=state.permissions.canViewCameras;$('#permission').disabled=!demo;
    for(const id of ['peak-demo','dense-demo'])$(`#${id}`).disabled=!demo;
    $('#reset').disabled=!demo;$('#reset').textContent=`示例人数 · ${regions.reduce((n,r)=>n+BigInt(initial.regions[r.id].current||0),0n)}`;

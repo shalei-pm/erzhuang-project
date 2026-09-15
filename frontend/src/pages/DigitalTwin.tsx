@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { digitalTwinApi, type DigitalTwinDashboard } from "../api-digital-twin";
+import { digitalTwinApi, type DigitalTwinDashboard, type DigitalTwinT1BI } from "../api-digital-twin";
 import { nvrLabApi } from "../api-nvr-lab";
 import { composeMonitorScreenshot } from "../domain/screenshot-watermark";
 import { NVRLabPlayer } from "../components/NVRLabPlayer";
@@ -86,6 +86,32 @@ function dashboardPatch(dashboard: DigitalTwinDashboard, stale: boolean): TwinPa
   };
 }
 
+function t1BIPatch(data: DigitalTwinT1BI): TwinPatch {
+  return {
+    trends: data.trends.map(trend => ({
+      date: trend.date,
+      visitAll: trend.visit_all,
+      noConsult: null,
+      consult: null,
+      stayAll: trend.stay_all,
+      stayNo: null,
+      stayConsult: null,
+      waitAll: trend.wait_all,
+      waitNo: null,
+      waitConsult: null,
+      upgradeAll: trend.upgrade_all,
+      upgradeNo: null,
+      upgradeConsult: null,
+      redemptionAll: trend.redemption_all,
+      redemptionNo: null,
+      redemptionConsult: null,
+      servicePointAll: trend.service_point_all,
+      servicePointNo: null,
+      servicePointConsult: null,
+    })),
+  };
+}
+
 function applySnapshotPatch(snapshot: TwinSnapshot, patch: TwinPatch) {
   if (patch.mode) snapshot.mode = patch.mode;
   if (patch.updatedAt !== undefined) snapshot.updatedAt = patch.updatedAt;
@@ -101,6 +127,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
   const [selected, setSelected] = useState<string | null>(null);
   const [data, setData] = useState<NVRLabCameraListResponse | null>(null);
   const [dashboardState, setDashboardState] = useState<DashboardRefreshState<DigitalTwinDashboard>>({ value: null, stale: false });
+  const [t1BIState, setT1BIState] = useState<DashboardRefreshState<DigitalTwinT1BI>>({ value: null, stale: false });
   const [dashboardRefresh, setDashboardRefresh] = useState(0);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -126,7 +153,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setData(null); setDashboardState({ value: null, stale: false }); setFrameDocument(null); setActiveCamera(null); setMessage("");
+    setLoading(true); setData(null); setDashboardState({ value: null, stale: false }); setT1BIState({ value: null, stale: false }); setFrameDocument(null); setActiveCamera(null); setMessage("");
     void digitalTwinApi.stores().then(result => {
       if (cancelled) return;
       const next = (result.cities || []).flatMap(group => group.stores);
@@ -148,7 +175,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
-    setLoading(true); setData(null); setDashboardState({ value: null, stale: false }); setFrameDocument(null); setActiveCamera(null); setMessage("");
+    setLoading(true); setData(null); setDashboardState({ value: null, stale: false }); setT1BIState({ value: null, stale: false }); setFrameDocument(null); setActiveCamera(null); setMessage("");
     void digitalTwinApi.cameras(selected, controller.signal).then(result => {
       if (!controller.signal.aborted) setData(result);
     }).catch(error => { if (!controller.signal.aborted) setMessage(error.message || "摄像头加载失败"); })
@@ -169,6 +196,17 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
 
   useEffect(() => {
     if (!selected) return;
+    const controller = new AbortController();
+    void digitalTwinApi.t1BI(selected, controller.signal).then(result => {
+      if (!controller.signal.aborted) setT1BIState(current => dashboardRefreshSucceeded(current, result));
+    }).catch(() => {
+      if (!controller.signal.aborted) setT1BIState(dashboardRefreshFailed);
+    });
+    return () => controller.abort();
+  }, [selected, reload]);
+
+  useEffect(() => {
+    if (!selected) return;
     return startDigitalTwinRefreshPolling(() => setDashboardRefresh(value => value + 1));
   }, [selected]);
 
@@ -178,11 +216,16 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     if (!win?.TwinDashboard || !win.TwinDemo) { setMessage("数字孪生组件加载失败，请刷新重试"); return; }
     const snapshot = win.TwinDemo.create();
     snapshot.store = { id: data.external_org_id, name: data.store_name, experimentStoreCount: stores.length, userName: displayName };
+    snapshot.trends = [];
     const currentDashboard = dashboardStateRef.current;
     if (currentDashboard.value && currentDashboard.value.tenant_id === data.tenant_id) {
       applySnapshotPatch(snapshot, dashboardPatch(currentDashboard.value, currentDashboard.stale));
     } else if (currentDashboard.stale) {
       applySnapshotPatch(snapshot, dashboardStalePatch());
+    }
+    const currentT1BI = t1BIState.value;
+    if (currentT1BI && currentT1BI.tenant_id === data.tenant_id) {
+      applySnapshotPatch(snapshot, t1BIPatch(currentT1BI));
     }
     for (const region of win.TwinDashboard.regionIds) {
       snapshot.regions[region].cameras = regionCameras(data.cameras || [], region).map(camera => ({ id: String(camera.id), name: camera.space_name || camera.name || `摄像头 ${camera.id}`, occupied: null, canView: true }));
@@ -204,7 +247,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     twinInstance.current = instance;
     frameDocument.querySelector(".account-copy small")!.textContent = "已登录二壮";
     frameDocument.querySelectorAll(".experiment-stores small,.store-picker .sample-tag").forEach(node => { node.textContent = "已开放"; });
-    frameDocument.querySelector(".scene-footer span")!.textContent = "人数与运营图表为演示数据 · 摄像头来自真实门店";
+    frameDocument.querySelector(".scene-footer span")!.textContent = "人数为演示数据 · 运营趋势来自 T+1 数据服务 · 摄像头来自真实门店";
     frameDocument.querySelector(".store-menu-note")!.textContent = "仅展示白名单内且已授权的机构";
     frameDocument.querySelector("#store-selector-help")!.textContent = "选择已开放且有权限的机构";
     const element = frame.current;
@@ -222,7 +265,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
       if (twinInstance.current === instance) twinInstance.current = null;
       instance.destroy();
     };
-  }, [data, frameDocument, directory, displayName, stores.length]);
+  }, [data, frameDocument, directory, displayName, stores.length, t1BIState.value]);
 
   useEffect(() => {
     if (!twinInstance.current) return;
@@ -231,7 +274,10 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     } else if (dashboardState.stale) {
       twinInstance.current.update(dashboardStalePatch());
     }
-  }, [data?.tenant_id, dashboard, dashboardState.stale]);
+    if (t1BIState.value && t1BIState.value.tenant_id === data?.tenant_id) {
+      twinInstance.current.update(t1BIPatch(t1BIState.value));
+    }
+  }, [data?.tenant_id, dashboard, dashboardState.stale, t1BIState.value]);
 
   return <div className="digital-twin-module">
     {loading ? <div className="twin-empty" role="status">正在加载数字孪生...</div> : null}

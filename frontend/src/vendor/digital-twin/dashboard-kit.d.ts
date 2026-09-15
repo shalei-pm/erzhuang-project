@@ -9,6 +9,7 @@ interface TwinStore { id: string; name: string; experimentStoreCount: TwinMeasur
 interface TwinOverview { expected: TwinMeasurement; arrived: TwinMeasurement; receptionists: TwinMeasurement; consultants: TwinMeasurement; nurses: TwinMeasurement; doctors: TwinMeasurement; }
 interface TwinTrend {
  date: string;
+ visitAll: TwinMeasurement;
  noConsult: TwinMeasurement; consult: TwinMeasurement;
  stayAll: TwinMeasurement; stayNo: TwinMeasurement; stayConsult: TwinMeasurement;
  waitAll: TwinMeasurement; waitNo: TwinMeasurement; waitConsult: TwinMeasurement;

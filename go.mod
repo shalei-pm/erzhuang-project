@@ -7,6 +7,7 @@ require (
 	github.com/dubbogo/grpc-go v1.42.10
 	github.com/dubbogo/triple v1.2.2-rc3
 	github.com/go-sql-driver/mysql v1.8.1
+	gitlab.sy.soyoung.com/go/hprose v1.1.9
 	google.golang.org/protobuf v1.33.0
 	nhooyr.io/websocket v1.8.17
 )
@@ -32,6 +33,7 @@ require (
 	github.com/cncf/xds/go v0.0.0-20230310173818-32f1caf87195 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
+	github.com/cornelk/hashmap v1.0.8 // indirect
 	github.com/creasty/defaults v1.5.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.7.0 // indirect
