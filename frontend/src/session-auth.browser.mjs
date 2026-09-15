@@ -116,8 +116,16 @@ try {
         statusResponse: { status, body: status === 401 ? { code: "session_absolute_timeout" } : { error: "unavailable" } },
       });
       await test.page.getByRole("button", { name: "退出登录" }).waitFor();
-      if (status === 401) await test.page.waitForURL("**/logout?*");
-      else await assertBlocked(test.page);
+      if (status === 401) {
+        await test.page.waitForURL("**/logout?*");
+        const logout = new URL(test.page.url());
+        const gateway = new URL(logout.searchParams.get("redirect"));
+        const expectedTarget = path === "/" ? `${base}/` : `${base}${path}`;
+        const expectedFromURI = path === "/"
+          ? `${origin}${base}/`
+          : `${origin}${base}/?return_to=${encodeURIComponent(expectedTarget)}`;
+        assert.equal(gateway.searchParams.get("from_uri"), expectedFromURI);
+      } else await assertBlocked(test.page);
       assert.equal(test.requests.filter((url) => url.endsWith("/session-status")).length, 1);
       if (status === 503) assert.equal(test.navigations.length, 1);
       assert.deepEqual(test.errors, []);
