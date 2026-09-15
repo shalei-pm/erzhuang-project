@@ -7,7 +7,7 @@ export const fixtureStores = [
   {external_org_id:"10042",store_name:"联调示例机构",city:"上海",available_camera_count:1},
 ];
 export function previewState() { return { store_ids:["10001"], version:"preview:0", requests:[] }; }
-export function fixtureAPI(path, method, body, state) {
+export function fixtureAPI(path, method, body, state, options={}) {
   state.requests.push({path,method,body});
   if (path.endsWith("/auth/me")) return [200,{enabled:true,authenticated:true,user:{display_name:"本地联调账号",email:"preview@example.invalid",role:"admin",permissions:["store.read","store.write","user.manage","audit.view"]}}];
   if (path.endsWith("/auth/session-status")) return [200,{authenticated:true}];
@@ -21,6 +21,33 @@ export function fixtureAPI(path, method, body, state) {
   }
   if (path.endsWith("/admin/digital-twin-candidates")) return [200,{cities:[{city:"北京",stores:fixtureStores}]}];
   if (path.endsWith("/digitaltwin/stores")) return [200,{cities:[{city:"北京",stores:fixtureStores.filter(store=>state.store_ids.includes(store.external_org_id))}]}];
+  const dashboardMatch = path.match(/\/digitaltwin\/orgs\/(\d+)\/dashboard$/);
+  if (dashboardMatch) {
+    if (!state.store_ids.includes(dashboardMatch[1])) return [403,{error:"暂无该机构数字孪生访问权限"}];
+    if (options.dashboardUnavailable) return [503,{error:"本地联调模拟 RPC 暂不可用",code:"preview_rpc_unavailable"}];
+    return [200,{
+      tenant_id:Number(dashboardMatch[1]),
+      date:"2026-09-15",
+      fetched_at:"2026-09-15T10:30:00+08:00",
+      overview:{expected_arrival:61,arrived:43,no_consult:13,need_consult:30,non_quick_medical_beauty:0},
+      duty_staff:{consultants:5,nurses:6,doctors:7},
+      traffic_flow:{
+        reception_current:9,
+        consultation_current:3,
+        consultation_served:17,
+        waiting:4,
+        waiting_no_consult:1,
+        waiting_need_consult:3,
+        waiting_non_quick_medical_beauty:0,
+        treatment_current:8,
+        treatment_served:19,
+        treatment_served_no_consult:7,
+        treatment_served_need_consult:12,
+        treatment_served_non_quick_medical_beauty:0,
+        postoperative_care:2,
+      },
+    }];
+  }
   const match = path.match(/\/digitaltwin\/orgs\/(\d+)\/cameras(?:\/(\d+)\/stream-session)?$/);
   if (match) {
     if (!state.store_ids.includes(match[1])) return [403,{error:"暂无该机构数字孪生访问权限"}];
