@@ -57,3 +57,9 @@ validation, and all-or-nothing failure behavior.
 The production constructor initializes the consumer on its first request. If
 registry or client initialization fails, the dashboard endpoint returns a
 controlled 503 rather than synthetic values.
+
+The frontend requests metrics immediately when a store is selected, then
+refreshes them every 30 seconds while the page is visible. Background tabs do
+not poll. Returning to a visible tab triggers one immediate refresh and starts
+a new 30-second interval. Failed refreshes preserve the last displayed values
+and mark affected metrics as stale instead of replacing them with zero.

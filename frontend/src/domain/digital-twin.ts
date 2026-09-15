@@ -1,5 +1,52 @@
 import type { NVRLabCamera } from "./nvr-lab";
 
+export const DIGITAL_TWIN_REFRESH_INTERVAL_MS = 30_000;
+
+export type DashboardRefreshState<T> = { value: T | null; stale: boolean };
+
+export function dashboardRefreshSucceeded<T>(
+  _current: DashboardRefreshState<T> | null,
+  value: T,
+): DashboardRefreshState<T> {
+  return { value, stale: false };
+}
+
+export function dashboardRefreshFailed<T>(current: DashboardRefreshState<T>): DashboardRefreshState<T> {
+  return { value: current.value, stale: true };
+}
+
+export function startDigitalTwinRefreshPolling(
+  refresh: () => void,
+  intervalMS = DIGITAL_TWIN_REFRESH_INTERVAL_MS,
+): () => void {
+  let timer: ReturnType<typeof setInterval> | undefined;
+
+  const stopTimer = () => {
+    clearInterval(timer);
+    timer = undefined;
+  };
+  const startTimer = () => {
+    stopTimer();
+    if (document.visibilityState !== "visible") return;
+    timer = setInterval(refresh, intervalMS);
+  };
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      refresh();
+      startTimer();
+      return;
+    }
+    stopTimer();
+  };
+
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  startTimer();
+  return () => {
+    stopTimer();
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  };
+}
+
 export function parseInstitutionID(value: string): string | null {
   const id = value.trim();
   return /^[1-9][0-9]{0,17}$/.test(id) ? id : null;

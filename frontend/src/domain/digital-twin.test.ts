@@ -1,5 +1,79 @@
-import { describe, expect, it } from "vitest";
-import { cameraRegion, chooseTwinStore, parseInstitutionID, regionCameras } from "./digital-twin";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  DIGITAL_TWIN_REFRESH_INTERVAL_MS,
+  cameraRegion,
+  chooseTwinStore,
+  dashboardRefreshFailed,
+  dashboardRefreshSucceeded,
+  parseInstitutionID,
+  regionCameras,
+  startDigitalTwinRefreshPolling,
+} from "./digital-twin";
+
+describe("digital twin live metric polling", () => {
+  let visibility: EventTarget & { visibilityState: string };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    visibility = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    vi.stubGlobal("document", visibility);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("refreshes every 30 seconds while the page is visible", async () => {
+    const refresh = vi.fn();
+    const stop = startDigitalTwinRefreshPolling(refresh);
+
+    await vi.advanceTimersByTimeAsync(DIGITAL_TWIN_REFRESH_INTERVAL_MS - 1);
+    expect(refresh).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(DIGITAL_TWIN_REFRESH_INTERVAL_MS);
+    expect(refresh).toHaveBeenCalledTimes(2);
+
+    stop();
+  });
+
+  it("pauses while hidden and refreshes immediately when visible again", async () => {
+    const refresh = vi.fn();
+    const stop = startDigitalTwinRefreshPolling(refresh);
+
+    visibility.visibilityState = "hidden";
+    visibility.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(DIGITAL_TWIN_REFRESH_INTERVAL_MS * 2);
+    expect(refresh).not.toHaveBeenCalled();
+
+    visibility.visibilityState = "visible";
+    visibility.dispatchEvent(new Event("visibilitychange"));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(DIGITAL_TWIN_REFRESH_INTERVAL_MS - 1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(refresh).toHaveBeenCalledTimes(2);
+
+    stop();
+  });
+
+  it("cleans up its timer and visibility listener", async () => {
+    const refresh = vi.fn();
+    const stop = startDigitalTwinRefreshPolling(refresh);
+    stop();
+
+    await vi.advanceTimersByTimeAsync(DIGITAL_TWIN_REFRESH_INTERVAL_MS);
+    visibility.dispatchEvent(new Event("visibilitychange"));
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("keeps the last successful dashboard when a refresh fails", () => {
+    const previous = dashboardRefreshSucceeded(null, { tenant_id: 10001, arrived: 6 });
+    expect(previous).toEqual({ value: { tenant_id: 10001, arrived: 6 }, stale: false });
+    expect(dashboardRefreshFailed(previous)).toEqual({ value: previous.value, stale: true });
+  });
+});
 
 describe("digital twin routing and mapping", () => {
   it("defaults to Poly only when allowed", () => {
