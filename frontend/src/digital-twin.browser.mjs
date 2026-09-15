@@ -78,6 +78,7 @@ try {
     assert.equal(await kit.locator(".room-title-row").evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth)), true);
     assert.equal(await kit.locator(".chart-card").count(), 6);
     assert.equal(await kit.locator(".chart-card.is-active").count(), 5);
+    assert.equal((await kit.locator('#bi-charts').textContent()).includes('输入数据'), false);
     await kit.locator('#bi-charts').evaluate(container => {
       window.TwinCharts.render(container, window.TwinChartData.buildDemoData(), {mode:'demo'});
     });
