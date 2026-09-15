@@ -14,21 +14,50 @@ type fakeProvider struct {
 	traffic  TrafficFlow
 	err      error
 	calls    atomic.Int32
+	dates    chan string
 }
 
-func (p *fakeProvider) GetOverview(context.Context, Request) (Overview, error) {
+func (p *fakeProvider) record(request Request) {
+	if p.dates != nil {
+		p.dates <- request.Date
+	}
+}
+
+func (p *fakeProvider) GetOverview(_ context.Context, request Request) (Overview, error) {
 	p.calls.Add(1)
+	p.record(request)
 	return p.overview, p.err
 }
 
-func (p *fakeProvider) GetDutyStaff(context.Context, Request) (DutyStaff, error) {
+func (p *fakeProvider) GetDutyStaff(_ context.Context, request Request) (DutyStaff, error) {
 	p.calls.Add(1)
+	p.record(request)
 	return p.staff, p.err
 }
 
-func (p *fakeProvider) GetTrafficFlow(context.Context, Request) (TrafficFlow, error) {
+func (p *fakeProvider) GetTrafficFlow(_ context.Context, request Request) (TrafficFlow, error) {
 	p.calls.Add(1)
+	p.record(request)
 	return p.traffic, p.err
+}
+
+func TestServiceDefaultsEmptyDateToShanghaiBusinessDate(t *testing.T) {
+	provider := &fakeProvider{dates: make(chan string, 3)}
+	service := NewService(provider)
+	service.now = func() time.Time { return time.Date(2026, 9, 14, 16, 30, 0, 0, time.UTC) }
+
+	result, err := service.Get(context.Background(), Request{TenantID: 10001})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Date != "2026-09-15" {
+		t.Fatalf("Date = %q", result.Date)
+	}
+	for range 3 {
+		if got := <-provider.dates; got != "2026-09-15" {
+			t.Fatalf("provider date = %q", got)
+		}
+	}
 }
 
 func TestServiceCallsAllRPCsAndPreservesZeroValuesAsBusinessData(t *testing.T) {

@@ -6424,3 +6424,10 @@ git pull --ff-only
 - 4.4.0 测试提交 `9e9524c` 触发 Wharf 构建 `273193`，于 2026-09-15 09:39 失败；本地按 Dockerfile 的 Linux `CGO_ENABLED=0` 参数复现公司 `go/library v1.18.50` 的 qconf 包无可用 Go 文件。
 - 公司基础库 `v1.18.50` 已是最新发布版本。经用户明确确认，Web 服务改用 Linux CGO 构建，并在构建阶段从二进制依赖中识别 `libqconf`，存在动态依赖时复制到 `/app/lib`；NVR 回填工具仍保持原来的纯 Go 静态构建。
 - 该调整只解决镜像构建和运行依赖，不修改 RPC 协议、ZooKeeper 地址、实例配置、Secret、数据库、nginx 或 CI。真实业务数据仍须待 4.4.1 测试镜像成功部署后验证。
+
+### 2026-09-15 4.4.2 纯 Go Triple/ZooKeeper 客户端
+
+- 4.4.1 测试提交 `42de483` 触发 Wharf 构建 `273213`，仍在公司镜像构建阶段失败，说明当前构建基础镜像不能可靠承载 `go/library` 的 Linux qconf/CGO 链路。
+- 为保留当前稳定的纯 Go 静态镜像，移除 `go/library` 包装依赖，直接使用 Dubbo-Go Triple 客户端和 ZooKeeper interface discovery。注册中心仍遵循公司基础库同一环境约定：`local/test` 使用 `10.10.10.100:2181`，`pre` 使用 `172.16.16.60:2181`，`prod` 使用五个 register-center 域名。
+- 客户端首次请求时初始化，三路 RPC 复用同一初始化结果；初始化或注册中心失败时返回受控 503并保留前端旧数据。Dockerfile 恢复 `CGO_ENABLED=0`，不需要 qconf 动态库，也不增加实例配置。
+- 2026-09-15 09:56 从本机完成一次低频只读冒烟：测试 ZooKeeper 连接成功、发现 `com.soyoung.primecrm.SdyService`，tenant `10001` 的三路 RPC 均成功返回。当天关键值“预计到店、已到店、等待中、治疗中”均为 0，说明技术链路已接通但当前业务返回零值；前端应展示业务 0，而不是请求失败状态。
