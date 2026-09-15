@@ -7,11 +7,11 @@ The approved protocol source is kept at:
 proto/soyoung/primecrm/sdy.proto
 ```
 
-The service full name is `com.soyoung.primecrm.SdyService`. The company base
-library uses ZooKeeper interface discovery, so the application must not put a
-provider `host:port` in source code. In test, the base library selects
-`10.10.10.100:2181` from `APP_RUN_ENV=test`; production selection remains the
-base library's responsibility.
+The service full name is `com.soyoung.primecrm.SdyService`. The application
+uses Dubbo-Go Triple with ZooKeeper interface discovery and never configures a
+fixed provider `host:port`. `APP_RUN_ENV` selects the same registry convention
+as the company base library: test uses `10.10.10.100:2181`, while production
+uses the company register-center hostnames.
 
 ## Required generated artifacts
 
@@ -42,19 +42,18 @@ PATH="$PWD/.tools/bin:$PATH" protoc \
 
 ## Provider adapter contract
 
-Implement `digitaltwin.Provider` by obtaining the generated client through the
-company wrapper:
-
-```go
-client := dubbo.GetClient[primecrm.SdyServiceClientImpl]()
-```
+Implement `digitaltwin.Provider` with the generated Triple client and a lazy
+Dubbo-Go consumer configuration. The project does not import the company
+wrapper because its Linux qconf adapter requires CGO and is incompatible with
+this project's static container build. The direct consumer keeps the same
+Triple protocol, service name, ZooKeeper discovery convention, and request
+contract without requiring instance-level configuration.
 
 Map the three generated responses into `Overview`, `DutyStaff`, and
 `TrafficFlow`. The adapter should use the request's `TenantID` and `Date` for
 all three calls. `digitaltwin.Service` owns the shared timeout, concurrency,
 validation, and all-or-nothing failure behavior.
 
-The production constructor initializes this provider when the company library
-is available. The library selects ZooKeeper from `APP_RUN_ENV`; if client
-initialization fails, the dashboard endpoint returns a controlled 503 rather
-than synthetic values.
+The production constructor initializes the consumer on its first request. If
+registry or client initialization fails, the dashboard endpoint returns a
+controlled 503 rather than synthetic values.

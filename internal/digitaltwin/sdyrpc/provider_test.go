@@ -83,6 +83,38 @@ func TestProviderRecoversRPCClientPanic(t *testing.T) {
 	}
 }
 
+func TestProviderReturnsPreparationFailure(t *testing.T) {
+	provider := newProvider(nil, nil, nil)
+	provider.prepare = func() error { return errors.New("registry init failed") }
+
+	_, err := provider.GetOverview(context.Background(), digitaltwin.Request{TenantID: 10001})
+	if err == nil || !strings.Contains(err.Error(), "registry init failed") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRPCConfigForEnvironment(t *testing.T) {
+	testConfig, err := rpcConfigForEnvironment("test", "", "erzhuang-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if testConfig.environment != "test" || testConfig.application != "erzhuang-project-serve" || testConfig.zkAddress != "10.10.10.100:2181" {
+		t.Fatalf("test config = %#v", testConfig)
+	}
+
+	prodConfig, err := rpcConfigForEnvironment("prod", "", "erzhuang-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prodConfig.zkAddress, "register-center1.sy.soyoung.com:2181") || !strings.Contains(prodConfig.zkAddress, "register-center5.sy.soyoung.com:2181") {
+		t.Fatalf("prod config = %#v", prodConfig)
+	}
+
+	if _, err := rpcConfigForEnvironment("unknown", "", ""); err == nil {
+		t.Fatal("expected unsupported environment error")
+	}
+}
+
 func assertRequest(t *testing.T, got, want *primecrm.QuickMedicalBeautyDashboardRequest) {
 	t.Helper()
 	if got.GetTenantId() != want.GetTenantId() || got.GetDate() != want.GetDate() {

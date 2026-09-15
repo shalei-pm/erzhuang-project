@@ -24,11 +24,8 @@ RUN go mod download
 
 COPY . ./
 RUN go test ./...
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o /out/erzhuang-project ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/erzhuang-project ./cmd/server
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/nvr-snapshot-backfill ./cmd/nvr-snapshot-backfill
-RUN mkdir -p /out/lib \
-    && qconf_path="$(ldd /out/erzhuang-project | awk '/libqconf/{print $3; exit}')" \
-    && if [ -n "${qconf_path}" ]; then cp -L "${qconf_path}" /out/lib/; fi
 
 FROM soyoung-registry-vpc.cn-beijing.cr.aliyuncs.com/sy-system/minidocks/poppler:latest AS runtime
 WORKDIR /app
@@ -41,10 +38,7 @@ RUN command -v pdftoppm
 COPY --from=go-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=go-builder /out/erzhuang-project /app/erzhuang-project
 COPY --from=go-builder /out/nvr-snapshot-backfill /app/nvr-snapshot-backfill
-COPY --from=go-builder /out/lib /app/lib
 COPY --from=frontend-builder /src/frontend/dist /app/frontend/dist
-
-ENV LD_LIBRARY_PATH=/app/lib
 
 EXPOSE 18080
 
