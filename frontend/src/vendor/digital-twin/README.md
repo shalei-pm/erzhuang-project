@@ -30,6 +30,13 @@ Keep the existing value and mark only the affected fields:
 Stale measurements keep their previous value and show a quiet amber status dot.
 If there is no previous value, the dashboard keeps `—` and shows the same dot.
 
-The fifth BI slot alternates every 7 seconds between `人均核销金额` and
-`人均核销服务点`. Both charts keep the same three customer segments and may
+The fifth BI slot alternates every 7 seconds between `核销客单价` and
+`人均服务点数`. Both charts keep the same three customer segments and may
 also be selected manually with the two chart indicators.
+
+The arrival chart is titled `到院人次` and uses `人次` as its unit. When the
+upstream payload provides all three explicit paths (`visit_front_desk`,
+`visit_no_consult`, and `visit_need_consult`), the chart renders a true stacked
+bar for `前台签到 / 非面诊 / 面诊`. If any path is missing, that date renders
+only the `全部顾客` total bar. Never derive front-desk visits by subtracting
+the other paths from the total.
