@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { authEntryPath, authLogoutPath, authSessionTimeoutLogoutPath, consumeAuthReturnPath, safeAuthReturnPath } from "./auth";
+import { authEntryPath, authLogoutPath, authSessionTimeoutLogoutPath, consumeAuthReturnPath, pendingAuthReturnPathKey, rememberAuthReturnPath, safeAuthReturnPath } from "./auth";
 
 afterEach(() => vi.unstubAllGlobals());
 const home = "/erzhuang-project/";
@@ -26,7 +26,14 @@ it("returns manual logout to the current page and explicit home to home", () => 
   expect(authEntryPath(null)).toBe(home);
 });
 it("returns an idle-timeout logout to an entry URL carrying the original page", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  };
   browser(target);
+  Object.defineProperty(window, "sessionStorage", { value: storage, configurable: true });
   const logout = new URL(authSessionTimeoutLogoutPath(), "https://lite.sy.soyoung.com");
   const gateway = new URL(logout.searchParams.get("redirect")!);
   expect(gateway.searchParams.get("from_uri")).toBe(
@@ -38,11 +45,42 @@ it("returns an idle-timeout logout to an entry URL carrying the original page", 
   expect(timeoutGateway.searchParams.get("from_uri")).toBe(
     `https://lite.sy.soyoung.com${home}?return_to=${encodeURIComponent(target)}`,
   );
+  expect(storage.getItem(pendingAuthReturnPathKey)).toBe(target);
 });
 it("consumes the return target after successful authentication", () => {
   const replace = browser(`${home}?return_to=${encodeURIComponent(target)}`);
   expect(consumeAuthReturnPath()).toBe(true);
   expect(replace).toHaveBeenCalledWith(target);
+});
+it("clears a stale fallback after the SSO gateway preserves return_to", () => {
+  const values = new Map<string, string>([[pendingAuthReturnPathKey, target]]);
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  };
+  const replace = browser(`${home}?return_to=${encodeURIComponent(target)}`);
+  Object.defineProperty(window, "sessionStorage", { value: storage, configurable: true });
+  expect(consumeAuthReturnPath()).toBe(true);
+  expect(replace).toHaveBeenCalledWith(target);
+  expect(storage.getItem(pendingAuthReturnPathKey)).toBeNull();
+});
+it("restores a timeout target when the SSO gateway drops return_to", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  };
+  browser(target);
+  Object.defineProperty(window, "sessionStorage", { value: storage, configurable: true });
+  expect(rememberAuthReturnPath(storage)).toBe(true);
+
+  const homeReplace = browser(home);
+  Object.defineProperty(window, "sessionStorage", { value: storage, configurable: true });
+  expect(consumeAuthReturnPath()).toBe(true);
+  expect(homeReplace).toHaveBeenCalledWith(target);
+  expect(storage.getItem(pendingAuthReturnPathKey)).toBeNull();
 });
 it("rejects external, escaped and authentication endpoints", () => {
   for (const value of ["https://evil.example", "//evil.example", `${home}../other`, `${home}%2e%2e/other`, `${home}%5cevil`, `${home}%252e%252e/other`, `${home}api/auth/logout`, `${home}_/auth/callback`, `${home}logout`]) expect(safeAuthReturnPath(value)).toBe(home);

@@ -30,6 +30,7 @@ export type SessionStorageLike = Pick<Storage, "getItem" | "setItem" | "removeIt
 
 export const idleSessionTimeoutRedirectKey = "erzhuang:idle-session-timeout-redirected";
 export const sessionLoginRedirectKey = "erzhuang:session-login-redirected";
+export const pendingAuthReturnPathKey = "erzhuang:pending-auth-return-path";
 
 const jointLogoutCodes = new Set(["session_idle_timeout", "session_absolute_timeout", "session_reauthentication_required"]);
 const sessionAuthListeners = new Set<(error: unknown) => void>();
@@ -159,6 +160,13 @@ export function authLoginPath(loginUrl?: string) {
   return withAuthReturnPath(loginUrl || `${authBasePath()}/_/auth/callback`);
 }
 
+export function rememberAuthReturnPath(storage: Pick<Storage, "setItem" | "removeItem"> | null = safeSessionStorage()): boolean {
+  const home = `${authBasePath()}/`;
+  const target = currentAuthReturnPath();
+  if (target === home) return removeSessionStorage(pendingAuthReturnPathKey, storage);
+  return writeSessionStorage(pendingAuthReturnPathKey, target, storage);
+}
+
 export function safeAuthReturnPath(value: string): string {
   const home = `${authBasePath()}/`;
   try {
@@ -191,10 +199,14 @@ function withAuthReturnPath(entry: string): string {
 export function consumeAuthReturnPath(): boolean {
   const url = new URL(window.location.href);
   const carried = url.searchParams.get("return_to");
-  if (!carried) return false;
-  const target = safeAuthReturnPath(carried);
-  url.searchParams.delete("return_to");
-  window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  const stored = readSessionStorage(pendingAuthReturnPathKey);
+  if (!carried && !stored) return false;
+  const target = safeAuthReturnPath(carried || stored || "");
+  if (carried) {
+    url.searchParams.delete("return_to");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  }
+  if (stored) removeSessionStorage(pendingAuthReturnPathKey);
   if (target === url.pathname + url.search + url.hash) return false;
   window.location.replace(target);
   return true;
@@ -216,6 +228,7 @@ export function authLogoutPath(hostname = currentHostname()) {
 // the gateway fall back to its default home after the next QR login.
 export function authSessionTimeoutLogoutPath(hostname = currentHostname()) {
   const target = currentAuthReturnPath();
+  rememberAuthReturnPath();
   const entry = `${authBasePath()}/`;
   const returnURI = target === entry
     ? `${companySSOOrigin(normalizeCompanyHostname(hostname))}${entry}`

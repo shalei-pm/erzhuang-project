@@ -8,6 +8,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const browser = await chromium.launch({ ...(process.env.QA_CHROMIUM_EXECUTABLE ? { executablePath: process.env.QA_CHROMIUM_EXECUTABLE } : { channel: "chrome" }), headless: true });
 const localOrigin = process.env.QA_LOCAL_ORIGIN || "http://127.0.0.1:5178";
 const origin = "http://lite.sy.soyoung.com";
+const companyOrigin = "https://lite.sy.soyoung.com";
 const base = "/erzhuang-project";
 const routes = ["/", "/h5/orgs/10001/monitor"];
 const codes = ["session_idle_timeout", "session_absolute_timeout", "session_reauthentication_required"];
@@ -122,8 +123,8 @@ try {
         const gateway = new URL(logout.searchParams.get("redirect"));
         const expectedTarget = path === "/" ? `${base}/` : `${base}${path}`;
         const expectedFromURI = path === "/"
-          ? `${origin}${base}/`
-          : `${origin}${base}/?return_to=${encodeURIComponent(expectedTarget)}`;
+          ? `${companyOrigin}${base}/`
+          : `${companyOrigin}${base}/?return_to=${encodeURIComponent(expectedTarget)}`;
         assert.equal(gateway.searchParams.get("from_uri"), expectedFromURI);
       } else await assertBlocked(test.page);
       assert.equal(test.requests.filter((url) => url.endsWith("/session-status")).length, 1);
@@ -145,6 +146,19 @@ try {
   assert.equal(jointLogout.searchParams.get("from_uri"), `https://lite.sy.soyoung.com${destination}`);
   assert.deepEqual(returned.errors, []);
   await returned.context.close();
+  checked++;
+
+  const gatewayDroppedReturn = await setup("/");
+  await gatewayDroppedReturn.page.evaluate((path) => {
+    sessionStorage.setItem("erzhuang:pending-auth-return-path", path);
+  }, destination);
+  const restored = gatewayDroppedReturn.page.waitForURL(`${origin}${destination}`);
+  await gatewayDroppedReturn.page.reload().catch((error) => {
+    if (!String(error).includes("ERR_ABORTED")) throw error;
+  });
+  await restored;
+  assert.deepEqual(gatewayDroppedReturn.errors, []);
+  await gatewayDroppedReturn.context.close();
   checked++;
 
   const audit = await setup("/");
