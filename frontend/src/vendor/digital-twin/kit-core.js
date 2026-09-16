@@ -2,7 +2,7 @@
 (function(root){
  const regionIds=['reception','consultation','treatment','aftercare','waiting'];
  const overviewKeys=['expected','arrived','receptionists','consultants','nurses','doctors'];
- const trendKeys=['visitAll','noConsult','consult','stayAll','stayNo','stayConsult','waitAll','waitNo','waitConsult','upgradeAll','upgradeNo','upgradeConsult','redemptionAll','redemptionNo','redemptionConsult','servicePointAll','servicePointNo','servicePointConsult'];
+ const trendKeys=['visitAll','frontDesk','noConsult','consult','stayAll','stayNo','stayConsult','waitAll','waitNo','waitConsult','upgradeAll','upgradeNo','upgradeConsult','redemptionAll','redemptionNo','redemptionConsult','servicePointAll','servicePointNo','servicePointConsult'];
  const regionMeasurementKeys=['current','cumulative','noConsultation','consultationRequired','staff'];
  const clone=x=>structuredClone(x);
  function object(x,path){if(!x||typeof x!=='object'||Array.isArray(x)||Object.prototype.toString.call(x)!=='[object Object]'||(Object.getPrototypeOf(x)!==null&&Object.getPrototypeOf(x)?.constructor?.name!=='Object'))throw new TypeError(`${path}: expected plain object`);}
@@ -25,7 +25,7 @@
   }
   if(!Array.isArray(s.trends)||s.trends.length>3660)throw new TypeError('trends: array, maximum 3660 dates');
   let prev='';for(const d of s.trends){keys(d,['date',...trendKeys],'trends');if(typeof d.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(d.date)||!Number.isFinite(Date.parse(d.date))||new Date(d.date).toISOString().slice(0,10)!==d.date||d.date<=prev)throw new TypeError('trends.date: valid, unique, ascending YYYY-MM-DD');prev=d.date;
-   for(const k of trendKeys){const v=d[k];if(v!==null&&(typeof v!=='number'||!Number.isFinite(v)||v<0||v>1e12||(k.startsWith('upgrade')&&v>100)))throw new TypeError(`trends.${k}: invalid value`);if(['noConsult','consult'].includes(k)&&v!==null&&!Number.isSafeInteger(v))throw new TypeError(`trends.${k}: integer required`);}
+   for(const k of trendKeys){const v=d[k];if(v!==null&&(typeof v!=='number'||!Number.isFinite(v)||v<0||v>1e12||(k.startsWith('upgrade')&&v>100)))throw new TypeError(`trends.${k}: invalid value`);if(['frontDesk','noConsult','consult'].includes(k)&&v!==null&&!Number.isSafeInteger(v))throw new TypeError(`trends.${k}: integer required`);}
   }return s;
  }
  function merge(current,patch){

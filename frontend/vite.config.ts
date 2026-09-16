@@ -19,6 +19,7 @@ export default defineConfig({
       "src/domain/auth-return.test.ts",
       "src/domain/digital-twin.test.ts",
       "src/vendor/digital-twin/chart-data.test.js",
+      "src/vendor/digital-twin/kit-core.test.js",
       "src/domain/screenshot-watermark.test.ts",
     ],
     env: {
