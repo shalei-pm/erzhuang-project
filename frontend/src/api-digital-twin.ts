@@ -33,6 +33,7 @@ export type DigitalTwinT1BI = {
   trends: Array<{
     date: string;
     visit_all: number | null;
+    visit_front_desk: number | null;
     visit_no_consult: number | null;
     visit_need_consult: number | null;
     stay_all: number | null;
