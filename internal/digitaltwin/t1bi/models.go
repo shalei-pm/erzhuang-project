@@ -24,6 +24,8 @@ type Request struct {
 type DailyMetric struct {
 	Day                      string
 	VisitUserCount           *float64
+	VisitNoConsult           *float64
+	VisitNeedConsult         *float64
 	AvgInStoreMinutes        *float64
 	AvgWaitMinutes           *float64
 	UpgradeRate              *float64
@@ -32,13 +34,15 @@ type DailyMetric struct {
 }
 
 type Trend struct {
-	Date            string   `json:"date"`
-	VisitAll        *float64 `json:"visit_all"`
-	StayAll         *float64 `json:"stay_all"`
-	WaitAll         *float64 `json:"wait_all"`
-	UpgradeAll      *float64 `json:"upgrade_all"`
-	RedemptionAll   *float64 `json:"redemption_all"`
-	ServicePointAll *float64 `json:"service_point_all"`
+	Date             string   `json:"date"`
+	VisitAll         *float64 `json:"visit_all"`
+	VisitNoConsult   *float64 `json:"visit_no_consult"`
+	VisitNeedConsult *float64 `json:"visit_need_consult"`
+	StayAll          *float64 `json:"stay_all"`
+	WaitAll          *float64 `json:"wait_all"`
+	UpgradeAll       *float64 `json:"upgrade_all"`
+	RedemptionAll    *float64 `json:"redemption_all"`
+	ServicePointAll  *float64 `json:"service_point_all"`
 }
 
 type Dashboard struct {

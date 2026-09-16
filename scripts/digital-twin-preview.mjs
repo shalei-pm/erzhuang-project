@@ -6,6 +6,13 @@ export const fixtureStores = [
   {external_org_id:"10001",store_name:"北京保利总部店",city:"北京",available_camera_count:3},
   {external_org_id:"10042",store_name:"联调示例机构",city:"上海",available_camera_count:1},
 ];
+function fixtureT1Trends() {
+  return Array.from({length:30},(_,index)=>{
+    const date=new Date(Date.UTC(2026,7,17+index)).toISOString().slice(0,10);
+    const noConsult=24+(index%5),needConsult=12+(index%4);
+    return {date,visit_all:noConsult+needConsult,visit_no_consult:noConsult,visit_need_consult:needConsult,stay_all:50+(index%8),wait_all:8+(index%4),upgrade_all:12+(index%6),redemption_all:680+index*8,service_point_all:2.4+(index%5)*.1};
+  });
+}
 export function previewState() { return { store_ids:["10001"], version:"preview:0", requests:[] }; }
 export function fixtureAPI(path, method, body, state, options={}) {
   state.requests.push({path,method,body});
@@ -48,6 +55,8 @@ export function fixtureAPI(path, method, body, state, options={}) {
       },
     }];
   }
+  const t1Match=path.match(/\/digitaltwin\/orgs\/(\d+)\/t1-bi$/);
+  if(t1Match)return [200,{tenant_id:Number(t1Match[1]),begin_day:"2026-08-17",end_day:"2026-09-15",fetched_at:"2026-09-16T01:00:00Z",trends:fixtureT1Trends()}];
   const match = path.match(/\/digitaltwin\/orgs\/(\d+)\/cameras(?:\/(\d+)\/stream-session)?$/);
   if (match) {
     if (!state.store_ids.includes(match[1])) return [403,{error:"暂无该机构数字孪生访问权限"}];
@@ -70,6 +79,7 @@ export function fixtureAPI(path, method, body, state, options={}) {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const state = previewState();
+  const localOrigin = process.env.QA_LOCAL_ORIGIN || "http://127.0.0.1:5179";
   const server = http.createServer(async (request,response) => {
     try {
       const url = new URL(request.url,"http://127.0.0.1:5189");
@@ -79,7 +89,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
         const [status,body]=fixtureAPI(url.pathname,request.method,raw?JSON.parse(raw):{},state);
         response.writeHead(status,{"Content-Type":"application/json","Cache-Control":"no-store"}).end(JSON.stringify(body));return;
       }
-      const upstream=await fetch(`http://127.0.0.1:5179${url.pathname}${url.search}`);
+      const upstream=await fetch(`${localOrigin}${url.pathname}${url.search}`);
       response.writeHead(upstream.status,{"Content-Type":upstream.headers.get("content-type")||"text/plain","Cache-Control":"no-store"}).end(Buffer.from(await upstream.arrayBuffer()));
     } catch { response.writeHead(502).end("Local preview unavailable"); }
   });
