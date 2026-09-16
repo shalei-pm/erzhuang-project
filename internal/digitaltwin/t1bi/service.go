@@ -71,6 +71,7 @@ func (s *Service) Get(ctx context.Context, request Request) (Dashboard, error) {
 		byDay[row.Day] = Trend{
 			Date:             row.Day,
 			VisitAll:         row.VisitUserCount,
+			VisitFrontDesk:   row.VisitFrontDesk,
 			VisitNoConsult:   row.VisitNoConsult,
 			VisitNeedConsult: row.VisitNeedConsult,
 			StayAll:          row.AvgInStoreMinutes,

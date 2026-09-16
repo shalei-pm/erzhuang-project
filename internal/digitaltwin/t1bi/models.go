@@ -24,6 +24,7 @@ type Request struct {
 type DailyMetric struct {
 	Day                      string
 	VisitUserCount           *float64
+	VisitFrontDesk           *float64
 	VisitNoConsult           *float64
 	VisitNeedConsult         *float64
 	AvgInStoreMinutes        *float64
@@ -36,6 +37,7 @@ type DailyMetric struct {
 type Trend struct {
 	Date             string   `json:"date"`
 	VisitAll         *float64 `json:"visit_all"`
+	VisitFrontDesk   *float64 `json:"visit_front_desk"`
 	VisitNoConsult   *float64 `json:"visit_no_consult"`
 	VisitNeedConsult *float64 `json:"visit_need_consult"`
 	StayAll          *float64 `json:"stay_all"`

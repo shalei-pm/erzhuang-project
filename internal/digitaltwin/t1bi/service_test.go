@@ -20,7 +20,7 @@ func (p *providerStub) GetDailyMetrics(_ context.Context, request Request) ([]Da
 
 func TestServiceMapsDailyMetricsAndSortsDates(t *testing.T) {
 	provider := &providerStub{rows: []DailyMetric{
-		{Day: "2026-09-14", VisitUserCount: number(20), VisitNoConsult: number(12), VisitNeedConsult: number(8), AvgInStoreMinutes: number(48), AvgWaitMinutes: number(9), UpgradeRate: number(12.5), AvgWriteoffIncome: number(680.5), AvgWriteoffServicePoints: number(2.4)},
+		{Day: "2026-09-14", VisitUserCount: number(20), VisitFrontDesk: number(3), VisitNoConsult: number(12), VisitNeedConsult: number(8), AvgInStoreMinutes: number(48), AvgWaitMinutes: number(9), UpgradeRate: number(12.5), AvgWriteoffIncome: number(680.5), AvgWriteoffServicePoints: number(2.4)},
 		{Day: "2026-09-13", VisitUserCount: number(18)},
 	}}
 	service := NewService(provider)
@@ -35,7 +35,7 @@ func TestServiceMapsDailyMetricsAndSortsDates(t *testing.T) {
 	if result.BeginDay != "2026-08-17" || result.EndDay != "2026-09-15" || len(result.Trends) != 30 {
 		t.Fatalf("result = %#v", result)
 	}
-	if result.Trends[0].Date != "2026-08-17" || result.Trends[27].Date != "2026-09-13" || result.Trends[28].RedemptionAll == nil || *result.Trends[28].RedemptionAll != 680.5 || result.Trends[28].VisitNoConsult == nil || *result.Trends[28].VisitNoConsult != 12 || result.Trends[28].VisitNeedConsult == nil || *result.Trends[28].VisitNeedConsult != 8 || result.Trends[29].Date != "2026-09-15" || result.Trends[29].VisitAll != nil {
+	if result.Trends[0].Date != "2026-08-17" || result.Trends[27].Date != "2026-09-13" || result.Trends[28].RedemptionAll == nil || *result.Trends[28].RedemptionAll != 680.5 || result.Trends[28].VisitFrontDesk == nil || *result.Trends[28].VisitFrontDesk != 3 || result.Trends[28].VisitNoConsult == nil || *result.Trends[28].VisitNoConsult != 12 || result.Trends[28].VisitNeedConsult == nil || *result.Trends[28].VisitNeedConsult != 8 || result.Trends[29].Date != "2026-09-15" || result.Trends[29].VisitAll != nil {
 		t.Fatalf("trends = %#v", result.Trends)
 	}
 }
