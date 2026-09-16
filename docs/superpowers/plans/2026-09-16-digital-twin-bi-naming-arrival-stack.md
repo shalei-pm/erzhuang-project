@@ -21,7 +21,7 @@
 
 - [ ] **Step 1: Write failing provider and service tests**
 
-Add a provider response fixture containing `"visit_front_desk":3` and assert that `DailyMetric.VisitFrontDesk` equals `3`. Extend `TestServiceMapsDailyMetricsAndSortsDates` with `VisitFrontDesk: number(3)` and assert the mapped `Trend.VisitFrontDesk` equals `3`.
+Create `provider_test.go` with a provider response fixture containing `"visit_front_desk":3`; call a focused `decodeRows` helper and assert that `DailyMetric.VisitFrontDesk` equals `3`. Extend `TestServiceMapsDailyMetricsAndSortsDates` with `VisitFrontDesk: number(3)` and assert the mapped `Trend.VisitFrontDesk` equals `3`.
 
 - [ ] **Step 2: Run the focused tests and verify RED**
 
@@ -47,7 +47,7 @@ to `DailyMetric`, add:
 VisitFrontDesk *float64 `json:"visit_front_desk"`
 ```
 
-to `Trend`, parse the provider response field `visit_front_desk`, and map it in `Service.Get` without deriving it from other values.
+to `Trend`, parse the provider response field `visit_front_desk`, and map it in `Service.Get` without deriving it from other values. Extract the existing response unmarshal/status/row mapping block into `decodeRows(raw string)` so the mapping can be tested without a live Hprose server; `GetDailyMetrics` must delegate to it.
 
 - [ ] **Step 4: Run the focused tests and verify GREEN**
 

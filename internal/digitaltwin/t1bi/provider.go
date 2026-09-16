@@ -41,21 +41,26 @@ type payload struct {
 }
 
 type response struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-	Data struct {
-		Rows []struct {
-			Day                      string          `json:"st_day"`
-			VisitUserCount           json.RawMessage `json:"visit_user_count"`
-			VisitNoConsult           json.RawMessage `json:"visit_no_consult"`
-			VisitNeedConsult         json.RawMessage `json:"visit_need_consult"`
-			AvgInStoreMinutes        json.RawMessage `json:"avg_in_store_minutes"`
-			AvgWaitMinutes           json.RawMessage `json:"avg_wait_minutes"`
-			UpgradeRate              json.RawMessage `json:"upgrade_rate"`
-			AvgWriteoffIncome        json.RawMessage `json:"avg_writeoff_income"`
-			AvgWriteoffServicePoints json.RawMessage `json:"avg_writeoff_service_points"`
-		} `json:"data"`
-	} `json:"data"`
+	Code int          `json:"code"`
+	Msg  string       `json:"msg"`
+	Data responseData `json:"data"`
+}
+
+type responseData struct {
+	Rows []responseRow `json:"data"`
+}
+
+type responseRow struct {
+	Day                      string          `json:"st_day"`
+	VisitUserCount           json.RawMessage `json:"visit_user_count"`
+	VisitFrontDesk           json.RawMessage `json:"visit_front_desk"`
+	VisitNoConsult           json.RawMessage `json:"visit_no_consult"`
+	VisitNeedConsult         json.RawMessage `json:"visit_need_consult"`
+	AvgInStoreMinutes        json.RawMessage `json:"avg_in_store_minutes"`
+	AvgWaitMinutes           json.RawMessage `json:"avg_wait_minutes"`
+	UpgradeRate              json.RawMessage `json:"upgrade_rate"`
+	AvgWriteoffIncome        json.RawMessage `json:"avg_writeoff_income"`
+	AvgWriteoffServicePoints json.RawMessage `json:"avg_writeoff_service_points"`
 }
 
 func NewProvider(server string, timeout time.Duration) (*ProviderClient, error) {
@@ -121,6 +126,10 @@ func (c *ProviderClient) GetDailyMetrics(_ context.Context, request Request) ([]
 	if err != nil {
 		return nil, fmt.Errorf("invoke dataApi: %w", err)
 	}
+	return decodeRows(raw)
+}
+
+func decodeRows(raw string) ([]DailyMetric, error) {
 	var decoded response
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		return nil, fmt.Errorf("decode dataApi response: %w", err)
@@ -133,6 +142,7 @@ func (c *ProviderClient) GetDailyMetrics(_ context.Context, request Request) ([]
 		rows = append(rows, DailyMetric{
 			Day:                      row.Day,
 			VisitUserCount:           nullableNumber(row.VisitUserCount),
+			VisitFrontDesk:           nullableNumber(row.VisitFrontDesk),
 			VisitNoConsult:           nullableNumber(row.VisitNoConsult),
 			VisitNeedConsult:         nullableNumber(row.VisitNeedConsult),
 			AvgInStoreMinutes:        nullableNumber(row.AvgInStoreMinutes),
