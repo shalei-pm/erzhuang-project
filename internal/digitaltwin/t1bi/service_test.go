@@ -20,11 +20,11 @@ func (p *providerStub) GetDailyMetrics(_ context.Context, request Request) ([]Da
 
 func TestServiceMapsDailyMetricsAndSortsDates(t *testing.T) {
 	provider := &providerStub{rows: []DailyMetric{
-		{Day: "2026-09-14", VisitUserCount: number(20), AvgInStoreMinutes: number(48), AvgWaitMinutes: number(9), UpgradeRate: number(12.5), AvgWriteoffIncome: number(680.5), AvgWriteoffServicePoints: number(2.4)},
+		{Day: "2026-09-14", VisitUserCount: number(20), VisitNoConsult: number(12), VisitNeedConsult: number(8), AvgInStoreMinutes: number(48), AvgWaitMinutes: number(9), UpgradeRate: number(12.5), AvgWriteoffIncome: number(680.5), AvgWriteoffServicePoints: number(2.4)},
 		{Day: "2026-09-13", VisitUserCount: number(18)},
 	}}
 	service := NewService(provider)
-	service.now = func() time.Time { return time.Date(2026, 9, 15, 9, 0, 0, 0, businessTimeZone) }
+	service.now = func() time.Time { return time.Date(2026, 9, 16, 9, 0, 0, 0, businessTimeZone) }
 	result, err := service.Get(context.Background(), Request{TenantID: 10001, User: UserBaseInfo{Mail: "tester@soyoung.com"}})
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestServiceMapsDailyMetricsAndSortsDates(t *testing.T) {
 	if result.BeginDay != "2026-08-17" || result.EndDay != "2026-09-15" || len(result.Trends) != 30 {
 		t.Fatalf("result = %#v", result)
 	}
-	if result.Trends[0].Date != "2026-08-17" || result.Trends[27].Date != "2026-09-13" || result.Trends[28].RedemptionAll == nil || *result.Trends[28].RedemptionAll != 680.5 || result.Trends[29].Date != "2026-09-15" || result.Trends[29].VisitAll != nil {
+	if result.Trends[0].Date != "2026-08-17" || result.Trends[27].Date != "2026-09-13" || result.Trends[28].RedemptionAll == nil || *result.Trends[28].RedemptionAll != 680.5 || result.Trends[28].VisitNoConsult == nil || *result.Trends[28].VisitNoConsult != 12 || result.Trends[28].VisitNeedConsult == nil || *result.Trends[28].VisitNeedConsult != 8 || result.Trends[29].Date != "2026-09-15" || result.Trends[29].VisitAll != nil {
 		t.Fatalf("trends = %#v", result.Trends)
 	}
 }
@@ -54,7 +54,7 @@ func TestServiceRejectsDuplicateOrOutOfRangeDays(t *testing.T) {
 		{{Day: "2026-08-16"}},
 	} {
 		service := NewService(&providerStub{rows: rows})
-		service.now = func() time.Time { return time.Date(2026, 9, 15, 9, 0, 0, 0, businessTimeZone) }
+		service.now = func() time.Time { return time.Date(2026, 9, 16, 9, 0, 0, 0, businessTimeZone) }
 		if _, err := service.Get(context.Background(), Request{TenantID: 10001}); !errors.Is(err, ErrInvalidDate) {
 			t.Fatalf("rows %#v: expected invalid date, got %v", rows, err)
 		}
@@ -62,7 +62,7 @@ func TestServiceRejectsDuplicateOrOutOfRangeDays(t *testing.T) {
 }
 
 func TestRecentCalendarDays(t *testing.T) {
-	day := time.Date(2026, 9, 15, 1, 0, 0, 0, time.UTC)
+	day := time.Date(2026, 9, 16, 1, 0, 0, 0, time.UTC)
 	begin, end, err := RecentCalendarDays(day, 30)
 	if err != nil || begin != "2026-08-17" || end != "2026-09-15" {
 		t.Fatalf("range = %q, %q, %v", begin, end, err)

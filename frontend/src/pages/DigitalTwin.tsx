@@ -126,13 +126,13 @@ function dashboardPatch(dashboard: DigitalTwinDashboard, stale: boolean): TwinPa
   };
 }
 
-function t1BIPatch(data: DigitalTwinT1BI): TwinPatch {
+export function t1BIPatch(data: DigitalTwinT1BI): TwinPatch {
   return {
     trends: data.trends.map(trend => ({
       date: trend.date,
       visitAll: trend.visit_all,
-      noConsult: null,
-      consult: null,
+      noConsult: trend.visit_no_consult,
+      consult: trend.visit_need_consult,
       stayAll: trend.stay_all,
       stayNo: null,
       stayConsult: null,
@@ -157,6 +157,7 @@ function applySnapshotPatch(snapshot: TwinSnapshot, patch: TwinPatch) {
   if (patch.updatedAt !== undefined) snapshot.updatedAt = patch.updatedAt;
   if (patch.overview) Object.assign(snapshot.overview, patch.overview);
   if (patch.staleOverview) snapshot.staleOverview = patch.staleOverview;
+  if (patch.trends) snapshot.trends = patch.trends.map(trend => ({ ...trend })) as TwinSnapshot["trends"];
   for (const [region, values] of Object.entries(patch.regions || {})) {
     Object.assign(snapshot.regions[region as TwinRegionId], values);
   }

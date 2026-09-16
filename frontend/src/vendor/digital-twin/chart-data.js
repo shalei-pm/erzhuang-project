@@ -2,13 +2,19 @@
  const colors={all:'#e3e9d9',no:'#00dca0',consult:'#ff913d'};
  const series=(label,key,color)=>({label,key,color});
  const chartSpecs=[
-  {id:'visits',title:'到访人数趋势',en:'DAILY VISITS',type:'stacked',unit:'人',max:100,series:[series('全部顾客','visitAll',colors.all)]},
+  {id:'visits',title:'到访人数趋势',en:'DAILY VISITS',type:'stacked',unit:'人',max:100,stackedBreakdown:{totalKey:'visitAll',segmentKeys:['noConsult','consult']},series:[series('全部顾客','visitAll',colors.all),series('无需咨询','noConsult',colors.no),series('需要面诊','consult',colors.consult)]},
   {id:'stay',title:'平均在店时长',en:'TIME IN STORE',type:'line',unit:'分钟',max:120,series:[series('全部顾客','stayAll',colors.all),series('无需咨询','stayNo',colors.no),series('需要面诊','stayConsult',colors.consult)]},
   {id:'wait',title:'平均等待时长',en:'WAITING TIME',type:'line',unit:'分钟',max:30,series:[series('全部顾客','waitAll',colors.all),series('无需咨询','waitNo',colors.no),series('需要面诊','waitConsult',colors.consult)]},
   {id:'upgrade',title:'升单率趋势',en:'UPGRADE RATE',type:'line',unit:'%',max:50,series:[series('全部顾客','upgradeAll',colors.all),series('无需咨询','upgradeNo',colors.no),series('需要面诊','upgradeConsult',colors.consult)]},
   {id:'redemption',rotationGroup:'redemption',title:'人均核销金额',en:'REDEMPTION PER GUEST',type:'line',unit:'元/人',max:2000,series:[series('全部顾客','redemptionAll',colors.all),series('无需咨询','redemptionNo',colors.no),series('需要咨询','redemptionConsult',colors.consult)]},
   {id:'service-points',rotationGroup:'redemption',title:'人均核销服务点',en:'SERVICES PER GUEST',type:'line',unit:'点/人',max:10,series:[series('全部顾客','servicePointAll',colors.all),series('无需咨询','servicePointNo',colors.no),series('需要咨询','servicePointConsult',colors.consult)]}
  ];
+ function seriesForDatum(spec,datum){
+  const breakdown=spec.stackedBreakdown;
+  if(!breakdown)return spec.series;
+  const keys=breakdown.segmentKeys.some(key=>datum[key]!==null&&datum[key]!==undefined)?breakdown.segmentKeys:[breakdown.totalKey];
+  return spec.series.filter(item=>keys.includes(item.key));
+ }
  function buildDemoData(){
   const round=n=>Math.round(n*10)/10;
   // Seeded, irregular daily examples; never smooth or rewrite real observations.
@@ -29,6 +35,6 @@
    return {date:new Date(Date.UTC(2026,7,10+i)).toISOString().slice(0,10),visitAll:noConsult+consult,noConsult,consult,stayNo,stayConsult,stayAll:round((stayNo*noConsult+stayConsult*consult)/(noConsult+consult)),waitNo,waitConsult,waitAll:round((waitNo*noConsult+waitConsult*consult)/(noConsult+consult)),upgradeNo,upgradeConsult,upgradeAll,redemptionNo,redemptionConsult,redemptionAll,servicePointNo,servicePointConsult,servicePointAll};
   });
  }
- const api={chartSpecs,buildDemoData};
+ const api={chartSpecs,seriesForDatum,buildDemoData};
  if(typeof module!=='undefined')module.exports=api;else root.TwinChartData=api;
 })(typeof window!=='undefined'?window:globalThis);

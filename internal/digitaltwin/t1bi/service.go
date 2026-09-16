@@ -69,16 +69,19 @@ func (s *Service) Get(ctx context.Context, request Request) (Dashboard, error) {
 			return Dashboard{}, fmt.Errorf("%w: provider returned duplicate day %q", ErrInvalidDate, row.Day)
 		}
 		byDay[row.Day] = Trend{
-			Date:            row.Day,
-			VisitAll:        row.VisitUserCount,
-			StayAll:         row.AvgInStoreMinutes,
-			WaitAll:         row.AvgWaitMinutes,
-			UpgradeAll:      row.UpgradeRate,
-			RedemptionAll:   row.AvgWriteoffIncome,
-			ServicePointAll: row.AvgWriteoffServicePoints,
+			Date:             row.Day,
+			VisitAll:         row.VisitUserCount,
+			VisitNoConsult:   row.VisitNoConsult,
+			VisitNeedConsult: row.VisitNeedConsult,
+			StayAll:          row.AvgInStoreMinutes,
+			WaitAll:          row.AvgWaitMinutes,
+			UpgradeAll:       row.UpgradeRate,
+			RedemptionAll:    row.AvgWriteoffIncome,
+			ServicePointAll:  row.AvgWriteoffServicePoints,
 		}
 	}
-	for day := now.In(businessTimeZone).AddDate(0, 0, -(days - 1)); len(trends) < days; day = day.AddDate(0, 0, 1) {
+	firstDay, _ := time.ParseInLocation(DateLayout, begin, businessTimeZone)
+	for day := firstDay; len(trends) < days; day = day.AddDate(0, 0, 1) {
 		date := day.Format(DateLayout)
 		trend, exists := byDay[date]
 		if !exists {
@@ -93,8 +96,8 @@ func RecentCalendarDays(now time.Time, days int) (begin, end string, err error) 
 	if days <= 0 || days > 366 {
 		return "", "", fmt.Errorf("days must be between 1 and 366")
 	}
-	today := now.In(businessTimeZone)
-	return today.AddDate(0, 0, -(days - 1)).Format(DateLayout), today.Format(DateLayout), nil
+	lastCompletedDay := now.In(businessTimeZone).AddDate(0, 0, -1)
+	return lastCompletedDay.AddDate(0, 0, -(days - 1)).Format(DateLayout), lastCompletedDay.Format(DateLayout), nil
 }
 
 func normalizeUser(user UserBaseInfo) UserBaseInfo {
