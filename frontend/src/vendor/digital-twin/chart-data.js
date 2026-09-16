@@ -1,18 +1,18 @@
 (function(root){
- const colors={all:'#e3e9d9',no:'#00dca0',consult:'#ff913d'};
+ const colors={all:'#e3e9d9',front:'#74a5ff',no:'#00dca0',consult:'#ff913d'};
  const series=(label,key,color)=>({label,key,color});
  const chartSpecs=[
-  {id:'visits',title:'到访人数趋势',en:'DAILY VISITS',type:'stacked',unit:'人',max:100,stackedBreakdown:{totalKey:'visitAll',segmentKeys:['noConsult','consult']},series:[series('全部顾客','visitAll',colors.all),series('无需咨询','noConsult',colors.no),series('需要面诊','consult',colors.consult)]},
-  {id:'stay',title:'平均在店时长',en:'TIME IN STORE',type:'line',unit:'分钟',max:120,series:[series('全部顾客','stayAll',colors.all),series('无需咨询','stayNo',colors.no),series('需要面诊','stayConsult',colors.consult)]},
-  {id:'wait',title:'平均等待时长',en:'WAITING TIME',type:'line',unit:'分钟',max:30,series:[series('全部顾客','waitAll',colors.all),series('无需咨询','waitNo',colors.no),series('需要面诊','waitConsult',colors.consult)]},
-  {id:'upgrade',title:'升单率趋势',en:'UPGRADE RATE',type:'line',unit:'%',max:50,series:[series('全部顾客','upgradeAll',colors.all),series('无需咨询','upgradeNo',colors.no),series('需要面诊','upgradeConsult',colors.consult)]},
-  {id:'redemption',rotationGroup:'redemption',title:'人均核销金额',en:'REDEMPTION PER GUEST',type:'line',unit:'元/人',max:2000,series:[series('全部顾客','redemptionAll',colors.all),series('无需咨询','redemptionNo',colors.no),series('需要咨询','redemptionConsult',colors.consult)]},
-  {id:'service-points',rotationGroup:'redemption',title:'人均核销服务点',en:'SERVICES PER GUEST',type:'line',unit:'点/人',max:10,series:[series('全部顾客','servicePointAll',colors.all),series('无需咨询','servicePointNo',colors.no),series('需要咨询','servicePointConsult',colors.consult)]}
+  {id:'visits',title:'到院人次',en:'DAILY VISITS',type:'stacked',unit:'人次',max:100,stackedBreakdown:{totalKey:'visitAll',segmentKeys:['frontDesk','noConsult','consult'],note:'全部顾客 = 前台签到 + 非面诊 + 面诊'},series:[series('全部顾客','visitAll',colors.all),series('前台签到','frontDesk',colors.front),series('非面诊','noConsult',colors.no),series('面诊','consult',colors.consult)]},
+  {id:'stay',title:'在店时长',en:'TIME IN STORE',type:'line',unit:'分钟',max:120,series:[series('全部顾客','stayAll',colors.all),series('非面诊','stayNo',colors.no),series('面诊','stayConsult',colors.consult)]},
+  {id:'wait',title:'平均等待时长',en:'WAITING TIME',type:'line',unit:'分钟',max:30,series:[series('全部顾客','waitAll',colors.all),series('非面诊','waitNo',colors.no),series('面诊','waitConsult',colors.consult)]},
+  {id:'upgrade',title:'升单率',en:'UPGRADE RATE',type:'line',unit:'%',max:50,series:[series('全部顾客','upgradeAll',colors.all),series('非面诊','upgradeNo',colors.no),series('面诊','upgradeConsult',colors.consult)]},
+  {id:'redemption',rotationGroup:'redemption',title:'核销客单价',en:'REDEMPTION PER GUEST',type:'line',unit:'元/人次',max:2000,series:[series('全部顾客','redemptionAll',colors.all),series('非面诊','redemptionNo',colors.no),series('面诊','redemptionConsult',colors.consult)]},
+  {id:'service-points',rotationGroup:'redemption',title:'人均服务点数',en:'SERVICES PER GUEST',type:'line',unit:'点/人次',max:10,series:[series('全部顾客','servicePointAll',colors.all),series('非面诊','servicePointNo',colors.no),series('面诊','servicePointConsult',colors.consult)]}
  ];
  function seriesForDatum(spec,datum){
   const breakdown=spec.stackedBreakdown;
   if(!breakdown)return spec.series;
-  const keys=breakdown.segmentKeys.some(key=>datum[key]!==null&&datum[key]!==undefined)?breakdown.segmentKeys:[breakdown.totalKey];
+  const keys=breakdown.segmentKeys.every(key=>datum[key]!==null&&datum[key]!==undefined)?breakdown.segmentKeys:[breakdown.totalKey];
   return spec.series.filter(item=>keys.includes(item.key));
  }
  function buildDemoData(){
@@ -20,6 +20,7 @@
   // Seeded, irregular daily examples; never smooth or rewrite real observations.
   const noise=(i,salt)=>{let n=Math.imul(i+1,374761393)^Math.imul(salt,668265263);n=Math.imul(n^(n>>>13),1274126177);return ((n^(n>>>16))>>>0)/4294967295*2-1;};
   return Array.from({length:30},(_,i)=>{
+   const frontDesk=Math.max(0,Math.round(2+noise(i,11)*2));
    const noConsult=Math.round(34+i*.53+Math.sin(i*.84)*8+(i%7===5?10:0));
    const consult=Math.round(17+i*.19+Math.cos(i*.62)*5+(i%7===5?5:0));
    const stayNo=round(53+noise(i,1)*12-i*.14),stayConsult=round(88+noise(i,2)*17-i*.19);
@@ -32,7 +33,7 @@
    const redemptionAll=round((redemptionNo*noConsult+redemptionConsult*consult)/(noConsult+consult));
    const servicePointNo=round(3.2+i*.03+noise(i,9)*.7),servicePointConsult=round(6.4+i*.04+noise(i,10)*1.1);
    const servicePointAll=round((servicePointNo*noConsult+servicePointConsult*consult)/(noConsult+consult));
-   return {date:new Date(Date.UTC(2026,7,10+i)).toISOString().slice(0,10),visitAll:noConsult+consult,noConsult,consult,stayNo,stayConsult,stayAll:round((stayNo*noConsult+stayConsult*consult)/(noConsult+consult)),waitNo,waitConsult,waitAll:round((waitNo*noConsult+waitConsult*consult)/(noConsult+consult)),upgradeNo,upgradeConsult,upgradeAll,redemptionNo,redemptionConsult,redemptionAll,servicePointNo,servicePointConsult,servicePointAll};
+   return {date:new Date(Date.UTC(2026,7,10+i)).toISOString().slice(0,10),visitAll:frontDesk+noConsult+consult,frontDesk,noConsult,consult,stayNo,stayConsult,stayAll:round((stayNo*noConsult+stayConsult*consult)/(noConsult+consult)),waitNo,waitConsult,waitAll:round((waitNo*noConsult+waitConsult*consult)/(noConsult+consult)),upgradeNo,upgradeConsult,upgradeAll,redemptionNo,redemptionConsult,redemptionAll,servicePointNo,servicePointConsult,servicePointAll};
   });
  }
  const api={chartSpecs,seriesForDatum,buildDemoData};
