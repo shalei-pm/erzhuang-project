@@ -91,6 +91,7 @@ export function t1BIPatch(data: DigitalTwinT1BI): TwinPatch {
     trends: data.trends.map(trend => ({
       date: trend.date,
       visitAll: trend.visit_all,
+      frontDesk: trend.visit_front_desk,
       noConsult: trend.visit_no_consult,
       consult: trend.visit_need_consult,
       stayAll: trend.stay_all,

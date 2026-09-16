@@ -9,9 +9,10 @@ it("maps optional visit segments into the digital twin chart", () => {
     fetched_at: "2026-09-16T01:00:00Z",
     trends: [{
       date: "2026-09-15",
-      visit_all: 42,
-      visit_no_consult: 27,
-      visit_need_consult: 15,
+      visit_all: 55,
+      visit_front_desk: 3,
+      visit_no_consult: 34,
+      visit_need_consult: 18,
       stay_all: 55,
       wait_all: 8,
       upgrade_all: 12,
@@ -20,5 +21,5 @@ it("maps optional visit segments into the digital twin chart", () => {
     }],
   });
 
-  expect(patch.trends?.[0]).toMatchObject({ visitAll: 42, noConsult: 27, consult: 15 });
+  expect(patch.trends?.[0]).toMatchObject({ visitAll: 55, frontDesk: 3, noConsult: 34, consult: 18 });
 });

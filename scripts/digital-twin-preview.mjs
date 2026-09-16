@@ -9,8 +9,8 @@ export const fixtureStores = [
 function fixtureT1Trends() {
   return Array.from({length:30},(_,index)=>{
     const date=new Date(Date.UTC(2026,7,17+index)).toISOString().slice(0,10);
-    const noConsult=24+(index%5),needConsult=12+(index%4);
-    return {date,visit_all:noConsult+needConsult,visit_no_consult:noConsult,visit_need_consult:needConsult,stay_all:50+(index%8),wait_all:8+(index%4),upgrade_all:12+(index%6),redemption_all:680+index*8,service_point_all:2.4+(index%5)*.1};
+    const frontDesk=2+(index%3),noConsult=24+(index%5),needConsult=12+(index%4);
+    return {date,visit_all:frontDesk+noConsult+needConsult,visit_front_desk:index===8?null:frontDesk,visit_no_consult:noConsult,visit_need_consult:needConsult,stay_all:50+(index%8),wait_all:8+(index%4),upgrade_all:12+(index%6),redemption_all:680+index*8,service_point_all:2.4+(index%5)*.1};
   });
 }
 export function previewState() { return { store_ids:["10001"], version:"preview:0", requests:[] }; }
