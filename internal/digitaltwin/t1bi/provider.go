@@ -47,6 +47,8 @@ type response struct {
 		Rows []struct {
 			Day                      string          `json:"st_day"`
 			VisitUserCount           json.RawMessage `json:"visit_user_count"`
+			VisitNoConsult           json.RawMessage `json:"visit_no_consult"`
+			VisitNeedConsult         json.RawMessage `json:"visit_need_consult"`
 			AvgInStoreMinutes        json.RawMessage `json:"avg_in_store_minutes"`
 			AvgWaitMinutes           json.RawMessage `json:"avg_wait_minutes"`
 			UpgradeRate              json.RawMessage `json:"upgrade_rate"`
@@ -131,6 +133,8 @@ func (c *ProviderClient) GetDailyMetrics(_ context.Context, request Request) ([]
 		rows = append(rows, DailyMetric{
 			Day:                      row.Day,
 			VisitUserCount:           nullableNumber(row.VisitUserCount),
+			VisitNoConsult:           nullableNumber(row.VisitNoConsult),
+			VisitNeedConsult:         nullableNumber(row.VisitNeedConsult),
 			AvgInStoreMinutes:        nullableNumber(row.AvgInStoreMinutes),
 			AvgWaitMinutes:           nullableNumber(row.AvgWaitMinutes),
 			UpgradeRate:              nullableNumber(row.UpgradeRate),

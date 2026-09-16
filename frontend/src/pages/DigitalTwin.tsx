@@ -86,13 +86,13 @@ function dashboardPatch(dashboard: DigitalTwinDashboard, stale: boolean): TwinPa
   };
 }
 
-function t1BIPatch(data: DigitalTwinT1BI): TwinPatch {
+export function t1BIPatch(data: DigitalTwinT1BI): TwinPatch {
   return {
     trends: data.trends.map(trend => ({
       date: trend.date,
       visitAll: trend.visit_all,
-      noConsult: null,
-      consult: null,
+      noConsult: trend.visit_no_consult,
+      consult: trend.visit_need_consult,
       stayAll: trend.stay_all,
       stayNo: null,
       stayConsult: null,
@@ -117,6 +117,7 @@ function applySnapshotPatch(snapshot: TwinSnapshot, patch: TwinPatch) {
   if (patch.updatedAt !== undefined) snapshot.updatedAt = patch.updatedAt;
   if (patch.overview) Object.assign(snapshot.overview, patch.overview);
   if (patch.staleOverview) snapshot.staleOverview = patch.staleOverview;
+  if (patch.trends) snapshot.trends = patch.trends.map(trend => ({ ...trend })) as TwinSnapshot["trends"];
   for (const [region, values] of Object.entries(patch.regions || {})) {
     Object.assign(snapshot.regions[region as TwinRegionId], values);
   }
@@ -246,8 +247,6 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     });
     twinInstance.current = instance;
     frameDocument.querySelector(".account-copy small")!.textContent = "已登录二壮";
-    frameDocument.querySelectorAll(".experiment-stores small,.store-picker .sample-tag").forEach(node => { node.textContent = "已开放"; });
-    frameDocument.querySelector(".scene-footer span")!.textContent = "人数为演示数据 · 运营趋势来自 T+1 数据服务 · 摄像头来自真实门店";
     frameDocument.querySelector(".store-menu-note")!.textContent = "仅展示白名单内且已授权的机构";
     frameDocument.querySelector("#store-selector-help")!.textContent = "选择已开放且有权限的机构";
     const element = frame.current;

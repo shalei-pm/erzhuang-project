@@ -1,18 +1,18 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>新氧青春 · 实验门店数字孪生看板</title><link rel="stylesheet" href="styles.css?v=92474dec4b"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>新氧青春 · 门店数字孪生看板</title><link rel="stylesheet" href="styles.css?v=92474dec4b"></head>
 <body class="dashboard">
 <header class="topbar">
  <a class="brand" href="index.html" aria-label="新氧青春看板首页"><span class="brand-symbol">✳</span><span>新氧青春<small>SOYOUNG YOUTH</small></span></a>
- <div class="product-name"><h1>实验门店数字孪生看板</h1><span>STORE DIGITAL TWIN</span></div>
- <div class="header-meta"><span class="experiment-stores">实验门店数 <strong id="experiment-store-count">1</strong><small>示例</small></span><div class="account-summary"><span class="account-avatar" aria-hidden="true">总</span><span class="account-copy"><span class="account-name">总部用户</span><small>示例账号 · 未接入登录</small></span></div><button id="debug-toggle" class="debug-toggle" aria-controls="debug-panel" aria-expanded="false" title="打开演示设置">☷ <span>演示设置</span></button></div>
+ <div class="product-name"><h1>门店数字孪生看板</h1><span>STORE DIGITAL TWIN</span></div>
+ <div class="header-meta"><span class="experiment-stores">机构数 <strong id="experiment-store-count">1</strong><small></small></span><div class="account-summary"><span class="account-avatar" aria-hidden="true">总</span><span class="account-copy"><span class="account-name">总部用户</span><small>未登录</small></span></div><button id="debug-toggle" class="debug-toggle" aria-controls="debug-panel" aria-expanded="false" title="演示设置">☷ <span>演示设置</span></button></div>
 </header>
 <main class="workspace">
  <section class="twin-panel" aria-labelledby="twin-title">
   <div class="scene-summary">
-   <div class="store-picker"><label for="store-selector" id="twin-title">当前门店 <span class="sample-tag">示例</span></label><button type="button" id="store-selector" aria-expanded="false" aria-controls="store-menu" aria-describedby="store-selector-help"><span class="store-selected-name">北京保利总部店</span><span class="store-chevron" aria-hidden="true">⌄</span></button><div id="store-menu" class="store-menu" role="region" aria-label="选择门店" hidden><div class="store-menu-heading"><strong>选择门店</strong><span>按城市浏览</span></div><div class="store-menu-groups"></div><p class="store-menu-note"></p></div><span id="store-selector-help" class="sr-only">预留门店切换入口，目前仅配置北京保利总部店，尚未接入门店列表。</span></div>
-   <dl class="store-overview" aria-label="门店到店与值班概览，以下均为模拟数据">
-    <div class="store-metric" data-overview-key="expected"><dt>预计到店人数</dt><dd><strong>60</strong><span>人</span></dd></div>
+   <div class="store-picker"><label for="store-selector" id="twin-title">当前门店 <span class="sample-tag"></span></label><button type="button" id="store-selector" aria-expanded="false" aria-controls="store-menu" aria-describedby="store-selector-help"><span class="store-selected-name">北京保利总部店</span><span class="store-chevron" aria-hidden="true">⌄</span></button><div id="store-menu" class="store-menu" role="region" aria-label="选择门店" hidden><div class="store-menu-heading"><strong>选择门店</strong><span>按城市浏览</span></div><div class="store-menu-groups"></div><p class="store-menu-note"></p></div><span id="store-selector-help" class="sr-only">选择白名单内且有权限的机构。</span></div>
+   <dl class="store-overview" aria-label="门店到店与值班概览">
+    <div class="store-metric" data-overview-key="expected"><dt>预约暂未到店</dt><dd><strong>60</strong><span>人</span></dd></div>
     <div class="store-metric" data-overview-key="arrived"><dt>已到店人数</dt><dd><strong>42</strong><span>人</span></dd></div>
     <div class="store-metric" data-overview-key="consultants"><dt>值班咨询师人数</dt><dd><strong>3</strong><span>人</span></dd></div>
     <div class="store-metric" data-overview-key="nurses"><dt>值班护士人数</dt><dd><strong>4</strong><span>人</span></dd></div>
@@ -22,12 +22,12 @@
   <div class="scene-modebar"><span>人数演示</span><button id="reset" class="scene-preset">示例人数 · 45</button><button id="peak-demo" class="scene-preset">高峰 · 90 人</button><button id="dense-demo" class="scene-preset">密集 · 每区 60 人</button><small>均为模拟，点击切换</small><div class="legend scene-legend"><span><i class="employee-dot"></i>员工</span><span><i class="guest-dot"></i>顾客</span><span class="click-hint">点击摄像头查看画面</span></div></div>
   <div class="room-grid" id="room-grid"></div>
   <section id="treatment-camera-dock" aria-label="治疗室摄像头"></section>
-  <div class="scene-footer"><span><i class="sample-dot"></i>实时场景为模拟数据 · 人物代表人数，不代表真实位置</span><span>固定视角 / 5 个功能区域</span></div>
+  <div class="scene-footer"><span></span><span>固定视角 / 5 个功能区域</span></div>
  </section>
  <aside class="right-rail" aria-label="近30天运营图表">
-  <div class="bi-heading"><div><span class="bi-marker"></span><h2>运营趋势</h2><span class="sample-tag">模拟数据</span></div><span>近 30 天 <span class="period-divider">/</span> 08.10 — 09.08</span></div>
+  <div class="bi-heading"><div><span class="bi-marker"></span><h2>运营趋势</h2><span class="sample-tag"></span></div><span>近 30 天</span></div>
   <div class="bi-charts" id="bi-charts"></div>
-  <p class="bi-disclaimer">样例日期：2026.08.10—09.08 · 仅验证呈现，业务口径待确认</p>
+  <p class="bi-disclaimer"></p>
  </aside>
 </main>
 <aside id="debug-panel" class="debug-panel" aria-labelledby="debug-title" hidden>

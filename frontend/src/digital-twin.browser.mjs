@@ -4,7 +4,7 @@ import {fixtureAPI,previewState} from "../../scripts/digital-twin-preview.mjs";
 const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||"playwright");
 const browser=await chromium.launch({channel:"chrome",headless:true});
-const base="http://127.0.0.1:5179/erzhuang-project";
+const base=`${process.env.QA_LOCAL_ORIGIN||"http://127.0.0.1:5179"}/erzhuang-project`;
 let checked=0;
 async function setup(width=1440,height=900,options={}) {
   const context=await browser.newContext({viewport:{width,height}}),page=await context.newPage(),state=previewState(),errors=[];
@@ -29,7 +29,7 @@ try {
       key: node.dataset.overviewKey,
     })));
     assert.deepEqual(overviewMetrics, [
-      {label:'预计到店人数',value:'60',key:'expected'},
+      {label:'预约暂未到店',value:'60',key:'expected'},
       {label:'已到店人数',value:'42',key:'arrived'},
       {label:'值班咨询师人数',value:'3',key:'consultants'},
       {label:'值班护士人数',value:'4',key:'nurses'},
@@ -40,24 +40,21 @@ try {
     assert(await logo.evaluate(image=>image.complete && image.naturalWidth===627));
     assert.equal(await t.page.locator('.system-topbar').count(),0);
     assert.equal(await kit.getByRole('button',{name:'登出',exact:true}).count(),1);
-    await kit.getByRole('button',{name:'演示设置',exact:true}).click();
-    assert.equal(await kit.locator('#debug-panel').isVisible(),true);
-    assert.equal(await kit.locator('.permission-control').isVisible(),false);
-    assert.equal(await kit.locator('.kit-input-panel').isVisible(),false);
-    const beforeCount=Number(await kit.locator('#output-treatment').innerText());
-    await kit.locator('#plus-treatment').click();
-    assert.equal(Number(await kit.locator('#output-treatment').innerText()),beforeCount+1);
+    assert.equal(await kit.getByRole('button',{name:'演示设置',exact:true}).isVisible(),false);
+    assert.equal(await kit.locator('#debug-panel').isVisible(),false);
+    assert.equal(await kit.locator('.experiment-stores small').isVisible(),false);
+    assert.equal(await kit.locator('.store-picker .sample-tag').isVisible(),false);
+    assert.equal(await kit.locator('.bi-heading .sample-tag').isVisible(),false);
     assert.equal(await kit.locator('.account-copy small').innerText(),'已登录二壮');
-    await kit.getByRole('button',{name:'关闭演示设置',exact:true}).click();
     const normalizeMetric = value => value.replace(/\s+/g, " ").trim();
     const receptionMetrics = (await kit.locator('#room-reception .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
-    assert.deepEqual(receptionMetrics, ["当前接待 2 人", "已到访 12 人", "无需咨询人数 —", "需要咨询人数 —"]);
+    assert.deepEqual(receptionMetrics, ["当前接待 2 人", "已到访 42 人", "无需咨询人数 27 人", "需要咨询人数 15 人"]);
     const waitingMetrics = (await kit.locator('#room-waiting .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
-    assert.deepEqual(waitingMetrics, ["当前等候 30 人", "无需咨询人数 —", "需要咨询人数 —"]);
+    assert.deepEqual(waitingMetrics, ["当前等候 30 人", "无需咨询人数 20 人", "需要咨询人数 10 人"]);
     const treatmentMetrics = (await kit.locator('#room-treatment .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
-    assert.deepEqual(treatmentMetrics, ["当前治疗 11 人", "已服务 10 人", "无需咨询人数 —", "需要咨询人数 —"]);
-    assert.equal(await kit.locator(".room-segment.is-stale").count(), 6);
-    assert.equal(await kit.locator(".room-segment.is-stale .metric-stale-dot").count(), 6);
+    assert.deepEqual(treatmentMetrics, ["当前治疗 11 人", "已服务 10 人", "无需咨询人数 6 人", "需要咨询人数 4 人"]);
+    assert.equal(await kit.locator(".room-segment.is-stale").count(), 0);
+    assert.equal(await kit.locator(".room-segment.is-stale .metric-stale-dot").count(), 0);
     const preserved = await kit.locator("body").evaluate(() => {
       const core = window.TwinKitCore;
       const state = core.emptyData();
@@ -79,13 +76,14 @@ try {
     assert.equal(await kit.locator(".chart-card").count(), 6);
     assert.equal(await kit.locator(".chart-card.is-active").count(), 5);
     assert.equal((await kit.locator('#bi-charts').textContent()).includes('输入数据'), false);
-    await kit.locator('#bi-charts').evaluate(container => {
-      window.TwinCharts.render(container, window.TwinChartData.buildDemoData(), {mode:'demo'});
-    });
-    assert.equal(await kit.locator('#chart-visits rect.data-bar').count(), 30);
+    assert.equal((await kit.locator('#chart-visits .chart-legend').innerText()).replace(/\s+/g,' ').includes('全部顾客 无需咨询 需要面诊'),true);
+    assert.equal(await kit.locator('#chart-visits rect.data-bar[data-key="visitAll"]').count(),0);
+    assert.equal(await kit.locator('#chart-visits rect.data-bar[data-key="noConsult"]').count(),30);
+    assert.equal(await kit.locator('#chart-visits rect.data-bar[data-key="consult"]').count(),30);
     assert.equal(await kit.locator('#chart-visits polyline').count(), 0);
     assert.equal(await kit.locator('#chart-stay polyline').count() > 0, true);
     assert.equal(await kit.locator('#chart-visits .chart-time').innerText(), '30天');
+    assert.equal((await kit.locator('.bi-heading>span').innerText()).endsWith('2026-09-15'),true);
     assert.equal(await kit.locator("#chart-redemption").isVisible(), true);
     assert.equal(await kit.locator("#chart-service-points").isVisible(), false);
     if (width === 1440) {

@@ -20,7 +20,7 @@
   }
   for(const [slotIndex,slot]of slots.entries())for(const spec of slot){
    let maximum=0,hasValue=false;
-   for(const d of data){let total=0;for(const s of spec.series){const v=d[s.key];if(v!==null){hasValue=true;maximum=Math.max(maximum,v);total+=v;}}if(spec.type==='stacked')maximum=Math.max(maximum,total);}
+   for(const d of data){let total=0;for(const s of TwinChartData.seriesForDatum(spec,d)){const v=d[s.key];if(v!==null){hasValue=true;maximum=Math.max(maximum,v);total+=v;}}if(spec.type==='stacked')maximum=Math.max(maximum,total);}
    const raw=Math.max(spec.max,maximum*1.08,1),power=10**Math.floor(Math.log10(raw));
    const max=maximum<=spec.max?spec.max:Math.ceil(raw/power*2)/2*power;
    const y=v=>Y1-v/max*(Y1-Y0),axis=v=>v>=1e6?`${+(v/1e6).toFixed(1)}M`:v>=1e4?`${+(v/1e3).toFixed(1)}k`:String(v);
@@ -31,7 +31,7 @@
    for(const i of ticks)shapes+=`<text x="${x(i)}" y="132" text-anchor="middle" fill="#718f82" font-size="11">${esc(data[i].date.slice(5).replace('-','/'))}</text>`;
    if(spec.type==='stacked'){
     const barWidth=Math.min(9.4,(X1-X0)/Math.max(1,length)*.65);
-    data.forEach((d,i)=>{let bottom=0;for(const s of spec.series){const v=d[s.key];if(v===null)continue;shapes+=`<rect class="data-bar" data-index="${i}" x="${x(i)-barWidth/2}" y="${y(bottom+v)}" width="${barWidth}" height="${v/max*(Y1-Y0)}" rx="1" fill="${s.color}" opacity=".88"/>`;bottom+=v;}});
+    data.forEach((d,i)=>{let bottom=0;for(const s of TwinChartData.seriesForDatum(spec,d)){const v=d[s.key];if(v===null)continue;shapes+=`<rect class="data-bar" data-key="${s.key}" data-index="${i}" x="${x(i)-barWidth/2}" y="${y(bottom+v)}" width="${barWidth}" height="${v/max*(Y1-Y0)}" rx="1" fill="${s.color}" opacity=".88"/>`;bottom+=v;}});
    }else{
     for(const s of spec.series){let points=[],segments=[];const flush=()=>{if(points.length)segments.push(points);points=[];};data.forEach((d,i)=>{if(d[s.key]===null)flush();else points.push([x(i),y(d[s.key])]);});flush();
      shapes+=`<g class="data-series" data-key="${s.key}">`;
