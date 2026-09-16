@@ -10,6 +10,7 @@ interface TwinOverview { expected: TwinMeasurement; arrived: TwinMeasurement; re
 interface TwinTrend {
  date: string;
  visitAll: TwinMeasurement;
+ frontDesk: TwinMeasurement;
  noConsult: TwinMeasurement; consult: TwinMeasurement;
  stayAll: TwinMeasurement; stayNo: TwinMeasurement; stayConsult: TwinMeasurement;
  waitAll: TwinMeasurement; waitNo: TwinMeasurement; waitConsult: TwinMeasurement;
