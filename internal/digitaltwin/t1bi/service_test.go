@@ -62,12 +62,23 @@ func TestServiceRejectsDuplicateOrOutOfRangeDays(t *testing.T) {
 }
 
 func TestRecentCalendarDays(t *testing.T) {
-	day := time.Date(2026, 9, 16, 1, 0, 0, 0, time.UTC)
-	begin, end, err := RecentCalendarDays(day, 30)
-	if err != nil || begin != "2026-08-17" || end != "2026-09-15" {
-		t.Fatalf("range = %q, %q, %v", begin, end, err)
+	for _, test := range []struct {
+		name  string
+		now   time.Time
+		begin string
+		end   string
+	}{
+		{name: "September 16", now: time.Date(2026, 9, 16, 1, 0, 0, 0, time.UTC), begin: "2026-08-17", end: "2026-09-15"},
+		{name: "September 17", now: time.Date(2026, 9, 17, 1, 0, 0, 0, time.UTC), begin: "2026-08-18", end: "2026-09-16"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			begin, end, err := RecentCalendarDays(test.now, 30)
+			if err != nil || begin != test.begin || end != test.end {
+				t.Fatalf("range = %q, %q, %v", begin, end, err)
+			}
+		})
 	}
-	if _, _, err := RecentCalendarDays(day, 0); err == nil {
+	if _, _, err := RecentCalendarDays(time.Now(), 0); err == nil {
 		t.Fatal("expected invalid days error")
 	}
 }
