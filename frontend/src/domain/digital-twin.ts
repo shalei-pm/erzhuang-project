@@ -1,6 +1,7 @@
 import type { NVRLabCamera } from "./nvr-lab";
 
 export const DIGITAL_TWIN_REFRESH_INTERVAL_MS = 30_000;
+export const DIGITAL_TWIN_T1_REFRESH_INTERVAL_MS = 10 * 60_000;
 
 export type DashboardRefreshState<T> = { value: T | null; stale: boolean };
 
@@ -45,6 +46,10 @@ export function startDigitalTwinRefreshPolling(
     stopTimer();
     document.removeEventListener("visibilitychange", onVisibilityChange);
   };
+}
+
+export function startDigitalTwinT1RefreshPolling(refresh: () => void): () => void {
+  return startDigitalTwinRefreshPolling(refresh, DIGITAL_TWIN_T1_REFRESH_INTERVAL_MS);
 }
 
 export function parseInstitutionID(value: string): string | null {

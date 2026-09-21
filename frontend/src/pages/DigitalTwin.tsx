@@ -10,6 +10,7 @@ import {
   dashboardRefreshSucceeded,
   regionCameras,
   startDigitalTwinRefreshPolling,
+  startDigitalTwinT1RefreshPolling,
   type DashboardRefreshState,
 } from "../domain/digital-twin";
 import type { NVRLabCamera, NVRLabCameraListResponse, NVRLabStreamSession, NVRMonitorStoreInfo } from "../domain/nvr-lab";
@@ -171,6 +172,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
   const [dashboardState, setDashboardState] = useState<DashboardRefreshState<DigitalTwinDashboard>>({ value: null, stale: false });
   const [t1BIState, setT1BIState] = useState<DashboardRefreshState<DigitalTwinT1BI>>({ value: null, stale: false });
   const [dashboardRefresh, setDashboardRefresh] = useState(0);
+  const [t1BIRefresh, setT1BIRefresh] = useState(0);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
@@ -245,11 +247,16 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
       if (!controller.signal.aborted) setT1BIState(dashboardRefreshFailed);
     });
     return () => controller.abort();
-  }, [selected, reload]);
+  }, [selected, reload, t1BIRefresh]);
 
   useEffect(() => {
     if (!selected) return;
     return startDigitalTwinRefreshPolling(() => setDashboardRefresh(value => value + 1));
+  }, [selected]);
+
+  useEffect(() => {
+    if (!selected) return;
+    return startDigitalTwinT1RefreshPolling(() => setT1BIRefresh(value => value + 1));
   }, [selected]);
 
   useEffect(() => {

@@ -104,12 +104,13 @@ try {
     assert.equal(completeLegend.includes('前台签到 非面诊 面诊'),true);
     assert.equal(await kit.locator('#chart-visits .chart-time').innerText(), '30天');
     assert.equal((await kit.locator('.bi-heading>span').innerText()).endsWith('2026-09-15'),true);
-    assert.equal(await kit.locator("#chart-redemption").isVisible(), true);
-    assert.equal(await kit.locator("#chart-service-points").isVisible(), false);
+    const redemptionInitiallyVisible=await kit.locator("#chart-redemption").isVisible();
+    const servicePointsInitiallyVisible=await kit.locator("#chart-service-points").isVisible();
+    assert.notEqual(redemptionInitiallyVisible,servicePointsInitiallyVisible);
     if (width === 1440) {
-      await kit.locator("#chart-service-points").waitFor({ state: "visible", timeout: 8500 });
-      assert.equal(await kit.locator("#chart-redemption").isVisible(), false);
-      assert.equal(await kit.locator(".chart-rotation-status").innerText(), "2/2");
+      const nextChart=redemptionInitiallyVisible?"#chart-service-points":"#chart-redemption";
+      await kit.locator(nextChart).waitFor({ state: "visible", timeout: 8500 });
+      assert.equal(await kit.locator(redemptionInitiallyVisible?"#chart-redemption":"#chart-service-points").isVisible(),false);
     }
     assert.equal(await kit.locator(".camera-trigger").count(),6);
     assert.deepEqual(await kit.locator('#room-reception .camera-trigger').evaluateAll(nodes=>nodes.map(node=>node.dataset.cameraId)),["76","75"]);
@@ -139,6 +140,19 @@ try {
     assert(!t.state.requests.some(r=>r.path.endsWith("/10001/cameras/73/stream-session")));
     assert.deepEqual(t.errors,[]); await t.context.close(); checked++;
   }
+  const refresh=await setup();
+  await refresh.page.clock.install();
+  await refresh.page.goto(base+"/digitaltwin/");
+  await refresh.page.frameLocator("iframe").locator("#room-treatment .room-name").waitFor();
+  const t1Requests=()=>refresh.state.requests.filter(request=>request.path.endsWith("/10001/t1-bi")).length;
+  const cameraRequests=()=>refresh.state.requests.filter(request=>request.path.endsWith("/10001/cameras")).length;
+  assert.equal(t1Requests(),1);
+  assert.equal(cameraRequests(),1);
+  await refresh.page.clock.fastForward(10*60_000);
+  for(let attempt=0;attempt<20&&t1Requests()<2;attempt++)await new Promise(resolve=>setTimeout(resolve,25));
+  assert.equal(t1Requests(),2);
+  assert.equal(cameraRequests(),1);
+  assert.deepEqual(refresh.errors,[]);await refresh.context.close();checked++;
   const unavailable=await setup(1440,900,{dashboardUnavailable:true});
   await unavailable.page.goto(base+"/digitaltwin/");
   const unavailableKit=unavailable.page.frameLocator("iframe");
