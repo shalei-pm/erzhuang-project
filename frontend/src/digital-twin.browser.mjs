@@ -148,9 +148,13 @@ try {
   const cameraRequests=()=>refresh.state.requests.filter(request=>request.path.endsWith("/10001/cameras")).length;
   assert.equal(t1Requests(),1);
   assert.equal(cameraRequests(),1);
-  await refresh.page.clock.fastForward(10*60_000);
+  await refresh.page.clock.fastForward(30_000);
   for(let attempt=0;attempt<20&&t1Requests()<2;attempt++)await new Promise(resolve=>setTimeout(resolve,25));
   assert.equal(t1Requests(),2);
+  assert.equal(cameraRequests(),1);
+  await refresh.page.clock.fastForward(30_000);
+  for(let attempt=0;attempt<20&&t1Requests()<3;attempt++)await new Promise(resolve=>setTimeout(resolve,25));
+  assert.equal(t1Requests(),3);
   assert.equal(cameraRequests(),1);
   assert.deepEqual(refresh.errors,[]);await refresh.context.close();checked++;
   const unavailable=await setup(1440,900,{dashboardUnavailable:true});

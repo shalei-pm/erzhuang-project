@@ -91,7 +91,7 @@ describe("digital twin T+1 BI polling", () => {
     vi.unstubAllGlobals();
   });
 
-  it("refreshes at a low frequency while visible", async () => {
+  it("refreshes every 30 seconds while visible", async () => {
     const refresh = vi.fn();
     const stop = startDigitalTwinT1RefreshPolling(refresh);
 
@@ -101,6 +101,10 @@ describe("digital twin T+1 BI polling", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
 
     stop();
+  });
+
+  it("uses the same refresh interval as live metrics", () => {
+    expect(DIGITAL_TWIN_T1_REFRESH_INTERVAL_MS).toBe(DIGITAL_TWIN_REFRESH_INTERVAL_MS);
   });
 
   it("refreshes immediately after returning to the page", async () => {
