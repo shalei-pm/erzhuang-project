@@ -182,6 +182,8 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
   const twinInstance = useRef<TwinInstance | null>(null);
   const dashboardStateRef = useRef(dashboardState);
   dashboardStateRef.current = dashboardState;
+  const t1BIStateRef = useRef(t1BIState);
+  t1BIStateRef.current = t1BIState;
   const dashboard = dashboardState.value;
   const srcDoc = useMemo(digitalTwinDocument, []);
   const directory = useMemo(() => stores.map(store => ({ id: store.external_org_id, name: store.store_name, city: store.city || "其他" })), [stores]);
@@ -272,7 +274,9 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     } else {
       applySnapshotPatch(snapshot, dashboardEmptyPatch(currentDashboard.stale));
     }
-    const currentT1BI = t1BIState.value;
+    // 读 ref 而不是依赖 state：T+1 数据晚到只走 update 增量补丁，不能重建看板实例，
+    // 否则会连带关掉用户正在看的摄像头弹窗（2026-09-22 修复）。
+    const currentT1BI = t1BIStateRef.current.value;
     if (currentT1BI && currentT1BI.tenant_id === data.tenant_id) {
       applySnapshotPatch(snapshot, t1BIPatch(currentT1BI));
     }
@@ -290,7 +294,8 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
         if (!actual || !cameraRegion(actual) || signal.aborted) return;
         const context = { storeID: data.external_org_id, storeName: data.store_name, camera: actual };
         setActiveCamera(context);
-        return () => setActiveCamera(current => current === context ? null : current);
+        // 弹窗生命周期归 React 管：实例重建（数据刷新、iframe 重挂）不得关掉用户正在看的画面。
+        // 切店或重新加载时由 selected/reload 的副作用显式复位。
       },
     });
     twinInstance.current = instance;
@@ -314,7 +319,7 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
       if (twinInstance.current === instance) twinInstance.current = null;
       instance.destroy();
     };
-  }, [data, frameDocument, directory, displayName, stores.length, t1BIState.value]);
+  }, [data, frameDocument, directory, displayName, stores.length]);
 
   useEffect(() => {
     if (!twinInstance.current) return;
