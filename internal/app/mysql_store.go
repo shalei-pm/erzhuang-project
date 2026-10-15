@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
+	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 )
 
 type MySQLStore struct {
@@ -823,16 +825,48 @@ func uniquePositiveInt64s(values []int64) []int64 {
 
 func (s *MySQLStore) ListMonitorStoreScopeCandidates(ctx context.Context) ([]AuthUserResourceScope, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, city, name, external_org_id
-		from tb_stores
-		where nullif(trim(external_org_id), '') is not null
-		order by city, name, id
+		select s.id, s.city, s.name, s.external_org_id, t.name, t.city_id
+		from tb_stores s
+		left join tb_crm_admin_tenant t
+			on binary trim(s.external_org_id) = binary cast(t.id as char)
+		where nullif(trim(s.external_org_id), '') is not null
 	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanAuthUserResourceScopes(rows)
+	scopes := []AuthUserResourceScope{}
+	for rows.Next() {
+		var scope AuthUserResourceScope
+		var crmName sql.NullString
+		var crmCityID sql.NullInt64
+		if err := rows.Scan(&scope.StoreID, &scope.City, &scope.Name, &scope.ExternalOrgID, &crmName, &crmCityID); err != nil {
+			return nil, err
+		}
+		// Keep the legacy permission identity while matching the CRM resource list's labels.
+		if name := strings.TrimSpace(crmName.String); crmName.Valid && name != "" {
+			scope.Name = name
+		}
+		if crmCityID.Valid && crmCityID.Int64 > 0 {
+			if city := resourceview.CityName(crmCityID.Int64); !strings.HasPrefix(city, "城市 ") {
+				scope.City = city
+			}
+		}
+		scopes = append(scopes, scope)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(scopes, func(i, j int) bool {
+		if scopes[i].City != scopes[j].City {
+			return scopes[i].City < scopes[j].City
+		}
+		if scopes[i].Name != scopes[j].Name {
+			return scopes[i].Name < scopes[j].Name
+		}
+		return scopes[i].StoreID < scopes[j].StoreID
+	})
+	return scopes, nil
 }
 
 func (s *MySQLStore) GetUserMonitorStoreScopes(ctx context.Context, userID int64) ([]AuthUserResourceScope, error) {
