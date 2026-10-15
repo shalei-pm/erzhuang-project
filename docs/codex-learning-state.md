@@ -6485,3 +6485,10 @@ git pull --ff-only
 - 在测试分支 4.8.2 基线上修复数字孪生摄像头弹窗被 T+1 BI 延迟刷新关闭的问题。根因是 `t1BIState.value` 触发看板实例重建，实例销毁时清理函数把 React 的 `activeCamera` 置空。
 - 修复为 T+1 数据通过 ref 读取，晚到数据只走看板增量更新；摄像头弹窗生命周期由 React 管理，实例刷新不再关闭用户正在看的画面。
 - 本地验证：测试分支基线前端 `22 files / 134 tests`、生产构建、数字孪生浏览器验收 `8 passed`；另用 T+1 延迟 12 秒模拟线上场景，弹窗 40 秒全程保持打开，看板实例只初始化 1 次。该版本待测试环境验收，正式环境未发布。
+
+### 2026-10-15 4.8.4 原监控 Safari 音频修复候选与南京权限遗漏排查
+
+- 基于已核对的 GitLab 正式 main `935576ce`（4.8.3）建立隔离分支 `codex/monitor-audio-store-candidates`，保留主目录原有未提交改动。本轮未推送或部署。
+- 补充 NVR 音频回归，修复 `interrupted` 不恢复、挂起期间音频积压、初始静音不一致、音频失败禁用视频控制的问题；可选 Audio Session API 用于显式音频播放，关闭后释放。详见 `docs/monitor-audio-store-candidates-4.8.4.md`。
+- 南京权限候选遗漏由两套门店数据源的代码链路差异解释：资源视图读 CRM，授权读旧 `tb_stores`。已请置顶 DBA 专项复核身份约定；正式库具体缺失/城市异常尚待只读结果。整理 `db/monitor_scope_nanjing_readonly.sql` 供运维执行，没有改权限模型或数据库。
+- 前端 Vitest 全量通过 `23 files / 149 tests`，前端生产构建、Go 全仓测试及服务构建通过；浏览器 `4/4` 通过，使用本地合成音频与真实 Chrome Web Audio 输出。iPhone Safari 真机可听声音尚未验收，不能宣称线上故障已关闭。
