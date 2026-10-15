@@ -11,6 +11,7 @@
 // 模块级常量，避免每帧重复分配
 const START_CODE = new Uint8Array([0, 0, 0, 1]);
 const MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024;
+const playbackAudioSessions = new Map();
 
 /**
  * Parse an RTP packet without assuming a fixed 12-byte header. Some NVRs add
@@ -846,46 +847,77 @@ class NVRPlayer {
     // ─── 音频 ─────────────────────────────────────────────────────────────────
 
     _initAudioContext() {
-        // Chrome 自动播放策略：AudioContext 必须在用户手势后创建，否则会被锁定并持续报警告。
-        // 此处不立即创建，而是注册一次性手势监听；用户首次交互时才真正创建 AudioContext。
-        // 交互前到来的音频帧会在 _playAudioPCM 中被静默丢弃，不影响视频播放。
-        if (this._audioGestureReady || this._audioGestureHandler) return;
+        if (this._audioGestureHandler) return;
 
         this._audioGestureHandler = () => {
-            this._audioGestureReady = true;
-            if (!this.audioContext) {
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                this.nextAudioTime = this.audioContext.currentTime;
-                this.gainNode = this.audioContext.createGain();
-                this.gainNode.gain.value = this.currentVolume / 100;
-                this.gainNode.connect(this.audioContext.destination);
-            }
-            document.removeEventListener('click', this._audioGestureHandler);
-            document.removeEventListener('keydown', this._audioGestureHandler);
-            document.removeEventListener('touchstart', this._audioGestureHandler);
-            this._audioGestureHandler = null;
+            if (document.visibilityState === 'hidden' || this.currentVolume <= 0) return;
+            if (this.audioContext?.state === 'running') return;
+            // Safari may interrupt audio on a tab switch or screen lock. Keep
+            // the gesture listener so returning users can resume the same stream.
+            void this.enableAudio().catch(() => {});
         };
         document.addEventListener('click', this._audioGestureHandler);
         document.addEventListener('keydown', this._audioGestureHandler);
-        document.addEventListener('touchstart', this._audioGestureHandler);
+        document.addEventListener('touchend', this._audioGestureHandler);
+        document.addEventListener('visibilitychange', this._audioGestureHandler);
+    }
+
+    _claimPlaybackAudioSession() {
+        if (this._playbackAudioSession) return;
+        try {
+            const session = navigator.audioSession;
+            if (!session) return;
+            let lease = playbackAudioSessions.get(session);
+            if (!lease) {
+                lease = { previousType: session.type, players: new Set() };
+                session.type = 'playback';
+                playbackAudioSessions.set(session, lease);
+            }
+            lease.players.add(this);
+            this._playbackAudioSession = session;
+        } catch (_) {
+            // Audio Session is optional; unsupported browsers still use Web Audio.
+        }
+    }
+
+    _releasePlaybackAudioSession() {
+        const session = this._playbackAudioSession;
+        this._playbackAudioSession = null;
+        const lease = playbackAudioSessions.get(session);
+        if (!lease) return;
+        lease.players.delete(this);
+        if (lease.players.size > 0) return;
+        playbackAudioSessions.delete(session);
+        try {
+            if (session.type === 'playback') session.type = lease.previousType;
+        } catch (_) {}
     }
 
     // Must be invoked directly from an application's unmute gesture. Browser
     // autoplay policies do not reliably treat a document-level listener as the
     // original user action once a control stops propagation.
-    enableAudio() {
+    async enableAudio() {
         this._audioGestureReady = true;
-        if (!this.audioContext) {
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            this.nextAudioTime = this.audioContext.currentTime;
-            this.gainNode = this.audioContext.createGain();
-            this.gainNode.connect(this.audioContext.destination);
+        this._claimPlaybackAudioSession();
+        try {
+            if (!this.audioContext || this.audioContext.state === 'closed') {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                this.gainNode = this.audioContext.createGain();
+                this.gainNode.connect(this.audioContext.destination);
+            }
+            const context = this.audioContext;
+            this.gainNode.gain.value = this.currentVolume / 100;
+            // Call resume synchronously in the user's gesture for both Safari's
+            // interrupted state and the ordinary autoplay suspended state.
+            if (context.state !== 'running') await context.resume();
+            if (this.audioContext !== context || context.state !== 'running') {
+                throw new Error('Audio output is not running');
+            }
+            this.nextAudioTime = context.currentTime;
+        } catch (error) {
+            this._releasePlaybackAudioSession();
+            throw error;
         }
-        this.gainNode.gain.value = this.currentVolume / 100;
-        if (this.audioContext.state === 'suspended') {
-            return this.audioContext.resume();
-        }
-        return Promise.resolve();
     }
 
     _decodePCMA(pcmaData) {
@@ -904,8 +936,11 @@ class NVRPlayer {
     }
 
     _playAudioPCM(pcmData) {
-        // 用户尚未交互，AudioContext 还未创建，静默丢弃音频帧
-        if (!this.audioContext || !this.gainNode) return;
+        if (!this.audioContext || !this.gainNode || this.audioContext.state !== 'running'
+            || this.currentVolume <= 0 || this._isPaused) {
+            this.nextAudioTime = 0;
+            return;
+        }
         const buf = this.audioContext.createBuffer(1, pcmData.length, 8000);
         const ch  = buf.getChannelData(0);
         for (let i = 0; i < pcmData.length; i++) ch[i] = pcmData[i] / 32768.0;
@@ -919,6 +954,7 @@ class NVRPlayer {
         hpf.type = 'highpass'; hpf.frequency.value = 200; hpf.Q.value = 1.0;
 
         src.connect(hpf); hpf.connect(lpf); lpf.connect(this.gainNode);
+        src.onended = () => { src.disconnect(); hpf.disconnect(); lpf.disconnect(); };
 
         if (this.nextAudioTime < this.audioContext.currentTime) {
             this.nextAudioTime = this.audioContext.currentTime;
@@ -1045,14 +1081,16 @@ class NVRPlayer {
             this.decoder = null;
         }
 
-        // 清理未触发的手势监听，防止播放器销毁后事件泄漏
+        // 清理音频恢复监听，防止播放器销毁后事件泄漏
         if (this._audioGestureHandler) {
             document.removeEventListener('click', this._audioGestureHandler);
             document.removeEventListener('keydown', this._audioGestureHandler);
-            document.removeEventListener('touchstart', this._audioGestureHandler);
+            document.removeEventListener('touchend', this._audioGestureHandler);
+            document.removeEventListener('visibilitychange', this._audioGestureHandler);
             this._audioGestureHandler = null;
         }
 
+        this._releasePlaybackAudioSession();
         if (this.audioContext?.state !== 'closed') {
             try { this.audioContext.close(); } catch (_) {}
         }
@@ -1085,13 +1123,20 @@ class NVRPlayer {
         if (volume < 0 || volume > 100) throw new Error('音量范围必须在 0-100 之间');
         this.currentVolume = volume;
         if (this.gainNode) this.gainNode.gain.value = volume / 100;
+        if (volume === 0) this._releasePlaybackAudioSession();
+        else if (this.audioContext && this._audioGestureReady) this._claimPlaybackAudioSession();
     }
 
     setSpeed(rate) { this._sendCommand('speed',  { rate }); }
     // Live streams do not guarantee upstream pause support. Keep receiving and
     // decoding the signed session but gate local canvas output deterministically.
     pause()        { this._isPaused = true; }
-    resume()       { this._isPaused = false; }
+    resume() {
+        this._isPaused = false;
+        if (this.currentVolume > 0 && this.audioContext && this.audioContext.state !== 'running') {
+            void this.enableAudio().catch(() => {});
+        }
+    }
 }
 
 export default NVRPlayer;

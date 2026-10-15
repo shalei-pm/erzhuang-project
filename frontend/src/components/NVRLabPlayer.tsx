@@ -53,6 +53,7 @@ export function NVRLabPlayer({
   const [status, setStatus] = useState<NVRLabPlayerStatus>({ stage: "idle", message: "播放器准备中" });
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
+  const [audioMessage, setAudioMessage] = useState("");
   const [controlsVisible, setControlsVisible] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [landscape, setLandscape] = useState(false);
@@ -124,11 +125,13 @@ export function NVRLabPlayer({
         diagnostics.renderedFrames = next.renderedFrames;
       },
     });
+    player.setVolume(0);
     playerRef.current = player;
     firstFrameCaptureRef.current = false;
     setPlaying(false);
     onPlaybackStateChange?.(false);
     setMuted(true);
+    setAudioMessage("");
     report({ stage: "connecting", message: "正在连接视频流" });
     void player.play(session.url).catch((error: unknown) => report({ stage: "error", message: playerErrorMessage(error) }));
     if (session.mode === "live") {
@@ -177,12 +180,14 @@ export function NVRLabPlayer({
       try {
         await player.enableAudio();
       } catch {
-        setStatus({ stage: "error", message: "当前浏览器无法开启声音" });
+        if (playerRef.current === player) setAudioMessage("声音暂未开启，请再次点击声音按钮");
         return;
       }
     }
+    if (playerRef.current !== player) return;
     player.setVolume(nextMuted ? 0 : 80);
     setMuted(nextMuted);
+    setAudioMessage("");
   }
 
   function screenshot() {
@@ -249,6 +254,7 @@ export function NVRLabPlayer({
         </div>
       </div>
       </div>
+      {audioMessage ? <div className="h5-error" role="status">{audioMessage}</div> : null}
     </>
   );
 }
