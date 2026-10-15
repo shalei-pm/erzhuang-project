@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -825,37 +826,68 @@ func uniquePositiveInt64s(values []int64) []int64 {
 
 func (s *MySQLStore) ListMonitorStoreScopeCandidates(ctx context.Context) ([]AuthUserResourceScope, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select s.id, s.city, s.name, s.external_org_id, t.name, t.city_id
-		from tb_stores s
-		left join tb_crm_admin_tenant t
-			on binary trim(s.external_org_id) = binary cast(t.id as char)
-		where nullif(trim(s.external_org_id), '') is not null
+		select id, city, name, external_org_id
+		from tb_stores
+		where nullif(trim(external_org_id), '') is not null
+		order by city, name, id
 	`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	scopes := []AuthUserResourceScope{}
-	for rows.Next() {
-		var scope AuthUserResourceScope
+	scopes, err := scanAuthUserResourceScopes(rows)
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	orgIDs := []any{}
+	seen := map[int64]bool{}
+	for _, scope := range scopes {
+		key := strings.TrimSpace(scope.ExternalOrgID)
+		id, err := strconv.ParseInt(key, 10, 64)
+		if err == nil && id > 0 && strconv.FormatInt(id, 10) == key && !seen[id] {
+			orgIDs = append(orgIDs, id)
+			seen[id] = true
+		}
+	}
+	if len(orgIDs) == 0 {
+		return scopes, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(orgIDs)), ",")
+	metadataRows, err := s.db.QueryContext(ctx,
+		"select id, name, city_id from tb_crm_admin_tenant where id in ("+placeholders+")", orgIDs...)
+	if err != nil {
+		return nil, err
+	}
+	defer metadataRows.Close()
+	type storeLabel struct{ name, city string }
+	labels := map[string]storeLabel{}
+	for metadataRows.Next() {
+		var id int64
 		var crmName sql.NullString
 		var crmCityID sql.NullInt64
-		if err := rows.Scan(&scope.StoreID, &scope.City, &scope.Name, &scope.ExternalOrgID, &crmName, &crmCityID); err != nil {
+		if err := metadataRows.Scan(&id, &crmName, &crmCityID); err != nil {
 			return nil, err
 		}
-		// Keep the legacy permission identity while matching the CRM resource list's labels.
-		if name := strings.TrimSpace(crmName.String); crmName.Valid && name != "" {
-			scope.Name = name
-		}
+		label := storeLabel{name: strings.TrimSpace(crmName.String)}
 		if crmCityID.Valid && crmCityID.Int64 > 0 {
 			if city := resourceview.CityName(crmCityID.Int64); !strings.HasPrefix(city, "城市 ") {
-				scope.City = city
+				label.city = city
 			}
 		}
-		scopes = append(scopes, scope)
+		labels[strconv.FormatInt(id, 10)] = label
 	}
-	if err := rows.Err(); err != nil {
+	if err := metadataRows.Err(); err != nil {
 		return nil, err
+	}
+	// Enrich display labels in memory; permission identities remain unchanged.
+	for index := range scopes {
+		label := labels[strings.TrimSpace(scopes[index].ExternalOrgID)]
+		if label.name != "" {
+			scopes[index].Name = label.name
+		}
+		if label.city != "" {
+			scopes[index].City = label.city
+		}
 	}
 	sort.Slice(scopes, func(i, j int) bool {
 		if scopes[i].City != scopes[j].City {
