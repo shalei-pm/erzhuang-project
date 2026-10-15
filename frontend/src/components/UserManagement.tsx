@@ -90,7 +90,7 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
   }
 
   async function ensureScopeCandidatesLoaded() {
-    if (scopeCandidates.length > 0 || scopeLoading) return;
+    if (scopeLoading) return;
     setScopeLoading(true);
     try {
       setScopeCandidates(await storeSpaceApi.listMonitorStoreScopeCandidates());

@@ -11,7 +11,7 @@ SELECT target.tenant_id,
        s.name AS legacy_store_name,
        s.city AS legacy_city,
        s.external_org_id,
-       (s.external_org_id = CAST(target.tenant_id AS CHAR)) AS raw_id_match,
+       (BINARY s.external_org_id = BINARY CAST(target.tenant_id AS CHAR)) AS raw_id_match,
        EXISTS (
          SELECT 1 FROM tb_crm_iot_device d
          WHERE d.tenant_id = target.tenant_id AND d.category = 'edge'
@@ -27,7 +27,7 @@ FROM (
   SELECT 10030 AS tenant_id UNION ALL SELECT 10053 UNION ALL SELECT 10086
 ) target
 LEFT JOIN tb_crm_admin_tenant t ON t.id = target.tenant_id
-LEFT JOIN tb_stores s ON TRIM(s.external_org_id) = CAST(target.tenant_id AS CHAR)
+LEFT JOIN tb_stores s ON BINARY TRIM(s.external_org_id) = BINARY CAST(target.tenant_id AS CHAR)
 ORDER BY target.tenant_id, s.id;
 
 -- An absent internal_store_id above means no matching legacy authorization row.
@@ -58,5 +58,5 @@ WHERE t.status = 1
   )
   AND NOT EXISTS (
     SELECT 1 FROM tb_stores s
-    WHERE TRIM(s.external_org_id) = CAST(t.id AS CHAR)
+    WHERE BINARY TRIM(s.external_org_id) = BINARY CAST(t.id AS CHAR)
   );
