@@ -603,6 +603,10 @@ func (h *Handler) mysqlCanaryImportHandler(w http.ResponseWriter, r *http.Reques
 	if _, ok := h.requirePermission(w, r, PermissionUserManage); !ok {
 		return
 	}
+	if h.storeSpaceService != nil && h.storeSpaceService.UsesCRMInstitutionAuthority() {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "机构目录已统一到 CRM，旧门店导入入口已停用。"})
+		return
+	}
 	var input mysqlCanaryImportRequest
 	reader := http.MaxBytesReader(w, r.Body, maxOpsCanaryImportBytes)
 	defer reader.Close()

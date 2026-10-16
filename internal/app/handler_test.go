@@ -733,7 +733,7 @@ func TestUserMutationReturnsMonitorStoreScopes(t *testing.T) {
 
 	store := NewMemoryStore()
 	handler := NewHandlerWithServices(store, nil, nil)
-	body := strings.NewReader(`{"email":"viewer@example.com","username":"viewer","display_name":"Viewer","role":"viewer","enabled":true,"monitor_store_scope_ids":[30]}`)
+	body := strings.NewReader(`{"email":"viewer@example.com","username":"viewer","display_name":"Viewer","role":"viewer","enabled":true,"monitor_institution_ids":[10030]}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/users", body)
 	request.AddCookie(&http.Cookie{Name: "sy_sso_token", Value: signAPISIXSSOToken(t, privateKey, map[string]any{
 		"data": map[string]any{

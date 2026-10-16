@@ -6,13 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/shalei-pm/erzhuang-project/internal/auditlog"
-	"github.com/shalei-pm/erzhuang-project/internal/resourceview"
 )
 
 type MySQLStore struct {
@@ -620,11 +617,6 @@ func (s *MySQLStore) CreateAuthUserWithAudit(ctx context.Context, input AuthUser
 }
 
 func (s *MySQLStore) createAuthUser(ctx context.Context, input AuthUserMutation, event *auditlog.AuditEvent) (AuthUserRecord, error) {
-	if normalizeRole(input.Role) == RoleViewer {
-		if err := s.ensureUserResourceScopesTable(ctx); err != nil {
-			return AuthUserRecord{}, err
-		}
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AuthUserRecord{}, err
@@ -650,8 +642,15 @@ func (s *MySQLStore) createAuthUser(ctx context.Context, input AuthUserMutation,
 	if err := setMySQLUserRole(ctx, tx, id, normalizeRole(input.Role)); err != nil {
 		return AuthUserRecord{}, err
 	}
-	if err := setMySQLUserMonitorScopes(ctx, tx, id, input.Role, input.MonitorStoreScopeIDs); err != nil {
+	if err := setMySQLUserMonitorScopesWithAudit(ctx, tx, id, input.Role, input.MonitorInstitutionIDs, event); err != nil {
 		return AuthUserRecord{}, err
+	}
+	saved, err := s.getAuthUserByIDFrom(ctx, tx, id)
+	if err != nil {
+		return AuthUserRecord{}, err
+	}
+	if input.MonitorInstitutionIDs == nil {
+		annotateMonitorScopeAudit(event, saved.MonitorStoreScopes, nil)
 	}
 	if event != nil {
 		event.EntityID = &id
@@ -660,9 +659,9 @@ func (s *MySQLStore) createAuthUser(ctx context.Context, input AuthUserMutation,
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return AuthUserRecord{}, err
+		return AuthUserRecord{}, fmt.Errorf("%w: %v", errAuthUserCommitUnknown, err)
 	}
-	return s.getAuthUserByID(ctx, id)
+	return saved, nil
 }
 
 func (s *MySQLStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUserMutation) (AuthUserRecord, error) {
@@ -674,16 +673,20 @@ func (s *MySQLStore) UpdateAuthUserWithAudit(ctx context.Context, id int64, inpu
 }
 
 func (s *MySQLStore) updateAuthUser(ctx context.Context, id int64, input AuthUserMutation, event *auditlog.AuditEvent) (AuthUserRecord, error) {
-	if normalizeRole(input.Role) == RoleViewer {
-		if err := s.ensureUserResourceScopesTable(ctx); err != nil {
-			return AuthUserRecord{}, err
-		}
+	if input.MonitorScopeRevision == "" {
+		return AuthUserRecord{}, errMonitorScopeConflict
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AuthUserRecord{}, err
 	}
 	defer tx.Rollback()
+	if err := setMySQLUserMonitorScopesWithAudit(ctx, tx, id, input.Role, input.MonitorInstitutionIDs, event, input.MonitorScopeRevision); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return AuthUserRecord{}, errAuthUserNotFound
+		}
+		return AuthUserRecord{}, err
+	}
 
 	result, err := tx.ExecContext(ctx, `
 		update tb_users
@@ -701,13 +704,23 @@ func (s *MySQLStore) updateAuthUser(ctx context.Context, id int64, input AuthUse
 		return AuthUserRecord{}, err
 	}
 	if affected == 0 {
-		return AuthUserRecord{}, errAuthUserNotFound
+		var existing int64
+		if err := tx.QueryRowContext(ctx, "select id from tb_users where id = ?", id).Scan(&existing); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return AuthUserRecord{}, errAuthUserNotFound
+			}
+			return AuthUserRecord{}, err
+		}
 	}
 	if err := setMySQLUserRole(ctx, tx, id, normalizeRole(input.Role)); err != nil {
 		return AuthUserRecord{}, err
 	}
-	if err := setMySQLUserMonitorScopes(ctx, tx, id, input.Role, input.MonitorStoreScopeIDs); err != nil {
+	saved, err := s.getAuthUserByIDFrom(ctx, tx, id)
+	if err != nil {
 		return AuthUserRecord{}, err
+	}
+	if input.MonitorInstitutionIDs == nil {
+		annotateMonitorScopeAudit(event, saved.MonitorStoreScopes, nil)
 	}
 	if event != nil {
 		event.EntityID = &id
@@ -716,13 +729,17 @@ func (s *MySQLStore) updateAuthUser(ctx context.Context, id int64, input AuthUse
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return AuthUserRecord{}, err
+		return AuthUserRecord{}, fmt.Errorf("%w: %v", errAuthUserCommitUnknown, err)
 	}
-	return s.getAuthUserByID(ctx, id)
+	return saved, nil
 }
 
 func (s *MySQLStore) getAuthUserByID(ctx context.Context, id int64) (AuthUserRecord, error) {
-	record, err := scanAuthUser(s.db.QueryRowContext(ctx, `
+	return s.getAuthUserByIDFrom(ctx, s.db, id)
+}
+
+func (s *MySQLStore) getAuthUserByIDFrom(ctx context.Context, q monitorScopeQueryer, id int64) (AuthUserRecord, error) {
+	record, err := scanAuthUser(q.QueryRowContext(ctx, `
 		select u.id, u.email, u.username, u.display_name, u.feishu_user_id, u.mobile,
 			coalesce((
 				select r.code
@@ -747,10 +764,12 @@ func (s *MySQLStore) getAuthUserByID(ctx context.Context, id int64) (AuthUserRec
 	if err != nil {
 		return AuthUserRecord{}, err
 	}
-	record.MonitorStoreScopes, err = s.GetUserMonitorStoreScopes(ctx, record.ID)
+	snapshots, err := readCRMMonitorScopes(ctx, q, []int64{record.ID}, true)
 	if err != nil {
 		return AuthUserRecord{}, err
 	}
+	record.MonitorStoreScopes = snapshots[record.ID].Scopes
+	record.MonitorScopeRevision = userMonitorScopeRevision(snapshots[record.ID].Tokens, record.Role, record.Enabled)
 	record.MonitorStoreScopeCount = len(record.MonitorStoreScopes)
 	return record, nil
 }
@@ -777,35 +796,68 @@ func setMySQLUserRole(ctx context.Context, tx *sql.Tx, userID int64, role string
 	return err
 }
 
-func setMySQLUserMonitorScopes(ctx context.Context, tx *sql.Tx, userID int64, role string, storeIDs []int64) error {
-	if normalizeRole(role) != RoleViewer {
+func setMySQLUserMonitorScopes(ctx context.Context, tx *sql.Tx, userID int64, role string, storeIDs []int64, expectedRevision ...string) error {
+	return setMySQLUserMonitorScopesWithAudit(ctx, tx, userID, role, storeIDs, nil, expectedRevision...)
+}
+
+func setMySQLUserMonitorScopesWithAudit(ctx context.Context, tx *sql.Tx, userID int64, role string, storeIDs []int64, event *auditlog.AuditEvent, expectedRevision ...string) error {
+	if storeIDs == nil && len(expectedRevision) == 0 {
 		return nil
 	}
-	if _, err := tx.ExecContext(ctx, `
-		delete from tb_user_resource_scopes
-		where user_id = ? and resource_type = ? and scope = ?
-	`, userID, ResourceTypeStore, ScopeMonitorView); err != nil {
+	for _, id := range storeIDs {
+		if id <= 0 || id > 9007199254740991 {
+			return errors.New("机构 ID 必须为安全范围内的正整数")
+		}
+	}
+	var lockedID int64
+	var enabled bool
+	var currentRole string
+	if err := tx.QueryRowContext(ctx, `select u.id, u.enabled, coalesce((select r.code from tb_user_roles ur, tb_roles r
+		where ur.user_id = u.id and r.id = ur.role_id order by case r.code when 'admin' then 1 when 'editor' then 2 else 3 end limit 1), 'viewer')
+		from tb_users u where u.id = ? for update`, userID).Scan(&lockedID, &enabled, &currentRole); err != nil {
 		return err
 	}
-	if len(storeIDs) == 0 {
+	previous, err := readCRMMonitorScopes(ctx, tx, []int64{userID}, false)
+	if err != nil {
+		return err
+	}
+	if len(expectedRevision) > 0 && expectedRevision[0] != userMonitorScopeRevision(previous[userID].Tokens, currentRole, enabled) {
+		return errMonitorScopeConflict
+	}
+	if storeIDs == nil {
 		return nil
 	}
-	for _, storeID := range uniquePositiveInt64s(storeIDs) {
-		result, err := tx.ExecContext(ctx, `
+	candidates, err := listCRMMonitorInstitutions(ctx, tx, nil, true)
+	if err != nil {
+		return fmt.Errorf("读取 CRM 机构失败，权限未保存: %w", err)
+	}
+	allowed := map[int64]bool{}
+	for _, scope := range previous[userID].Scopes {
+		allowed[scope.StoreID] = true
+	}
+	for _, scope := range candidates {
+		allowed[scope.StoreID] = true
+	}
+	ids := uniquePositiveInt64s(storeIDs)
+	for _, id := range ids {
+		if !allowed[id] {
+			return fmt.Errorf("机构 %d 未启用或不存在，不能新增授权", id)
+		}
+	}
+	annotateMonitorScopeAudit(event, previous[userID].Scopes, ids)
+	if _, err := tx.ExecContext(ctx, `
+		delete from tb_user_resource_scopes
+		where user_id = ? and resource_type in (?, ?) and scope = ?
+	`, userID, ResourceTypeStore, ResourceTypeCRMInstitution, ScopeMonitorView); err != nil {
+		return err
+	}
+	for _, storeID := range ids {
+		_, err := tx.ExecContext(ctx, `
 			insert into tb_user_resource_scopes (user_id, resource_type, resource_id, external_key, scope)
-			select ?, ?, s.id, s.external_org_id, ?
-			from tb_stores s
-			where s.id = ? and nullif(trim(s.external_org_id), '') is not null
-		`, userID, ResourceTypeStore, ScopeMonitorView, storeID)
+			values (?, ?, ?, ?, ?)
+		`, userID, ResourceTypeCRMInstitution, storeID, fmt.Sprint(storeID), ScopeMonitorView)
 		if err != nil {
 			return err
-		}
-		affected, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if affected == 0 {
-			return fmt.Errorf("invalid monitor store scope id: %d", storeID)
 		}
 	}
 	return nil
@@ -825,124 +877,44 @@ func uniquePositiveInt64s(values []int64) []int64 {
 }
 
 func (s *MySQLStore) ListMonitorStoreScopeCandidates(ctx context.Context) ([]AuthUserResourceScope, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		select id, city, name, external_org_id
-		from tb_stores
-		where nullif(trim(external_org_id), '') is not null
-		order by city, name, id
-	`)
-	if err != nil {
-		return nil, err
-	}
-	scopes, err := scanAuthUserResourceScopes(rows)
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	orgIDs := []any{}
-	seen := map[int64]bool{}
-	for _, scope := range scopes {
-		key := strings.TrimSpace(scope.ExternalOrgID)
-		id, err := strconv.ParseInt(key, 10, 64)
-		if err == nil && id > 0 && strconv.FormatInt(id, 10) == key && !seen[id] {
-			orgIDs = append(orgIDs, id)
-			seen[id] = true
-		}
-	}
-	if len(orgIDs) == 0 {
-		return scopes, nil
-	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(orgIDs)), ",")
-	metadataRows, err := s.db.QueryContext(ctx,
-		"select id, name, city_id from tb_crm_admin_tenant where id in ("+placeholders+")", orgIDs...)
-	if err != nil {
-		return nil, err
-	}
-	defer metadataRows.Close()
-	type storeLabel struct{ name, city string }
-	labels := map[string]storeLabel{}
-	for metadataRows.Next() {
-		var id int64
-		var crmName sql.NullString
-		var crmCityID sql.NullInt64
-		if err := metadataRows.Scan(&id, &crmName, &crmCityID); err != nil {
-			return nil, err
-		}
-		label := storeLabel{name: strings.TrimSpace(crmName.String)}
-		if crmCityID.Valid && crmCityID.Int64 > 0 {
-			if city := resourceview.CityName(crmCityID.Int64); !strings.HasPrefix(city, "城市 ") {
-				label.city = city
-			}
-		}
-		labels[strconv.FormatInt(id, 10)] = label
-	}
-	if err := metadataRows.Err(); err != nil {
-		return nil, err
-	}
-	// Enrich display labels in memory; permission identities remain unchanged.
-	for index := range scopes {
-		label := labels[strings.TrimSpace(scopes[index].ExternalOrgID)]
-		if label.name != "" {
-			scopes[index].Name = label.name
-		}
-		if label.city != "" {
-			scopes[index].City = label.city
-		}
-	}
-	sort.Slice(scopes, func(i, j int) bool {
-		if scopes[i].City != scopes[j].City {
-			return scopes[i].City < scopes[j].City
-		}
-		if scopes[i].Name != scopes[j].Name {
-			return scopes[i].Name < scopes[j].Name
-		}
-		return scopes[i].StoreID < scopes[j].StoreID
-	})
-	return scopes, nil
+	return listCRMMonitorInstitutions(ctx, s.db, nil, true)
 }
 
 func (s *MySQLStore) GetUserMonitorStoreScopes(ctx context.Context, userID int64) ([]AuthUserResourceScope, error) {
-	if err := s.ensureUserResourceScopesTable(ctx); err != nil {
-		return nil, err
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		select s.id, s.city, s.name, s.external_org_id
-		from tb_user_resource_scopes urs
-		join tb_stores s on s.id = urs.resource_id
-		where urs.user_id = ?
-			and urs.resource_type = ?
-			and urs.scope = ?
-			and nullif(trim(s.external_org_id), '') is not null
-		order by s.city, s.name, s.id
-	`, userID, ResourceTypeStore, ScopeMonitorView)
+	scopes, err := readCRMMonitorScopes(ctx, s.db, []int64{userID}, true)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanAuthUserResourceScopes(rows)
+	return scopes[userID].Scopes, nil
 }
 
 func (s *MySQLStore) CanUserViewMonitorStore(ctx context.Context, user AuthUserRecord, externalOrgID string) (bool, error) {
-	if normalizeRole(user.Role) != RoleViewer {
-		return true, nil
-	}
-	if err := s.ensureUserResourceScopesTable(ctx); err != nil {
-		return false, err
-	}
 	orgID := strings.TrimSpace(externalOrgID)
-	if orgID == "" {
+	id, valid := canonicalInstitutionID(orgID)
+	if !valid {
 		return false, nil
 	}
 	var exists int
+	if normalizeRole(user.Role) != RoleViewer {
+		err := s.db.QueryRowContext(ctx, "select 1 from tb_crm_admin_tenant where id = ? and status = 1", id).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return err == nil, err
+	}
 	err := s.db.QueryRowContext(ctx, `
 		select 1
 		from tb_user_resource_scopes urs
 		where user_id = ?
-			and resource_type = ?
-			and external_key = ?
 			and scope = ?
+			and binary external_key = ?
+			and (binary resource_type = ? or (binary resource_type = ? and resource_id = ?))
+			and not exists (select 1 from tb_user_resource_scopes other
+				where other.user_id = urs.user_id and other.scope = urs.scope
+				and other.resource_type in ('store', 'crm_institution') and other.resource_type <> urs.resource_type)
+			and exists (select 1 from tb_crm_admin_tenant t where t.id = ? and t.status = 1)
 		limit 1
-	`, user.ID, ResourceTypeStore, orgID, ScopeMonitorView).Scan(&exists)
+	`, user.ID, ScopeMonitorView, orgID, ResourceTypeStore, ResourceTypeCRMInstitution, id, id).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -953,49 +925,19 @@ func (s *MySQLStore) attachMonitorScopes(ctx context.Context, users []AuthUserRe
 	if len(users) == 0 {
 		return nil
 	}
-	if err := s.ensureUserResourceScopesTable(ctx); err != nil {
-		return err
+	ids := make([]int64, len(users))
+	for i := range users {
+		ids[i] = users[i].ID
 	}
-	scopesByUserID := map[int64][]AuthUserResourceScope{}
-	rows, err := s.db.QueryContext(ctx, `
-		select urs.user_id, s.id, s.city, s.name, s.external_org_id
-		from tb_user_resource_scopes urs
-		join tb_stores s on s.id = urs.resource_id
-		where urs.resource_type = ?
-			and urs.scope = ?
-			and nullif(trim(s.external_org_id), '') is not null
-		order by urs.user_id, s.city, s.name, s.id
-	`, ResourceTypeStore, ScopeMonitorView)
+	scopesByUserID, err := readCRMMonitorScopes(ctx, s.db, ids, true)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var userID int64
-		var scope AuthUserResourceScope
-		if err := rows.Scan(&userID, &scope.StoreID, &scope.City, &scope.Name, &scope.ExternalOrgID); err != nil {
-			return err
-		}
-		scopesByUserID[userID] = append(scopesByUserID[userID], scope)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
 	for index := range users {
-		users[index].MonitorStoreScopes = scopesByUserID[users[index].ID]
+		snapshot := scopesByUserID[users[index].ID]
+		users[index].MonitorStoreScopes = snapshot.Scopes
+		users[index].MonitorScopeRevision = userMonitorScopeRevision(snapshot.Tokens, users[index].Role, users[index].Enabled)
 		users[index].MonitorStoreScopeCount = len(users[index].MonitorStoreScopes)
 	}
 	return nil
-}
-
-func scanAuthUserResourceScopes(rows *sql.Rows) ([]AuthUserResourceScope, error) {
-	scopes := []AuthUserResourceScope{}
-	for rows.Next() {
-		var scope AuthUserResourceScope
-		if err := rows.Scan(&scope.StoreID, &scope.City, &scope.Name, &scope.ExternalOrgID); err != nil {
-			return nil, err
-		}
-		scopes = append(scopes, scope)
-	}
-	return scopes, rows.Err()
 }

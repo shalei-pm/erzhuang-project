@@ -20,11 +20,18 @@ import (
 )
 
 type Service struct {
-	repo          Repository
-	scanner       ChannelScanner
-	recognizer    ChannelRecognizer
-	snapshotStore SnapshotStore
+	repo                    Repository
+	scanner                 ChannelScanner
+	recognizer              ChannelRecognizer
+	snapshotStore           SnapshotStore
+	crmInstitutionAuthority bool
 }
+
+var ErrCRMDirectoryReadOnly = errors.New("机构信息统一由 CRM 维护，旧机构目录已停止新增、修改和删除。")
+
+func (s *Service) UseCRMInstitutionAuthority() { s.crmInstitutionAuthority = true }
+
+func (s *Service) UsesCRMInstitutionAuthority() bool { return s != nil && s.crmInstitutionAuthority }
 
 const maxRecorderRecognitionChannelsPerRequest = 1
 
@@ -166,6 +173,9 @@ func (s *Service) ExportChannelMappingExcel(ctx context.Context, storeID int64) 
 }
 
 func (s *Service) CreateStore(ctx context.Context, input CreateStoreInput) (*Store, error) {
+	if s.crmInstitutionAuthority {
+		return nil, ErrCRMDirectoryReadOnly
+	}
 	if err := validateCreateStoreInput(input); err != nil {
 		return nil, err
 	}
@@ -197,6 +207,9 @@ func (s *Service) CreateStore(ctx context.Context, input CreateStoreInput) (*Sto
 }
 
 func (s *Service) UpdateStoreBasicInfo(ctx context.Context, id int64, input UpdateStoreBasicInfoInput) (*Store, error) {
+	if s.crmInstitutionAuthority {
+		return nil, ErrCRMDirectoryReadOnly
+	}
 	if err := validateUpdateStoreBasicInfoInput(input); err != nil {
 		return nil, err
 	}
@@ -226,6 +239,9 @@ func (s *Service) SaveDesignPlan(ctx context.Context, storeID int64, input SaveD
 }
 
 func (s *Service) DeleteStore(ctx context.Context, id int64) error {
+	if s.crmInstitutionAuthority {
+		return ErrCRMDirectoryReadOnly
+	}
 	return s.repo.DeleteStore(ctx, id)
 }
 

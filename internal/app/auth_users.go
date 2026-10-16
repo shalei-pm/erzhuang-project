@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -23,11 +24,14 @@ const (
 	PermissionUserManage  = "user:manage"
 	PermissionAuditView   = "audit.view"
 
-	ResourceTypeStore = "store"
-	ScopeMonitorView  = "monitor:view"
+	ResourceTypeStore          = "store"
+	ResourceTypeCRMInstitution = "crm_institution"
+	ScopeMonitorView           = "monitor:view"
 )
 
 var errAuthUserNotFound = errors.New("auth user not found")
+var errMonitorScopeConflict = errors.New("机构权限已发生变化，请重新打开编辑窗口后保存。")
+var errAuthUserCommitUnknown = errors.New("用户变更提交结果暂时无法确认，请先刷新用户列表核对，勿直接重复保存。")
 
 type AuthUserRecord struct {
 	ID                     int64
@@ -41,13 +45,16 @@ type AuthUserRecord struct {
 	LastLoginAt            *time.Time
 	MonitorStoreScopeCount int
 	MonitorStoreScopes     []AuthUserResourceScope
+	MonitorScopeRevision   string
 }
 
 type AuthUserResourceScope struct {
+	// StoreID is a deprecated response alias; all new scopes identify a CRM institution.
 	StoreID       int64  `json:"store_id"`
 	City          string `json:"city"`
 	Name          string `json:"name"`
 	ExternalOrgID string `json:"external_org_id"`
+	Unavailable   bool   `json:"unavailable,omitempty"`
 }
 
 type AuthUserPatch struct {
@@ -59,12 +66,14 @@ type AuthUserPatch struct {
 }
 
 type AuthUserMutation struct {
-	Email                string  `json:"email"`
-	Username             string  `json:"username"`
-	DisplayName          string  `json:"display_name"`
-	Role                 string  `json:"role"`
-	Enabled              bool    `json:"enabled"`
-	MonitorStoreScopeIDs []int64 `json:"monitor_store_scope_ids"`
+	Email                 string          `json:"email"`
+	Username              string          `json:"username"`
+	DisplayName           string          `json:"display_name"`
+	Role                  string          `json:"role"`
+	Enabled               bool            `json:"enabled"`
+	MonitorInstitutionIDs []int64         `json:"monitor_institution_ids"`
+	MonitorScopeRevision  string          `json:"monitor_scope_revision"`
+	LegacyMonitorStoreIDs json.RawMessage `json:"monitor_store_scope_ids,omitempty"`
 }
 
 type AuthUserStore interface {

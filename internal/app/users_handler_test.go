@@ -14,12 +14,12 @@ func TestNewUserMutationAuditEventIncludesTargetAndPermissionState(t *testing.T)
 		Email:       "operator@soyoung.com",
 		DisplayName: "操作人",
 	}, "user.update", "success", 42, AuthUserMutation{
-		Email:                "target@soyoung.com",
-		Username:             "target",
-		DisplayName:          "目标用户",
-		Role:                 RoleViewer,
-		Enabled:              true,
-		MonitorStoreScopeIDs: []int64{10001, 10030},
+		Email:                 "target@soyoung.com",
+		Username:              "target",
+		DisplayName:           "目标用户",
+		Role:                  RoleViewer,
+		Enabled:               true,
+		MonitorInstitutionIDs: []int64{10001, 10030},
 	}, 2)
 
 	var detail map[string]any
@@ -80,5 +80,28 @@ func TestAuditLogSummaryFallsBackForLegacyActionSummary(t *testing.T) {
 	}
 	if got := auditLogSummary(log); got != "Audit event: user.update" {
 		t.Fatalf("summary = %q, want generic fallback", got)
+	}
+}
+
+func TestMonitorScopeAuditUsesActualTransitionAndSurvivesSanitizing(t *testing.T) {
+	for _, tc := range []struct {
+		mode           string
+		ids            []int64
+		added, removed string
+		count          float64
+	}{
+		{"preserve", nil, "", "", 1},
+		{"clear", []int64{}, "", "10030", 0},
+		{"replace", []int64{10086, 10086}, "10086", "10030", 1},
+	} {
+		event := newUserMutationAuditEvent(httptest.NewRequest("PUT", "/api/users/7", nil), AuthUserRecord{}, "user.update", "success", 7, AuthUserMutation{Role: RoleViewer, MonitorInstitutionIDs: tc.ids}, 0)
+		annotateMonitorScopeAudit(&event, []AuthUserResourceScope{{StoreID: 10030}}, tc.ids)
+		var detail map[string]any
+		if err := json.Unmarshal(sanitizeAuditDetail(event.DetailJSON), &detail); err != nil {
+			t.Fatal(err)
+		}
+		if detail["scope_update_mode"] != tc.mode || detail["scope_count"] != tc.count || detail["scope_added_ids"] != tc.added || detail["scope_removed_ids"] != tc.removed || detail["scope_previous_count"] != float64(1) {
+			t.Fatalf("detail=%+v", detail)
+		}
 	}
 }
