@@ -27,13 +27,16 @@ type authUserItemResponse struct {
 	LastLoginAt            *string                     `json:"last_login_at,omitempty"`
 	MonitorStoreScopeCount int                         `json:"monitor_store_scope_count"`
 	MonitorStoreScopes     []monitorStoreScopeResponse `json:"monitor_store_scopes,omitempty"`
+	MonitorScopeRevision   string                      `json:"monitor_scope_revision"`
 }
 
 type monitorStoreScopeResponse struct {
+	InstitutionID int64  `json:"institution_id"`
 	StoreID       int64  `json:"store_id"`
 	City          string `json:"city"`
 	Name          string `json:"name"`
 	ExternalOrgID string `json:"external_org_id"`
+	Unavailable   bool   `json:"unavailable,omitempty"`
 }
 
 type monitorStoreScopeCandidatesResponse struct {
@@ -63,6 +66,10 @@ func (h *Handler) createUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	event := newUserMutationAuditEvent(r, operator, "user.create", "success", 0, input, 0)
 	user, err := h.createAuthUserWithAudit(r.Context(), input, event)
+	if errors.Is(err, errAuthUserCommitUnknown) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": errAuthUserCommitUnknown.Error()})
+		return
+	}
 	if err != nil {
 		h.recordUserMutationFailure(r, operator, "user.create", 0, input, 0)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -101,15 +108,23 @@ func (h *Handler) updateUserHandler(w http.ResponseWriter, r *http.Request) {
 	if h.auditRecorder != nil {
 		auditInput = h.enrichUserMutationAuditTarget(r.Context(), id, input)
 	}
-	event := newUserMutationAuditEvent(r, operator, "user.update", "success", id, auditInput, len(input.MonitorStoreScopeIDs))
+	event := newUserMutationAuditEvent(r, operator, "user.update", "success", id, auditInput, len(input.MonitorInstitutionIDs))
 	user, err := h.updateAuthUserWithAudit(r.Context(), id, input, event)
+	if errors.Is(err, errAuthUserCommitUnknown) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": errAuthUserCommitUnknown.Error()})
+		return
+	}
+	if errors.Is(err, errMonitorScopeConflict) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
 	if errors.Is(err, errAuthUserNotFound) {
-		h.recordUserMutationFailure(r, operator, "user.update", id, input, len(input.MonitorStoreScopeIDs))
+		h.recordUserMutationFailure(r, operator, "user.update", id, input, len(input.MonitorInstitutionIDs))
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
 		return
 	}
 	if err != nil {
-		h.recordUserMutationFailure(r, operator, "user.update", id, input, len(input.MonitorStoreScopeIDs))
+		h.recordUserMutationFailure(r, operator, "user.update", id, input, len(input.MonitorInstitutionIDs))
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -159,16 +174,25 @@ func (h *Handler) updateAuthUserWithAudit(ctx context.Context, id int64, input A
 
 func newUserMutationAuditEvent(r *http.Request, operator AuthUserRecord, action, result string, targetID int64, input AuthUserMutation, scopeCount int) auditlog.AuditEvent {
 	if scopeCount == 0 {
-		scopeCount = len(input.MonitorStoreScopeIDs)
+		scopeCount = len(input.MonitorInstitutionIDs)
 	}
 	targetName := firstNonEmpty(input.DisplayName, input.Username, input.Email)
 	targetEmail := normalizeEmail(input.Email)
 	role := normalizeRole(input.Role)
-	scopeIDs := auditStoreIDs(input.MonitorStoreScopeIDs)
+	scopeIDs := auditStoreIDs(input.MonitorInstitutionIDs)
 	if role == RoleViewer && len(scopeIDs) > 0 {
 		scopeCount = len(scopeIDs)
 	}
 	scopeLabel := fmt.Sprintf("%d家", scopeCount)
+	scopeMode := "replace"
+	if input.MonitorInstitutionIDs == nil {
+		scopeMode = "preserve"
+		scopeLabel = "保留当前授权"
+	}
+	if input.MonitorInstitutionIDs != nil && len(input.MonitorInstitutionIDs) == 0 {
+		scopeMode = "clear"
+		scopeLabel = "0家（已清空）"
+	}
 	scopeIDsValue := ""
 	if len(scopeIDs) > 0 {
 		scopeIDsValue = strings.Join(scopeIDs, ",")
@@ -183,14 +207,16 @@ func newUserMutationAuditEvent(r *http.Request, operator AuthUserRecord, action,
 		summary = fmt.Sprintf("新增用户“%s（%s）”：角色=%s，状态=%s，门店范围=%s", targetName, targetEmail, auditRoleLabel(role), auditEnabledLabel(input.Enabled), scopeLabel)
 	}
 	detail, _ := json.Marshal(map[string]any{
-		"summary":      summary,
-		"source":       "user_management",
-		"role":         role,
-		"enabled":      input.Enabled,
-		"scope_count":  scopeCount,
-		"scope_ids":    scopeIDsValue,
-		"target_name":  targetName,
-		"target_email": targetEmail,
+		"summary":             summary,
+		"source":              "user_management",
+		"role":                role,
+		"enabled":             input.Enabled,
+		"scope_count":         scopeCount,
+		"scope_ids":           scopeIDsValue,
+		"scope_update_mode":   scopeMode,
+		"scope_resource_type": ResourceTypeCRMInstitution,
+		"target_name":         targetName,
+		"target_email":        targetEmail,
 	})
 	event := auditlog.AuditEvent{
 		UserID:           int64Pointer(operator.ID),
@@ -229,6 +255,56 @@ func auditStoreIDs(ids []int64) []string {
 	return result
 }
 
+// Only call with the transaction's validated current and target identities.
+func annotateMonitorScopeAudit(event *auditlog.AuditEvent, previous []AuthUserResourceScope, requested []int64) {
+	if event == nil {
+		return
+	}
+	before := make([]int64, len(previous))
+	for i, scope := range previous {
+		before[i] = scope.StoreID
+	}
+	after := requested
+	mode := "replace"
+	if requested == nil {
+		mode = "preserve"
+		after = before
+	} else if len(requested) == 0 {
+		mode = "clear"
+	}
+	oldSet, newSet := map[int64]bool{}, map[int64]bool{}
+	for _, id := range before {
+		oldSet[id] = true
+	}
+	for _, id := range after {
+		newSet[id] = true
+	}
+	added, removed := []int64{}, []int64{}
+	for id := range newSet {
+		if !oldSet[id] {
+			added = append(added, id)
+		}
+	}
+	for id := range oldSet {
+		if !newSet[id] {
+			removed = append(removed, id)
+		}
+	}
+	detail := map[string]any{}
+	_ = json.Unmarshal(event.DetailJSON, &detail)
+	detail["scope_update_mode"] = mode
+	detail["scope_resource_type"] = ResourceTypeCRMInstitution
+	if mode == "preserve" {
+		detail["scope_resource_type"] = "preserved"
+	}
+	detail["scope_count"] = len(newSet)
+	detail["scope_previous_count"] = len(oldSet)
+	detail["scope_ids"] = strings.Join(auditStoreIDs(after), ",")
+	detail["scope_added_ids"] = strings.Join(auditStoreIDs(added), ",")
+	detail["scope_removed_ids"] = strings.Join(auditStoreIDs(removed), ",")
+	event.DetailJSON, _ = json.Marshal(detail)
+}
+
 func auditRoleLabel(role string) string {
 	switch normalizeRole(role) {
 	case RoleAdmin:
@@ -263,6 +339,10 @@ func decodeAuthUserMutation(w http.ResponseWriter, r *http.Request, input *AuthU
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(input); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json body"})
+		return false
+	}
+	if input.LegacyMonitorStoreIDs != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "机构权限目录已升级，请刷新页面后重新保存。"})
 		return false
 	}
 	input.Email = normalizeEmail(input.Email)
@@ -303,6 +383,7 @@ func authUserItem(user AuthUserRecord) authUserItemResponse {
 		LastLoginAt:            lastLoginAt,
 		MonitorStoreScopeCount: user.MonitorStoreScopeCount,
 		MonitorStoreScopes:     monitorStoreScopesResponse(user.MonitorStoreScopes),
+		MonitorScopeRevision:   user.MonitorScopeRevision,
 	}
 }
 
@@ -313,10 +394,12 @@ func monitorStoreScopesResponse(scopes []AuthUserResourceScope) []monitorStoreSc
 	result := make([]monitorStoreScopeResponse, 0, len(scopes))
 	for _, scope := range scopes {
 		result = append(result, monitorStoreScopeResponse{
+			InstitutionID: scope.StoreID,
 			StoreID:       scope.StoreID,
 			City:          scope.City,
 			Name:          scope.Name,
 			ExternalOrgID: scope.ExternalOrgID,
+			Unavailable:   scope.Unavailable,
 		})
 	}
 	return result

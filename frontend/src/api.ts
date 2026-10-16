@@ -386,10 +386,11 @@ export type MonitorScreenshotWatermarkSettings = {
 export type ManagedUserRole = "admin" | "editor" | "viewer";
 
 export type MonitorStoreScope = {
-  storeId: number;
+  institutionId: number;
   city: string;
   name: string;
   externalOrgId: string;
+  unavailable?: boolean;
 };
 
 export type ManagedUser = {
@@ -402,6 +403,7 @@ export type ManagedUser = {
   lastLoginAt?: string;
   monitorStoreScopeCount: number;
   monitorStoreScopes: MonitorStoreScope[];
+  monitorScopeRevision?: string;
 };
 
 export type ManagedUserPayload = {
@@ -410,7 +412,8 @@ export type ManagedUserPayload = {
   displayName: string;
   role: ManagedUserRole;
   enabled: boolean;
-  monitorStoreScopeIds: number[];
+  monitorInstitutionIds: number[];
+  monitorScopeRevision?: string;
 };
 
 export type AuditLogItem = {
@@ -633,9 +636,12 @@ type BackendManagedUser = {
   monitorStoreScopeCount?: number;
   monitor_store_scopes?: BackendMonitorStoreScope[];
   monitorStoreScopes?: BackendMonitorStoreScope[];
+  monitor_scope_revision?: string;
 };
 
 type BackendMonitorStoreScope = {
+  institution_id?: number;
+  unavailable?: boolean;
   store_id?: number;
   storeId?: number;
   city?: string;
@@ -2186,8 +2192,8 @@ export const storeSpaceApi = {
         displayName: payload.displayName.trim(),
         role: payload.role,
         enabled: payload.enabled,
-        monitorStoreScopeCount: payload.monitorStoreScopeIds.length,
-        monitorStoreScopes: mockMonitorScopesByIds(payload.monitorStoreScopeIds),
+        monitorStoreScopeCount: payload.monitorInstitutionIds.length,
+        monitorStoreScopes: mockMonitorScopesByIds(payload.monitorInstitutionIds),
       };
       mockManagedUsers = [...mockManagedUsers, user];
       return clone(user);
@@ -2205,8 +2211,8 @@ export const storeSpaceApi = {
         displayName: payload.displayName.trim(),
         role: payload.role,
         enabled: payload.enabled,
-        monitorStoreScopeCount: payload.monitorStoreScopeIds.length,
-        monitorStoreScopes: mockMonitorScopesByIds(payload.monitorStoreScopeIds),
+        monitorStoreScopeCount: payload.monitorInstitutionIds.length,
+        monitorStoreScopes: mockMonitorScopesByIds(payload.monitorInstitutionIds),
       };
       mockManagedUsers = mockManagedUsers.map((item) => (item.id === id ? user : item));
       return clone(user);
@@ -2218,7 +2224,7 @@ export const storeSpaceApi = {
     if (API_MODE === "mock") {
       return mockStores
         .filter((store) => store.externalOrgId.trim())
-        .map((store) => ({ storeId: store.id, city: store.city, name: store.name, externalOrgId: store.externalOrgId }));
+        .map((store) => ({ institutionId: Number(store.externalOrgId), city: store.city, name: store.name, externalOrgId: store.externalOrgId }));
     }
     return storeSpaceHttpAdapter.listMonitorStoreScopeCandidates();
   },
@@ -2599,15 +2605,19 @@ function mapManagedUser(user: BackendManagedUser): ManagedUser {
     lastLoginAt: user.last_login_at ?? user.lastLoginAt,
     monitorStoreScopeCount: user.monitor_store_scope_count ?? user.monitorStoreScopeCount ?? scopes.length,
     monitorStoreScopes: scopes,
+    monitorScopeRevision: user.monitor_scope_revision,
   };
 }
 
 function mapMonitorStoreScope(scope: BackendMonitorStoreScope): MonitorStoreScope {
+  const institutionId = Number(scope.institution_id);
+  if (!Number.isSafeInteger(institutionId) || institutionId <= 0) throw new Error("机构权限目录版本不一致，请刷新页面后重试。");
   return {
-    storeId: Number(scope.store_id ?? scope.storeId ?? 0),
+    institutionId,
     city: scope.city ?? "",
     name: scope.name ?? "",
     externalOrgId: scope.external_org_id ?? scope.externalOrgId ?? "",
+    unavailable: scope.unavailable ?? false,
   };
 }
 
@@ -2625,7 +2635,8 @@ function toManagedUserPayload(payload: ManagedUserPayload) {
     display_name: payload.displayName,
     role: payload.role,
     enabled: payload.enabled,
-    monitor_store_scope_ids: payload.monitorStoreScopeIds,
+    monitor_institution_ids: payload.monitorInstitutionIds,
+    monitor_scope_revision: payload.monitorScopeRevision,
   };
 }
 
@@ -3502,8 +3513,8 @@ function toSummary(store: StoreDetail): StoreSummary {
 function mockMonitorScopesByIds(ids: number[]): MonitorStoreScope[] {
   const idSet = new Set(ids);
   return mockStores
-    .filter((store) => idSet.has(store.id))
-    .map((store) => ({ storeId: store.id, city: store.city, name: store.name, externalOrgId: store.externalOrgId }));
+    .filter((store) => idSet.has(Number(store.externalOrgId)))
+    .map((store) => ({ institutionId: Number(store.externalOrgId), city: store.city, name: store.name, externalOrgId: store.externalOrgId }));
 }
 
 function storeCityName(city: string) {

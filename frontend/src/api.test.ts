@@ -67,6 +67,28 @@ describe("design plan API path helpers", () => {
 });
 
 describe("authenticated API requests", () => {
+  it("uses explicit CRM identities for candidates and rejects old directory responses", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ stores: [{ institution_id: 10086, store_id: 25, name: "CRM新机构", external_org_id: "10086" }] })));
+    expect((await storeSpaceApi.listMonitorStoreScopeCandidates())[0].institutionId).toBe(10086);
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ stores: [{ store_id: 25, external_org_id: "10086" }] })));
+    await expect(storeSpaceApi.listMonitorStoreScopeCandidates()).rejects.toThrow("机构权限目录版本不一致");
+    vi.unstubAllGlobals();
+  });
+
+  it("sends CRM selection and revision without the legacy store scope field", async () => {
+    let body: Record<string, unknown> = {};
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return jsonResponse({ id: 7, email: "viewer@example.test", role: "viewer", enabled: true, monitor_scope_revision: "updated", monitor_store_scopes: [{ institution_id: 10086, external_org_id: "10086", unavailable: true }] });
+    }));
+    const saved = await storeSpaceApi.updateUser(7, { username: "viewer", displayName: "验收用户", role: "viewer", enabled: true, monitorInstitutionIds: [10086], monitorScopeRevision: "original" });
+    expect(body.monitor_institution_ids).toEqual([10086]);
+    expect(body.monitor_scope_revision).toBe("original");
+    expect(body).not.toHaveProperty("monitor_store_scope_ids");
+    expect(saved.monitorScopeRevision).toBe("updated");
+    expect(saved.monitorStoreScopes[0].unavailable).toBe(true);
+    vi.unstubAllGlobals();
+  });
   it("checks the non-renewing session status endpoint with cookies and no cache", async () => {
     const remaining = { idle_remaining_ms: 100, absolute_remaining_ms: 200 };
     const fetch = vi.fn(async () => jsonResponse(remaining));

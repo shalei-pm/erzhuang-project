@@ -259,9 +259,6 @@ func (a nvrMonitorAuthorizer) FilterStores(r *http.Request, response nvrmonitor.
 	if err != nil {
 		return nvrmonitor.MonitorStoresResponse{}, nvrMonitorAuthError(err)
 	}
-	if normalizeRole(user.Role) != RoleViewer {
-		return response, nil
-	}
 	filtered := nvrmonitor.MonitorStoresResponse{}
 	for _, group := range response.Cities {
 		nextGroup := nvrmonitor.StoreCityGroup{City: group.City}
@@ -318,9 +315,6 @@ func (a h5MonitorAuthorizer) FilterMonitorStores(r *http.Request, response h5mon
 	user, err := a.handler.currentAuthUser(r)
 	if err != nil {
 		return h5monitor.MonitorStoresResponse{}, h5MonitorAuthError(err)
-	}
-	if normalizeRole(user.Role) != RoleViewer {
-		return response, nil
 	}
 	filtered := h5monitor.MonitorStoresResponse{}
 	for _, group := range response.Cities {

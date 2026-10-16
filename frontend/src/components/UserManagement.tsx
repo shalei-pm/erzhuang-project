@@ -21,7 +21,9 @@ type UserFormState = {
   displayName: string;
   role: ManagedUserRole;
   enabled: boolean;
-  monitorStoreScopeIds: number[];
+  monitorInstitutionIds: number[];
+  monitorScopeRevision?: string;
+  retainedScopes?: MonitorStoreScope[];
 };
 
 const emptyForm: UserFormState = {
@@ -30,7 +32,7 @@ const emptyForm: UserFormState = {
   displayName: "",
   role: "viewer",
   enabled: true,
-  monitorStoreScopeIds: [],
+  monitorInstitutionIds: [],
 };
 
 export function UserManagement({ onToast, onAuthRequired }: UserManagementProps) {
@@ -41,6 +43,8 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
   const [formOpen, setFormOpen] = useState(false);
   const [scopeCandidates, setScopeCandidates] = useState<MonitorStoreScope[]>([]);
   const [scopeLoading, setScopeLoading] = useState(false);
+  const [scopeReady, setScopeReady] = useState(false);
+  const [scopeError, setScopeError] = useState("");
   const [scopeCity, setScopeCity] = useState("全部");
   const [scopeQuery, setScopeQuery] = useState("");
 
@@ -59,20 +63,28 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
     [users],
   );
 
-  const scopeCities = useMemo(() => ["全部", ...Array.from(new Set(scopeCandidates.map((store) => store.city || "未分城市")))], [scopeCandidates]);
+  const displayScopeCandidates = useMemo(() => {
+    const rows = new Map(scopeCandidates.map((scope) => [scope.institutionId, scope]));
+    for (const scope of form.retainedScopes ?? []) {
+      if (!rows.has(scope.institutionId)) rows.set(scope.institutionId, { ...scope, unavailable: true });
+    }
+    return [...rows.values()];
+  }, [scopeCandidates, form.retainedScopes]);
+
+  const scopeCities = useMemo(() => ["全部", ...Array.from(new Set(displayScopeCandidates.map((store) => store.city || "未分城市")))], [displayScopeCandidates]);
 
   const filteredScopeCandidates = useMemo(() => {
     const queryValue = scopeQuery.trim().toLowerCase();
-    const rows = scopeCandidates.filter((store) => {
+    const rows = displayScopeCandidates.filter((store) => {
       const city = store.city || "未分城市";
       if (scopeCity !== "全部" && city !== scopeCity) return false;
       if (!queryValue) return true;
       return `${city} ${store.name} ${store.externalOrgId}`.toLowerCase().includes(queryValue);
     });
     if (scopeCity !== "全部") return rows;
-    const selected = new Set(form.monitorStoreScopeIds);
-    return [...rows].sort((a, b) => Number(selected.has(b.storeId)) - Number(selected.has(a.storeId)));
-  }, [form.monitorStoreScopeIds, scopeCandidates, scopeCity, scopeQuery]);
+    const selected = new Set(form.monitorInstitutionIds);
+    return [...rows].sort((a, b) => Number(selected.has(b.institutionId)) - Number(selected.has(a.institutionId)));
+  }, [form.monitorInstitutionIds, displayScopeCandidates, scopeCity, scopeQuery]);
 
   async function loadUsers() {
     setLoading(true);
@@ -92,14 +104,18 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
   async function ensureScopeCandidatesLoaded() {
     if (scopeLoading) return;
     setScopeLoading(true);
+    setScopeReady(false);
+    setScopeError("");
+    setScopeCandidates([]);
     try {
       setScopeCandidates(await storeSpaceApi.listMonitorStoreScopeCandidates());
+      setScopeReady(true);
     } catch (error) {
       if (isIdleSessionTimeout(error) && onAuthRequired) {
         onAuthRequired(error);
         return;
       }
-      onToast(errorMessage(error, "门店范围加载失败。"));
+      setScopeError(errorMessage(error, "门店范围加载失败，请重试。"));
     } finally {
       setScopeLoading(false);
     }
@@ -121,7 +137,9 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
       displayName: user.displayName,
       role: user.role,
       enabled: user.enabled,
-      monitorStoreScopeIds: user.monitorStoreScopes.map((scope) => scope.storeId),
+      monitorInstitutionIds: user.monitorStoreScopes.map((scope) => scope.institutionId),
+      monitorScopeRevision: user.monitorScopeRevision,
+      retainedScopes: user.monitorStoreScopes,
     });
     setScopeCity("全部");
     setScopeQuery("");
@@ -130,14 +148,15 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
   }
 
   async function submitUser() {
-    if (saving) return;
+    if (saving || !scopeReady) return;
     const payload: ManagedUserPayload = {
       email: form.id ? undefined : form.email.trim(),
       username: form.username.trim(),
       displayName: form.displayName.trim(),
       role: form.role,
       enabled: form.enabled,
-      monitorStoreScopeIds: form.monitorStoreScopeIds,
+      monitorInstitutionIds: form.monitorInstitutionIds,
+      monitorScopeRevision: form.monitorScopeRevision,
     };
     if (!form.id && !payload.email) {
       onToast("企业邮箱不能为空。");
@@ -163,20 +182,20 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
     }
   }
 
-  function toggleScopeStore(storeId: number, checked: boolean) {
+  function toggleScopeStore(institutionId: number, checked: boolean) {
     setForm((value) => {
-      const next = new Set(value.monitorStoreScopeIds);
-      if (checked) next.add(storeId);
-      else next.delete(storeId);
-      return { ...value, monitorStoreScopeIds: [...next] };
+      const next = new Set(value.monitorInstitutionIds);
+      if (checked) next.add(institutionId);
+      else next.delete(institutionId);
+      return { ...value, monitorInstitutionIds: [...next] };
     });
   }
 
   function selectScopeStores(storeIds: number[]) {
     setForm((value) => {
-      const next = new Set(value.monitorStoreScopeIds);
+      const next = new Set(value.monitorInstitutionIds);
       for (const storeId of storeIds) next.add(storeId);
-      return { ...value, monitorStoreScopeIds: [...next] };
+      return { ...value, monitorInstitutionIds: [...next] };
     });
   }
 
@@ -258,6 +277,7 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
                 ×
               </button>
             </div>
+            <div className="user-modal-body">
             <div className="user-form-grid">
               <label>
                 <span>企业邮箱</span>
@@ -300,6 +320,7 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
                 </button>
               </label>
             </div>
+            {scopeError ? <div className="empty-cell" role="alert">{scopeError} <button type="button" onClick={() => void ensureScopeCandidatesLoaded()}>重试</button></div> : null}
             {form.role === "viewer" ? (
               <section className="user-scope-panel">
                 <div className="user-scope-head">
@@ -307,7 +328,7 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
                     <strong>查看监控门店范围</strong>
                     <p>仅控制门店监控入口和 H5 Monitor 访问，不影响普通页面浏览。</p>
                   </div>
-                  <span>已选 {form.monitorStoreScopeIds.length} 家</span>
+                  <span>已选 {form.monitorInstitutionIds.length} 家</span>
                 </div>
                 <div className="user-scope-city-tabs">
                   {scopeCities.map((city) => (
@@ -318,26 +339,26 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
                 </div>
                 <div className="user-scope-tools">
                   <input value={scopeQuery} onChange={(event) => setScopeQuery(event.target.value)} placeholder="搜索门店名 / 城市 / 机构 ID" />
-                  <button type="button" onClick={() => selectScopeStores(filteredScopeCandidates.map((store) => store.storeId))}>
+                  <button type="button" onClick={() => selectScopeStores(filteredScopeCandidates.map((store) => store.institutionId))}>
                     全选
                   </button>
-                  <button type="button" onClick={() => setForm((value) => ({ ...value, monitorStoreScopeIds: [] }))}>
+                  <button type="button" onClick={() => setForm((value) => ({ ...value, monitorInstitutionIds: [] }))}>
                     清空
                   </button>
                 </div>
                 <div className="user-scope-summary">当前筛选：{scopeCity}，共 {filteredScopeCandidates.length} 家</div>
                 <div className="user-scope-list">
                   {scopeLoading ? <div className="empty-cell">正在加载门店范围</div> : null}
-                  {!scopeLoading && filteredScopeCandidates.length === 0 ? <div className="empty-cell">没有匹配门店</div> : null}
+                  {!scopeLoading && !scopeError && filteredScopeCandidates.length === 0 ? <div className="empty-cell">没有匹配门店</div> : null}
                   {!scopeLoading
                     ? filteredScopeCandidates.map((store) => (
-                        <label className="user-scope-row" key={store.storeId}>
+                        <label className="user-scope-row" key={store.institutionId}>
                           <input
                             type="checkbox"
-                            checked={form.monitorStoreScopeIds.includes(store.storeId)}
-                            onChange={(event) => toggleScopeStore(store.storeId, event.target.checked)}
+                            checked={form.monitorInstitutionIds.includes(store.institutionId)}
+                            onChange={(event) => toggleScopeStore(store.institutionId, event.target.checked)}
                           />
-                          <span>{store.name}</span>
+                          <span>{store.name}{store.unavailable ? <small className="muted">（停用或暂未同步）</small> : null}</span>
                           <em>{store.externalOrgId}</em>
                         </label>
                       ))
@@ -350,9 +371,10 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
                 <p>当前角色默认全量，不受门店范围限制。已有选择会保留，切回普通查看后恢复。</p>
               </section>
             )}
+            </div>
             <div className="modal-actions">
               <button onClick={() => setFormOpen(false)}>取消</button>
-              <button className="primary-button" disabled={saving} onClick={() => void submitUser()}>
+              <button className="primary-button" disabled={saving || !scopeReady} onClick={() => void submitUser()}>
                 {saving ? "保存中" : "保存"}
               </button>
             </div>

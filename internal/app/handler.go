@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -178,7 +176,7 @@ func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.S
 	designplan.RegisterRoutesWithWriteGuard(mux, designPlanService, handler.storeWriteGuard)
 	storespace.RegisterRoutesWithGuards(mux, storeSpaceService, handler.storeWriteGuard, nil, handler.storeExportGuard)
 	resourceview.RegisterRoutesWithReadGuard(mux, resourceViewService, handler.resourceViewMonitorAccess, handler.storeReadGuard)
-	mux.HandleFunc("GET /api/store-space-resource-view/stores/{tenantId}/cameras/{cameraId}/snapshot", handler.storeReadGuard(handler.resourceViewLegacySnapshotHandler))
+	mux.HandleFunc("GET /api/store-space-resource-view/stores/{tenantId}/cameras/{cameraId}/snapshot", handler.storeReadGuard(http.NotFound))
 	mux.HandleFunc("POST /api/store-space/stores/{storeId}/channels/{channelId}/snapshot/view", handler.storeReadGuard(handler.recordChannelSnapshotView))
 	nvrlab.RegisterRoutesWithAudit(mux, nvrLabService, handler.nvrLabAdminGuard, nvrMonitorAuthorizer{handler: handler})
 	if monitorPlaybackMode == MonitorPlaybackModeNVR && nvrMonitorService != nil {
@@ -193,46 +191,6 @@ func newHandlerWithAuthSessionStore(store Store, designPlanService *designplan.S
 
 func (h *Handler) monitorModeHandler(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"mode": string(h.monitorPlaybackMode)})
-}
-
-func (h *Handler) resourceViewLegacySnapshotHandler(w http.ResponseWriter, r *http.Request) {
-	if h.resourceViewService == nil || h.storeSpaceService == nil {
-		http.NotFound(w, r)
-		return
-	}
-	tenantID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("tenantId")), 10, 64)
-	if err != nil || tenantID <= 0 {
-		http.NotFound(w, r)
-		return
-	}
-	cameraID, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("cameraId")), 10, 64)
-	if err != nil || cameraID <= 0 {
-		http.NotFound(w, r)
-		return
-	}
-	access, err := h.resourceViewMonitorAccess(r, tenantID)
-	if err != nil || !access.CanViewMonitor {
-		http.NotFound(w, r)
-		return
-	}
-	name, err := h.resourceViewService.LegacySnapshotName(r.Context(), tenantID, cameraID, access)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	reader, contentType, err := h.storeSpaceService.OpenChannelSnapshot(r.Context(), name)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer reader.Close()
-	w.Header().Set("Cache-Control", "private, no-store")
-	if strings.TrimSpace(contentType) != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
-	if _, err := io.Copy(w, reader); err != nil {
-		log.Printf("resource view: serve legacy snapshot failed: %v", err)
-	}
 }
 
 func (h *Handler) recordChannelSnapshotView(w http.ResponseWriter, r *http.Request) {

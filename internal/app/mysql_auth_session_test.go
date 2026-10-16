@@ -524,6 +524,7 @@ type sessionSQLStep struct {
 	args     []any
 	rows     []driver.Value
 	row      []driver.Value
+	rowset   [][]driver.Value
 	affected int64
 	err      error
 }
@@ -622,7 +623,10 @@ func (c *sessionScriptConn) QueryContext(_ context.Context, query string, args [
 			columns[i] = fmt.Sprintf("value%d", i)
 		}
 	}
-	return &sessionScriptRows{values: step.rows, row: step.row, columns: columns}, err
+	if len(step.rowset) > 0 {
+		columns = make([]string, len(step.rowset[0]))
+	}
+	return &sessionScriptRows{values: step.rows, row: step.row, rowset: step.rowset, columns: columns}, err
 }
 
 type sessionScriptTx struct{ d *sessionScriptDriver }
@@ -639,12 +643,18 @@ func (tx *sessionScriptTx) Rollback() error {
 type sessionScriptRows struct {
 	values  []driver.Value
 	row     []driver.Value
+	rowset  [][]driver.Value
 	columns []string
 }
 
 func (r *sessionScriptRows) Columns() []string { return r.columns }
 func (r *sessionScriptRows) Close() error      { return nil }
 func (r *sessionScriptRows) Next(dest []driver.Value) error {
+	if len(r.rowset) > 0 {
+		copy(dest, r.rowset[0])
+		r.rowset = r.rowset[1:]
+		return nil
+	}
 	if r.row != nil {
 		copy(dest, r.row)
 		r.row = nil

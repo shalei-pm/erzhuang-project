@@ -302,8 +302,6 @@ func camerasFromRecords(records resourceview.StoreRecords, snapshotsConfigured b
 		}
 		if snapshotsConfigured {
 			camera.ThumbnailURL = SnapshotURL(records.Tenant.ID, device.ID)
-		} else if channelNo := nvrChannelNo(device.HardwareID); channelNo > 0 && records.LegacyCameraSnapshots[channelNo] != "" {
-			camera.ThumbnailURL = fmt.Sprintf("/api/store-space-resource-view/stores/%d/cameras/%d/snapshot", records.Tenant.ID, device.ID)
 		}
 		cameras = append(cameras, camera)
 	}

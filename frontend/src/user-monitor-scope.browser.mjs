@@ -22,15 +22,16 @@ const { storeSpaceApi } = await import('/erzhuang-project/src/api.ts');
 const { UserManagement } = await import('/erzhuang-project/src/components/UserManagement.tsx');
 await import('/erzhuang-project/src/styles.css');
 const state = window.__scopeQA = { requests: 0, payload: null, candidates: [
- { storeId: 19, city: '南京', name: '南京金鹰世界店', externalOrgId: '10053' },
- { storeId: 25, city: '南京', name: '数字化测试门店', externalOrgId: '10030' },
+ { institutionId: 10053, city: '南京', name: '南京金鹰世界店', externalOrgId: '10053' },
+ { institutionId: 10030, city: '南京', name: '数字化测试门店', externalOrgId: '10030' },
 ] };
-let user = { id: 7, email: 'viewer@example.test', username: 'viewer', displayName: '验收用户', role: 'viewer', enabled: true, monitorStoreScopeCount: 0, monitorStoreScopes: [] };
+let user = { id: 7, email: 'viewer@example.test', username: 'viewer', displayName: '验收用户', role: 'viewer', enabled: true, monitorScopeRevision: 'revision-1', monitorStoreScopeCount: 1, monitorStoreScopes: [{ institutionId: 10099, city: '历史机构', name: '机构 10099', externalOrgId: '10099', unavailable: true }] };
 storeSpaceApi.listUsers = async () => [user];
-storeSpaceApi.listMonitorStoreScopeCandidates = async () => { state.requests++; return structuredClone(state.candidates); };
+storeSpaceApi.listMonitorStoreScopeCandidates = async () => { state.requests++; if (state.failCandidates) throw new Error('机构目录暂时不可用'); return structuredClone(state.candidates); };
 storeSpaceApi.updateUser = async (_, payload) => {
  state.payload = payload;
- const scopes = state.candidates.filter(s => payload.monitorStoreScopeIds.includes(s.storeId));
+ const all = new Map([...user.monitorStoreScopes, ...state.candidates].map(s => [s.institutionId, s]));
+ const scopes = [...all.values()].filter(s => payload.monitorInstitutionIds.includes(s.institutionId));
  user = { ...user, ...payload, email: user.email, monitorStoreScopes: scopes, monitorStoreScopeCount: scopes.length };
  return user;
 };
@@ -38,7 +39,7 @@ createRoot(document.getElementById('root')).render(React.createElement(UserManag
 </script></body></html>`;
 
 try {
-  for (const width of [1440, 1024]) {
+  for (const width of [1440, 1024, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 900 } });
     await context.route("**/*", route => {
       const url = new URL(route.request().url());
@@ -66,23 +67,43 @@ try {
     }
     await page.locator(".user-scope-row").filter({ hasText: "10030" }).waitFor();
     await page.getByRole("button", { name: "取消", exact: true }).click();
-    await page.evaluate(() => window.__scopeQA.candidates.push({ storeId: 501, city: "南京", name: "南京金陵中环店", externalOrgId: "10086" }));
+    await page.evaluate(() => window.__scopeQA.candidates.push({ institutionId: 10086, city: "南京", name: "南京金陵中环店", externalOrgId: "10086" }));
     await page.getByRole("button", { name: "编辑", exact: true }).click();
     await page.getByRole("button", { name: "南京", exact: true }).click();
     await page.locator(".user-scope-row").filter({ hasText: "10086" }).waitFor({ timeout: 3000 });
     assert.equal(await page.locator(".user-scope-row").count(), 3);
     for (const id of ["10030", "10086"]) await page.locator(".user-scope-row").filter({ hasText: id }).getByRole("checkbox").check();
     await page.getByRole("button", { name: "保存", exact: true }).click();
-    assert.deepEqual(await page.evaluate(() => window.__scopeQA.payload.monitorStoreScopeIds.slice().sort((a,b) => a-b)), [25,501]);
+    assert.deepEqual(await page.evaluate(() => window.__scopeQA.payload.monitorInstitutionIds.slice().sort((a,b) => a-b)), [10030,10086,10099]);
+    assert.equal(await page.evaluate(() => window.__scopeQA.payload.monitorScopeRevision), 'revision-1');
     await page.getByRole("button", { name: "编辑", exact: true }).click();
     await page.getByRole("button", { name: "南京", exact: true }).click();
     for (const id of ["10030", "10086"]) assert.equal(await page.locator(".user-scope-row").filter({ hasText: id }).getByRole("checkbox").isChecked(), true);
+    await page.getByRole('button', { name: '全部', exact: true }).click();
+    const unavailable = page.locator('.user-scope-row').filter({ hasText: '10099' });
+    assert.equal(await unavailable.getByRole('checkbox').isChecked(), true);
+    assert.match(await unavailable.innerText(), /停用或暂未同步/);
+    await unavailable.getByRole('checkbox').uncheck();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.__scopeQA.payload.monitorInstitutionIds.slice().sort((a,b) => a-b)), [10030,10086]);
+    await page.evaluate(() => { window.__scopeQA.failCandidates = true; });
+    await page.getByRole('button', { name: '编辑', exact: true }).click();
+    await page.getByRole('alert').waitFor();
+    assert.equal(await page.getByRole('button', { name: '保存', exact: true }).isDisabled(), true);
+    await page.evaluate(() => { window.__scopeQA.failCandidates = false; });
+    await page.getByRole('button', { name: '重试', exact: true }).click();
+    await page.waitForFunction(() => !document.querySelector('.modal-actions .primary-button')?.disabled);
+    for (const label of ['取消', '保存']) {
+      const bounds = await page.getByRole('button', { name: label, exact: true }).boundingBox();
+      assert.ok(bounds && bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= width && bounds.y + bounds.height <= 900, `${label} must be fully inside viewport at ${width}px`);
+    }
+    assert.equal(await page.locator('.user-modal-body').evaluate(element => element.scrollWidth > element.clientWidth), false);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(errors, []);
     await page.screenshot({ path: new URL(`nanjing-permission-${width}.png`, artifacts).pathname });
     await context.close();
   }
-  console.log("PASS 2 user permission browser scenarios: refreshed candidates, Nanjing grouping, internal IDs, saved selection");
+  console.log("PASS CRM permission browser scenarios: fresh candidates, CRM IDs, saved selection, unavailable grants, revoke, source failure and retry");
 } finally {
   await browser.close();
 }

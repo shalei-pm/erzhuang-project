@@ -520,6 +520,10 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 }
 
 func handleServiceError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrCRMDirectoryReadOnly) {
+		writeError(w, http.StatusConflict, err.Error(), nil)
+		return
+	}
 	var validationError *ValidationError
 	if errors.As(err, &validationError) {
 		writeError(w, http.StatusBadRequest, validationError.Error(), validationError.Fields)

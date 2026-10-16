@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -67,8 +68,9 @@ func NewMemoryStore() *MemoryStore {
 			},
 		},
 		monitorScopeCandidates: []AuthUserResourceScope{
-			{StoreID: 30, City: "北京", Name: "北京保利实验室门店", ExternalOrgID: "10030"},
-			{StoreID: 19, City: "上海", Name: "新氧青春诊所(上海陆家嘴店)", ExternalOrgID: "10019"},
+			{StoreID: 10030, City: "北京", Name: "北京保利实验室门店", ExternalOrgID: "10030"},
+			{StoreID: 10019, City: "上海", Name: "新氧青春诊所(上海陆家嘴店)", ExternalOrgID: "10019"},
+			{StoreID: 10001, City: "北京", Name: "合成 NVR 测试机构", ExternalOrgID: "10001"},
 		},
 		monitorScopesByUserID: map[int64][]AuthUserResourceScope{},
 		now:                   time.Now,
@@ -265,7 +267,11 @@ func (s *MemoryStore) CreateAuthUser(ctx context.Context, input AuthUserMutation
 		Role:        normalizeRole(input.Role),
 		Enabled:     input.Enabled,
 	}
-	s.monitorScopesByUserID[user.ID] = s.monitorScopesForIDs(input.MonitorStoreScopeIDs)
+	scopes, err := s.monitorScopesForIDs(user.ID, input.MonitorInstitutionIDs)
+	if err != nil {
+		return AuthUserRecord{}, err
+	}
+	s.monitorScopesByUserID[user.ID] = scopes
 	s.attachMemoryMonitorScopes(&user)
 	s.authUsers[email] = user
 	return user, nil
@@ -292,11 +298,19 @@ func (s *MemoryStore) UpdateAuthUser(ctx context.Context, id int64, input AuthUs
 		if user.ID != id {
 			continue
 		}
+		s.attachMemoryMonitorScopes(&user)
+		if input.MonitorScopeRevision != user.MonitorScopeRevision {
+			return AuthUserRecord{}, errMonitorScopeConflict
+		}
+		scopes, err := s.monitorScopesForIDs(user.ID, input.MonitorInstitutionIDs)
+		if err != nil {
+			return AuthUserRecord{}, err
+		}
 		user.Username = strings.TrimSpace(input.Username)
 		user.DisplayName = strings.TrimSpace(input.DisplayName)
 		user.Role = normalizeRole(input.Role)
 		user.Enabled = input.Enabled
-		s.monitorScopesByUserID[user.ID] = s.monitorScopesForIDs(input.MonitorStoreScopeIDs)
+		s.monitorScopesByUserID[user.ID] = scopes
 		s.attachMemoryMonitorScopes(&user)
 		s.authUsers[email] = user
 		return user, nil
@@ -336,37 +350,61 @@ func (s *MemoryStore) GetUserMonitorStoreScopes(ctx context.Context, userID int6
 }
 
 func (s *MemoryStore) CanUserViewMonitorStore(ctx context.Context, user AuthUserRecord, externalOrgID string) (bool, error) {
-	if normalizeRole(user.Role) != RoleViewer {
-		return true, nil
-	}
 	orgID := strings.TrimSpace(externalOrgID)
-	if orgID == "" {
+	institutionID, valid := canonicalInstitutionID(orgID)
+	if !valid {
 		return false, nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	active := false
+	for _, candidate := range s.monitorScopeCandidates {
+		if candidate.StoreID == institutionID && candidate.ExternalOrgID == orgID && !candidate.Unavailable {
+			active = true
+			break
+		}
+	}
+	if !active {
+		return false, nil
+	}
+	if normalizeRole(user.Role) != RoleViewer {
+		return true, nil
+	}
 	for _, scope := range s.monitorScopesByUserID[user.ID] {
-		if strings.TrimSpace(scope.ExternalOrgID) == orgID {
+		if scope.StoreID == institutionID && scope.ExternalOrgID == orgID {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func (s *MemoryStore) monitorScopesForIDs(ids []int64) []AuthUserResourceScope {
-	idSet := map[int64]bool{}
-	for _, id := range ids {
-		if id > 0 {
-			idSet[id] = true
+func (s *MemoryStore) monitorScopesForIDs(userID int64, ids []int64) ([]AuthUserResourceScope, error) {
+	if ids == nil {
+		return append([]AuthUserResourceScope{}, s.monitorScopesByUserID[userID]...), nil
+	}
+	byID := map[int64]AuthUserResourceScope{}
+	for _, scope := range s.monitorScopesByUserID[userID] {
+		byID[scope.StoreID] = scope
+	}
+	for _, scope := range s.monitorScopeCandidates {
+		if !scope.Unavailable {
+			byID[scope.StoreID] = scope
 		}
 	}
 	scopes := []AuthUserResourceScope{}
-	for _, candidate := range s.monitorScopeCandidates {
-		if idSet[candidate.StoreID] {
-			scopes = append(scopes, candidate)
+	for _, id := range ids {
+		if id <= 0 || id > 9007199254740991 {
+			return nil, errors.New("机构 ID 必须为安全范围内的正整数")
 		}
 	}
-	return scopes
+	for _, id := range uniquePositiveInt64s(ids) {
+		scope, ok := byID[id]
+		if !ok {
+			return nil, fmt.Errorf("机构 %d 未启用或不存在，不能新增授权", id)
+		}
+		scopes = append(scopes, scope)
+	}
+	return scopes, nil
 }
 
 func (s *MemoryStore) attachMemoryMonitorScopes(user *AuthUserRecord) {
@@ -377,6 +415,7 @@ func (s *MemoryStore) attachMemoryMonitorScopes(user *AuthUserRecord) {
 	user.MonitorStoreScopes = make([]AuthUserResourceScope, len(scopes))
 	copy(user.MonitorStoreScopes, scopes)
 	user.MonitorStoreScopeCount = len(scopes)
+	user.MonitorScopeRevision = userMonitorScopeRevision([]string{memoryScopeRevision(scopes)}, user.Role, user.Enabled)
 }
 
 func (s *MemoryStore) setAuthUserForTest(user AuthUserRecord) error {

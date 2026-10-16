@@ -95,6 +95,7 @@ func main() {
 			h5MonitorService = h5monitor.NewService(h5RepositoryFactory(ezvizAccounts), ezviz.NewClient(ezviz.ClientOptions{}))
 			log.Printf("ezviz scanner enabled, synced %d account(s)", len(ezvizAccounts))
 		}
+		storeSpaceService.UseCRMInstitutionAuthority()
 		if provider, err := sdyrpc.NewProvider(); err != nil {
 			log.Printf("digital twin RPC unavailable: %v", err)
 		} else {

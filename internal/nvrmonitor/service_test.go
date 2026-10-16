@@ -130,7 +130,6 @@ func nvrMonitorRecords() resourceview.StoreRecords {
 			{ID: 1, DeviceID: 111, AreaID: 2665},
 			{ID: 2, DeviceID: 111, AreaID: 2667},
 		},
-		LegacyCameraSnapshots: map[int]string{10: "0123456789abcdef0123456789abcdef.jpg"},
 	}
 }
 
@@ -166,8 +165,8 @@ func TestGetCamerasOnlyReturnsEligibleCameraAndApplicableSpace(t *testing.T) {
 	if response.City != "北京" || camera.ID != 111 || camera.SpaceType != "治疗室" || camera.SpaceName != "产研中心1-2" || camera.ThumbnailKind != "treatment" {
 		t.Fatalf("camera = %#v", camera)
 	}
-	if camera.ThumbnailURL == "" {
-		t.Fatalf("camera = %#v, want legacy thumbnail url", camera)
+	if camera.ThumbnailURL != "" {
+		t.Fatalf("camera = %#v, want empty without current NVR snapshot store", camera)
 	}
 }
 
