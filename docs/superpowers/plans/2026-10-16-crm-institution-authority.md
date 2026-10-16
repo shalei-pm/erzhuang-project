@@ -36,3 +36,7 @@
 ## Verification Commands
 
 Use project Go binary with CGO_ENABLED=0 GOCACHE=/tmp/erzhuang-go-cache GOPROXY=off. Run app/resourceview/storespace targeted tests after each change; then go test ./... and go build. Frontend uses npm test and npm run build where defined. SQL-driver expectations must reject tb_stores access on CRM candidate/new-write/current-resource paths. Browser requests use local fixtures only; no real user permission mutations.
+
+## 4.9.1 Follow-Up: Match Homepage Eligibility
+
+User approved aligning permission candidates with the homepage after testing 4.9.0. This supersedes the earlier decision to list all enabled CRM institutions for new grants. Both now require an enabled CRM institution with at least one enabled, nondeleted edge device; an offline edge remains eligible. Reuse one SQL predicate for homepage list/detail and candidate/save validation. Existing grants outside the current candidate set remain manageable and are counted separately in the form. Metadata enrichment and monitor authorization keep their existing rules. No schema change, automatic grant cleanup or publication is included in this follow-up request.

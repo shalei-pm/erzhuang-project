@@ -25,7 +25,7 @@ const state = window.__scopeQA = { requests: 0, payload: null, candidates: [
  { institutionId: 10053, city: '南京', name: '南京金鹰世界店', externalOrgId: '10053' },
  { institutionId: 10030, city: '南京', name: '数字化测试门店', externalOrgId: '10030' },
 ] };
-let user = { id: 7, email: 'viewer@example.test', username: 'viewer', displayName: '验收用户', role: 'viewer', enabled: true, monitorScopeRevision: 'revision-1', monitorStoreScopeCount: 1, monitorStoreScopes: [{ institutionId: 10099, city: '历史机构', name: '机构 10099', externalOrgId: '10099', unavailable: true }] };
+let user = { id: 7, email: 'viewer@example.test', username: 'viewer', displayName: '验收用户', role: 'viewer', enabled: true, monitorScopeRevision: 'revision-1', monitorStoreScopeCount: 1, monitorStoreScopes: [{ institutionId: 10099, city: '上海', name: '上海无有效工控机机构', externalOrgId: '10099' }] };
 storeSpaceApi.listUsers = async () => [user];
 storeSpaceApi.listMonitorStoreScopeCandidates = async () => { state.requests++; if (state.failCandidates) throw new Error('机构目录暂时不可用'); return structuredClone(state.candidates); };
 storeSpaceApi.updateUser = async (_, payload) => {
@@ -82,7 +82,14 @@ try {
     await page.getByRole('button', { name: '全部', exact: true }).click();
     const unavailable = page.locator('.user-scope-row').filter({ hasText: '10099' });
     assert.equal(await unavailable.getByRole('checkbox').isChecked(), true);
-    assert.match(await unavailable.innerText(), /停用或暂未同步/);
+    assert.match(await unavailable.innerText(), /不在当前可选范围/);
+    assert.match(await page.locator('.user-scope-summary').innerText(), /可选 3 家.*保留授权 1 家/);
+    await page.getByRole('button', { name: '上海', exact: true }).click();
+    assert.match(await page.locator('.user-scope-summary').innerText(), /可选 0 家.*保留授权 1 家/);
+    await unavailable.scrollIntoViewIfNeeded();
+    assert.equal(await unavailable.locator('span').evaluate(element => getComputedStyle(element).whiteSpace), 'normal');
+    assert.equal(await unavailable.locator('span').evaluate(element => element.scrollWidth > element.clientWidth), false);
+    await page.screenshot({ path: new URL(`retained-permission-${width}.png`, artifacts).pathname });
     await unavailable.getByRole('checkbox').uncheck();
     await page.getByRole('button', { name: '保存', exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.__scopeQA.payload.monitorInstitutionIds.slice().sort((a,b) => a-b)), [10030,10086]);
@@ -103,7 +110,7 @@ try {
     await page.screenshot({ path: new URL(`nanjing-permission-${width}.png`, artifacts).pathname });
     await context.close();
   }
-  console.log("PASS CRM permission browser scenarios: fresh candidates, CRM IDs, saved selection, unavailable grants, revoke, source failure and retry");
+  console.log("PASS CRM permission browser scenarios: fresh candidates, CRM IDs, saved selection, out-of-scope grants counted separately, revoke, source failure and retry");
 } finally {
   await browser.close();
 }
