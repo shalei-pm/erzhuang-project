@@ -86,6 +86,9 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
     return [...rows].sort((a, b) => Number(selected.has(b.institutionId)) - Number(selected.has(a.institutionId)));
   }, [form.monitorInstitutionIds, displayScopeCandidates, scopeCity, scopeQuery]);
 
+  const retainedScopeCount = filteredScopeCandidates.filter((scope) => scope.unavailable).length;
+  const selectableScopeCount = filteredScopeCandidates.length - retainedScopeCount;
+
   async function loadUsers() {
     setLoading(true);
     try {
@@ -346,7 +349,7 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
                     清空
                   </button>
                 </div>
-                <div className="user-scope-summary">当前筛选：{scopeCity}，共 {filteredScopeCandidates.length} 家</div>
+                <div className="user-scope-summary">当前筛选：{scopeCity}，可选 {selectableScopeCount} 家{retainedScopeCount > 0 ? ` · 保留授权 ${retainedScopeCount} 家` : ""}</div>
                 <div className="user-scope-list">
                   {scopeLoading ? <div className="empty-cell">正在加载门店范围</div> : null}
                   {!scopeLoading && !scopeError && filteredScopeCandidates.length === 0 ? <div className="empty-cell">没有匹配门店</div> : null}
@@ -358,7 +361,7 @@ export function UserManagement({ onToast, onAuthRequired }: UserManagementProps)
                             checked={form.monitorInstitutionIds.includes(store.institutionId)}
                             onChange={(event) => toggleScopeStore(store.institutionId, event.target.checked)}
                           />
-                          <span>{store.name}{store.unavailable ? <small className="muted">（停用或暂未同步）</small> : null}</span>
+                          <span className={store.unavailable ? "user-scope-retained-label" : undefined}>{store.name}{store.unavailable ? <small className="muted">（不在当前可选范围，仅可保留或移除）</small> : null}</span>
                           <em>{store.externalOrgId}</em>
                         </label>
                       ))

@@ -17,7 +17,7 @@ func TestCRMScopesReadLegacyExternalIdentityAndRetainUnavailable(t *testing.T) {
 			{int64(7), "store", int64(26), "10030"},
 			{int64(7), "store", int64(10030), "10086"},
 		}},
-		sessionSQLStep{op: "query", contains: "from tb_crm_admin_tenant", row: []driver.Value{int64(10030), "CRM名称", int64(162), int64(1)}},
+		sessionSQLStep{op: "query", contains: "from tb_crm_admin_tenant", rejects: []string{"tb_crm_iot_device"}, row: []driver.Value{int64(10030), "CRM名称", int64(162), int64(1)}},
 	)
 	got, err := NewMySQLStore(db).GetUserMonitorStoreScopes(context.Background(), 7)
 	if err != nil || len(got) != 2 {
@@ -50,7 +50,7 @@ func TestCRMScopesReplaceBothNamespacesAndRetainExistingMissingInstitution(t *te
 		sessionSQLStep{op: "begin"},
 		sessionSQLStep{op: "query", contains: "from tb_users", wants: []string{"for update"}, row: []driver.Value{int64(7), true, "viewer"}},
 		sessionSQLStep{op: "query", contains: "from tb_user_resource_scopes", row: []driver.Value{int64(7), "store", int64(25), "10030"}},
-		sessionSQLStep{op: "query", contains: "from tb_crm_admin_tenant", wants: []string{"status = 1"}, row: []driver.Value{int64(10086), "新机构", int64(162), int64(1)}},
+		sessionSQLStep{op: "query", contains: "from tb_crm_admin_tenant", wants: []string{"t.status = 1", "d.category = 'edge'", "d.status = 1", "d.deleted_at is null"}, row: []driver.Value{int64(10086), "新机构", int64(162), int64(1)}},
 		sessionSQLStep{op: "exec", contains: "delete from tb_user_resource_scopes", wants: []string{"resource_type in (?, ?)"}, args: []any{int64(7), "store", "crm_institution", "monitor:view"}},
 		sessionSQLStep{op: "exec", contains: "insert into tb_user_resource_scopes", rejects: []string{"tb_stores", "select"}, args: []any{int64(7), "crm_institution", int64(10030), "10030", "monitor:view"}},
 		sessionSQLStep{op: "exec", contains: "insert into tb_user_resource_scopes", args: []any{int64(7), "crm_institution", int64(10086), "10086", "monitor:view"}},
@@ -78,13 +78,14 @@ func TestCRMScopesFailureRollsBackWithoutDeletingGrants(t *testing.T) {
 	}{
 		{"source error", []int64{}, errors.New("CRM unavailable")},
 		{"new inactive institution", []int64{10086}, nil},
+		{"new institution without eligible edge", []int64{10087}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := newSessionScriptDB(t,
 				sessionSQLStep{op: "begin"},
 				sessionSQLStep{op: "query", contains: "from tb_users", row: []driver.Value{int64(7), true, "viewer"}},
 				sessionSQLStep{op: "query", contains: "from tb_user_resource_scopes"},
-				sessionSQLStep{op: "query", contains: "from tb_crm_admin_tenant", err: tc.crmErr},
+				sessionSQLStep{op: "query", contains: "from tb_crm_admin_tenant", wants: []string{"d.category = 'edge'", "d.status = 1", "d.deleted_at is null"}, err: tc.crmErr},
 				sessionSQLStep{op: "rollback"},
 			)
 			tx, _ := db.BeginTx(context.Background(), nil)

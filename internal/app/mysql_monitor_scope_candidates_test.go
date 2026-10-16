@@ -22,8 +22,8 @@ func TestMySQLMonitorCandidatesUseCRMWithoutLegacyDirectory(t *testing.T) {
 			db := newSessionScriptDB(t,
 				sessionSQLStep{
 					op: "query", contains: "from tb_crm_admin_tenant",
-					wants:   []string{"status = 1"},
-					rejects: []string{"tb_stores", "join ", "insert ", "update ", "delete ", "tb_crm_iot_device"},
+					wants:   []string{"t.status = 1", "exists (", "from tb_crm_iot_device d", "d.tenant_id = t.id", "d.category = 'edge'", "d.status = 1", "d.deleted_at is null"},
+					rejects: []string{"tb_stores", "join ", "insert ", "update ", "delete ", "online_status"},
 					row:     []driver.Value{int64(10030), tc.crmName, tc.crmCity, int64(1)},
 				},
 			)
