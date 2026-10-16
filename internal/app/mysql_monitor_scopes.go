@@ -47,22 +47,22 @@ func canonicalInstitutionID(key string) (int64, bool) {
 	return id, err == nil && id > 0 && id <= 9007199254740991 && strconv.FormatInt(id, 10) == key
 }
 
-func listCRMMonitorInstitutions(ctx context.Context, q monitorScopeQueryer, ids []int64, activeOnly bool) ([]AuthUserResourceScope, error) {
-	query := "select id, name, city_id, status from tb_crm_admin_tenant where id > 0"
+func listCRMMonitorInstitutions(ctx context.Context, q monitorScopeQueryer, ids []int64, candidatesOnly bool) ([]AuthUserResourceScope, error) {
+	query := "select t.id, t.name, t.city_id, t.status from tb_crm_admin_tenant t where t.id > 0"
 	args := []any{}
-	if activeOnly {
-		query += " and status = 1"
+	if candidatesOnly {
+		query += " and " + resourceview.CRMInstitutionWithEdgeSQL
 	}
 	if ids != nil {
 		if len(ids) == 0 {
 			return []AuthUserResourceScope{}, nil
 		}
-		query += " and id in (" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")"
+		query += " and t.id in (" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")"
 		for _, id := range ids {
 			args = append(args, id)
 		}
 	}
-	query += " order by city_id, name, id"
+	query += " order by t.city_id, t.name, t.id"
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

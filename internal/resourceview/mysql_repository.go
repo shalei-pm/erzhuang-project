@@ -62,18 +62,7 @@ func (r *MySQLRepository) GetStoreRecords(ctx context.Context, tenantID int64) (
 	if r == nil || r.db == nil {
 		return StoreRecords{}, errors.New("mysql resource view repository is not configured")
 	}
-	row := r.db.QueryRowContext(ctx, `
-select id, name, hospital_name, status, province_id, city_id
-from tb_crm_admin_tenant
-where id = ? and status = 1
-  and exists (
-    select 1
-    from tb_crm_iot_device d
-    where d.tenant_id = tb_crm_admin_tenant.id
-      and d.category = 'edge'
-      and d.status = 1
-      and d.deleted_at is null
-  )`, tenantID)
+	row := r.db.QueryRowContext(ctx, listStoreBaseSQL+" and t.id = ?", tenantID)
 	tenant, err := scanBusinessTenant(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return StoreRecords{}, ErrNotFound
@@ -227,10 +216,9 @@ order by r.id asc`, tenantID)
 	return relations, rows.Err()
 }
 
-const listStoreBaseSQL = `
-select t.id, t.name, t.hospital_name, t.status, t.province_id, t.city_id
-from tb_crm_admin_tenant t
-where t.status = 1
+// CRMInstitutionWithEdgeSQL is shared by the homepage and permission candidates.
+// The CRM table must be aliased as t; device online status is not required.
+const CRMInstitutionWithEdgeSQL = `t.status = 1
   and exists (
     select 1
     from tb_crm_iot_device d
@@ -239,6 +227,11 @@ where t.status = 1
       and d.status = 1
       and d.deleted_at is null
   )`
+
+const listStoreBaseSQL = `
+select t.id, t.name, t.hospital_name, t.status, t.province_id, t.city_id
+from tb_crm_admin_tenant t
+where ` + CRMInstitutionWithEdgeSQL
 
 const listNVRMonitorStoreBaseSQL = `
 select t.id, t.name, t.hospital_name, t.status, t.province_id, t.city_id

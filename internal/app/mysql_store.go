@@ -841,7 +841,7 @@ func setMySQLUserMonitorScopesWithAudit(ctx context.Context, tx *sql.Tx, userID 
 	ids := uniquePositiveInt64s(storeIDs)
 	for _, id := range ids {
 		if !allowed[id] {
-			return fmt.Errorf("机构 %d 未启用或不存在，不能新增授权", id)
+			return fmt.Errorf("机构 %d 不在当前可选范围（机构须启用且已配置有效工控机），不能新增授权", id)
 		}
 	}
 	annotateMonitorScopeAudit(event, previous[userID].Scopes, ids)

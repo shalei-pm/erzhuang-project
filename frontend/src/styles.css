@@ -1041,6 +1041,16 @@ h1 {
   white-space: nowrap;
 }
 
+.user-scope-row .user-scope-retained-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.user-scope-retained-label small {
+  display: block;
+  line-height: 1.5;
+}
+
 .user-scope-row em {
   color: var(--text-muted);
   font-style: normal;
