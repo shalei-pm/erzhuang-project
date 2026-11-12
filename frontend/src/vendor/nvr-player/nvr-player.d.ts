@@ -39,6 +39,7 @@ export type NVRPlayerOptions = {
   reconnectDelay?: number;
   forceWasm?: boolean;
   wasmWorkerUrl?: string;
+  audioWorkletUrl?: string;
   onError?: (error: Error) => void;
   onConnected?: () => void;
   onDisconnected?: (details: { code: number | null; wasClean: boolean }) => void;
