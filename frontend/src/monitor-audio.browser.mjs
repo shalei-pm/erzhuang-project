@@ -70,33 +70,54 @@ try {
         const player = window.__qaPlayer;
         const audio = player.audioContext;
         const analyser = audio.createAnalyser();
-        analyser.fftSize = 256;
+        analyser.fftSize = 2048;
         player.gainNode.connect(analyser);
         const decoded = player._decodePCMA(Uint8Array.from({ length: 256 }, (_, i) => i));
-        const fixture = Uint8Array.from({ length: 160 }, (_, i) => {
-          const sample = Math.sin(2 * Math.PI * 440 * i / 8000) * 12000;
+        const encodeSample = (sample) => {
           let nearest = 0;
           for (let code = 1; code < 256; code++) {
             if (Math.abs(decoded[code] - sample) < Math.abs(decoded[nearest] - sample)) nearest = code;
           }
           return nearest;
-        });
+        };
         let sequenceNumber = 0;
         const feed = () => {
-          if (activeMode === "live") player._decodeRTP({ payloadType: 8, sequenceNumber: sequenceNumber++, payload: fixture });
-          else player._handleH264Frame(fixture.buffer, { nFrameType: 4 });
+          const base = sequenceNumber * 160;
+          const packet = Uint8Array.from({ length: 160 }, (_, i) =>
+            encodeSample(Math.sin(2 * Math.PI * 440 * (base + i) / 8000) * 18000)
+          );
+          if (activeMode === "live") player._decodeRTP({ payloadType: 8, sequenceNumber: sequenceNumber++, payload: packet });
+          else {
+            sequenceNumber++;
+            player._handleH264Frame(packet.buffer, { nFrameType: 4 });
+          }
         };
-        feed();
+        const startAudioTime = audio.currentTime;
+        for (let pre = 0; pre < 5; pre++) feed();
         const timer = setInterval(feed, 20);
-        await new Promise((resolve) => setTimeout(resolve, 180));
-        const samples = new Float32Array(256);
+        const deadline = Date.now() + 1500;
+        while (audio.currentTime - startAudioTime < 0.18 && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        const samples = new Float32Array(2048);
         analyser.getFloatTimeDomainData(samples);
         clearInterval(timer);
         analyser.disconnect();
-        return { state: audio.state, peak: Math.max(...samples.map(Math.abs)) };
+        let maxStep = 0;
+        for (let i = 1; i < samples.length; i++) {
+          maxStep = Math.max(maxStep, Math.abs(samples[i] - samples[i - 1]));
+        }
+        return {
+          state: audio.state,
+          hasWorklet: Boolean(player.workletNode),
+          peak: Math.max(...samples.map(Math.abs)),
+          maxStep,
+        };
       }, mode);
       assert.equal(signal.state, "running");
-      assert(signal.peak > 0.01, `expected an output signal for ${mode}: ${signal.peak}`);
+      assert.equal(signal.hasWorklet, true, `expected AudioWorklet node to be active for ${mode}`);
+      assert(signal.peak > 0.05, `expected an output signal for ${mode}: ${signal.peak}`);
+      assert(signal.maxStep < 0.08, `expected smooth waveform without boundary clicks for ${mode}: ${signal.maxStep}`);
 
       await page.getByRole("button", { name: "关闭声音", exact: true }).click();
       await page.evaluate(() => {

@@ -9,6 +9,8 @@
  */
 
 // 模块级常量，避免每帧重复分配
+import { PcmStreamEngine } from './pcm-stream-engine.js';
+
 const START_CODE = new Uint8Array([0, 0, 0, 1]);
 const MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024;
 const playbackAudioSessions = new Map();
@@ -86,6 +88,7 @@ class NVRPlayer {
         this.reconnectDelay = options.reconnectDelay || 3000;
         this.forceWasm      = options.forceWasm === true;
         this.wasmWorkerUrl  = options.wasmWorkerUrl || '/erzhuang-project/nvr-player/wasm/systemTransform-worker.js';
+        this.audioWorkletUrl = options.audioWorkletUrl || '/erzhuang-project/nvr-player/pcm-stream-worklet.js';
         this._isRunning     = false;
         this._isPaused      = false;
 
@@ -123,6 +126,12 @@ class NVRPlayer {
         this.audioPacketLoss    = 0;
         this.currentVolume      = 100;
         this.gainNode           = null;
+        this.highpassNode       = null;
+        this.lowpassNode        = null;
+        this.workletNode        = null;
+        this._workletInitPromise = null;
+        this._graphContext      = null;
+        this._pcmEngine         = null;
         this._audioGestureReady = false;  // 用户手势触发后置为 true
         this._audioGestureHandler = null; // 手势监听引用，用于清理
 
@@ -576,12 +585,13 @@ class NVRPlayer {
         if (rtp.payloadType === this.AUDIO_PAYLOAD_TYPE) {
             this.diagnostics.audioPayloadPackets++;
             this._publishDiagnostics();
+            let lost = 0;
             if (this.lastAudioSeq !== null) {
-                const lost = (rtp.sequenceNumber - this.lastAudioSeq - 1 + 65536) % 65536;
+                lost = (rtp.sequenceNumber - this.lastAudioSeq - 1 + 65536) % 65536;
                 if (lost > 0) this.audioPacketLoss += lost;
             }
             this.lastAudioSeq = rtp.sequenceNumber;
-            this._playAudioPCM(this._decodePCMA(rtp.payload));
+            this._playAudioPCM(this._decodePCMA(rtp.payload), { packetLoss: lost });
             return;
         }
 
@@ -896,23 +906,107 @@ class NVRPlayer {
     // Must be invoked directly from an application's unmute gesture. Browser
     // autoplay policies do not reliably treat a document-level listener as the
     // original user action once a control stops propagation.
+    _ensureAudioGraph(context) {
+        if (this._graphContext === context && this.gainNode && this.highpassNode && this.lowpassNode && this._pcmEngine) {
+            return;
+        }
+        const hpf = context.createBiquadFilter();
+        hpf.type = 'highpass';
+        hpf.frequency.value = 180;
+        hpf.Q.value = Math.SQRT1_2;
+
+        const lpf = context.createBiquadFilter();
+        lpf.type = 'lowpass';
+        lpf.frequency.value = 2800;
+        lpf.Q.value = Math.SQRT1_2;
+
+        const gain = context.createGain();
+        hpf.connect(lpf);
+        lpf.connect(gain);
+        gain.connect(context.destination);
+
+        this.highpassNode = hpf;
+        this.lowpassNode = lpf;
+        this.gainNode = gain;
+        this._graphContext = context;
+        this._pcmEngine = new PcmStreamEngine({
+            inputSampleRate: 8000,
+            outputSampleRate: context.sampleRate || 48000
+        });
+        this.workletNode = null;
+        this._workletInitPromise = null;
+        this.nextAudioTime = 0;
+    }
+
+    _setSmoothGain(targetLinear, immediate = false) {
+        if (!this.gainNode) return;
+        if (!immediate && this.audioContext && typeof this.gainNode.gain.setTargetAtTime === 'function') {
+            this.gainNode.gain.setTargetAtTime(targetLinear, this.audioContext.currentTime || 0, 0.008);
+        } else {
+            this.gainNode.gain.value = targetLinear;
+        }
+    }
+
+    _resetAudioStream() {
+        this.nextAudioTime = 0;
+        if (this._pcmEngine) this._pcmEngine.reset();
+        if (this.workletNode?.port) {
+            try { this.workletNode.port.postMessage({ type: 'reset' }); } catch (_) {}
+        }
+    }
+
+    _ensureAudioWorklet(context) {
+        if (this.workletNode && this._graphContext === context) {
+            return Promise.resolve(true);
+        }
+        if (this._workletInitPromise && this._graphContext === context) {
+            return this._workletInitPromise;
+        }
+        if (!context?.audioWorklet || typeof context.audioWorklet.addModule !== 'function' || typeof AudioWorkletNode === 'undefined') {
+            return Promise.resolve(false);
+        }
+        const url = this.audioWorkletUrl || '/erzhuang-project/nvr-player/pcm-stream-worklet.js';
+        this._workletInitPromise = (async () => {
+            try {
+                await context.audioWorklet.addModule(url, { credentials: 'same-origin' });
+                if (this.audioContext !== context || context.state === 'closed' || !this.highpassNode) {
+                    return false;
+                }
+                const node = new AudioWorkletNode(context, 'nvr-pcm-stream-processor', {
+                    numberOfInputs: 0,
+                    numberOfOutputs: 1,
+                    outputChannelCount: [1]
+                });
+                node.connect(this.highpassNode);
+                this.workletNode = node;
+                return true;
+            } catch (_) {
+                this._workletInitPromise = null;
+                return false;
+            }
+        })();
+        return this._workletInitPromise;
+    }
+
     async enableAudio() {
         this._audioGestureReady = true;
         this._claimPlaybackAudioSession();
         try {
             if (!this.audioContext || this.audioContext.state === 'closed') {
                 this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                this.gainNode = this.audioContext.createGain();
-                this.gainNode.connect(this.audioContext.destination);
             }
             const context = this.audioContext;
-            this.gainNode.gain.value = this.currentVolume / 100;
+            this._ensureAudioGraph(context);
+            this._setSmoothGain(this.currentVolume / 100, true);
             // Call resume synchronously in the user's gesture for both Safari's
             // interrupted state and the ordinary autoplay suspended state.
-            if (context.state !== 'running') await context.resume();
+            const resumePromise = context.state !== 'running' ? context.resume() : null;
+            const workletPromise = this._ensureAudioWorklet(context);
+            if (resumePromise) await resumePromise;
             if (this.audioContext !== context || context.state !== 'running') {
                 throw new Error('Audio output is not running');
             }
+            await workletPromise;
             this.nextAudioTime = context.currentTime;
         } catch (error) {
             this._releasePlaybackAudioSession();
@@ -935,32 +1029,42 @@ class NVRPlayer {
         return pcm;
     }
 
-    _playAudioPCM(pcmData) {
-        if (!this.audioContext || !this.gainNode || this.audioContext.state !== 'running'
+    _playAudioPCM(pcmData, options = {}) {
+        if (!this.audioContext || this.audioContext.state !== 'running'
             || this.currentVolume <= 0 || this._isPaused) {
-            this.nextAudioTime = 0;
+            this._resetAudioStream();
             return;
         }
-        const buf = this.audioContext.createBuffer(1, pcmData.length, 8000);
-        const ch  = buf.getChannelData(0);
-        for (let i = 0; i < pcmData.length; i++) ch[i] = pcmData[i] / 32768.0;
-
-        const src = this.audioContext.createBufferSource();
-        src.buffer = buf;
-
-        const lpf = this.audioContext.createBiquadFilter();
-        lpf.type = 'lowpass'; lpf.frequency.value = 2000; lpf.Q.value = 1.0;
-        const hpf = this.audioContext.createBiquadFilter();
-        hpf.type = 'highpass'; hpf.frequency.value = 200; hpf.Q.value = 1.0;
-
-        src.connect(hpf); hpf.connect(lpf); lpf.connect(this.gainNode);
-        src.onended = () => { src.disconnect(); hpf.disconnect(); lpf.disconnect(); };
-
-        if (this.nextAudioTime < this.audioContext.currentTime) {
-            this.nextAudioTime = this.audioContext.currentTime;
+        this._ensureAudioGraph(this.audioContext);
+        if (this.workletNode) {
+            this.workletNode.port.postMessage({
+                type: 'push',
+                samples: pcmData,
+                packetLoss: options.packetLoss || 0
+            });
+            return;
         }
-        src.start(this.nextAudioTime);
-        this.nextAudioTime += buf.duration;
+
+        this._pcmEngine.pushInt16(pcmData, options);
+        const rate = this.audioContext.sampleRate || 48000;
+        const chunkFrames = Math.max(128, Math.round(rate * 0.04));
+        while (this._pcmEngine.canScheduleFrames(chunkFrames)) {
+            const buf = this.audioContext.createBuffer(1, chunkFrames, rate);
+            const ch = buf.getChannelData(0);
+            this._pcmEngine.pull(ch);
+
+            const src = this.audioContext.createBufferSource();
+            src.buffer = buf;
+            src.connect(this.highpassNode);
+            src.onended = () => { src.disconnect(); };
+
+            const minStart = (this.audioContext.currentTime || 0) + 0.01;
+            if (this.nextAudioTime < minStart) {
+                this.nextAudioTime = minStart;
+            }
+            src.start(this.nextAudioTime);
+            this.nextAudioTime += buf.duration;
+        }
     }
 
     // ─── WebSocket ────────────────────────────────────────────────────────────
@@ -1091,10 +1195,22 @@ class NVRPlayer {
         }
 
         this._releasePlaybackAudioSession();
+        if (this.workletNode) {
+            try {
+                this.workletNode.port.postMessage({ type: 'dispose' });
+                this.workletNode.disconnect();
+            } catch (_) {}
+            this.workletNode = null;
+        }
         if (this.audioContext?.state !== 'closed') {
             try { this.audioContext.close(); } catch (_) {}
         }
         this.audioContext = null;
+        this._graphContext = null;
+        this.highpassNode = null;
+        this.lowpassNode = null;
+        this._workletInitPromise = null;
+        this._pcmEngine = null;
         this._audioGestureReady = false;
 
         if (this.transformWorker) {
@@ -1122,15 +1238,19 @@ class NVRPlayer {
     setVolume(volume) {
         if (volume < 0 || volume > 100) throw new Error('音量范围必须在 0-100 之间');
         this.currentVolume = volume;
-        if (this.gainNode) this.gainNode.gain.value = volume / 100;
-        if (volume === 0) this._releasePlaybackAudioSession();
-        else if (this.audioContext && this._audioGestureReady) this._claimPlaybackAudioSession();
+        this._setSmoothGain(volume / 100);
+        if (volume === 0) {
+            this._resetAudioStream();
+            this._releasePlaybackAudioSession();
+        } else if (this.audioContext && this._audioGestureReady) {
+            this._claimPlaybackAudioSession();
+        }
     }
 
     setSpeed(rate) { this._sendCommand('speed',  { rate }); }
     // Live streams do not guarantee upstream pause support. Keep receiving and
     // decoding the signed session but gate local canvas output deterministically.
-    pause()        { this._isPaused = true; }
+    pause()        { this._isPaused = true; this._resetAudioStream(); }
     resume() {
         this._isPaused = false;
         if (this.currentVolume > 0 && this.audioContext && this.audioContext.state !== 'running') {
