@@ -6525,3 +6525,10 @@ git pull --ff-only
 - 版本升级至 4.9.1；未变更表结构、未执行真实用户授权 DML、未清理旧数据。详情见 `docs/releases/2026-10-16-permission-homepage-alignment-4.9.1.md`。
 - 验证：新增 SQL 断言先失败后通过，Go 全量测试、Linux amd64 服务构建、前端 23 文件/151 项测试和生产构建通过；前端保留既有大 bundle 提示。无头 Chrome 在 1440/1024/390 宽度通过，包括上海可选 0 家/保留授权 1 家、范围外授权取消和重新请求，以及来源失败禁保存。已查看实际截图并修复窄屏提示被省略的问题。
 - 本次仅本地修改、验证及提交，未推送 GitHub/GitLab、未发布测试或正式环境；真实测试环境逐家机构差集仍待部署后核对。主目录原有未提交工作保持原状。
+
+
+### 2026-11-12 4.9.2 监控播放器音频电流声与爆音修复（测试环境发布）
+
+- 根因定位：`NVRPlayer._playAudioPCM` 对直播（RTP `PT=8`）和回放（WASM `nFrameType=4`）每个 20–40ms G.711 A-law 音频包重复新建并断开 `BiquadFilter`（`Q=1.0`，零初始状态）与独立 `8000Hz` `AudioBuffer`，且 `nextAudioTime = currentTime` 零抖动缓冲；静音时采样接近 0 不明显，有语音且音量越大时，每包边界产生与振幅成正比的阶跃截断与欠载硬切，表现为 25–50Hz 电流声与爆声。
+- 修复方案：新增 `PcmStreamEngine`（`frontend/src/vendor/nvr-player/pcm-stream-engine.js`）与 `AudioWorklet` 处理器（`frontend/public/nvr-player/pcm-stream-worklet.js`），实现 80ms 抖动预缓冲、`8000Hz -> AudioContext.sampleRate` 跨包连续相位重采样、5ms 启动/欠载平滑渐变以及 RTP 丢包接缝平滑；单 `AudioContext` 复用持久 Butterworth 滤波链（`highpass 180Hz` + `lowpass 2800Hz`，`Q=Math.SQRT1_2`），保留 iOS Safari 手势内同步 `context.resume()` 顺序与无 Worklet 环境降级调度，`addModule` 显式携带 `credentials: "same-origin"` 兼容公司 SSO 网关。
+- 验证结果：前端 `23 files / 155 tests`、`tsc -b && vite build` 全部通过；独立无头 Chrome 回归脚本 `monitor-audio.browser.mjs` 覆盖移动/桌面与直播/回放 4 组场景通过（`AudioWorklet` 实测激活，跨包最大单样本步进 `0.029 < 0.08`）。版本升级至 `4.9.2`，仅发布 GitLab 测试分支 `codex/containerize-single-image`，未改动正式 `main`。

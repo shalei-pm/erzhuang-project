@@ -89,6 +89,7 @@ export function NVRLabPlayer({
       autoReconnect: false,
       forceWasm: session.mode === "playback",
       wasmWorkerUrl: `${import.meta.env.BASE_URL.replace(/\/$/, "")}/nvr-player/wasm/systemTransform-worker.js`,
+      audioWorkletUrl: `${import.meta.env.BASE_URL.replace(/\/$/, "")}/nvr-player/pcm-stream-worklet.js`,
       onConnected: () => report({ stage: "connected", message: "视频流已连接，等待画面" }),
       onFirstFrame: () => {
         firstFrameRendered = true;
