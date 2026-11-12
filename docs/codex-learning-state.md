@@ -6451,3 +6451,10 @@ git pull --ff-only
 - 根因定位：`NVRPlayer._playAudioPCM` 对直播（RTP `PT=8`）和回放（WASM `nFrameType=4`）每个 20–40ms G.711 A-law 音频包重复新建并断开 `BiquadFilter`（`Q=1.0`，零初始状态）与独立 `8000Hz` `AudioBuffer`，且 `nextAudioTime = currentTime` 零抖动缓冲；静音时采样接近 0 不明显，有语音且音量越大时，每包边界产生与振幅成正比的阶跃截断与欠载硬切，表现为 25–50Hz 电流声与爆声。
 - 修复方案：新增 `PcmStreamEngine`（`frontend/src/vendor/nvr-player/pcm-stream-engine.js`）与 `AudioWorklet` 处理器（`frontend/public/nvr-player/pcm-stream-worklet.js`），实现 80ms 抖动预缓冲、`8000Hz -> AudioContext.sampleRate` 跨包连续相位重采样、5ms 启动/欠载平滑渐变以及 RTP 丢包接缝平滑；单 `AudioContext` 复用持久 Butterworth 滤波链（`highpass 180Hz` + `lowpass 2800Hz`，`Q=Math.SQRT1_2`），保留 iOS Safari 手势内同步 `context.resume()` 顺序与无 Worklet 环境降级调度，`addModule` 显式携带 `credentials: "same-origin"` 兼容公司 SSO 网关。
 - 验证结果：前端 `23 files / 155 tests`、`tsc -b && vite build` 全部通过；独立无头 Chrome 回归脚本 `monitor-audio.browser.mjs` 覆盖移动/桌面与直播/回放 4 组场景通过（`AudioWorklet` 实测激活，跨包最大单样本步进 `0.029 < 0.08`）。版本升级至 `4.9.2`，仅发布 GitLab 测试分支 `codex/containerize-single-image`，未改动正式 `main`。
+
+### 2026-11-12 4.9.2 声音修复正式发布准备（测试已验收）
+
+- 测试 Wharf 构建 180325 成功。12:12:54 镜像仓库连接超时告警后，同一 Pod 已运行 e103b408 镜像、重启次数 0；浏览器重新加载确认测试页面为 4.9.2。
+- 用户反馈声音问题看起来已修复，并明确授权正式发布。正式候选以 main 8fa8350b 为基线，仅提取已验收音频提交；保留正式历史和配置，避免整合测试分支历史差异。
+- 正式候选前端 23 文件 / 155 测试和生产构建通过，音频相关文件与测试 e103b408 一致。Go 测试和 Linux 构建由既有正式流水线执行。
+- 按 GitHub main 备份、GitLab main 推送、Wharf 771 构建、正式紧急发布及审批、实际版本核验推进；准备记录不代表已上线。详见 docs/releases/2026-11-12-production-audio-4.9.2.md。
