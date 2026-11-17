@@ -6532,3 +6532,12 @@ git pull --ff-only
 - 根因定位：`NVRPlayer._playAudioPCM` 对直播（RTP `PT=8`）和回放（WASM `nFrameType=4`）每个 20–40ms G.711 A-law 音频包重复新建并断开 `BiquadFilter`（`Q=1.0`，零初始状态）与独立 `8000Hz` `AudioBuffer`，且 `nextAudioTime = currentTime` 零抖动缓冲；静音时采样接近 0 不明显，有语音且音量越大时，每包边界产生与振幅成正比的阶跃截断与欠载硬切，表现为 25–50Hz 电流声与爆声。
 - 修复方案：新增 `PcmStreamEngine`（`frontend/src/vendor/nvr-player/pcm-stream-engine.js`）与 `AudioWorklet` 处理器（`frontend/public/nvr-player/pcm-stream-worklet.js`），实现 80ms 抖动预缓冲、`8000Hz -> AudioContext.sampleRate` 跨包连续相位重采样、5ms 启动/欠载平滑渐变以及 RTP 丢包接缝平滑；单 `AudioContext` 复用持久 Butterworth 滤波链（`highpass 180Hz` + `lowpass 2800Hz`，`Q=Math.SQRT1_2`），保留 iOS Safari 手势内同步 `context.resume()` 顺序与无 Worklet 环境降级调度，`addModule` 显式携带 `credentials: "same-origin"` 兼容公司 SSO 网关。
 - 验证结果：前端 `23 files / 155 tests`、`tsc -b && vite build` 全部通过；独立无头 Chrome 回归脚本 `monitor-audio.browser.mjs` 覆盖移动/桌面与直播/回放 4 组场景通过（`AudioWorklet` 实测激活，跨包最大单样本步进 `0.029 < 0.08`）。版本升级至 `4.9.2`，仅发布 GitLab 测试分支 `codex/containerize-single-image`，未改动正式 `main`。
+
+### 2026-11-17 4.10.0 录像回放快进与倍速（本地完成，未发布）
+
+- 用户确认本地实施并要求 subagent 协作。以已核对的正式 main `8a60fdccc6af078ad4cd544f83c2c080964dfa23` 建立隔离工作树 `/private/tmp/erzhuang-playback-speed-4.10.0`、分支 `codex/playback-controls-4.10.0`，保留原目录全部未提交工作。
+- 原二壮 NVR 录像增加快进10秒及2/4/8/16倍底部选择面板；倍速时再点恢复1倍，再点重新选择。直播和数字孪生直播没有新增这些控件，不涉及数据库或部署配置。
+- 进度使用实际成功绘制的媒体 PTS；倍速需两个连续窗口验证真实媒体推进率，ACK 不当作成功。暂停停止取流及解码并保留画面、位置和倍率，继续从保存位置重签；错误从最后位置回到正常速度。定位请求取整到秒，真实首帧落点仍受NVR关键帧及服务端行为影响。
+- 用户手势内准备续播音频实例，并由新 session 领取；无变化定位回收未使用实例，解锁失败同步界面、ref及实际静音，倍速声音按钮禁用。SDK、React需求符合性及最终代码质量均由独立 subagent 复核，发现项已修复。
+- 最终本地验证：前端24文件/230项测试、生产构建通过；合成源22项完整浏览器回归、既有4项音频浏览器回归通过。覆盖30秒暂停、各档倍率/声音、请求和帧过期隔离、失败回退、资源清理及1440/390/320/844宽度下普通/横屏/全屏布局。Chrome插件可视检查与截图核对完成。没有Go业务改动，本轮未运行Go测试或构建。
+- 本地预览 `http://127.0.0.1:5194/erzhuang-project/__playback-preview?start_at=2026-11-16T10:00` 已验证HTTP 200，只接合成媒体。真实代理/NVR各倍率、OSD落点、iPhone Safari声音仍需测试环境验收；本轮不推送GitHub/GitLab、不触发Wharf、不操作真实数据库。详见 `docs/releases/2026-11-17-playback-controls-4.10.0.md`。

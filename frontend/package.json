@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ant-design/icons": "6.3.1",
     "antd": "^6.4.5",
     "dayjs": "^1.11.21",
     "ezuikit-flv": "^2.1.1",
