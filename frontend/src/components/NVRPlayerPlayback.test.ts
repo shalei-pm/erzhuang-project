@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import NVRPlayer from "../vendor/nvr-player/nvr-player.js";
+import NVRPlayer, { type PlaybackControlDiagnostics } from "../vendor/nvr-player/nvr-player.js";
 
 class TestFrame {
   displayWidth = 640;
@@ -78,12 +78,13 @@ const players: Player[] = [];
 async function makePlayer(playback = true) {
   const canvas = new TestCanvas();
   const onPlaybackTime = vi.fn();
+  const onPlaybackControlDiagnostics = vi.fn<(snapshot: PlaybackControlDiagnostics) => void>();
   const player = new NVRPlayer(canvas as unknown as HTMLCanvasElement, {
-    forceWasm: playback, onPlaybackTime,
+    forceWasm: playback, onPlaybackTime, onPlaybackControlDiagnostics,
   }) as Player;
   players.push(player);
   await player.play("ws://test.invalid/signed-session");
-  return { player, canvas, onPlaybackTime, socket: player.ws };
+  return { player, canvas, onPlaybackTime, onPlaybackControlDiagnostics, socket: player.ws };
 }
 
 function present(player: Player, timestamp: number) {
@@ -406,6 +407,194 @@ describe("NVR verified speed control", () => {
     expect(JSON.parse(player.ws.send.mock.calls[0][0] as string)).toMatchObject({ cmd: "speed", rate: 1 });
     feed(player, 1);
     expect(await normal).toBe("verified");
+  });
+});
+
+describe("NVR playback control diagnostics", () => {
+  const idle: PlaybackControlDiagnostics = {
+    phase: "idle", requestedRate: 1, verifiedRate: 1, protocol: "json",
+    commandSequence: null, ack: "none", observedRate: null, failure: null,
+  };
+
+  it("retains an accepted ACK and measured 1x when 2x times out at 6000ms", async () => {
+    const { player, socket, onPlaybackControlDiagnostics: report } = await makePlayer();
+    expect(player.getPlaybackControlDiagnostics()).toEqual(idle);
+    const result = outcome(player.setSpeed(2));
+    expect(report).toHaveBeenLastCalledWith({
+      ...idle, phase: "sent", requestedRate: 2, commandSequence: 0,
+    });
+    socket.message({ sequence: 0, cmd: "speed", status: 200 });
+    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ ack: "accepted", phase: "sent" }));
+    feed(player, 1, 5900);
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "verifying", observedRate: 1 });
+    expect(report.mock.calls.filter(([s]) => s.phase === "verifying")).toHaveLength(5);
+    vi.advanceTimersByTime(100);
+    expect(await result).toBeInstanceOf(Error);
+    const failed = { ...idle, phase: "failed", requestedRate: 2, commandSequence: 0,
+      ack: "accepted", observedRate: 1, failure: "timeout" };
+    expect(player.getPlaybackControlDiagnostics()).toEqual(failed);
+    expect(report).toHaveBeenLastCalledWith(failed);
+    player.stop();
+    expect(player.getPlaybackControlDiagnostics()).toEqual(failed);
+    await player.play("ws://test.invalid/new-session?token=never-in-diagnostics");
+    expect(player.getPlaybackControlDiagnostics()).toEqual(idle);
+    expect(report).toHaveBeenLastCalledWith(idle);
+  });
+
+  it("records no ACK and no observation on a silent timeout", async () => {
+    const { player, onPlaybackControlDiagnostics: report } = await makePlayer();
+    const result = outcome(player.setSpeed(4));
+    vi.advanceTimersByTime(6000);
+    expect(await result).toBeInstanceOf(Error);
+    expect(player.getPlaybackControlDiagnostics()).toEqual({
+      ...idle, phase: "failed", requestedRate: 4, commandSequence: 0, failure: "timeout",
+    });
+    expect(report).toHaveBeenLastCalledWith(player.getPlaybackControlDiagnostics());
+  });
+
+  it.each([{ statusString: "Error" }, { status: 500 }, { res: 5 }, { status: 200, res: -1 }])(
+    "records explicit rejection %j without storing reply contents", async (reply) => {
+      const { player, socket } = await makePlayer();
+      const result = outcome(player.setSpeed(2));
+      socket.message({ ...reply, url: "wss://secret", token: "private", raw: "private" });
+      expect(await result).toBeInstanceOf(Error);
+      expect(player.getPlaybackControlDiagnostics()).toEqual({
+        ...idle, phase: "failed", requestedRate: 2, commandSequence: 0, ack: "rejected", failure: "rejected",
+      });
+    },
+  );
+
+  it("ignores late old-sequence and unrelated-command replies, and requires a status for ACK", async () => {
+    const { player, socket, onPlaybackControlDiagnostics: report } = await makePlayer();
+    const first = outcome(player.setSpeed(2));
+    feed(player, 2);
+    expect(await first).toBe("verified");
+    const second = outcome(player.setSpeed(4));
+    const sent = { ...idle, phase: "sent", requestedRate: 4, verifiedRate: 2, commandSequence: 1 };
+    expect(player.getPlaybackControlDiagnostics()).toEqual(sent);
+    report.mockClear();
+    socket.message({ sequence: 0, cmd: "speed", status: 500 });
+    socket.message({ sequence: 0, cmd: "speed", status: 200 });
+    socket.message({ sequence: 1, cmd: "pause", status: 200 });
+    socket.message({ sequence: 1, cmd: "speed", token: "private" });
+    socket.message({ unrelated: true });
+    expect(player.getPlaybackControlDiagnostics()).toEqual(sent);
+    expect(report).not.toHaveBeenCalled();
+    socket.message({ sequence: 1, cmd: "speed", res: 0 });
+    expect(player.getPlaybackControlDiagnostics().ack).toBe("accepted");
+    feed(player, 4, 3500, 20_000_000);
+    expect(await second).toBe("verified");
+    const verified = player.getPlaybackControlDiagnostics();
+    expect(verified).toEqual({ ...sent, phase: "verified", ack: "accepted", observedRate: 4, verifiedRate: 4 });
+    socket.message({ sequence: 1, cmd: "speed", status: 500 });
+    expect(player.getPlaybackControlDiagnostics()).toEqual(verified);
+  });
+
+  it.each([{ statusString: "OK" }, { status: "200" }, { res: 0 }])("publishes accepted status %j without requiring sequence/cmd", async (reply) => {
+    const { player, socket } = await makePlayer();
+    const result = outcome(player.setSpeed(2));
+    socket.message(reply);
+    expect(player.getPlaybackControlDiagnostics().ack).toBe("accepted");
+    feed(player, 2);
+    expect(await result).toBe("verified");
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "verified", verifiedRate: 2, observedRate: 2 });
+  });
+
+  it("reports 0.1 commands with no wire sequence and preserves the existing binary message", async () => {
+    const { player, socket } = await makePlayer();
+    socket.message({ version: "0.1" });
+    const result = outcome(player.setSpeed(4));
+    expect(player.getPlaybackControlDiagnostics()).toEqual({
+      ...idle, phase: "sent", requestedRate: 4, protocol: "0.1", commandSequence: null,
+    });
+    expect(new Uint8Array(socket.send.mock.calls[0][0] as ArrayBuffer)).toHaveLength(36);
+    feed(player, 4);
+    expect(await result).toBe("verified");
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "verified", protocol: "0.1", ack: "none" });
+  });
+
+  it.each(["stop", "pause", "close", "error", "protocol", "send"])("uses a bounded failure code for %s", async (action) => {
+    const { player, socket } = await makePlayer();
+    if (action === "send") socket.send.mockImplementationOnce(() => { throw new Error("token=private wss://secret"); });
+    const result = outcome(player.setSpeed(2));
+    if (action === "stop") player.stop();
+    if (action === "pause") player.pause();
+    if (action === "close") socket.onclose?.({ code: 1006, wasClean: false });
+    if (action === "error") socket.onerror?.();
+    if (action === "protocol") socket.message({ version: "private-future-version" });
+    expect(await result).toBeInstanceOf(Error);
+    const failures = { stop: "stopped", pause: "stopped", close: "connection", error: "connection", protocol: "protocol", send: "send_failed" };
+    const failed = player.getPlaybackControlDiagnostics();
+    expect(failed).toMatchObject({ phase: "failed", failure: failures[action as keyof typeof failures] });
+    expect(JSON.stringify(failed)).not.toMatch(/private|secret|token|wss/);
+    player.stop();
+    expect(player.getPlaybackControlDiagnostics()).toEqual(failed);
+  });
+
+  it("reports unsupported requests and disconnected preconditions without sending", async () => {
+    const { player, socket } = await makePlayer();
+    expect(await outcome(player.setSpeed(3))).toBeInstanceOf(Error);
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "failed", failure: "unsupported", requestedRate: 3, commandSequence: null });
+    socket.readyState = 3;
+    expect(await outcome(player.setSpeed(2))).toBeInstanceOf(Error);
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "failed", failure: "connection", requestedRate: 2 });
+    expect(socket.send).not.toHaveBeenCalled();
+  });
+
+  it.each(["live", "stopped", "paused", "protocol", "NaN", "Infinity", "string"])("captures the %s early rejection before catch runs", async (reason) => {
+    const { player, socket, onPlaybackControlDiagnostics: report } = await makePlayer(reason !== "live");
+    if (reason === "stopped") player.stop();
+    if (reason === "paused") player.pause();
+    if (reason === "protocol") socket.message({ version: "future-private" });
+    const rate = reason === "NaN" ? NaN : reason === "Infinity" ? Infinity : reason === "string" ? "token=private" as unknown as number : 2;
+    const failure = reason === "protocol" ? "protocol" : ["stopped", "paused"].includes(reason) ? "stopped" : "unsupported";
+    await player.setSpeed(rate).then(() => { throw new Error("must reject"); }, () => {
+      const snapshot = player.getPlaybackControlDiagnostics();
+      expect(snapshot).toEqual({
+        ...idle, phase: "failed", requestedRate: Number.isFinite(rate) ? rate : 1,
+        protocol: reason === "protocol" ? "unsupported" : "json", failure,
+      });
+      expect(report).toHaveBeenLastCalledWith(snapshot);
+      expect(JSON.stringify(snapshot)).not.toMatch(/private|token|NaN|Infinity/);
+    });
+    expect(socket.send).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a pending request for duplicate or invalid calls", async () => {
+    const { player, socket, onPlaybackControlDiagnostics: report } = await makePlayer();
+    const result = outcome(player.setSpeed(2));
+    socket.message({ status: 200 });
+    const snapshot = player.getPlaybackControlDiagnostics();
+    report.mockClear();
+    expect(await outcome(player.setSpeed(4))).toBeInstanceOf(Error);
+    expect(await outcome(player.setSpeed(NaN))).toBeInstanceOf(Error);
+    expect(player.getPlaybackControlDiagnostics()).toEqual(snapshot);
+    expect(report).not.toHaveBeenCalled();
+    expect(socket.send).toHaveBeenCalledOnce();
+    feed(player, 2);
+    expect(await result).toBe("verified");
+  });
+
+  it("returns only whitelisted primitives as copies and isolates callback failures", async () => {
+    const { player, socket, onPlaybackControlDiagnostics: report } = await makePlayer();
+    const keys = Object.keys(idle).sort();
+    report.mockImplementation((snapshot) => {
+      expect(Object.keys(snapshot).sort()).toEqual(keys);
+      snapshot.ack = "rejected";
+      (snapshot as unknown as Record<string, unknown>).raw = "token=private";
+      throw new Error("callback must not change playback");
+    });
+    const result = outcome(player.setSpeed(2));
+    socket.message({ status: 200, token: "private", url: "wss://private", raw: "private", userId: "private" });
+    const copy = player.getPlaybackControlDiagnostics();
+    expect(copy.ack).toBe("accepted");
+    copy.ack = "rejected";
+    (copy as unknown as Record<string, unknown>).token = "private";
+    expect(player.getPlaybackControlDiagnostics().ack).toBe("accepted");
+    feed(player, 2);
+    expect(await result).toBe("verified");
+    expect(Object.keys(player.getPlaybackControlDiagnostics()).sort()).toEqual(keys);
+    expect(JSON.stringify(player.getPlaybackControlDiagnostics())).not.toMatch(/private|secret|token|raw|url|userId|wss/);
   });
 });
 

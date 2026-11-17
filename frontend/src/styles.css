@@ -4453,6 +4453,70 @@ td:nth-child(10) {
   font-weight: 600;
 }
 
+.h5-playback-control-failure {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top));
+  left: max(8px, env(safe-area-inset-left));
+  right: max(8px, env(safe-area-inset-right));
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  color: #fff;
+  background: rgba(26, 32, 37, 0.94);
+  border: 1px solid rgba(240, 191, 94, 0.6);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+.h5-playback-control-failure > span:first-child {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.h5-playback-control-failure button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #fff;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.h5-playback-control-failure button:hover,
+.h5-playback-control-failure button:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.h5-playback-copy-status {
+  flex-basis: 100%;
+  color: #b9e9dc;
+}
+
+.h5-playback-control-failure textarea {
+  flex-basis: 100%;
+  width: 100%;
+  min-width: 0;
+  height: 100px;
+  max-height: 30vh;
+  color: #fff;
+  background: #1a2025;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  resize: vertical;
+}
+
 .h5-speed-backdrop {
   position: fixed;
   inset: 0;

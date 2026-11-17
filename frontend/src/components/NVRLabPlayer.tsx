@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import NVRPlayer from "../vendor/nvr-player/nvr-player.js";
+import NVRPlayer, { type PlaybackControlDiagnostics } from "../vendor/nvr-player/nvr-player.js";
 import { H5PlayerControls } from "./H5PlayerControls";
 import { PlaybackSegmentSlider, type PlaybackSegmentTiming } from "./PlaybackSegmentSlider";
 import { PlaybackSpeedSheet } from "./PlaybackSpeedSheet";
+import { PlaybackControlFailure } from "./PlaybackControlFailure";
 import type { NVRLabStreamSession } from "../domain/nvr-lab";
 
 export type NVRLabPlayerStatus = {
@@ -86,6 +87,7 @@ export function NVRLabPlayer({
   const [landscape, setLandscape] = useState(false);
   const [speedOpen, setSpeedOpen] = useState(false);
   const [speedPending, setSpeedPending] = useState(false);
+  const [speedFailure, setSpeedFailure] = useState<PlaybackControlDiagnostics | null>(null);
   const isPlayback = playbackMode || session?.mode === "playback";
   const playbackAvailable = Boolean(playbackSegment && (session || playbackPaused));
   const ratePending = speedPending || Boolean(isPlayback && session && !playbackPaused && playbackRate !== verifiedRateRef.current);
@@ -226,6 +228,8 @@ export function NVRLabPlayer({
       setSpeedPending(false);
     }).catch(() => {
       if (cancelled || playerRef.current !== player) return;
+      const diagnostic = player.getPlaybackControlDiagnostics();
+      if (diagnostic.phase === "failed") setSpeedFailure(diagnostic);
       setSpeedPending(false);
       callbacks.current.onPlaybackRateError?.("未能确认录像倍速生效，已重新连接正常速度回放", session);
     });
@@ -233,6 +237,7 @@ export function NVRLabPlayer({
   }, [isPlayback, playbackRate, session, status.stage]);
 
   useEffect(() => { setSpeedOpen(false); }, [session, playbackMode]);
+  useEffect(() => { if (!isPlayback) setSpeedFailure(null); }, [isPlayback]);
 
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -358,6 +363,7 @@ export function NVRLabPlayer({
                   if (onForwardPlayback?.() === false) discardPreparedAudio(prepared);
                 },
                 onSpeed: () => {
+                  setSpeedFailure(null);
                   if (playbackRate !== 1) {
                     // Prepare Safari audio inside the click; keep it muted until 1x is verified.
                     const player = playerRef.current;
@@ -402,6 +408,8 @@ export function NVRLabPlayer({
           </div>
         </div>
       </div>
+      {isPlayback && speedFailure ? <PlaybackControlFailure key={`${speedFailure.commandSequence}-${speedFailure.requestedRate}`}
+        diagnostic={speedFailure} /> : null}
       {speedOpen ? <PlaybackSpeedSheet onClose={() => setSpeedOpen(false)} onSelect={(rate) => {
         setSpeedOpen(false);
         onPlaybackRateChange?.(rate);
