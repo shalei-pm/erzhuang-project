@@ -75,6 +75,35 @@ async function normalRate(page) {
   await button(page, "选择倍速").waitFor();
   await page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.pendingRate === null);
 }
+async function assertPresentedRate(page, rate) {
+  const sample = () => page.evaluate(() => {
+    const player = window.__playbackQA.players.findLast(p => p._isRunning);
+    const slider = document.querySelector('input[aria-label="录像进度"]');
+    const value = Number(slider.value);
+    const pixels = player.ctx.getImageData(0, 0, player.canvas.width, player.canvas.height).data;
+    let opaque = 0, varied = 0;
+    for (let i = 0; i < pixels.length; i += 160) {
+      if (pixels[i + 3]) opaque++;
+      if (pixels[i] !== pixels[0]) varied++;
+    }
+    return { at: performance.now(), time: player.getPlaybackTime(), pts: player._playbackLastPTS,
+      cursor: Number(slider.max) > 100000 ? value - Number(slider.min) : value,
+      renders: player.diagnostics.renderedFrames, opaque, varied };
+  });
+  const before = await sample();
+  await page.waitForTimeout(2000);
+  const after = await sample();
+  const elapsed = (after.at - before.at) / 1000;
+  const mediaDelta = after.time - before.time;
+  const cursorDelta = after.cursor - before.cursor;
+  assert(after.renders > before.renders + 4, `${rate}x: frames must actually render`);
+  assert(after.opaque > 100 && after.varied > 100, `${rate}x: canvas must contain visible media`);
+  assert(Math.abs((after.pts - before.pts) / 1e6 - mediaDelta) < 0.001, `${rate}x: media time must follow presented PTS`);
+  assert(Math.abs(mediaDelta / elapsed - rate) <= rate * 0.2, `${rate}x: rendered media measured ${mediaDelta / elapsed}x`);
+  assert(Math.abs(cursorDelta - mediaDelta) < 1.2, `${rate}x: slider must follow presented media`);
+  assert(Math.abs(cursorDelta / elapsed - rate) <= rate * 0.2 + 1.1 / elapsed, `${rate}x: slider measured ${cursorDelta / elapsed}x`);
+  return { rate, before, after, mediaRate: mediaDelta / elapsed, sliderRate: cursorDelta / elapsed };
+}
 async function seek(page, offset) {
   const slider = page.getByRole("slider", { name: "录像进度" });
   await slider.focus();
@@ -186,6 +215,71 @@ try {
     }
     await h.close();
   });
+  for (const version of ["0.2", "0.1"]) for (const mobile of [false, true]) {
+    await check(`JSON speed contract after version=${version} metadata / ${mobile ? "mobile" : "desktop"}`, async () => {
+      const h = await open(); const { page } = h;
+      await playback(page);
+      // The phone view does not auto-start a session; resize only after actual playback.
+      if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+      const before = await h.api("state");
+      const player = await active(page);
+      const initialSequence = await page.evaluate(() => {
+        const sdk = window.__playbackQA.players.findLast(p => p._isRunning);
+        window.__playbackQA.versionMetadata = [];
+        sdk.ws.addEventListener("message", event => {
+          if (typeof event.data !== "string") return;
+          const message = JSON.parse(event.data);
+          if (Object.hasOwn(message, "version")) window.__playbackQA.versionMetadata.push(message.version);
+        });
+        return sdk.sequence;
+      });
+      assert.equal(initialSequence, 0, "new playback starts with JSON command sequence zero");
+      assert(player.time > 0.2 && player.renders > 2, "version metadata must arrive after media is presented");
+      await h.api("control", { version });
+      await page.waitForFunction(expected => window.__playbackQA.versionMetadata.includes(expected), version);
+
+      const observations = [];
+      for (const rate of [4, 1]) {
+        if (rate === 4) await selectRate(page, rate);
+        else await normalRate(page);
+        const state = await h.api("state");
+        assert.deepEqual(state.rejectedCommands, [], "fixture must never receive a binary or malformed control command");
+        assert.equal(state.sessions.length, before.sessions.length, "rate changes must reuse the signed session");
+        assert.equal(state.sockets.length, before.sockets.length, "rate changes must reuse the WebSocket");
+        assert.equal(state.sockets.at(-1).closed, false);
+        assert.equal(state.sockets.at(-1).rate, rate);
+        const commands = state.commands.slice(before.commands.length);
+        assert.equal(commands.length, rate === 4 ? 1 : 2, "each rate selection must send exactly one command");
+        assert.deepEqual(commands.map(({ id, at, format, ...message }) => {
+          assert.equal(id, before.sockets.at(-1).id, "commands must use the original playback socket");
+          assert.equal(format, "json", "the actual WebSocket frame must be JSON text");
+          assert(Number.isFinite(at));
+          return message;
+        }), [4, 1].slice(0, commands.length).map((rate, index) => ({ sequence: initialSequence + index, cmd: "speed", rate })));
+        const sdk = await active(page);
+        assert.equal(sdk.id, player.id, "rate changes must reuse the SDK player");
+        assert.equal(sdk.url, player.url);
+        assert.equal(sdk.stopCount, player.stopCount, "metadata and rate changes must not restart playback");
+        assert.equal(sdk.mutedBySpeed, rate !== 1);
+        const diagnostics = await page.evaluate(() => window.__playbackQA.players.findLast(p => p._isRunning).getPlaybackControlDiagnostics());
+        assert.equal(diagnostics.protocol, "json");
+        assert.equal(diagnostics.phase, "verified");
+        assert.equal(diagnostics.requestedRate, rate);
+        assert.equal(diagnostics.verifiedRate, rate);
+        assert.equal(diagnostics.commandSequence, commands.at(-1).sequence);
+        assert.equal(diagnostics.ack, "accepted");
+        assert.equal(diagnostics.failure, null);
+        observations.push(await assertPresentedRate(page, rate));
+      }
+      const after = await h.api("state");
+      assert.equal(after.sessions.length, before.sessions.length, "media sampling must not hide delayed session recovery");
+      assert.equal(after.sockets.length, before.sockets.length);
+      assert.deepEqual(after.rejectedCommands, []);
+      assert.equal(await page.locator(".h5-playback-control-failure").count(), 0);
+      await writeFile(new URL(`json-version-${version}-${mobile ? "mobile" : "desktop"}.json`, artifacts), JSON.stringify({ version, observations }, null, 2));
+      await h.close();
+    });
+  }
   await check("audio intent survives normal pause/resume seek forward and accelerated resume", async () => {
     const h = await open(); const { page } = h;
     const observations = [];

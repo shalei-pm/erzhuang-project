@@ -160,9 +160,10 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
   const coreRoot = resolve(dirname(playwrightEntry), "../playwright-core");
   const { wsServer } = require(resolve(coreRoot, "lib/utilsBundle.js"));
   const wss = new wsServer({ noServer: true });
+  const connections = new Map();
   const fixtures = new Map();
   const fixture = (id) => {
-    if (!fixtures.has(id)) fixtures.set(id, { sessions: [], commands: [], sockets: [], delayNextSession: 0,
+    if (!fixtures.has(id)) fixtures.set(id, { sessions: [], commands: [], rejectedCommands: [], sockets: [], version: null, delayNextSession: 0,
       rejectNextSpeed: false, ignoreNextSpeed: false, failNextSession: false, holdFrames: false, next: 0 });
     return fixtures.get(id);
   };
@@ -183,6 +184,13 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
       if (url.pathname === `${base}__fixture/control` && req.method === "POST") {
         const control = await readBody(req);
         for (const key of ["delayNextSession", "rejectNextSpeed", "ignoreNextSpeed", "holdFrames", "failNextSession"]) if (key in control) f[key] = control[key];
+        if ("version" in control) {
+          f.version = control.version;
+          for (const s of f.sockets) {
+            const connection = connections.get(s);
+            if (connection?.readyState === 1) connection.send(JSON.stringify({ version: f.version }));
+          }
+        }
         return json(res, { ok: true });
       }
       if (url.pathname.includes("/api/")) {
@@ -229,12 +237,23 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
       const f = fixture(url.searchParams.get("fixture") || "manual");
       const s = { id: url.searchParams.get("id"), rate: 1, pts: 0, frames: 0, closed: false };
       f.sockets.push(s);
+      connections.set(s, connection);
+      if (f.version !== null) connection.send(JSON.stringify({ version: f.version }));
       let last = performance.now();
       connection.on("message", (buffer, binary) => {
+        const reject = (format) => {
+          f.rejectedCommands.push({ id: s.id, format, bytes: buffer.length, at: Date.now() });
+          connection.send(JSON.stringify({ status: 400, statusString: "JSON control command required" }));
+        };
+        // The SDK contract is JSON for every server version, including 0.1.
+        if (binary) return reject("binary");
         let message;
-        if (binary && buffer.length === 36) message = { cmd: "speed", rate: buffer.readUInt32BE(32), binary: true };
-        else { try { message = JSON.parse(buffer.toString()); } catch { return; } }
-        f.commands.push({ ...message, id: s.id, at: Date.now() });
+        try { message = JSON.parse(buffer.toString()); } catch { return reject("invalid-json"); }
+        if (!message || typeof message !== "object" || Array.isArray(message)
+          || !Number.isSafeInteger(message.sequence) || message.sequence < 0
+          || typeof message.cmd !== "string"
+          || (message.cmd === "speed" && ![1, 2, 4, 8, 16].includes(message.rate))) return reject("invalid-command");
+        f.commands.push({ ...message, format: "json", id: s.id, at: Date.now() });
         if (message.cmd !== "speed") return;
         if (f.rejectNextSpeed) { f.rejectNextSpeed = false; connection.send(JSON.stringify({ cmd: "speed", status: 500, sequence: message.sequence })); return; }
         if (f.ignoreNextSpeed) f.ignoreNextSpeed = false;
@@ -250,7 +269,7 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
         }
         last = now;
       }, 40);
-      connection.on("close", () => { s.closed = true; clearInterval(timer); });
+      connection.on("close", () => { s.closed = true; connections.delete(s); clearInterval(timer); });
     });
   });
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, resolve); });

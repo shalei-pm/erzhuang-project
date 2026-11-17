@@ -28,11 +28,11 @@ export type PlaybackControlDiagnostics = {
   phase: "idle" | "sent" | "verifying" | "verified" | "failed";
   requestedRate: number;
   verifiedRate: number;
-  protocol: "json" | "0.1" | "unsupported";
+  protocol: "json";
   commandSequence: number | null;
   ack: "none" | "accepted" | "rejected";
   observedRate: number | null;
-  failure: "timeout" | "rejected" | "connection" | "protocol" | "stopped" | "unsupported" | "send_failed" | null;
+  failure: "timeout" | "rejected" | "connection" | "stopped" | "unsupported" | "send_failed" | null;
 };
 
 export type RTPPacket = {
