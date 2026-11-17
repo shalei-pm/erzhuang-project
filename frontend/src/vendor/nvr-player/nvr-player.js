@@ -83,7 +83,8 @@ class NVRPlayer {
      * @param {function} [options.onDisconnected]
      * @param {function} [options.onRecovered]
      * @param {function} [options.onFirstFrame]
-     * @param {function} [options.onPlaybackTime] Presented relative media seconds (WASM playback only)
+     * @param {function} [options.onPlaybackTime] Presented relative seconds and optional recording Unix seconds
+     * @param {number} [options.recordingUTCOffsetMinutes] Device calendar UTC offset; no browser timezone inference
      * @param {boolean} [options.forceWasm=false] 强制使用 WASM 回放模式
      */
     constructor(canvasOrId, options = {}) {
@@ -104,6 +105,8 @@ class NVRPlayer {
         this.onFirstFrame   = options.onFirstFrame   || (() => {});
         this.onDiagnostics  = options.onDiagnostics  || (() => {});
         this.onPlaybackTime = options.onPlaybackTime || (() => {});
+        this.recordingUTCOffsetMinutes = Number.isInteger(options.recordingUTCOffsetMinutes)
+            && Math.abs(options.recordingUTCOffsetMinutes) <= 14 * 60 ? options.recordingUTCOffsetMinutes : null;
         this.onPlaybackControlDiagnostics = options.onPlaybackControlDiagnostics || (() => {});
         this._resetPlaybackControlDiagnostics(false);
 
@@ -121,9 +124,9 @@ class NVRPlayer {
         this._playbackClockSource = null;
         this._playbackFrameSequence = 0;
         this._playbackFrameTimes = new Map();
-        this._lastPresentedAt = null;
         this._speedRequiresSequence = false;
         this._pendingSpeed = null;
+        this._speedObservation = null;
         this._speedAudioMuted = false;
 
         // WebSocket
@@ -133,6 +136,7 @@ class NVRPlayer {
 
         // 解码器
         this.decoder           = null;
+        this._decoderFlush     = null;
         this.decoderConfigured = false;
         this.waitingForKeyFrame = true;
         this.needKeyFrame      = false;
@@ -177,6 +181,9 @@ class NVRPlayer {
         this.wasmReady       = false;
         this.wasmHeaderSent  = false;
         this.wasmPendingHeader = null;
+        this.wasmPendingChunks = [];
+        this.wasmPendingBytes = 0;
+        this._wasmInitialization = null;
         this.diagnostics = null;
         this._lastDiagnosticsAt = 0;
         this._resetDiagnostics();
@@ -193,6 +200,7 @@ class NVRPlayer {
      * 所有新建解码器的入口统一走此方法，保证错误回调一致。
      */
     _createDecoder() {
+        this._decoderFlush = null;
         if (this.decoder) {
             try {
                 if (this.decoder.state !== 'closed') this.decoder.close();
@@ -207,16 +215,19 @@ class NVRPlayer {
         }
 
         const generation = this._playbackGeneration;
-        this.decoder = new VideoDecoder({
+        const decoder = new VideoDecoder({
             output: (frame) => {
-                if (generation !== this._playbackGeneration) { frame.close(); return; }
+                if (generation !== this._playbackGeneration || this.decoder !== decoder) { frame.close(); return; }
+                this._playbackAVCRecoveryAttempts = 0;
                 this._renderFrame(frame);
             },
             error: (e) => {
+                if (generation !== this._playbackGeneration || this.decoder !== decoder) return;
                 this._recordDecoderError(e);
                 this._recoverDecoder();
             }
         });
+        this.decoder = decoder;
     }
 
     /**
@@ -232,6 +243,9 @@ class NVRPlayer {
         if (!preserveParams) {
             this.h265Params     = null;
             this.h265ParamSets  = null;
+            this._playbackAVCConfig = null;
+            this._playbackAVCWaitingForKeyFrame = false;
+            this._playbackAVCRecoveryAttempts = 0;
         }
         this.baseRtpTimestamp   = null;
         this.frameIndex         = 0;
@@ -250,9 +264,29 @@ class NVRPlayer {
         if (!this._isRunning) return;
         this._resetDecoderState({ preserveParams: true });
         try {
+            if (this.useWasm && this._playbackAVCConfig) {
+                if (this._playbackAVCRecoveryAttempts >= 1) {
+                    this.stop();
+                    this.onError(new Error('[NVRPlayer] AVC decoder recovery failed'));
+                    return;
+                }
+                this._playbackAVCRecoveryAttempts = (this._playbackAVCRecoveryAttempts || 0) + 1;
+                this._playbackSoftwareAVC = false;
+                this.h264DecoderConfigured = false;
+                this._playbackAVCWaitingForKeyFrame = true;
+                this._playbackFrameTimes.clear();
+                this._createDecoder();
+                this.decoder.configure(this._playbackAVCConfig);
+                this.h264DecoderConfigured = true;
+                return;
+            }
             this._createDecoder();
             if (this.h265Params?.size >= 3) this._configureDecoderWithParams(this.h265Params);
-        } catch (_) {
+        } catch (error) {
+            if (this.useWasm && this._playbackAVCConfig) {
+                this.stop();
+                this.onError(error);
+            }
             // _createDecoder already reported unsupported browser failures.
         }
     }
@@ -300,10 +334,28 @@ class NVRPlayer {
             if (!this._isRunning) return;
             if (this.decoder?.state === 'configured' && this.decoder.decodeQueueSize > 0) {
                 if (Date.now() - this.lastOutputTime > 3000) {
-                    this.decoder.flush().catch((error) => {
+                    const decoder = this.decoder;
+                    const generation = this._playbackGeneration;
+                    if (this._decoderFlush?.decoder === decoder && this._decoderFlush.generation === generation) return;
+                    const pending = { decoder, generation };
+                    this._decoderFlush = pending;
+                    const isCurrent = () => this._isRunning
+                        && this.decoder === decoder
+                        && this._playbackGeneration === generation
+                        && this._decoderFlush === pending;
+                    const failed = (error) => {
+                        if (!isCurrent()) return;
+                        this._decoderFlush = null;
                         this._recordDecoderError(error);
                         this._recoverDecoder();
-                    });
+                    };
+                    try {
+                        decoder.flush().then(() => {
+                            if (isCurrent()) this._decoderFlush = null;
+                        }, failed);
+                    } catch (error) {
+                        failed(error);
+                    }
                     this.lastOutputTime = Date.now();
                 }
             }
@@ -355,6 +407,8 @@ class NVRPlayer {
 
     async _initWasmDecoder() {
         const generation = this._playbackGeneration;
+        const initialization = {};
+        this._wasmInitialization = initialization;
         if (this.transformWorker) {
             this.transformWorker.terminate();
             this.transformWorker = null;
@@ -364,15 +418,19 @@ class NVRPlayer {
         this.wasmRuntimeReady = false;
         this.wasmHeaderSent = false;
         this.wasmPendingHeader = null;
+        this.wasmPendingChunks = [];
+        this.wasmPendingBytes = 0;
 
         const worker = await this._createTransformWorker();
-        if (!this._isRunning || generation !== this._playbackGeneration) {
+        if (!this._isRunning || generation !== this._playbackGeneration
+            || initialization !== this._wasmInitialization) {
             worker.terminate();
             return;
         }
         this.transformWorker = worker;
         this.transformWorker.onmessage = ({ data: e }) => {
-            if (!this._isRunning || generation !== this._playbackGeneration) return;
+            if (!this._isRunning || generation !== this._playbackGeneration
+                || this.transformWorker !== worker || initialization !== this._wasmInitialization) return;
             if (e.type === 'loaded') {
                 this.wasmRuntimeReady = true;
                 this.diagnostics.wasmRuntimeReady = true;
@@ -382,6 +440,7 @@ class NVRPlayer {
                 this.wasmReady = true;
                 this.diagnostics.wasmReady = true;
                 this._publishDiagnostics(true);
+                this._flushPendingWasmChunks();
             } else if (e.type === 'outputData') {
                 if (e.dType === 1) {
                     this.diagnostics.wasmOutputInit++;
@@ -395,6 +454,8 @@ class NVRPlayer {
             }
         };
         this.transformWorker.onerror = (e) => {
+            if (!this._isRunning || generation !== this._playbackGeneration
+                || this.transformWorker !== worker || initialization !== this._wasmInitialization) return;
             this.onError(new Error(`[NVRPlayer] WASM Worker 错误: ${e.message}`));
         };
     }
@@ -482,11 +543,22 @@ class NVRPlayer {
 
         try {
             this._createDecoder();
-            this.decoder.configure({
+            const config = {
                 codec: 'avc1.640029',
                 description: this._buildAvcCDescription(sps, pps),
                 optimizeForLatency: true
-            });
+            };
+            this._playbackAVCConfig = config;
+            // Some hardware decoders retain several frames even in latency mode.
+            // Sparse trick-play makes that a many-second delay; software AVC can output immediately.
+            if (this._playbackSoftwareAVC) {
+                try { this.decoder.configure({ ...config, hardwareAcceleration: 'prefer-software' }); }
+                catch (_) {
+                    this._playbackSoftwareAVC = false;
+                    this._createDecoder();
+                    this.decoder.configure(config);
+                }
+            } else this.decoder.configure(config);
             this.h264DecoderConfigured = true;
         } catch (e) {
             this.onError(e);
@@ -509,6 +581,10 @@ class NVRPlayer {
             return;
         }
         if (!this.h264DecoderConfigured || !this.decoder || this.decoder.state !== 'configured') return;
+        if (this._playbackAVCWaitingForKeyFrame) {
+            if (frameInfo.nFrameType !== 3) return;
+            this._playbackAVCWaitingForKeyFrame = false;
+        }
 
         // Preserve recording time with the exact decoded frame, even if container PTS repeats or resets.
         const timestamp = ++this._playbackFrameSequence;
@@ -614,15 +690,16 @@ class NVRPlayer {
                 this.canvas.height = frame.displayHeight;
             }
             this.ctx.drawImage(frame, 0, 0);
-            this._lastPresentedAt = Date.now();
+            this.diagnostics.renderedFrames++;
             if (this.useWasm && pts !== null) {
                 if (this._playbackBasePTS == null) this._playbackBasePTS = pts;
                 this._playbackLastPTS = pts;
                 this._playbackTime = (pts - this._playbackBasePTS) / 1000000;
                 this._observeSpeed(pts);
-                this.onPlaybackTime(this._playbackTime);
+                const recordedUnixSeconds = recorded && this.recordingUTCOffsetMinutes !== null
+                    ? pts / 1000000 - this.recordingUTCOffsetMinutes * 60 : null;
+                this.onPlaybackTime(this._playbackTime, recordedUnixSeconds);
             }
-            this.diagnostics.renderedFrames++;
             this._publishDiagnostics();
             if (!this._hasRenderedFirstFrame) {
                 this._hasRenderedFirstFrame = true;
@@ -652,7 +729,8 @@ class NVRPlayer {
             ack: snapshot.ack,
             observedRate: snapshot.observedRate,
             failure: snapshot.failure,
-            timeSource: snapshot.timeSource
+            timeSource: snapshot.timeSource,
+            ...(snapshot.observations ? { observations: snapshot.observations.map(sample => ({ ...sample })) } : {})
         };
     }
 
@@ -668,31 +746,32 @@ class NVRPlayer {
             requestedRate: Number.isFinite(rate) ? rate : 1,
             protocol: 'json',
             commandSequence,
-            ack: 'none', observedRate: null, failure
+            ack: 'none', observedRate: null, failure, observations: undefined
         });
     }
 
     _observeSpeed(pts) {
-        const pending = this._pendingSpeed;
-        if (!pending) return;
+        const observation = this._speedObservation;
+        if (!observation) return;
         if (this.ws?.readyState !== WebSocket.OPEN) {
             this._finishSpeed(new Error('Playback connection closed'), 'connection');
+            this._speedObservation = null;
             return;
         }
         const now = performance.now();
-        if (now - pending.startedAt >= SPEED_TIMEOUT_MS) {
+        if (this._pendingSpeed && now - observation.startedAt >= SPEED_TIMEOUT_MS) {
             this._expireSpeed();
-            return;
+            if (!this._speedObservation) return;
         }
-        if (now - pending.startedAt < SPEED_SETTLE_MS) return;
-        if (!pending.window) {
-            pending.window = {
+        if (now - observation.startedAt < SPEED_SETTLE_MS) return;
+        if (!observation.window) {
+            observation.window = {
                 pts, at: now, lastAt: now, frames: 0, maxGap: 0,
                 cadencePTS: pts, cadenceAt: now, cadences: 0, matchingCadences: 0
             };
             return;
         }
-        const window = pending.window;
+        const window = observation.window;
         if (now <= window.lastAt) return;
         window.frames++;
         window.maxGap = Math.max(window.maxGap, now - window.lastAt);
@@ -701,33 +780,41 @@ class NVRPlayer {
         if (cadenceElapsed >= SPEED_CADENCE_MS) {
             const cadenceRate = (pts - window.cadencePTS) / (cadenceElapsed * 1000);
             window.cadences++;
-            if (Math.abs(cadenceRate - pending.rate) <= pending.rate * 0.35) window.matchingCadences++;
+            if (Math.abs(cadenceRate - observation.rate) <= observation.rate * 0.35) window.matchingCadences++;
             window.cadencePTS = pts;
             window.cadenceAt = now;
         }
         const elapsed = now - window.at;
         const recorded = this._playbackClockSource === 'recorded';
-        if (elapsed < (recorded ? 2000 : SPEED_WINDOW_MS)) return;
+        if (elapsed < (recorded ? 2000 : SPEED_WINDOW_MS) || (recorded && window.frames < 2)) return;
         const observed = (pts - window.pts) / (elapsed * 1000);
         // A matching average alone can hide periodic seek-like PTS jumps.
-        // Require most short cadences to agree too; irregular sources fail closed.
+        // Require most short cadences to agree before claiming a measured rate.
         const cadenceMatches = recorded || (window.cadences >= 4 && window.matchingCadences / window.cadences >= 0.7);
-        const matches = window.frames >= 4 && window.maxGap <= 500 && cadenceMatches
-            && Math.abs(observed - pending.rate) <= pending.rate * (recorded ? 0.3 : 0.2);
-        pending.matches = matches ? pending.matches + 1 : 0;
-        const prior = this._playbackControlDiagnostics.observedRate;
-        const mismatch = recorded && observed > 0 && window.frames >= 4 && window.maxGap <= 500
-            && Math.abs(observed - pending.rate) > pending.rate * 0.3;
-        pending.mismatches = mismatch
-            ? (prior !== null && Math.abs(observed - prior) <= observed * 0.25 ? pending.mismatches + 1 : 1) : 0;
-        pending.window = {
+        // NVR trick-play can deliver only one recorded keyframe every two seconds.
+        const sufficientFrames = recorded ? window.frames >= 2 : window.frames >= 4 && window.maxGap <= 500;
+        const matches = sufficientFrames && cadenceMatches
+            && Math.abs(observed - observation.rate) <= observation.rate * (recorded ? 0.3 : 0.2);
+        observation.matches = matches ? observation.matches + 1 : 0;
+        observation.misses = matches ? 0 : observation.misses + 1;
+        observation.window = {
             pts, at: now, lastAt: now, frames: 0, maxGap: 0,
             cadencePTS: pts, cadenceAt: now, cadences: 0, matchingCadences: 0
         };
+        const sample = { elapsedMs: Math.round(now - observation.startedAt), wallMs: Math.round(elapsed),
+            mediaMs: Math.round((pts - window.pts) / 1000), frames: window.frames,
+            maxGapMs: Math.round(window.maxGap), observedRate: Number.isFinite(observed) ? observed : 0 };
+        const observations = [...(this._playbackControlDiagnostics.observations || []), sample].slice(-8);
+        const completedPhase = observation.matches >= 2 ? 'verified'
+            : observation.misses >= 2 ? 'unconfirmed' : this._playbackControlDiagnostics.phase;
         this._publishPlaybackControlDiagnostics({
-            phase: 'verifying', observedRate: Number.isFinite(observed) ? observed : null
+            phase: this._pendingSpeed ? 'verifying' : completedPhase,
+            observedRate: Number.isFinite(observed) ? observed : null, observations,
+            ...(!this._pendingSpeed && observation.matches >= 2 ? { verifiedRate: observation.rate }
+                : !this._pendingSpeed && completedPhase === 'unconfirmed'
+                    && this._playbackControlDiagnostics.phase === 'verified' ? { verifiedRate: null } : {})
         });
-        if (pending.matches >= 2) this._finishSpeed();
+        if (this._pendingSpeed && observation.matches >= 2) this._finishSpeed();
     }
 
     _expireSpeed() {
@@ -738,11 +825,10 @@ class NVRPlayer {
             return;
         }
         const diagnostic = this._playbackControlDiagnostics;
-        // A proxy ACK and continued pictures are not a failed command just because mux PTS is retimed.
-        const inconclusive = diagnostic.timeSource === 'container' || pending.mismatches < 2;
-        if (diagnostic.ack === 'accepted' && inconclusive
-            && this.diagnostics.renderedFrames > pending.startedFrames + 3
-            && this._lastPresentedAt !== null && Date.now() - this._lastPresentedAt < 1500) {
+        // Measurement is diagnostic only: retimed clocks or slow delivery must not send the viewer back to 1x.
+        // A successful control reply and picture verification are separate results.
+        // Sparse keyframes or buffering must not undo an accepted upstream command.
+        if (diagnostic.ack === 'accepted') {
             this._finishSpeed(null, null, false);
         } else {
             this._finishSpeed(new Error('Playback speed verification timed out'), 'timeout');
@@ -755,6 +841,7 @@ class NVRPlayer {
         this._pendingSpeed = null;
         clearTimeout(pending.timer);
         if (error) {
+            this._speedObservation = null;
             this._publishPlaybackControlDiagnostics({ phase: 'failed', failure });
             // An unconfirmed upstream state stays silent until the host rebuilds the session.
             pending.reject(error);
@@ -815,14 +902,24 @@ class NVRPlayer {
     }
 
     _decodeH265Wasm(data) {
-        if (!this.transformWorker) return;
+        if (!this._isRunning || !this.transformWorker) return;
         const view = new Uint8Array(data);
-        if (!this.wasmHeaderSent) {
+        if (!this.wasmHeaderSent && !this.wasmPendingHeader) {
             this.wasmPendingHeader = view.slice();
             this._sendPendingWasmHeader();
             return;
         }
-        if (!this.wasmReady) return;
+        if (!this.wasmReady) {
+            // Never discard arbitrary private-stream bytes and continue a corrupt stream.
+            if (this.wasmPendingChunks.length >= 512 || this.wasmPendingBytes + view.byteLength > 8 * 1024 * 1024) {
+                this.stop();
+                this.onError(new Error('[NVRPlayer] WASM initialization buffer limit exceeded'));
+                return;
+            }
+            this.wasmPendingChunks.push(view.slice());
+            this.wasmPendingBytes += view.byteLength;
+            return;
+        }
         this.transformWorker.postMessage({ type: 'inputData', buf: view.buffer, len: view.length });
     }
 
@@ -832,6 +929,15 @@ class NVRPlayer {
         this.wasmPendingHeader = null;
         this.wasmHeaderSent = true;
         this.transformWorker.postMessage({ type: 'create', buf: header.buffer, len: header.length, packType: 11 });
+    }
+
+    _flushPendingWasmChunks() {
+        if (!this._isRunning || !this.transformWorker || !this.wasmReady) return;
+        const chunks = this.wasmPendingChunks.splice(0);
+        this.wasmPendingBytes = 0;
+        for (const chunk of chunks) {
+            this.transformWorker.postMessage({ type: 'inputData', buf: chunk.buffer, len: chunk.length });
+        }
     }
 
     _decodeRTP(rtp) {
@@ -1378,6 +1484,7 @@ class NVRPlayer {
         this.ws.onclose = (e) => {
             if (this.ws !== socket) return;
             this._finishSpeed(new Error('Playback connection closed'), 'connection');
+            this._speedObservation = null;
             this._isRunning = false;
             this.diagnostics.closeCode = Number.isFinite(e?.code) ? e.code : null;
             this._publishDiagnostics(true);
@@ -1393,6 +1500,7 @@ class NVRPlayer {
         this.ws.onerror = () => {
             if (this.ws !== socket) return;
             this._finishSpeed(new Error('Playback connection failed'), 'connection');
+            this._speedObservation = null;
             // onerror 之后必然触发 onclose，无需在此重连，只上报错误
             this.onError(new Error('[NVRPlayer] WebSocket 连接错误'));
         };
@@ -1432,8 +1540,8 @@ class NVRPlayer {
         this._playbackClockSource = null;
         this._playbackFrameSequence = 0;
         this._playbackFrameTimes.clear();
-        this._lastPresentedAt = null;
         this._speedRequiresSequence = false;
+        this._speedObservation = null;
         this._resetPlaybackControlDiagnostics();
         this._speedAudioMuted = false;
         if (!this._monitorTimer) this._startDecoderMonitor();
@@ -1444,9 +1552,20 @@ class NVRPlayer {
         this.wsUrl   = url;
         this.useWasm = this.forceWasm;
         const generation = this._playbackGeneration;
+        this._playbackSoftwareAVC = false;
 
         if (this.useWasm) {
             try {
+                if (typeof VideoDecoder.isConfigSupported === 'function') {
+                    try {
+                        const support = await VideoDecoder.isConfigSupported({
+                            codec: 'avc1.640029', optimizeForLatency: true, hardwareAcceleration: 'prefer-software'
+                        });
+                        if (!this._isRunning || generation !== this._playbackGeneration) return;
+                        this._playbackSoftwareAVC = support.supported === true;
+                    } catch (_) {}
+                }
+                if (!this._isRunning || generation !== this._playbackGeneration) return;
                 await this._initWasmDecoder();
             } catch (e) {
                 if (this._isRunning && generation === this._playbackGeneration) this.onError(e);
@@ -1468,6 +1587,7 @@ class NVRPlayer {
 
     stop() {
         this._finishSpeed(new Error('Playback stopped'), 'stopped');
+        this._speedObservation = null;
         this._playbackGeneration = (this._playbackGeneration || 0) + 1;
         this._playbackBasePTS = null;
         this._playbackLastPTS = null;
@@ -1475,12 +1595,12 @@ class NVRPlayer {
         this._playbackClockSource = null;
         this._playbackFrameSequence = 0;
         this._playbackFrameTimes.clear();
-        this._lastPresentedAt = null;
         this._speedRequiresSequence = false;
         this._speedAudioMuted = false;
         this._isRunning = false;
         this._isPaused = false;
         this._hasRenderedFirstFrame = false;
+        this._decoderFlush = null;
 
         // 先清除重连定时器，再关闭 ws，防止 onclose 触发新的重连
         clearTimeout(this._reconnectTimer);
@@ -1546,6 +1666,9 @@ class NVRPlayer {
         this.wasmReady      = false;
         this.wasmHeaderSent = false;
         this.wasmPendingHeader = null;
+        this.wasmPendingChunks = [];
+        this.wasmPendingBytes = 0;
+        this._wasmInitialization = null;
         this.sequence       = 0;
     }
 
@@ -1565,7 +1688,10 @@ class NVRPlayer {
 
     setSpeed(rate) {
         const rejectSpeed = (message, failure) => {
-            if (!this._pendingSpeed) this._recordPlaybackControlRequest(rate, 'failed', failure);
+            if (!this._pendingSpeed) {
+                this._speedObservation = null;
+                this._recordPlaybackControlRequest(rate, 'failed', failure);
+            }
             return Promise.reject(new Error(message));
         };
         if (!PLAYBACK_RATES.has(rate)) return rejectSpeed('Unsupported playback speed', 'unsupported');
@@ -1581,9 +1707,10 @@ class NVRPlayer {
         return new Promise((resolve, reject) => {
             const pending = {
                 rate, resolve, reject, startedAt: performance.now(), sequence: this.sequence,
-                window: null, matches: 0, mismatches: 0, timer: null, startedFrames: this.diagnostics.renderedFrames
+                timer: null
             };
             this._pendingSpeed = pending;
+            this._speedObservation = { rate, startedAt: pending.startedAt, window: null, matches: 0, misses: 0 };
             pending.timer = setTimeout(() => {
                 this._expireSpeed();
             }, SPEED_TIMEOUT_MS);
@@ -1607,6 +1734,7 @@ class NVRPlayer {
     pause() {
         this._isPaused = true;
         this._finishSpeed(new Error('Playback paused'), 'stopped');
+        this._speedObservation = null;
         this._resetAudioStream();
     }
     resume() {

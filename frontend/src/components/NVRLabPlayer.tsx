@@ -4,7 +4,7 @@ import { H5PlayerControls } from "./H5PlayerControls";
 import { PlaybackSegmentSlider, type PlaybackSegmentTiming } from "./PlaybackSegmentSlider";
 import { PlaybackSpeedSheet } from "./PlaybackSpeedSheet";
 import { PlaybackControlFailure } from "./PlaybackControlFailure";
-import type { NVRLabStreamSession } from "../domain/nvr-lab";
+import { NVR_RECORDING_UTC_OFFSET_MINUTES, type NVRLabStreamSession } from "../domain/nvr-lab";
 
 export type NVRLabPlayerStatus = {
   stage: "idle" | "connecting" | "connected" | "first-frame" | "error";
@@ -34,11 +34,12 @@ type NVRLabPlayerProps = {
   playbackPaused?: boolean;
   playbackRate?: number;
   playbackRequestPending?: boolean;
-  onPlaybackTime?: (elapsedSeconds: number, sourceSession: NVRLabStreamSession) => void;
+  onPlaybackTime?: (elapsedSeconds: number, sourceSession: NVRLabStreamSession, recordedUnixSeconds?: number | null) => void;
   onPlaybackRateChange?: (rate: number) => void;
   onPlaybackRateError?: (message: string, sourceSession: NVRLabStreamSession) => void;
   onPausePlayback?: () => void;
   onResumePlayback?: () => void;
+  onRestoreNormalPlayback?: () => void;
   onForwardPlayback?: () => boolean | void;
   captureOnFirstFrame?: boolean;
   onSnapshotCapture?: (image: Blob | null) => void;
@@ -62,6 +63,7 @@ export function NVRLabPlayer({
   onPlaybackRateError,
   onPausePlayback,
   onResumePlayback,
+  onRestoreNormalPlayback,
   onForwardPlayback,
   captureOnFirstFrame = false,
   onSnapshotCapture,
@@ -130,6 +132,7 @@ export function NVRLabPlayer({
     const options = {
       autoReconnect: false,
       forceWasm: session.mode === "playback",
+      recordingUTCOffsetMinutes: NVR_RECORDING_UTC_OFFSET_MINUTES,
       wasmWorkerUrl: `${import.meta.env.BASE_URL.replace(/\/$/, "")}/nvr-player/wasm/systemTransform-worker.js`,
       audioWorkletUrl: `${import.meta.env.BASE_URL.replace(/\/$/, "")}/nvr-player/pcm-stream-worklet.js`,
       onConnected: () => report({ stage: "connected", message: "视频流已连接，等待画面" }),
@@ -171,8 +174,13 @@ export function NVRLabPlayer({
         diagnostics.decoderInputFrames = next.decoderInputFrames;
         diagnostics.renderedFrames = next.renderedFrames;
       },
-      onPlaybackTime: (elapsedSeconds: number) => {
-        if (!disposed) callbacks.current.onPlaybackTime?.(elapsedSeconds, session);
+      onPlaybackTime: (elapsedSeconds: number, recordedUnixSeconds: number | null) => {
+        if (!disposed) callbacks.current.onPlaybackTime?.(elapsedSeconds, session, recordedUnixSeconds);
+      },
+      onPlaybackControlDiagnostics: (diagnostic: PlaybackControlDiagnostics) => {
+        if (disposed) return;
+        if (diagnostic.phase === "unconfirmed") setSpeedFailure(diagnostic);
+        else if (diagnostic.phase === "verified" || diagnostic.phase === "sent") setSpeedFailure(null);
       },
     } satisfies ConstructorParameters<typeof NVRPlayer>[1];
     const prepared = preparedPlayerRef.current;
@@ -384,6 +392,14 @@ export function NVRLabPlayer({
                 onSpeed: () => {
                   setSpeedFailure(null);
                   if (playbackRate !== 1) {
+                    if (onRestoreNormalPlayback) {
+                      speedCommandRef.current += 1;
+                      setSpeedPending(false);
+                      if (!playbackPaused) preparePlaybackAudio();
+                      playerRef.current?.stop();
+                      onRestoreNormalPlayback();
+                      return;
+                    }
                     // Prepare Safari audio inside the click; keep it muted until 1x is measured or accepted.
                     const player = playerRef.current;
                     if (!mutedRef.current && player) {

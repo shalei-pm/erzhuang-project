@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { buildNVRLabHourlyPlayback, buildNVRLabPlaybackFromStart, buildNVRLabPlaybackSession, nvrMonitorRoutePath, parseNVRLabRoute, parseNVRMonitorRoute, validateNVRLabPlayback, nvrPlaybackCursor, nvrPlaybackForward } from "./nvr-lab";
+import { buildNVRLabHourlyPlayback, buildNVRLabPlaybackFromStart, buildNVRLabPlaybackSession, nvrMonitorRoutePath, parseNVRLabRoute, parseNVRMonitorRoute, validateNVRLabPlayback, nvrPlaybackCursor, nvrPlaybackForward, nvrPresentedPlaybackCursor } from "./nvr-lab";
 
 describe("recording playback position", () => {
+  it("uses the actual recording frame for progress, restore and ten-second forward targets", () => {
+    expect(nvrPresentedPlaybackCursor(1000, 0, 4600, 1006, 1000)).toBe(1006);
+    expect(nvrPresentedPlaybackCursor(1035, 4, 4600, 1045, 1000)).toBe(1045);
+    expect(nvrPlaybackForward(1045, 1000, 4600)).toBe(1055);
+    expect(nvrPresentedPlaybackCursor(1055, 0, 4600, 1061, 1000)).toBe(1061);
+  });
+  it("bounds recorded progress to the selected window and preserves metadata-free fallback", () => {
+    expect(nvrPresentedPlaybackCursor(1035, 0, 4600, 1033.2, 1000)).toBe(1033.2);
+    expect(nvrPresentedPlaybackCursor(1000, 0, 4600, 999.8, 1000)).toBe(1000);
+    expect(nvrPresentedPlaybackCursor(1000, 3600, 4600, 4605, 1000)).toBe(4599);
+    expect(nvrPresentedPlaybackCursor(1000, 12.5, 4600, null, 1000)).toBe(1012.5);
+    expect(nvrPresentedPlaybackCursor(1000, 12.5, 4600, Number.NaN, 1000)).toBeNull();
+  });
   it("uses presented media seconds without multiplying the selected rate again", () => {
     expect(nvrPlaybackCursor(1000, 32.5, 4600)).toBe(1032.5);
     expect(nvrPlaybackCursor(1032.5, 2, 4600)).toBe(1034.5);

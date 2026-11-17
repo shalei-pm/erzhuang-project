@@ -16,6 +16,7 @@ import { NVRLabPlayer } from '/erzhuang-project/src/components/NVRLabPlayer.tsx'
 import '/erzhuang-project/src/styles.css';
 const { createRoot } = ReactDOM;
 const source = new URLSearchParams(location.search).get('fixture') || 'manual';
+const recordingUTCOffsetMs = 480 * 60 * 1000;
 const qa = window.__playbackQA = { players: [], events: [], renders: 0, speedRequests: [], unhandledRejections: [] };
 window.addEventListener('unhandledrejection', event => qa.unhandledRejections.push(String(event.reason?.message || event.reason)));
 function registerPlayer(player) {
@@ -68,16 +69,17 @@ function presentSyntheticFrame(player, frame, packet) {
   const before = player.diagnostics.renderedFrames;
   player._renderFrame(frame);
   if (player.diagnostics.renderedFrames === before) return;
-  if (packet.timeSource === 'recorded' && player.__qaPresented?.recordedPTS === packet.recordedAt * 1000) {
+  if (packet.timeSource === 'recorded' && player.__qaPresented?.recordedPTS === (packet.recordedAt + recordingUTCOffsetMs) * 1000) {
     player.__qaRepeatedRecordedFrames = (player.__qaRepeatedRecordedFrames || 0) + 1;
   }
   player.__qaPresented = { sourcePTS: packet.pts, containerPTS: packet.containerPTS,
-    recordedPTS: packet.timeSource === 'recorded' ? packet.recordedAt * 1000 : null,
+    recordedPTS: packet.timeSource === 'recorded' ? (packet.recordedAt + recordingUTCOffsetMs) * 1000 : null,
+    recordedUnixSeconds: packet.timeSource === 'recorded' ? packet.recordedAt / 1000 : null,
     sourceRate: packet.rate, sourceFrame: packet.frame, presentedAt: performance.now() };
   qa.renders++;
 }
 function recordedFrameInfo(packet) {
-  const time = new Date(packet.recordedAt);
+  const time = new Date(packet.recordedAt + recordingUTCOffsetMs);
   return { nFrameType: 1, nTimeStamp: packet.containerPTS / 1000,
     nYear: time.getUTCFullYear(), nMonth: time.getUTCMonth() + 1, nDay: time.getUTCDate(),
     nHour: time.getUTCHours(), nMinute: time.getUTCMinutes(), nSecond: time.getUTCSeconds(),
@@ -131,6 +133,11 @@ NVRPlayer.prototype._decodeH265 = function (buffer) {
     ctx.fillStyle = (sourceMs >>> bit) & 1 ? '#ffffff' : '#000000';
     ctx.fillRect(28 + bit * 8, 45, 8, 8);
   }
+  // Independent absolute clock in the actual picture; decoded metadata cannot redefine this oracle.
+  for (let bit = 0; bit < 42; bit++) {
+    ctx.fillStyle = Math.floor(packet.recordedAt / 2 ** bit) % 2 ? '#ffffff' : '#000000';
+    ctx.fillRect(28 + bit * 8, 57, 8, 8);
+  }
   if (packet.timeSource === 'recorded') decodeRecordedFrame(this, packet);
   else presentSyntheticFrame(this, new VideoFrame(paint, { timestamp: packet.containerPTS }), packet);
   feedSyntheticAudio(this);
@@ -149,6 +156,15 @@ NVRPlayer.prototype.setSpeed = function (rate) {
 const originalPlay = NVRPlayer.prototype.play;
 NVRPlayer.prototype.play = function (url) {
   registerPlayer(this);
+  if (!this.__qaObservedPlaybackTime) {
+    const callback = this.onPlaybackTime;
+    this.onPlaybackTime = (...args) => {
+      this.__qaPlaybackCallback = { elapsedSeconds: args[0], recordedUnixSeconds: args[1] ?? null };
+      // Explicit local fault injection only; normal runs forward every production callback argument.
+      return callback.apply(this, window.__qaOmitRecordedUnix ? [args[0]] : args);
+    };
+    this.__qaObservedPlaybackTime = true;
+  }
   this.__qaPlayCount = (this.__qaPlayCount || 0) + 1;
   qa.events.push({ type: 'play', url, at: performance.now() });
   return originalPlay.call(this, url);
@@ -156,7 +172,8 @@ NVRPlayer.prototype.play = function (url) {
 const originalStop = NVRPlayer.prototype.stop;
 NVRPlayer.prototype.stop = function () {
   this.__qaStopCount = (this.__qaStopCount || 0) + 1;
-  qa.events.push({ type: 'stop', url: this.wsUrl, mediaTime: this.getPlaybackTime(), at: performance.now() });
+  qa.events.push({ type: 'stop', url: this.wsUrl, mediaTime: this.getPlaybackTime(),
+    recordedUnixSeconds: this.__qaPresented?.recordedUnixSeconds ?? null, at: performance.now() });
   return originalStop.call(this);
 };
 const originalEnableAudio = NVRPlayer.prototype.enableAudio;
@@ -188,6 +205,7 @@ qa.snapshot = () => qa.players.map(p => ({ id: p.__qaId, hasPlayed: Boolean(p.__
   gain: p.gainNode?.gain.value, mutedBySpeed: p._speedAudioMuted,
   pendingRate: p._pendingSpeed?.rate ?? null, renders: p.diagnostics.renderedFrames,
   control: p.getPlaybackControlDiagnostics(), ...p.__qaPresented,
+  playbackCallback: p.__qaPlaybackCallback,
   repeatedRecordedFrames: p.__qaRepeatedRecordedFrames || 0,
   audioState: p.audioContext?.state, audioTime: p.audioContext?.currentTime,
   worklet: Boolean(p.workletNode),
@@ -231,8 +249,9 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
   const fixture = (id) => {
     if (!fixtures.has(id)) fixtures.set(id, { sessions: [], commands: [], rejectedCommands: [], sockets: [], version: null, delayNextSession: 0,
       rejectNextSpeed: false, ignoreNextSpeed: false, failNextSession: false, holdFrames: false, next: 0,
-      timeSource: 'container', containerClockRate: null, unsequencedACK: false,
-      recordedPrecision: 'millisecond', recordedEpochMs: Date.UTC(2026, 10, 16, 10) });
+      timeSource: 'container', containerClockRate: null, recordedClockRate: null, unsequencedACK: false,
+      firstFrameOffsetSeconds: 0,
+      recordedPrecision: 'millisecond', recordedEpochMs: Date.UTC(2026, 10, 16, 2) });
     return fixtures.get(id);
   };
   const json = (res, value, status = 200) => { res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(value)); };
@@ -254,9 +273,12 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
         const control = await readBody(req);
         if ('timeSource' in control && !['container', 'recorded'].includes(control.timeSource)) return json(res, { error: 'Invalid fixture timeSource' }, 400);
         if ('recordedPrecision' in control && !['millisecond', 'second'].includes(control.recordedPrecision)) return json(res, { error: 'Invalid recorded precision' }, 400);
+        if ('firstFrameOffsetSeconds' in control && !Number.isFinite(control.firstFrameOffsetSeconds)) return json(res, { error: 'Invalid first frame offset' }, 400);
         if ('containerClockRate' in control && control.containerClockRate !== null
           && (!Number.isFinite(control.containerClockRate) || control.containerClockRate <= 0)) return json(res, { error: 'Invalid container clock rate' }, 400);
-        for (const key of ["delayNextSession", "rejectNextSpeed", "ignoreNextSpeed", "holdFrames", "failNextSession", "timeSource", "containerClockRate", "recordedPrecision", "unsequencedACK"]) if (key in control) f[key] = control[key];
+        if ('recordedClockRate' in control && control.recordedClockRate !== null
+          && (!Number.isFinite(control.recordedClockRate) || control.recordedClockRate <= 0)) return json(res, { error: 'Invalid recorded clock rate' }, 400);
+        for (const key of ["delayNextSession", "rejectNextSpeed", "ignoreNextSpeed", "holdFrames", "failNextSession", "timeSource", "containerClockRate", "recordedClockRate", "recordedPrecision", "unsequencedACK", "firstFrameOffsetSeconds"]) if (key in control) f[key] = control[key];
         if ("version" in control) {
           f.version = control.version;
           for (const s of f.sockets) {
@@ -308,8 +330,10 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
     }
     wss.handleUpgrade(req, socket, head, (connection) => {
       const f = fixture(url.searchParams.get("fixture") || "manual");
-      const s = { id: url.searchParams.get("id"), rate: 1, pts: 0, containerPTS: 0, recordedAt: null, frames: 0, closed: false };
-      const recordedEpochMs = (f.sessions.find(session => session.id === s.id)?.start_time * 1000) || f.recordedEpochMs;
+      const s = { id: url.searchParams.get("id"), rate: 1, pts: 0, containerPTS: 0, recordedPTS: 0, recordedAt: null, frames: 0, closed: false };
+      const session = f.sessions.find(session => session.id === s.id);
+      const recordedEpochMs = (Number.isFinite(session?.start_time) ? session.start_time * 1000 : f.recordedEpochMs)
+        + f.firstFrameOffsetSeconds * 1000;
       f.sockets.push(s);
       connections.set(s, connection);
       if (f.version !== null) connection.send(JSON.stringify({ version: f.version }));
@@ -339,8 +363,9 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
         if (!f.holdFrames) {
           s.pts += Math.round((now - last) * 1000 * s.rate);
           s.containerPTS += Math.round((now - last) * 1000 * (f.containerClockRate ?? s.rate));
+          s.recordedPTS += Math.round((now - last) * 1000 * (f.recordedClockRate ?? s.rate));
           const precisionMs = f.recordedPrecision === 'second' ? 1000 : 1;
-          s.recordedAt = recordedEpochMs + Math.floor(s.pts / (1000 * precisionMs)) * precisionMs;
+          s.recordedAt = recordedEpochMs + Math.floor(s.recordedPTS / (1000 * precisionMs)) * precisionMs;
           connection.send(Buffer.from(JSON.stringify({ type: "frame", pts: s.pts, containerPTS: s.containerPTS,
             recordedAt: s.recordedAt, timeSource: f.timeSource, rate: s.rate, frame: s.frames + 1 })));
           s.frames++;

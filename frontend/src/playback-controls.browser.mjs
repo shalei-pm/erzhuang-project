@@ -3,12 +3,18 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
+import { pathToFileURL } from "node:url";
+import { resolve } from "node:path";
 import { startPlaybackPreview, base, previewPath } from "../../scripts/playback-controls-preview.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 6)}`;
-const artifacts = new URL(`../../output/playwright/playback-controls/${runId}/`, import.meta.url);
+const artifacts = process.env.QA_ARTIFACTS_DIR
+  ? pathToFileURL(`${resolve(process.env.QA_ARTIFACTS_DIR, runId)}/`)
+  : new URL(`../../output/playwright/playback-controls/${runId}/`, import.meta.url);
+const omitRecordedUnix = process.env.QA_OMIT_RECORDED_UNIX === "1";
+const recordingUTCOffsetSeconds = 480 * 60;
 await mkdir(artifacts, { recursive: true });
 const server = process.env.QA_LOCAL_ORIGIN ? null : await startPlaybackPreview({ port: 0 });
 const origin = process.env.QA_LOCAL_ORIGIN || server.origin;
@@ -23,6 +29,7 @@ async function open(viewport = { width: 1440, height: 900 }, component = false, 
   const id = randomUUID();
   const context = activeContext = await browser.newContext({ viewport, extraHTTPHeaders: { "x-playback-fixture": id } });
   const page = await context.newPage();
+  if (omitRecordedUnix) await page.addInitScript(() => { window.__qaOmitRecordedUnix = true; });
   page.setDefaultTimeout(12000);
   const errors = [];
   page.on("pageerror", e => { errors.push(e.message); console.error(`PAGE: ${e.message}`); });
@@ -34,6 +41,19 @@ async function open(viewport = { width: 1440, height: 900 }, component = false, 
     return route.continue();
   });
   await context.routeWebSocket(url => url.origin !== origin.replace("http", "ws"), socket => socket.close());
+  if (component) await context.route("**/__fixture/bootstrap.mjs", async route => {
+    const response = await route.fetch();
+    const source = await response.text();
+    const target = "root.render(React.createElement(NVRLabPlayer, { session,";
+    assert(source.includes(target), "standalone fixture must mount the actual player component");
+    const wrapper = `function ControlledPlayer(props) {
+      const [playbackRate, onPlaybackRateChange] = React.useState(1);
+      return React.createElement(NVRLabPlayer, { ...props, playbackRate, onPlaybackRateChange });
+    }
+    `;
+    await route.fulfill({ response, body: source.replace("  let revision = 0;", `${wrapper}  let revision = 0;`)
+      .replace(target, "root.render(React.createElement(ControlledPlayer, { session,") });
+  });
   const api = async (action, data) => {
     const response = await context.request.fetch(`${origin}${base}__fixture/${action}?fixture=${id}`, data ? { method: "POST", data } : {});
     assert(response.ok(), `fixture ${action}: ${response.status()}`);
@@ -72,10 +92,89 @@ async function selectRate(page, rate) {
   assert.equal(await button(page, "恢复正常速度").innerText(), `${rate}×`);
   await page.waitForTimeout(Math.max(0, 3000 - (Date.now() - started)));
 }
-async function normalRate(page) {
+async function normalRate(h) {
+  const { page } = h;
+  const previous = await active(page);
+  const before = await h.api("state");
+  const component = new URL(page.url()).searchParams.has("component");
   await button(page, "恢复正常速度").click();
   await button(page, "选择倍速").waitFor();
-  await page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.pendingRate === null);
+  await page.waitForFunction(({ id, component }) => {
+    const player = window.__playbackQA.snapshot().findLast(p => p.running);
+    return player && (component ? player.id === id : player.id !== id)
+      && player.pendingRate === null && player.time > 0.2 && player.renders > 4 && !player.mutedBySpeed;
+  }, { id: previous.id, component });
+  if (component) {
+    const state = await assertSamePlayback(h, before, previous);
+    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [1]);
+    assert.equal(state.sockets.at(-1).rate, 1);
+  } else await assertRestoredPlayback(h, before, previous);
+}
+async function assertSessionClock(h) {
+  const sessions = (await h.api("state")).sessions.filter(session => session.mode === "playback");
+  const frame = await presentedSample(h.page);
+  const anchor = sessions.at(-1).start_time - sessions[0].start_time;
+  if (frame.control.timeSource === "recorded") {
+    assert.equal(frame.pts, frame.recordedPTS, "SDK must retain raw Beijing calendar PTS");
+    assert.equal(frame.recordedPTS / 1e6 - recordingUTCOffsetSeconds, frame.paintedRecordedUnixMs / 1000,
+      "raw Beijing calendar minus 480 minutes must equal the clock painted in the presented frame");
+    const expected = Math.max(0, Math.min(sessions[0].end_time - sessions[0].start_time - 1,
+      frame.paintedRecordedUnixMs / 1000 - sessions[0].start_time));
+    assert(Math.abs(frame.cursor - expected) < 1.2,
+      `slider must follow actual frame Unix relative to global window: cursor=${frame.cursor}, expected=${expected}`);
+    assert.equal(frame.playbackCallback?.recordedUnixSeconds, frame.paintedRecordedUnixMs / 1000,
+      "SDK callback must deliver actual Unix rather than raw pseudo-UTC or relative zero");
+  } else assert(Math.abs(frame.cursor - (anchor + frame.time)) < 1.2,
+    `container fallback must include the signed session anchor: cursor=${frame.cursor}, expected=${anchor + frame.time}`);
+}
+async function assertOffsetSession(h) {
+  await assertSessionClock(h);
+  const sessions = (await h.api("state")).sessions.filter(session => session.mode === "playback");
+  const frame = await presentedSample(h.page);
+  const frameUnix = frame.paintedRecordedUnixMs / 1000;
+  assert(Math.abs(frameUnix - sessions.at(-1).start_time - 6 - frame.sourcePTS / 1e6) < 0.002,
+    "every newly signed session must retain the six-second source offset");
+  assert(frameUnix - sessions.at(-1).start_time - frame.time >= 5.99,
+    "first presented frame must not be mistaken for the requested anchor or relative zero");
+  return frame;
+}
+async function assertRestoredPlayback(h, before, previous) {
+  const state = await h.api("state");
+  const current = await active(h.page);
+  assert.equal(state.sessions.length, before.sessions.length + 1, "explicit normal restore must re-sign exactly once");
+  assert.equal(state.sockets.length, before.sockets.length + 1, "normal restore must replace the old socket exactly once");
+  const oldSocket = state.sockets.find(socket => socket.id === before.sockets.at(-1).id);
+  assert.equal(oldSocket.closed, true, "accelerated transport must close on normal restore");
+  assert.equal(state.sockets.at(-1).closed, false);
+  assert.equal(state.sockets.at(-1).rate, 1);
+  assert.deepEqual(state.commands.slice(before.commands.length), [], "normal restore must not send speed1 or another acceleration command");
+  assert.notEqual(current.id, previous.id, "normal restore must adopt a new SDK player");
+  assert.notEqual(current.url, previous.url);
+  assert.equal(new URL(current.url).searchParams.get("id"), state.sessions.at(-1).id);
+  const stopped = await h.page.evaluate(id => {
+    const old = window.__playbackQA.snapshot().find(player => player.id === id);
+    const event = window.__playbackQA.events.findLast(event => event.type === "stop"
+      && event.url === old.url && Number.isFinite(event.mediaTime));
+    return { old, event };
+  }, previous.id);
+  assert(stopped.event, "restore must capture the last actually presented timestamp before stopping");
+  assert(!stopped.old.running && !stopped.old.socket && !stopped.old.monitor && !stopped.old.audioGestureListener,
+    "old SDK must release playback resources");
+  assert(stopped.old.audioContexts.every(context => context.state === "closed"), "old audio contexts must close");
+  assert.equal(state.sessions.at(-1).start_time,
+    Math.floor(stopped.event.recordedUnixSeconds ?? (before.sessions.at(-1).start_time + stopped.event.mediaTime)), "normal session must start at the last presented cursor");
+  assert.equal(state.sessions.at(-1).end_time, before.sessions.at(-1).end_time);
+  assert.equal(current.control.phase, "idle", "new normal session must not inherit old speed diagnostics");
+  assert.equal(current.control.requestedRate, 1);
+  assert.equal(current.control.verifiedRate, 1);
+  assert.equal(current.control.failure, null);
+  assert.equal(current.control.commandSequence, null);
+  assert.equal(current.pendingRate, null);
+  assert.equal(current.mutedBySpeed, false);
+  assert.equal(await h.page.locator(".h5-playback-control-failure").count(), 0);
+  assert.deepEqual(await h.page.evaluate(() => window.__playbackQA.unhandledRejections), []);
+  await assertSessionClock(h);
+  return state;
 }
 async function requestPendingRate(page, rate) {
   await button(page, "选择倍速").click();
@@ -106,7 +205,7 @@ async function assertSamePlayback(h, before, player) {
 const presentedSample = page => page.evaluate(() => {
     const player = window.__playbackQA.players.findLast(p => p._isRunning);
     const slider = document.querySelector('input[aria-label="录像进度"]');
-    const value = Number(slider.value);
+    const value = slider ? Number(slider.value) : null;
     const pixels = player.ctx.getImageData(0, 0, player.canvas.width, player.canvas.height).data;
     let opaque = 0, varied = 0;
     for (let i = 0; i < pixels.length; i += 160) {
@@ -119,9 +218,15 @@ const presentedSample = page => page.evaluate(() => {
       const pixel = player.ctx.getImageData(32 + bit * 8, 49, 1, 1).data;
       if (pixel[0] > 127) paintedSourceMs += 2 ** bit;
     }
+    let paintedRecordedUnixMs = 0;
+    for (let bit = 0; bit < 42; bit++) {
+      const pixel = player.ctx.getImageData(32 + bit * 8, 61, 1, 1).data;
+      if (pixel[0] > 127) paintedRecordedUnixMs += 2 ** bit;
+    }
     return { at: performance.now(), time: player.getPlaybackTime(), pts: player._playbackLastPTS,
-      cursor: Number(slider.max) > 100000 ? value - Number(slider.min) : value,
-      renders: player.diagnostics.renderedFrames, opaque, varied, paintedSourceMs,
+      cursor: slider && Number(slider.max) > 100000 ? value - Number(slider.min) : value,
+      renders: player.diagnostics.renderedFrames, opaque, varied, paintedSourceMs, paintedRecordedUnixMs,
+      playbackCallback: player.__qaPlaybackCallback,
       ...player.__qaPresented, control: player.getPlaybackControlDiagnostics() };
   });
 async function assertSourceRate(page, rate, { containerRate } = {}) {
@@ -150,6 +255,7 @@ async function assertPresentedRate(page, rate) {
   const elapsed = (after.at - before.at) / 1000;
   const mediaDelta = after.time - before.time;
   const cursorDelta = after.cursor - before.cursor;
+  assert(Number.isFinite(before.cursor) && Number.isFinite(after.cursor), "presented slider rate requires a visible playback slider");
   assert(after.renders > before.renders + 4, `${rate}x: frames must actually render`);
   assert(after.opaque > 100 && after.varied > 100, `${rate}x: canvas must contain visible media`);
   assert(Math.abs((after.pts - before.pts) / 1e6 - mediaDelta) < 0.001, `${rate}x: media time must follow presented PTS`);
@@ -173,10 +279,10 @@ async function pausePresented(h) {
   const sessions = state.sessions.filter(session => session.mode === "playback");
   assert(sessions.length > 0, "pause requires a signed playback session");
   await button(h.page, "暂停").click();
-  const elapsed = await h.page.evaluate(() => window.__playbackQA.events.findLast(event =>
-    event.type === "stop" && typeof event.mediaTime === "number")?.mediaTime);
-  assert(Number.isFinite(elapsed), "pause must capture a presented frame timestamp");
-  const position = Math.floor(sessions.at(-1).start_time + elapsed - sessions[0].start_time);
+  const stopped = await h.page.evaluate(() => window.__playbackQA.events.findLast(event =>
+    event.type === "stop" && typeof event.mediaTime === "number"));
+  assert(Number.isFinite(stopped?.mediaTime), "pause must capture a presented frame timestamp");
+  const position = Math.floor((stopped.recordedUnixSeconds ?? (sessions.at(-1).start_time + stopped.mediaTime)) - sessions[0].start_time);
   await button(h.page, "播放").waitFor();
   // Wait for the final presented PTS to reach the controlled slider before checking its freeze.
   await h.page.waitForFunction(expected => Number(document.querySelector('input[aria-label="录像进度"]')?.value) === expected, position);
@@ -199,6 +305,9 @@ async function check(name, run) {
 async function saveSnapshot(page, name) {
   const snapshot = await page.evaluate(() => ({ players: window.__playbackQA.snapshot(), events: window.__playbackQA.events,
     speedRequests: window.__playbackQA.speedRequests, unhandledRejections: window.__playbackQA.unhandledRejections,
+    progress: [...document.querySelectorAll('input[aria-label="录像进度"]')].map(input => ({
+      value: Number(input.value), min: Number(input.min), max: Number(input.max),
+    })),
     controls: [...document.querySelectorAll('.h5-player-controls button')].map(button => ({
       label: button.ariaLabel, disabled: button.disabled, pressed: button.getAttribute('aria-pressed'),
     })),
@@ -244,29 +353,136 @@ async function bounds(page, name) {
 }
 
 try {
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await check(`Beijing calendar offset progress aligns with actual frame Unix / ${viewport.width}`, async () => {
+      const h = await open(viewport, false, { fixture: { timeSource: "recorded", firstFrameOffsetSeconds: 6, containerClockRate: 0.167 } });
+      await playback(h.page);
+      const frame = await assertOffsetSession(h);
+      assert(frame.cursor >= 6, "first session must expose the six-second offset in global progress");
+      await bounds(h.page, `offset-${viewport.width}`);
+      await writeFile(new URL(`offset-${viewport.width}.json`, artifacts), JSON.stringify(frame, null, 2));
+      await h.close();
+    });
+  }
+  await check("Beijing calendar offset pause resume twice uses the last actual picture", async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "recorded", firstFrameOffsetSeconds: 6 } });
+    await playback(h.page);
+    const globalStart = (await h.api("state")).sessions.find(session => session.mode === "playback").start_time;
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await assertOffsetSession(h);
+      const before = await h.api("state");
+      const position = await pausePresented(h);
+      await h.page.waitForTimeout(350);
+      assert.equal(await cursor(h.page), position, "paused picture and global progress must stay frozen");
+      assert((await h.api("state")).sockets.every(socket => socket.closed));
+      await button(h.page, "播放").click();
+      await h.page.waitForFunction(() => window.__playbackQA.snapshot().some(p => p.running && p.time > 0.2));
+      const after = await h.api("state");
+      assert.equal(after.sessions.length, before.sessions.length + 1);
+      assert.equal(after.sessions.at(-1).start_time, globalStart + position,
+        "resume request must use actual paused frame Unix, including the preceding session offset");
+      await assertOffsetSession(h);
+    }
+    await saveSnapshot(h.page, "offset-pause-resume");
+    await h.close();
+  });
+  await check("Beijing calendar offset forward twice starts ten seconds after the actual picture", async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "recorded", firstFrameOffsetSeconds: 6 } });
+    await playback(h.page);
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await assertOffsetSession(h);
+      const previous = await active(h.page);
+      const before = await h.api("state");
+      await button(h.page, "快进10秒").click();
+      await h.page.waitForFunction(url => window.__playbackQA.snapshot().some(p => p.running && p.url !== url && p.time > 0.2), previous.url);
+      const stopped = await h.page.evaluate(url => window.__playbackQA.events.findLast(event => event.type === "stop" && event.url === url), previous.url);
+      const after = await h.api("state");
+      assert.equal(after.sessions.length, before.sessions.length + 1);
+      assert.equal(after.sessions.at(-1).start_time, Math.floor(stopped.recordedUnixSeconds) + 10,
+        "forward request must include real first-frame offset, not just session-relative elapsed time");
+      await assertOffsetSession(h);
+    }
+    await saveSnapshot(h.page, "offset-forward");
+    await h.close();
+  });
+  await check("Beijing calendar offset seek and restore normal speed retain the global window", async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "recorded", firstFrameOffsetSeconds: 6 } });
+    await playback(h.page);
+    const globalStart = (await h.api("state")).sessions.find(session => session.mode === "playback").start_time;
+    await seek(h.page, 120);
+    await h.page.waitForFunction(() => window.__playbackQA.snapshot().some(p => p.running && p.time > 0.2));
+    assert.equal((await h.api("state")).sessions.at(-1).start_time, globalStart + 120);
+    assert((await assertOffsetSession(h)).cursor >= 126, "seek must display the new session offset in the original global window");
+    await selectRate(h.page, 8);
+    const previous = await active(h.page);
+    const before = await h.api("state");
+    await normalRate(h);
+    await assertRestoredPlayback(h, before, previous);
+    await assertOffsetSession(h);
+    await h.close();
+  });
+  await check("Beijing calendar offset before the window clamps progress to zero", async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "recorded", firstFrameOffsetSeconds: -6 } });
+    await playback(h.page);
+    const frame = await presentedSample(h.page);
+    const start = (await h.api("state")).sessions.find(session => session.mode === "playback").start_time;
+    assert(frame.paintedRecordedUnixMs / 1000 < start, "source picture must actually precede the global window");
+    assert.equal(frame.cursor, 0);
+    await assertSessionClock(h);
+    await h.close();
+  });
+  await check("Beijing calendar offset beyond the window clamps progress and stops playback", async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "recorded", firstFrameOffsetSeconds: 6 } });
+    await playback(h.page);
+    const end = (await h.api("state")).sessions.at(-1).end_time;
+    await seek(h.page, 3597);
+    await h.page.waitForFunction(end => window.__playbackQA.snapshot().some(p =>
+      p.hasPlayed && p.recordedUnixSeconds > end && !p.running), end);
+    await button(h.page, "播放").waitFor();
+    assert.equal(await cursor(h.page), 3599, "exclusive playback end must clamp to the last valid second");
+    const last = await h.page.evaluate(() => window.__playbackQA.snapshot().findLast(p => p.hasPlayed));
+    assert(last.recordedUnixSeconds > end, "source must overshoot the end rather than suppressing the offset");
+    assert.equal(last.running, false);
+    await h.close();
+  });
+  await check("Beijing calendar offset without recorded metadata keeps relative fallback", async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "container", firstFrameOffsetSeconds: 6 } });
+    await playback(h.page);
+    await seek(h.page, 120);
+    await h.page.waitForFunction(() => window.__playbackQA.snapshot().some(p => p.running && p.time > 0.2));
+    await assertSessionClock(h);
+    const frame = await presentedSample(h.page);
+    assert.equal(frame.playbackCallback.recordedUnixSeconds, null);
+    assert.equal(frame.recordedPTS, null);
+    assert(Math.abs(frame.cursor - 120 - frame.time) < 1.2);
+    await h.close();
+  });
   await check("live hides playback actions", async () => {
     const h = await open({ width: 1440, height: 900 }, false, { expectRender: false });
     assert.equal(await button(h.page, "选择倍速").count(), 0);
     assert.equal(await button(h.page, "快进10秒").count(), 0);
     await h.close();
   });
-  await check("four real SDK rates / return 1x / sound / cancel", async () => {
+  await check("8x real SDK rate / return 1x / sound / cancel", async () => {
     const h = await open(); const { page } = h;
     await playback(page);
     await button(page, "开启声音").click();
     await button(page, "关闭声音").waitFor();
     assert.equal((await active(page)).audioState, "running");
-    for (const rate of [2, 4, 8, 16]) {
+    for (const rate of [8]) {
       const sessionCount = (await h.api("state")).sessions.length;
       await selectRate(page, rate);
       assert.equal((await h.api("state")).sockets.at(-1).rate, rate);
       assert.equal((await h.api("state")).sessions.length, sessionCount, "rate switch must reuse session");
-      await normalRate(page);
+      await assertPresentedRate(page, rate);
+      await normalRate(h);
+      await assertPresentedRate(page, 1);
       assert.equal((await active(page)).volume, 80);
       assert.equal((await active(page)).mutedBySpeed, false);
       await button(page, "关闭声音").waitFor();
       await button(page, "选择倍速").click();
-      for (const r of [2, 4, 8, 16]) await button(page, `${r}倍速`).waitFor();
+      assert.deepEqual(await page.getByRole("dialog").getByRole("button").allTextContents(),
+        ["8倍速", "取消"], "reopened speed menu must offer only 8x and cancel");
       await button(page, "取消").click();
       assert.equal(await page.getByRole("dialog").count(), 0);
     }
@@ -296,41 +512,45 @@ try {
       await page.waitForFunction(expected => window.__playbackQA.versionMetadata.includes(expected), version);
 
       const observations = [];
-      for (const rate of [4, 1]) {
-        if (rate === 4) await selectRate(page, rate);
-        else await normalRate(page);
+      for (const rate of [8, 1]) {
+        if (rate === 8) await selectRate(page, rate);
+        else await normalRate(h);
         const state = await h.api("state");
         assert.deepEqual(state.rejectedCommands, [], "fixture must never receive a binary or malformed control command");
-        assert.equal(state.sessions.length, before.sessions.length, "rate changes must reuse the signed session");
-        assert.equal(state.sockets.length, before.sockets.length, "rate changes must reuse the WebSocket");
+        assert.equal(state.sessions.length, before.sessions.length + (rate === 1 ? 1 : 0), "only normal restore re-signs the session");
+        assert.equal(state.sockets.length, before.sockets.length + (rate === 1 ? 1 : 0), "only normal restore replaces the WebSocket");
         assert.equal(state.sockets.at(-1).closed, false);
         assert.equal(state.sockets.at(-1).rate, rate);
         const commands = state.commands.slice(before.commands.length);
-        assert.equal(commands.length, rate === 4 ? 1 : 2, "each rate selection must send exactly one command");
+        assert.equal(commands.length, 1, "normal restore must not send a same-socket speed1 command");
         assert.deepEqual(commands.map(({ id, at, format, ...message }) => {
           assert.equal(id, before.sockets.at(-1).id, "commands must use the original playback socket");
           assert.equal(format, "json", "the actual WebSocket frame must be JSON text");
           assert(Number.isFinite(at));
           return message;
-        }), [4, 1].slice(0, commands.length).map((rate, index) => ({ sequence: initialSequence + index, cmd: "speed", rate })));
+        }), [{ sequence: initialSequence, cmd: "speed", rate: 8 }]);
         const sdk = await active(page);
-        assert.equal(sdk.id, player.id, "rate changes must reuse the SDK player");
-        assert.equal(sdk.url, player.url);
-        assert.equal(sdk.stopCount, player.stopCount, "metadata and rate changes must not restart playback");
+        if (rate === 8) {
+          assert.equal(sdk.id, player.id, "acceleration must reuse the SDK player");
+          assert.equal(sdk.url, player.url);
+          assert.equal(sdk.stopCount, player.stopCount, "metadata and acceleration must not restart playback");
+        } else assert.notEqual(sdk.id, player.id, "normal restore must adopt a new SDK player");
         assert.equal(sdk.mutedBySpeed, rate !== 1);
         const diagnostics = await page.evaluate(() => window.__playbackQA.players.findLast(p => p._isRunning).getPlaybackControlDiagnostics());
         assert.equal(diagnostics.protocol, "json");
-        assert.equal(diagnostics.phase, "verified");
+        assert.equal(diagnostics.phase, rate === 8 ? "verified" : "idle");
         assert.equal(diagnostics.requestedRate, rate);
         assert.equal(diagnostics.verifiedRate, rate);
-        assert.equal(diagnostics.commandSequence, commands.at(-1).sequence);
-        assert.equal(diagnostics.ack, "accepted");
+        assert.equal(diagnostics.commandSequence, rate === 8 ? commands.at(-1).sequence : null);
+        assert.equal(diagnostics.ack, rate === 8 ? "accepted" : "none");
         assert.equal(diagnostics.failure, null);
         observations.push(await assertPresentedRate(page, rate));
+        await assertSessionClock(h);
       }
       const after = await h.api("state");
-      assert.equal(after.sessions.length, before.sessions.length, "media sampling must not hide delayed session recovery");
-      assert.equal(after.sockets.length, before.sockets.length);
+      assert.equal(after.sessions.length, before.sessions.length + 1, "media sampling must not hide a duplicate normal restore");
+      assert.equal(after.sockets.length, before.sockets.length + 1);
+      assert.deepEqual(after.commands.slice(before.commands.length).map(command => command.rate), [8]);
       assert.deepEqual(after.rejectedCommands, []);
       assert.equal(await page.locator(".h5-playback-control-failure").count(), 0);
       await writeFile(new URL(`json-version-${version}-${mobile ? "mobile" : "desktop"}.json`, artifacts), JSON.stringify({ version, observations }, null, 2));
@@ -387,10 +607,10 @@ try {
       const beforeForward = (await active(page)).url;
       await button(page, "快进10秒").click();
       await assertAudible("normal forward", beforeForward);
-      await selectRate(page, 4);
-      const speedMuted = await recordAudio("4x output muted");
-      assert.equal(speedMuted.gain, 0, "4x must mute the actual output gain");
-      assert(speedMuted.audioSignal.peak < 0.0001, "4x must silence synthetic PCM output");
+      await selectRate(page, 8);
+      const speedMuted = await recordAudio("8x output muted");
+      assert.equal(speedMuted.gain, 0, "8x must mute the actual output gain");
+      assert(speedMuted.audioSignal.peak < 0.0001, "8x must silence synthetic PCM output");
       const acceleratedUrl = (await active(page)).url;
       const pausedOffset = await pausePresented(h);
       await page.waitForTimeout(250);
@@ -408,8 +628,9 @@ try {
       assert(accelerated.audioSignal.peak < 0.0001, "accelerated resume must keep PCM output silent");
       await button(page, "倍速播放静音").waitFor();
       assert.equal(await button(page, "倍速播放静音").isDisabled(), true);
-      await normalRate(page);
-      await assertAudible("return 1x restores pre-speed sound intent");
+      await normalRate(h);
+      await assertAudible("return 1x restores pre-speed sound intent", accelerated.url);
+      await assertPresentedRate(page, 1);
       await writeFile(new URL("audio-intent.json", artifacts), JSON.stringify(observations, null, 2));
     } catch (error) {
       observations.push({ phase: "failure", error: error.stack, players: await page.evaluate(() => window.__playbackQA.snapshot()) });
@@ -489,13 +710,13 @@ try {
     const h = await open(); const { page } = h;
     await playback(page); await button(page, "开启声音").click();
     await button(page, "关闭声音").waitFor();
-    await selectRate(page, 4);
+    await selectRate(page, 8);
     const muted = button(page, "倍速播放静音");
     await muted.waitFor();
     assert.equal(await muted.isDisabled(), true);
     assert.equal(await muted.getAttribute("aria-pressed"), "false");
     await saveSnapshot(page, "speed-sound-disabled");
-    await normalRate(page);
+    await normalRate(h);
     await button(page, "关闭声音").waitFor();
     assert.equal(await button(page, "关闭声音").isEnabled(), true);
     assert.equal((await active(page)).volume, 80);
@@ -526,7 +747,7 @@ try {
     await h.close();
   });
   await check("pause 30 seconds stops socket; resume re-signs and restores rate", async () => {
-    const h = await open(); await playback(h.page); await selectRate(h.page, 4);
+    const h = await open(); await playback(h.page); await selectRate(h.page, 8);
     const position = await pausePresented(h);
     const state = await h.api("state");
     const count = state.sessions.length;
@@ -542,7 +763,7 @@ try {
     assert.equal(resumed.sessions.at(-1).start_time, Math.floor(state.sessions.at(-1).start_time + position));
     assert.notEqual(resumed.sessions.at(-1).id, state.sessions.at(-1).id);
     await h.page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.mutedBySpeed && !window.__playbackQA.snapshot().findLast(p => p.running)?.pendingRate);
-    assert.equal((await h.api("state")).sockets.at(-1).rate, 4);
+    assert.equal((await h.api("state")).sockets.at(-1).rate, 8);
     await h.close();
   });
   await check("paused seek / forward / rate do not create session until resume", async () => {
@@ -604,8 +825,8 @@ try {
   await check("old pending speed rejection and old rendered frame cannot replace a newer range", async () => {
     const h = await open(); await playback(h.page);
     await h.api("control", { ignoreNextSpeed: true });
-    await button(h.page, "选择倍速").click(); await button(h.page, "4倍速").click();
-    await h.page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.pendingRate === 4);
+    await button(h.page, "选择倍速").click(); await button(h.page, "8倍速").click();
+    await h.page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.pendingRate === 8);
     const oldUrl = (await active(h.page)).url;
     const count = (await h.api("state")).sessions.length;
     await h.api("control", { delayNextSession: 500 });
@@ -624,34 +845,94 @@ try {
     assert(await cursor(h.page) < 120, "old PTS must not leak into current slider");
     await h.close();
   });
-  await check("pending 4x restore 1x supersedes old promise without delayed React reconnect", async () => {
+  await check("pending 8x restore 1x re-signs once without delayed React reconnect", async () => {
     const h = await open(undefined, false, { fixture: { containerClockRate: 0.167 } });
     const { page } = h;
     await playback(page);
     const before = await h.api("state"); const player = await active(page);
-    await requestPendingRate(page, 4);
-    // Click the actual React control while the old setSpeed(4) promise is still pending.
-    await button(page, "恢复正常速度").click();
-    await page.waitForFunction(() => {
-      const requests = window.__playbackQA.speedRequests;
-      return requests.at(-2)?.rate === 4 && requests.at(-2)?.status === 'rejected'
-        && requests.at(-1)?.rate === 1;
-    });
-    // Keep the real clock running past BOTH requests' original six-second deadline.
+    await requestPendingRate(page, 8);
+    const beforeRestore = await h.api("state");
+    // Click the actual React control while the old setSpeed(8) promise is still pending.
+    await normalRate(h);
+    // Keep the real clock running past the stopped request's original six-second deadline.
     await page.waitForTimeout(6600);
-    const state = await assertSamePlayback(h, before, player);
-    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [4, 1], "no stale fallback/duplicate speed command");
+    const state = await assertRestoredPlayback(h, beforeRestore, player);
+    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [8], "no stale fallback/duplicate speed command");
     assert.equal(state.sockets.at(-1).rate, 1);
     const requests = await page.evaluate(() => window.__playbackQA.speedRequests);
-    assert.equal(requests.at(-2).status, "rejected", "the superseded SDK promise must actually reject");
-    assert.match(requests.at(-2).error, /superseded/i, "old request must reject because normal speed preempted it");
-    assert(requests.at(-2).settledAt - requests.at(-2).at < 6000, "restore must preempt the old verification timeout");
-    assert.equal(requests.at(-1).status, "resolved");
+    assert.equal(requests.at(-1).rate, 8, "new normal session must not call setSpeed(1)");
+    assert.equal(requests.at(-1).status, "rejected", "stopping the old session must reject its SDK promise");
+    assert.match(requests.at(-1).error, /stopped/i, "old request must reject because its session stopped");
+    assert(requests.at(-1).settledAt - requests.at(-1).at < 6000, "restore must cancel the old verification timeout");
     assert.equal((await active(page)).pendingRate, null);
     assert.equal((await active(page)).control.requestedRate, 1);
     await button(page, "选择倍速").waitFor();
     await assertSourceRate(page, 1, { containerRate: 0.167 });
-    await saveSnapshot(page, "pending-4x-restore-1x");
+    await saveSnapshot(page, "pending-8x-restore-1x");
+    await h.close();
+  });
+  await check("paused normal restore creates no unused audio player; resume restores 1x and sound", async () => {
+    const h = await open(); const { page } = h;
+    await playback(page);
+    await button(page, "开启声音").click();
+    await button(page, "关闭声音").waitFor();
+    await selectRate(page, 8);
+    const position = await pausePresented(h);
+    await page.waitForFunction(() => !window.__playbackQA.snapshot().some(player => player.running));
+    const before = await h.api("state");
+    const playerCount = await page.evaluate(() => window.__playbackQA.snapshot().length);
+    await button(page, "恢复正常速度").click();
+    await button(page, "选择倍速").waitFor();
+    await page.waitForTimeout(1200);
+    const paused = await h.api("state");
+    assert.equal(paused.sessions.length, before.sessions.length, "paused normal restore must not sign a session");
+    assert.equal(paused.sockets.length, before.sockets.length);
+    assert.deepEqual(paused.commands, before.commands, "paused restore must not send speed1");
+    assert.equal(await cursor(page), position, "paused normal restore must retain the last presented cursor");
+    const players = await page.evaluate(() => window.__playbackQA.snapshot());
+    assert.equal(players.length, playerCount, "paused restore must not prepare an unused audio player");
+    assert(players.every(player => !player.running && !player.monitor && !player.socket
+      && player.audioContexts.every(context => context.state === "closed")), "paused players must release transport and audio");
+    await button(page, "播放").click();
+    await page.waitForFunction(() => {
+      const player = window.__playbackQA.snapshot().findLast(player => player.running);
+      return player?.time > 0.2 && player.audioState === "running" && player.volume === 80
+        && !player.mutedBySpeed && player.gain > 0.7 && player.audioPackets > 2
+        && player.audioSignal?.peak > 0.05 && player.audioSignal.rms > 0.02;
+    });
+    const resumed = await h.api("state");
+    assert.equal(resumed.sessions.length, before.sessions.length + 1, "only explicit play may re-sign after paused normal restore");
+    assert.equal(resumed.sessions.at(-1).start_time, before.sessions.find(session => session.mode === "playback").start_time + position);
+    assert.equal(resumed.sockets.at(-1).rate, 1);
+    assert.deepEqual(resumed.commands, before.commands, "resuming a normal session needs no speed command");
+    const player = await active(page);
+    assert(player.audioGestureReady && player.audioPreparations.some(preparation => preparation.gesture),
+      "resume must adopt audio prepared in the trusted play gesture");
+    await button(page, "关闭声音").waitFor();
+    await assertPresentedRate(page, 1);
+    await assertSessionClock(h);
+    await h.close();
+  });
+  for (const pending of [false, true]) await check(`standalone component restores 1x on the same socket / ${pending ? "pending" : "verified"} 8x`, async () => {
+    const h = await open(undefined, true, { fixture: pending ? { containerClockRate: 0.167 } : {} });
+    const { page } = h;
+    const before = await h.api("state"); const player = await active(page);
+    if (pending) await requestPendingRate(page, 8);
+    else {
+      await selectRate(page, 8);
+      await assertSourceRate(page, 8);
+    }
+    await normalRate(h);
+    await page.waitForTimeout(6600);
+    const state = await assertSamePlayback(h, before, player);
+    assert.deepEqual(state.commands.map(command => command.rate), [8, 1], "standalone restore must call SDK setSpeed(1) exactly once");
+    assert.deepEqual(state.commands.map(command => command.sequence), [0, 1]);
+    const requests = await page.evaluate(() => window.__playbackQA.speedRequests);
+    assert.equal(requests.at(-2).status, pending ? "rejected" : "resolved");
+    if (pending) assert.match(requests.at(-2).error, /superseded/i);
+    assert.equal(requests.at(-1).status, "resolved");
+    assert.equal((await active(page)).control.requestedRate, 1);
+    await assertSourceRate(page, 1, pending ? { containerRate: 0.167 } : {});
     await h.close();
   });
   await check("unsequenced ACK during pending restore rebuilds normal session without stale failure", async () => {
@@ -659,24 +940,25 @@ try {
     const { page } = h;
     await playback(page);
     const before = await h.api("state");
-    await requestPendingRate(page, 4);
-    await button(page, "恢复正常速度").click();
-    await page.waitForFunction(() => window.__playbackQA.snapshot().filter(p => p.hasPlayed).length >= 3);
-    await button(page, "选择倍速").waitFor();
+    const player = await active(page);
+    await requestPendingRate(page, 8);
+    const beforeRestore = await h.api("state");
+    await normalRate(h);
     await page.waitForTimeout(6600);
-    const state = await h.api("state");
-    assert.equal(state.sessions.length, before.sessions.length + 1, "ambiguous recovery should re-sign exactly once");
+    const state = await assertRestoredPlayback(h, beforeRestore, player);
+    assert.equal(state.sessions.length, before.sessions.length + 1, "explicit restore with unsequenced ACK must re-sign exactly once");
+    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [8]);
     assert.equal(state.sockets.at(-1).rate, 1);
     assert.equal(await page.locator(".h5-playback-control-failure").count(), 0);
     await assertSourceRate(page, 1, { containerRate: 0.167 });
     await h.close();
   });
-  await check("retimed container resolves unconfirmed after 6s with real 4x frames and restores 1x", async () => {
+  await check("retimed container resolves unconfirmed after 6s with real 8x frames and restores 1x", async () => {
     const h = await open(undefined, false, { fixture: { containerClockRate: 0.167 } });
     const { page } = h;
     await playback(page);
     const before = await h.api("state"); const player = await active(page);
-    await requestPendingRate(page, 4);
+    await requestPendingRate(page, 8);
     await page.waitForFunction(() => {
       const sdk = window.__playbackQA.snapshot().findLast(p => p.running);
       return sdk?.pendingRate === null && sdk.control.phase === 'unconfirmed';
@@ -684,66 +966,70 @@ try {
     const accelerated = await active(page);
     assert.equal(accelerated.control.timeSource, "container");
     assert.equal(accelerated.control.ack, "accepted");
-    assert.equal(accelerated.control.requestedRate, 4);
-    assert.notEqual(accelerated.control.verifiedRate, 4, "unconfirmed must not claim verified 4x");
+    assert.equal(accelerated.control.requestedRate, 8);
+    assert.notEqual(accelerated.control.verifiedRate, 8, "unconfirmed must not claim verified 8x");
     assert.equal(accelerated.control.failure, null);
     assert(accelerated.control.observedRate > 0.1 && accelerated.control.observedRate < 0.25);
     const request = await page.evaluate(() => window.__playbackQA.speedRequests.at(-1));
     assert.equal(request.status, "resolved");
     assert(request.settledAt - request.at >= 5900, "unconfirmed must wait for the real six-second ACK/frame deadline");
-    assert.equal(await button(page, "恢复正常速度").innerText(), "4×");
+    assert.equal(await button(page, "恢复正常速度").innerText(), "8×");
     assert.equal(await button(page, "恢复正常速度").isEnabled(), true);
-    const acceleratedSource = await assertSourceRate(page, 4, { containerRate: 0.167 });
+    const acceleratedSource = await assertSourceRate(page, 8, { containerRate: 0.167 });
     const state = await assertSamePlayback(h, before, player);
-    assert.equal(state.sockets.at(-1).rate, 4);
-    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [4]);
-    await normalRate(page);
+    assert.equal(state.sockets.at(-1).rate, 8);
+    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [8]);
+    const beforeRestore = await h.api("state");
+    await normalRate(h);
     const normalSource = await assertSourceRate(page, 1, { containerRate: 0.167 });
-    const restored = await assertSamePlayback(h, before, player);
-    assert.deepEqual(restored.commands.slice(before.commands.length).map(command => command.rate), [4, 1]);
+    const restored = await assertRestoredPlayback(h, beforeRestore, player);
+    assert.deepEqual(restored.commands.slice(before.commands.length).map(command => command.rate), [8]);
     assert.equal(restored.sockets.at(-1).rate, 1);
-    assert.equal((await active(page)).control.phase, "unconfirmed");
+    assert.equal((await active(page)).control.phase, "idle");
     assert.equal((await active(page)).control.requestedRate, 1);
     await writeFile(new URL("retimed-container-source.json", artifacts), JSON.stringify({ acceleratedSource, normalSource }, null, 2));
     await saveSnapshot(page, "retimed-container-unconfirmed");
     await h.close();
   });
-  await check("recorded frame metadata drives source PTS and slider through 4 to 1 and pause resume", async () => {
+  await check("recorded frame metadata drives source PTS and slider through 8 to 1 and pause resume", async () => {
     const h = await open(undefined, false, { fixture: { timeSource: "recorded", containerClockRate: 0.167 } });
     const { page } = h;
     await playback(page);
     const before = await h.api("state"); const player = await active(page);
     assert.equal(player.control.timeSource, "recorded", "real _handleH264Frame must select recorded calendar metadata");
-    await requestPendingRate(page, 4);
+    await requestPendingRate(page, 8);
     await page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.pendingRate === null);
     const fast = await active(page);
     assert.equal(fast.control.phase, "verified");
-    assert.equal(fast.control.verifiedRate, 4);
+    assert.equal(fast.control.verifiedRate, 8);
     assert.equal(fast.control.timeSource, "recorded");
-    const accelerated = await assertPresentedRate(page, 4);
+    const accelerated = await assertPresentedRate(page, 8);
     assert.equal(accelerated.after.pts, accelerated.after.recordedPTS, "decoded frame must retain its own recorded metadata");
     assert.equal(accelerated.before.pts, accelerated.before.recordedPTS);
     assert(accelerated.after.sourcePTS > accelerated.after.containerPTS * 2, "fixture must retain genuinely different clocks");
-    await normalRate(page);
-    const normal = await assertPresentedRate(page, 1);
-    assert.equal((await active(page)).control.phase, "verified");
-    assert.equal((await active(page)).control.verifiedRate, 1);
     await assertSamePlayback(h, before, player);
+    const beforeRestore = await h.api("state");
+    await normalRate(h);
+    const normal = await assertPresentedRate(page, 1);
+    assert.equal((await active(page)).control.phase, "idle");
+    assert.equal((await active(page)).control.verifiedRate, 1);
+    await assertRestoredPlayback(h, beforeRestore, player);
     const position = await pausePresented(h);
     await page.waitForFunction(() => !window.__playbackQA.snapshot().some(p => p.running));
     await page.waitForTimeout(1200);
     assert.equal(await cursor(page), position, "pause must freeze the recorded-time slider");
     const paused = await h.api("state");
-    assert.equal(paused.sessions.length, before.sessions.length);
+    assert.equal(paused.sessions.length, before.sessions.length + 1, "only the explicit normal restore re-signs before pause");
     assert(paused.sockets.every(socket => socket.closed), "pause closes recorded source transport");
     await button(page, "播放").click();
     await page.waitForFunction(() => window.__playbackQA.snapshot().some(p => p.running && p.time > 0.2 && p.control.timeSource === 'recorded'));
     const resumed = await h.api("state");
-    assert.equal(resumed.sessions.length, before.sessions.length + 1, "only explicit resume re-signs playback");
+    assert.equal(resumed.sessions.length, before.sessions.length + 2, "normal restore and explicit resume each re-sign once");
     assert.equal(resumed.sessions.at(-1).start_time, before.sessions.at(-1).start_time + position);
     assert.equal(resumed.sockets.at(-1).rate, 1);
     const resumedSource = await assertPresentedRate(page, 1);
     assert.equal(resumedSource.after.pts, resumedSource.after.recordedPTS);
+    await assertSessionClock(h);
     await writeFile(new URL("recorded-source-slider.json", artifacts), JSON.stringify({ accelerated, normal, position, resumedSource }, null, 2));
     await h.close();
   });
@@ -756,8 +1042,8 @@ try {
     const repeated = await active(page);
     assert.equal(repeated.control.timeSource, "recorded");
     assert(repeated.renders > before.renders + 4, "repeated second timestamps must still draw their distinct source pictures");
-    await selectRate(page, 4);
-    const source = await assertSourceRate(page, 4, { containerRate: 0.167 });
+    await selectRate(page, 8);
+    const source = await assertSourceRate(page, 8, { containerRate: 0.167 });
     assert.equal(source.before.pts, source.before.recordedPTS);
     assert.equal(source.after.pts, source.after.recordedPTS);
     assert.equal(source.after.control.phase, "verified");
@@ -768,50 +1054,180 @@ try {
     await saveSnapshot(page, "recorded-second-precision");
     await h.close();
   });
-  for (const failure of ["rejectNextSpeed", "ignoreNextSpeed"]) await check(`${failure}: recover with fresh normal session`, async () => {
-    // An accepted-but-ignored command is a reliable failure only with recorded source time.
-    const h = await open(undefined, false, { fixture: failure === "ignoreNextSpeed" ? { timeSource: "recorded", containerClockRate: 0.167 } : {} });
+  await check("recorded 1.18x observations cannot reset real 8x pictures or re-sign the session", async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "recorded", recordedClockRate: 1.18, containerClockRate: 0.167 } });
+    const { page } = h;
+    await playback(page);
+    const before = await h.api("state"); const player = await active(page);
+    await requestPendingRate(page, 8);
+    await page.waitForFunction(() => {
+      const sdk = window.__playbackQA.snapshot().findLast(p => p.running);
+      return sdk?.pendingRate === null && sdk.control.phase === "unconfirmed";
+    });
+    await assertSourceRate(page, 8);
+    await page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)
+      ?.control.observations?.at(-1)?.elapsedMs > 26_000, null, { timeout: 35_000 });
+    const current = await active(page);
+    assert.equal(current.control.failure, null);
+    assert.equal(current.control.requestedRate, 8);
+    assert(Math.abs(current.control.observedRate - 1.18) < 0.15);
+    assert(current.control.observations.length <= 8);
+    await assertSamePlayback(h, before, player);
+    await assertSourceRate(page, 8);
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,
+      value: { writeText: async report => { window.__playbackReport = report; } } }));
+    await button(page, "复制倍速诊断信息").click();
+    const report = JSON.parse(await page.evaluate(() => window.__playbackReport));
+    assert(report.observations.at(-1).elapsedMs > 26_000, "copy must use current observations, not the six-second snapshot");
+    assert(report.observations.every(sample => Math.abs(sample.observedRate - 1.18) < 0.15));
+    let state = await h.api("state");
+    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [8]);
+    await h.api("control", { recordedClockRate: null });
+    const beforeRestore = await h.api("state");
+    await normalRate(h);
+    await assertSourceRate(page, 1);
+    state = await assertRestoredPlayback(h, beforeRestore, player);
+    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [8]);
+    await assertPresentedRate(page, 1);
+    await saveSnapshot(page, "recorded-1.18-no-reset");
+    await h.close();
+  });
+  for (const rate of [8]) await check(`accepted but ignored ${rate}x speed stays observable and can be restored manually`, async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "recorded" } });
+    const { page } = h;
+    await playback(page);
+    const before = await h.api("state"); const player = await active(page);
+    await page.evaluate(() => {
+      const sdk = window.__playbackQA.players.findLast(player => player._isRunning);
+      const notify = sdk.onPlaybackControlDiagnostics;
+      window.__playbackQA.controlHistory = [];
+      sdk.onPlaybackControlDiagnostics = diagnostic => {
+        window.__playbackQA.controlHistory.push(diagnostic);
+        notify(diagnostic);
+      };
+    });
+    await h.api("control", { ignoreNextSpeed: true });
+    await requestPendingRate(page, rate);
+    await page.waitForFunction(() => {
+      const sdk = window.__playbackQA.snapshot().findLast(p => p.running);
+      return sdk?.pendingRate === null && sdk.control.phase === "unconfirmed";
+    });
+    await assertSourceRate(page, 1);
+    const state = await assertSamePlayback(h, before, player);
+    assert.equal(state.sockets.at(-1).rate, 1, "fixture must demonstrate ignored upstream acceleration");
+    const diagnostic = (await active(page)).control;
+    assert.equal(diagnostic.phase, "unconfirmed");
+    assert.equal(diagnostic.ack, "accepted");
+    assert.equal(diagnostic.requestedRate, rate);
+    assert.equal(diagnostic.verifiedRate, 1, `the UI must not claim measured ${rate}x`);
+    assert(Math.abs(diagnostic.observedRate - 1) < 0.2, "accepted command must retain measured normal-speed evidence");
+    const history = await page.evaluate(() => window.__playbackQA.controlHistory);
+    assert(!history.some(diagnostic => diagnostic.phase === "verified" && diagnostic.requestedRate === rate),
+      "an ignored command must never transiently publish verified status");
+    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [rate]);
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,
+      value: { writeText: async report => { window.__playbackReport = report; } } }));
+    await button(page, "复制倍速诊断信息").click();
+    const report = JSON.parse(await page.evaluate(() => window.__playbackReport));
+    assert.equal(report.phase, "unconfirmed");
+    assert.equal(report.requestedRate, rate);
+    assert.equal(report.verifiedRate, 1, "copied diagnostics must not turn accepted into measured acceleration");
+    await writeFile(new URL(`accepted-ignored-${rate}x.json`, artifacts), JSON.stringify({ diagnostic, history, report }, null, 2));
+    const beforeRestore = await h.api("state");
+    await normalRate(h);
+    await assertPresentedRate(page, 1);
+    await assertRestoredPlayback(h, beforeRestore, player);
+    await h.close();
+  });
+  await check("previously verified 8x becomes unconfirmed without copying stale verified8", async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "recorded" } });
+    const { page } = h;
+    await playback(page);
+    const before = await h.api("state"); const player = await active(page);
+    await selectRate(page, 8);
+    assert.equal((await active(page)).control.phase, "verified");
+    assert.equal((await active(page)).control.verifiedRate, 8);
+    await assertSourceRate(page, 8);
+    await h.api("control", { recordedClockRate: 1 });
+    await page.waitForFunction(() => window.__playbackQA.snapshot().findLast(player => player.running)
+      ?.control.phase === "unconfirmed");
+    await assertSamePlayback(h, before, player);
+    assert.equal((await active(page)).control.verifiedRate, null,
+      "diagnostic downgrade must immediately invalidate the previous verified8");
+    // A mismatch can include buffered frames; wait for two settled windows before measuring 1x.
+    await page.waitForFunction(() => {
+      const diagnostic = window.__playbackQA.snapshot().findLast(player => player.running)?.control;
+      const windows = diagnostic?.observations?.slice(-2) || [];
+      return diagnostic?.phase === "unconfirmed" && windows.length === 2
+        && windows.every(sample => Math.abs(sample.observedRate - 1) < 0.2);
+    }, undefined, { timeout: 20_000 });
+    const diagnostic = (await active(page)).control;
+    assert.equal(diagnostic.requestedRate, 8);
+    assert.equal(diagnostic.ack, "accepted");
+    assert(Math.abs(diagnostic.observedRate - 1) < 0.2, "later windows must show the changed recorded clock");
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,
+      value: { writeText: async report => { window.__playbackReport = report; } } }));
+    await button(page, "复制倍速诊断信息").click();
+    const report = JSON.parse(await page.evaluate(() => window.__playbackReport));
+    await writeFile(new URL("8x-unconfirmed-after-verification.json", artifacts), JSON.stringify({ diagnostic, report }, null, 2));
+    assert.equal(report.phase, "unconfirmed");
+    assert.equal(report.requestedRate, 8);
+    assert.notEqual(report.verifiedRate, 8, "unconfirmed diagnostics must not present the previous verified8 as the current rate");
+    assert.notEqual(diagnostic.verifiedRate, 8, "unconfirmed SDK diagnostics must not retain a stale verified8 claim");
+    assert.equal(report.verifiedRate, null, "copied diagnostics must preserve unknown rather than invent normal speed");
+    assert.equal(diagnostic.verifiedRate, null, "continuous mismatch must invalidate the current verified rate");
+    await h.api("control", { recordedClockRate: null });
+    await page.waitForFunction(() => {
+      const diagnostic = window.__playbackQA.snapshot().findLast(player => player.running)?.control;
+      return diagnostic?.phase === "verified" && diagnostic.verifiedRate === 8;
+    });
+    const recovered = await assertSamePlayback(h, before, player);
+    assert.deepEqual(recovered.commands.slice(before.commands.length).map(command => command.rate), [8],
+      "diagnostic downgrade and recovery must not resend speed or restore normal playback");
+    const source = await assertSourceRate(page, 8);
+    await writeFile(new URL("8x-reverified-after-unconfirmed.json", artifacts),
+      JSON.stringify({ diagnostic: (await active(page)).control, source }, null, 2));
+    await h.close();
+  });
+  for (const failure of ["rejectNextSpeed"]) await check(`${failure}: recover with fresh normal session`, async () => {
+    const h = await open();
     await playback(h.page); const count = (await h.api("state")).sessions.length;
     await h.page.setViewportSize({ width: 390, height: 844 });
     await button(h.page, "全屏").click();
     await h.page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,
       value: { writeText: async report => { window.__playbackReport = report; } } }));
     await h.api("control", { [failure]: true });
-    await button(h.page, "选择倍速").click(); await button(h.page, "4倍速").click();
+    await button(h.page, "选择倍速").click(); await button(h.page, "8倍速").click();
     await h.page.getByText("录像倍速切换失败，正在重新连接正常速度回放", { exact: true }).waitFor();
     await button(h.page, "选择倍速").waitFor();
     await h.page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.time > 0);
     assert.equal((await h.api("state")).sessions.length, count + 1);
     assert.equal((await h.api("state")).sockets.at(-1).rate, 1);
     const notice = h.page.locator(".h5-player-shell .h5-playback-control-failure");
-    await notice.getByText("未能确认4倍速生效，请继续使用正常速度回放", { exact: true }).waitFor();
+    await notice.getByText("未能确认8倍速生效，请继续使用正常速度回放", { exact: true }).waitFor();
     await button(h.page, "复制倍速诊断信息").click();
     await notice.getByText("诊断信息已复制", { exact: true }).waitFor();
     const reportText = await h.page.evaluate(() => window.__playbackReport);
     const report = JSON.parse(reportText);
     assert.equal(report.phase, "failed");
-    assert.equal(report.requestedRate, 4);
+    assert.equal(report.requestedRate, 8);
     assert.equal(report.verifiedRate, 1);
-    assert.equal(report.failure, failure === "rejectNextSpeed" ? "rejected" : "timeout");
-    assert.equal(report.ack, failure === "rejectNextSpeed" ? "rejected" : "accepted");
-    assert.equal(report.timeSource, failure === "ignoreNextSpeed" ? "recorded" : "container");
-    const failedRequest = await h.page.evaluate(() => window.__playbackQA.speedRequests.findLast(request => request.rate === 4));
-    assert.equal(failedRequest.status, "rejected", "both explicit rejection and reliable ignored-speed failure must reject the actual SDK promise");
-    if (failure === "ignoreNextSpeed") assert(report.observedRate > 0.75 && report.observedRate < 1.25,
-      `an ACK with ignored speed must preserve measured 1x, got ${report.observedRate}`);
+    assert.equal(report.failure, "rejected");
+    assert.equal(report.ack, "rejected");
+    assert.equal(report.timeSource, "container");
+    const failedRequest = await h.page.evaluate(() => window.__playbackQA.speedRequests.findLast(request => request.rate === 8));
+    assert.equal(failedRequest.status, "rejected", "explicit rejection must reject the actual SDK promise");
     assert(!/wss?:|token|camera|fixture|private/.test(reportText), "report must exclude stream/user identifiers");
     const noticeBounds = await notice.boundingBox();
     assert(noticeBounds.x >= 0 && noticeBounds.y >= 0 && noticeBounds.x + noticeBounds.width <= 391
       && noticeBounds.y + noticeBounds.height <= 845, "fullscreen failure notice must fit the phone viewport");
     await h.page.screenshot({ path: new URL(`${failure}-notice.png`, artifacts).pathname });
-    if (failure === "ignoreNextSpeed") {
-      await h.page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,
-        value: { writeText: async () => { throw new Error("Clipboard denied"); } } }));
-      await button(h.page, "复制倍速诊断信息").click();
-      const fallback = notice.getByRole("textbox", { name: "倍速诊断信息" });
-      await fallback.waitFor();
-      assert.deepEqual(JSON.parse(await fallback.inputValue()), report, "manual fallback must preserve the same safe report");
-    }
+    await h.page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,
+      value: { writeText: async () => { throw new Error("Clipboard denied"); } } }));
+    await button(h.page, "复制倍速诊断信息").click();
+    const fallback = notice.getByRole("textbox", { name: "倍速诊断信息" });
+    await fallback.waitFor();
+    assert.deepEqual(JSON.parse(await fallback.inputValue()), report, "manual fallback must preserve the same safe report");
     await h.close();
   });
   await check("new callback identities do not rebuild SDK player", async () => {
@@ -842,7 +1258,8 @@ try {
   });
 } finally {
   await browser.close(); await server?.close();
-  await writeFile(new URL("results.json", artifacts), JSON.stringify({ source: "synthetic decoded frames; actual React + SDK + local HTTP/WS; no device validation", results }, null, 2));
+  await writeFile(new URL("results.json", artifacts), JSON.stringify({ source: "synthetic decoded frames; actual React + SDK + local HTTP/WS; no device validation",
+    faultInjection: omitRecordedUnix ? "fixture omits onPlaybackTime second argument" : null, results }, null, 2));
 }
 console.log(`${results.filter(r => r.status === "passed").length}/${results.length} passed; artifacts: ${artifacts.pathname}`);
 if (results.some(r => r.status === "failed")) process.exitCode = 1;

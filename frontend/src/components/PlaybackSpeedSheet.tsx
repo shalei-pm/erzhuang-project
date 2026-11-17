@@ -24,7 +24,7 @@ export function PlaybackSpeedSheet({ onSelect, onClose }: {
           if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
         }}>
         <div className="h5-speed-sheet-title">播放倍速</div>
-        {[2, 4, 8, 16].map((rate) => (
+        {[8].map((rate) => (
           <button type="button" key={rate} onClick={() => onSelect(rate)}>{rate}倍速</button>
         ))}
         <button type="button" className="h5-speed-cancel" onClick={onClose}>取消</button>
