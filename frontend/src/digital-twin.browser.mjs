@@ -29,11 +29,11 @@ try {
       key: node.dataset.overviewKey,
     })));
     assert.deepEqual(overviewMetrics, [
-      {label:'预约暂未到店',value:'61',key:'expected'},
-      {label:'已到店人数',value:'43',key:'arrived'},
-      {label:'值班咨询师人数',value:'5',key:'consultants'},
-      {label:'值班护士人数',value:'6',key:'nurses'},
-      {label:'值班医生人数',value:'7',key:'doctors'},
+      {label:'预约暂未到店',value:'60',key:'expected'},
+      {label:'已到店人数',value:'42',key:'arrived'},
+      {label:'值班咨询师人数',value:'3',key:'consultants'},
+      {label:'值班护士人数',value:'4',key:'nurses'},
+      {label:'值班医生人数',value:'2',key:'doctors'},
     ]);
     assert.equal(await kit.getByText('值班前台人数',{exact:true}).count(),0);
     const logo=kit.getByRole('img',{name:'新氧青春诊所 SOYOUNG CLINIC',exact:true});
@@ -48,11 +48,11 @@ try {
     assert.equal(await kit.locator('.account-copy small').innerText(),'已登录二壮');
     const normalizeMetric = value => value.replace(/\s+/g, " ").trim();
     const receptionMetrics = (await kit.locator('#room-reception .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
-    assert.deepEqual(receptionMetrics, ["当前接待 9 人", "已到访 43 人", "无需咨询人数 13 人", "需要咨询人数 30 人"]);
+    assert.deepEqual(receptionMetrics, ["当前接待 2 人", "已到访 42 人", "无需咨询人数 27 人", "需要咨询人数 15 人"]);
     const waitingMetrics = (await kit.locator('#room-waiting .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
-    assert.deepEqual(waitingMetrics, ["当前等候 4 人", "无需咨询人数 1 人", "需要咨询人数 3 人"]);
+    assert.deepEqual(waitingMetrics, ["当前等候 30 人", "无需咨询人数 20 人", "需要咨询人数 10 人"]);
     const treatmentMetrics = (await kit.locator('#room-treatment .room-metric').evaluateAll(nodes => nodes.map(node => node.innerText))).map(normalizeMetric);
-    assert.deepEqual(treatmentMetrics, ["当前治疗 8 人", "已服务 19 人", "无需咨询人数 7 人", "需要咨询人数 12 人"]);
+    assert.deepEqual(treatmentMetrics, ["当前治疗 11 人", "已服务 10 人", "无需咨询人数 6 人", "需要咨询人数 4 人"]);
     assert.equal(await kit.locator(".room-segment.is-stale").count(), 0);
     assert.equal(await kit.locator(".room-segment.is-stale .metric-stale-dot").count(), 0);
     const preserved = await kit.locator("body").evaluate(() => {

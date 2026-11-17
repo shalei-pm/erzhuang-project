@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import NVRPlayer from "../vendor/nvr-player/nvr-player.js";
 import { H5PlayerControls } from "./H5PlayerControls";
 import { PlaybackSegmentSlider, type PlaybackSegmentTiming } from "./PlaybackSegmentSlider";
+import { PlaybackSpeedSheet } from "./PlaybackSpeedSheet";
 import type { NVRLabStreamSession } from "../domain/nvr-lab";
 
 export type NVRLabPlayerStatus = {
@@ -25,9 +26,19 @@ type NVRLabPlayerProps = {
   session: NVRLabStreamSession | null;
   playbackSegment?: PlaybackSegmentTiming | null;
   playbackCursorUnix?: number | null;
-  onStatus?: (status: NVRLabPlayerStatus) => void;
+  onStatus?: (status: NVRLabPlayerStatus, sourceSession?: NVRLabStreamSession) => void;
   onPlaybackStateChange?: (playing: boolean) => void;
-  onSeekPlayback?: (startTime: number) => void;
+  onSeekPlayback?: (startTime: number) => boolean | void;
+  playbackMode?: boolean;
+  playbackPaused?: boolean;
+  playbackRate?: number;
+  playbackRequestPending?: boolean;
+  onPlaybackTime?: (elapsedSeconds: number, sourceSession: NVRLabStreamSession) => void;
+  onPlaybackRateChange?: (rate: number) => void;
+  onPlaybackRateError?: (message: string, sourceSession: NVRLabStreamSession) => void;
+  onPausePlayback?: () => void;
+  onResumePlayback?: () => void;
+  onForwardPlayback?: () => boolean | void;
   captureOnFirstFrame?: boolean;
   onSnapshotCapture?: (image: Blob | null) => void;
   onScreenshot?: (dataUrl: string) => void | Promise<void>;
@@ -41,6 +52,16 @@ export function NVRLabPlayer({
   onStatus,
   onPlaybackStateChange,
   onSeekPlayback,
+  playbackMode = false,
+  playbackPaused = false,
+  playbackRate = 1,
+  playbackRequestPending = false,
+  onPlaybackTime,
+  onPlaybackRateChange,
+  onPlaybackRateError,
+  onPausePlayback,
+  onResumePlayback,
+  onForwardPlayback,
   captureOnFirstFrame = false,
   onSnapshotCapture,
   onScreenshot,
@@ -48,8 +69,14 @@ export function NVRLabPlayer({
 }: NVRLabPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playerRef = useRef<NVRPlayer | null>(null);
+  const preparedPlayerRef = useRef<NVRPlayer | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const firstFrameCaptureRef = useRef(false);
+  const mutedRef = useRef(true);
+  const verifiedRateRef = useRef(1);
+  const readyPlayerRef = useRef<NVRPlayer | null>(null);
+  const callbacks = useRef({ onStatus, onPlaybackStateChange, onSnapshotCapture, onPlaybackTime, onPlaybackRateError });
+  callbacks.current = { onStatus, onPlaybackStateChange, onSnapshotCapture, onPlaybackTime, onPlaybackRateError };
   const [status, setStatus] = useState<NVRLabPlayerStatus>({ stage: "idle", message: "播放器准备中" });
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
@@ -57,8 +84,17 @@ export function NVRLabPlayer({
   const [controlsVisible, setControlsVisible] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [landscape, setLandscape] = useState(false);
+  const [speedOpen, setSpeedOpen] = useState(false);
+  const [speedPending, setSpeedPending] = useState(false);
+  const isPlayback = playbackMode || session?.mode === "playback";
+  const playbackAvailable = Boolean(playbackSegment && (session || playbackPaused));
+  const ratePending = speedPending || Boolean(isPlayback && session && !playbackPaused && playbackRate !== verifiedRateRef.current);
 
   useEffect(() => {
+    setPlaying(false);
+    setSpeedPending(false);
+    verifiedRateRef.current = 1;
+    readyPlayerRef.current = null;
     if (!session || !canvasRef.current) return;
     let disposed = false;
     let firstFrameRendered = false;
@@ -83,35 +119,39 @@ export function NVRLabPlayer({
     const report = (next: NVRLabPlayerStatus) => {
       if (disposed) return;
       setStatus(next);
-      onStatus?.(next);
+      callbacks.current.onStatus?.(next, session);
     };
-    const player = new NVRPlayer(canvasRef.current, {
+    const options = {
       autoReconnect: false,
       forceWasm: session.mode === "playback",
       wasmWorkerUrl: `${import.meta.env.BASE_URL.replace(/\/$/, "")}/nvr-player/wasm/systemTransform-worker.js`,
       audioWorkletUrl: `${import.meta.env.BASE_URL.replace(/\/$/, "")}/nvr-player/pcm-stream-worklet.js`,
       onConnected: () => report({ stage: "connected", message: "视频流已连接，等待画面" }),
       onFirstFrame: () => {
+        if (disposed) return;
         firstFrameRendered = true;
+        readyPlayerRef.current = player;
         clearFirstFrameTimeout();
         setPlaying(true);
-        onPlaybackStateChange?.(true);
+        callbacks.current.onPlaybackStateChange?.(true);
         report({ stage: "first-frame", message: "画面已开始播放" });
         if (captureOnFirstFrame && !firstFrameCaptureRef.current) {
           firstFrameCaptureRef.current = true;
-          canvasRef.current?.toBlob((image) => onSnapshotCapture?.(image), "image/jpeg", 0.82);
+          canvasRef.current?.toBlob((image) => { if (!disposed) callbacks.current.onSnapshotCapture?.(image); }, "image/jpeg", 0.82);
         }
       },
       onDisconnected: (details: { code: number | null; wasClean: boolean }) => {
+        if (disposed) return;
         clearFirstFrameTimeout();
         setPlaying(false);
-        onPlaybackStateChange?.(false);
+        callbacks.current.onPlaybackStateChange?.(false);
         report({ stage: "error", message: nvrLabDisconnectMessage(details) });
       },
       onError: (error) => {
+        if (disposed) return;
         clearFirstFrameTimeout();
         setPlaying(false);
-        onPlaybackStateChange?.(false);
+        callbacks.current.onPlaybackStateChange?.(false);
         report({ stage: "error", message: playerErrorMessage(error) });
       },
       onDiagnostics: (next: NVRLabPlayerDiagnostics) => {
@@ -125,13 +165,21 @@ export function NVRLabPlayer({
         diagnostics.decoderInputFrames = next.decoderInputFrames;
         diagnostics.renderedFrames = next.renderedFrames;
       },
-    });
-    player.setVolume(0);
+      onPlaybackTime: (elapsedSeconds: number) => {
+        if (!disposed) callbacks.current.onPlaybackTime?.(elapsedSeconds, session);
+      },
+    } satisfies ConstructorParameters<typeof NVRPlayer>[1];
+    const prepared = preparedPlayerRef.current;
+    preparedPlayerRef.current = null;
+    const player = prepared && session.mode === "playback"
+      ? Object.assign(prepared, options)
+      : new NVRPlayer(canvasRef.current, options);
+    if (prepared && prepared !== player) prepared.stop();
+    player.setVolume(mutedRef.current || (session.mode === "playback" && playbackRate !== 1) ? 0 : 80);
     playerRef.current = player;
     firstFrameCaptureRef.current = false;
     setPlaying(false);
-    onPlaybackStateChange?.(false);
-    setMuted(true);
+    callbacks.current.onPlaybackStateChange?.(false);
     setAudioMessage("");
     report({ stage: "connecting", message: "正在连接视频流" });
     void player.play(session.url).catch((error: unknown) => report({ stage: "error", message: playerErrorMessage(error) }));
@@ -139,7 +187,7 @@ export function NVRLabPlayer({
       firstFrameTimeout = window.setTimeout(() => {
         if (disposed || firstFrameRendered) return;
         setPlaying(false);
-        onPlaybackStateChange?.(false);
+        callbacks.current.onPlaybackStateChange?.(false);
         report({ stage: "error", message: nvrLabFirstFrameTimeoutMessage(diagnostics) });
       }, 12_000);
     }
@@ -148,10 +196,43 @@ export function NVRLabPlayer({
       disposed = true;
       clearFirstFrameTimeout();
       player.stop();
-      onPlaybackStateChange?.(false);
+      callbacks.current.onPlaybackStateChange?.(false);
       if (playerRef.current === player) playerRef.current = null;
     };
-  }, [captureOnFirstFrame, onPlaybackStateChange, onSnapshotCapture, onStatus, session]);
+  }, [captureOnFirstFrame, session]);
+
+  useEffect(() => {
+    if (preparedPlayerRef.current && (!isPlayback || (!playbackRequestPending && !session))) {
+      preparedPlayerRef.current.stop();
+      preparedPlayerRef.current = null;
+    }
+  });
+
+  useEffect(() => () => {
+    preparedPlayerRef.current?.stop();
+    preparedPlayerRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!session || !player || readyPlayerRef.current !== player || !isPlayback || status.stage !== "first-frame" || verifiedRateRef.current === playbackRate) return;
+    let cancelled = false;
+    setSpeedPending(true);
+    player.setVolume(0);
+    void player.setSpeed(playbackRate).then(() => {
+      if (cancelled || playerRef.current !== player) return;
+      verifiedRateRef.current = playbackRate;
+      player.setVolume(playbackRate === 1 && !mutedRef.current ? 80 : 0);
+      setSpeedPending(false);
+    }).catch(() => {
+      if (cancelled || playerRef.current !== player) return;
+      setSpeedPending(false);
+      callbacks.current.onPlaybackRateError?.("未能确认录像倍速生效，已重新连接正常速度回放", session);
+    });
+    return () => { cancelled = true; };
+  }, [isPlayback, playbackRate, session, status.stage]);
+
+  useEffect(() => { setSpeedOpen(false); }, [session, playbackMode]);
 
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -160,6 +241,17 @@ export function NVRLabPlayer({
   }, []);
 
   async function togglePlay() {
+    if (isPlayback && onPausePlayback && onResumePlayback) {
+      if (playbackPaused) {
+        preparePlaybackAudio();
+        onResumePlayback();
+      }
+      else {
+        playerRef.current?.stop();
+        onPausePlayback();
+      }
+      return;
+    }
     const player = playerRef.current;
     if (!player || status.stage === "error") return;
     if (playing) {
@@ -173,7 +265,38 @@ export function NVRLabPlayer({
     onPlaybackStateChange?.(true);
   }
 
+  function preparePlaybackAudio(): NVRPlayer | null {
+    if (mutedRef.current || !canvasRef.current) return null;
+    preparedPlayerRef.current?.stop();
+    const player = new NVRPlayer(canvasRef.current, {
+      autoReconnect: false,
+      forceWasm: true,
+      wasmWorkerUrl: `${import.meta.env.BASE_URL.replace(/\/$/, "")}/nvr-player/wasm/systemTransform-worker.js`,
+      audioWorkletUrl: `${import.meta.env.BASE_URL.replace(/\/$/, "")}/nvr-player/pcm-stream-worklet.js`,
+    });
+    preparedPlayerRef.current = player;
+    player.setVolume(0);
+    // The next signed session adopts this instance after the user gesture has unlocked audio.
+    void player.enableAudio().catch(() => {
+      if (preparedPlayerRef.current === player || playerRef.current === player) {
+        mutedRef.current = true;
+        setMuted(true);
+        playerRef.current?.setVolume(0);
+        preparedPlayerRef.current?.setVolume(0);
+        setAudioMessage("声音暂未开启，请再次点击声音按钮");
+      }
+    });
+    return player;
+  }
+
+  function discardPreparedAudio(player: NVRPlayer | null) {
+    if (!player || preparedPlayerRef.current !== player) return;
+    preparedPlayerRef.current = null;
+    player.stop();
+  }
+
   async function toggleSound() {
+    if (isPlayback && (playbackRate !== 1 || ratePending)) return;
     const nextMuted = !muted;
     const player = playerRef.current;
     if (!player) return;
@@ -188,6 +311,7 @@ export function NVRLabPlayer({
     if (playerRef.current !== player) return;
     player.setVolume(nextMuted ? 0 : 80);
     setMuted(nextMuted);
+    mutedRef.current = nextMuted;
     setAudioMessage("");
   }
 
@@ -223,19 +347,43 @@ export function NVRLabPlayer({
           <div className="h5-player-container" onClick={() => setControlsVisible((visible) => !visible)}>
             <canvas ref={canvasRef} aria-label="NVR 视频画面" />
             <H5PlayerControls
-              state={{ playing, muted, loading: status.stage === "connecting", failed: status.stage === "error", fullscreen, landscape }}
-              visible={controlsVisible}
+              state={{ playing: playbackPaused ? false : playing, muted: muted || (isPlayback && (playbackRate !== 1 || ratePending)), loading: playbackRequestPending || ratePending || Boolean(session && status.stage === "connecting"), failed: Boolean(session && status.stage === "error"), fullscreen, landscape }}
+              visible={controlsVisible || playbackPaused || speedOpen}
+              playback={isPlayback ? {
+                rate: playbackPaused ? playbackRate : verifiedRateRef.current,
+                pending: ratePending,
+                disabled: !playbackAvailable,
+                onForward: () => {
+                  const prepared = playbackPaused ? null : preparePlaybackAudio();
+                  if (onForwardPlayback?.() === false) discardPreparedAudio(prepared);
+                },
+                onSpeed: () => {
+                  if (playbackRate !== 1) {
+                    // Prepare Safari audio inside the click; keep it muted until 1x is verified.
+                    const player = playerRef.current;
+                    if (!mutedRef.current && player) {
+                      void player.enableAudio().catch(() => {
+                        if (playerRef.current === player) setAudioMessage("声音暂未开启，请再次点击声音按钮");
+                      });
+                    }
+                    onPlaybackRateChange?.(1);
+                  } else setSpeedOpen(true);
+                },
+              } : undefined}
               center={
-                session?.mode === "playback" && playbackSegment && onSeekPlayback ? (
+                isPlayback && playbackSegment && onSeekPlayback ? (
                   <PlaybackSegmentSlider
                     segment={playbackSegment}
-                    disabled={status.stage === "connecting" || status.stage === "error"}
+                    disabled={playbackRequestPending || ratePending || Boolean(session && (status.stage === "connecting" || status.stage === "error"))}
                     currentStartTime={playbackCursorUnix}
                     compactControls
-                    onCommit={onSeekPlayback}
+                    onCommit={(target) => {
+                      const prepared = playbackPaused ? null : preparePlaybackAudio();
+                      if (onSeekPlayback(target) === false) discardPreparedAudio(prepared);
+                    }}
                   />
                 ) : (
-                  <span>{session?.mode === "playback" ? "录像" : "实时视频"}</span>
+                  <span>{isPlayback ? "录像" : "实时视频"}</span>
                 )
               }
               onTogglePlay={() => void togglePlay()}
@@ -244,8 +392,8 @@ export function NVRLabPlayer({
               onToggleLandscape={() => setLandscape((value) => !value)}
               onToggleFullscreen={() => void toggleFullscreen()}
             />
-            {status.stage === "connecting" ? <div className="h5-player-loading">正在连接视频流...</div> : null}
-            {status.stage === "error" ? (
+            {playbackRequestPending || (session && status.stage === "connecting") ? <div className="h5-player-loading">正在连接视频流...</div> : null}
+            {session && status.stage === "error" ? (
               <div className="h5-player-error">
                 <span>{status.message}</span>
                 <button type="button" onClick={onRetry}>重新连接</button>
@@ -254,6 +402,10 @@ export function NVRLabPlayer({
           </div>
         </div>
       </div>
+      {speedOpen ? <PlaybackSpeedSheet onClose={() => setSpeedOpen(false)} onSelect={(rate) => {
+        setSpeedOpen(false);
+        onPlaybackRateChange?.(rate);
+      }} /> : null}
       </div>
       {audioMessage ? <div className="h5-error" role="status">{audioMessage}</div> : null}
     </>

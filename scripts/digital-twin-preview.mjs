@@ -28,32 +28,11 @@ export function fixtureAPI(path, method, body, state, options={}) {
   }
   if (path.endsWith("/admin/digital-twin-candidates")) return [200,{cities:[{city:"北京",stores:fixtureStores}]}];
   if (path.endsWith("/digitaltwin/stores")) return [200,{cities:[{city:"北京",stores:fixtureStores.filter(store=>state.store_ids.includes(store.external_org_id))}]}];
-  const dashboardMatch = path.match(/\/digitaltwin\/orgs\/(\d+)\/dashboard$/);
+  const dashboardMatch=path.match(/\/digitaltwin\/orgs\/(\d+)\/dashboard$/);
   if (dashboardMatch) {
     if (!state.store_ids.includes(dashboardMatch[1])) return [403,{error:"暂无该机构数字孪生访问权限"}];
     if (options.dashboardUnavailable) return [503,{error:"本地联调模拟 RPC 暂不可用",code:"preview_rpc_unavailable"}];
-    return [200,{
-      tenant_id:Number(dashboardMatch[1]),
-      date:"2026-09-15",
-      fetched_at:"2026-09-15T10:30:00+08:00",
-      overview:{expected_arrival:61,arrived:43,no_consult:13,need_consult:30,non_quick_medical_beauty:0},
-      duty_staff:{consultants:5,nurses:6,doctors:7},
-      traffic_flow:{
-        reception_current:9,
-        consultation_current:3,
-        consultation_served:17,
-        waiting:4,
-        waiting_no_consult:1,
-        waiting_need_consult:3,
-        waiting_non_quick_medical_beauty:0,
-        treatment_current:8,
-        treatment_served:19,
-        treatment_served_no_consult:7,
-        treatment_served_need_consult:12,
-        treatment_served_non_quick_medical_beauty:0,
-        postoperative_care:2,
-      },
-    }];
+    return [200,{tenant_id:Number(dashboardMatch[1]),date:"2026-09-16",fetched_at:"2026-09-16T01:00:00Z",overview:{expected_arrival:60,arrived:42,no_consult:27,need_consult:15,non_quick:0},duty_staff:{consultants:3,nurses:4,doctors:2},traffic_flow:{reception_current:2,consultation_current:1,consultation_served:8,waiting:30,waiting_no_consult:20,waiting_need_consult:10,waiting_non_quick:0,treatment_current:11,treatment_served:10,treatment_served_no_consult:6,treatment_served_need_consult:4,treatment_served_non_quick:0,postoperative_care:4}}];
   }
   const t1Match=path.match(/\/digitaltwin\/orgs\/(\d+)\/t1-bi$/);
   if(t1Match)return [200,{tenant_id:Number(t1Match[1]),begin_day:"2026-08-17",end_day:"2026-09-15",fetched_at:"2026-09-16T01:00:00Z",trends:fixtureT1Trends()}];

@@ -300,6 +300,8 @@ export function DigitalTwin({ displayName, onLogout, loggingOut }: { displayName
     });
     twinInstance.current = instance;
     frameDocument.querySelector(".account-copy small")!.textContent = "已登录二壮";
+    frameDocument.querySelectorAll(".experiment-stores small,.store-picker .sample-tag").forEach(node => { node.textContent = "已开放"; });
+    frameDocument.querySelector(".scene-footer span")!.textContent = "左侧人数来自实时接口 · 右侧运营趋势来自 T+1 数据服务 · 摄像头来自真实门店";
     frameDocument.querySelector(".store-menu-note")!.textContent = "仅展示白名单内且已授权的机构";
     frameDocument.querySelector("#store-selector-help")!.textContent = "选择已开放且有权限的机构";
     const element = frame.current;

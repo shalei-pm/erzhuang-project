@@ -44,6 +44,8 @@ export type NVRPlayerOptions = {
   onConnected?: () => void;
   onDisconnected?: (details: { code: number | null; wasClean: boolean }) => void;
   onFirstFrame?: () => void;
+  /** Relative seconds of the last presented WASM media frame; absent for live. */
+  onPlaybackTime?: (elapsedSeconds: number) => void;
   onDiagnostics?: (diagnostics: NVRPlayerDiagnostics) => void;
 };
 
@@ -53,6 +55,14 @@ export default class NVRPlayer {
   stop(): void;
   pause(): void;
   resume(): void;
-	  enableAudio(): Promise<void>;
+  /** Call in the user gesture; prepares audio even while speed-muted. */
+  enableAudio(): Promise<void>;
   setVolume(volume: number): void;
+  /** Null until a valid playback frame is presented, and after stop. */
+  getPlaybackTime(): number | null;
+  /** Active WASM playback only: 1/2/4/8/16. Verifies stable media PTS cadence within 6s.
+   * Rejects unsupported, pending, disconnected, stopped or unverified requests.
+   * On failure the host must create a fresh normal-speed session.
+   */
+  setSpeed(rate: number): Promise<void>;
 }

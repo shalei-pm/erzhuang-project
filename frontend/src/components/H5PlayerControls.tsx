@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { RedoOutlined } from "@ant-design/icons";
 
 export type H5PlayerControlState = {
   playing: boolean;
@@ -18,6 +19,13 @@ export type H5PlayerControlsProps = {
   onScreenshot: () => void;
   onToggleLandscape: () => void;
   onToggleFullscreen: () => void;
+  playback?: {
+    rate: number;
+    pending: boolean;
+    disabled: boolean;
+    onForward: () => void;
+    onSpeed: () => void;
+  };
 };
 
 export function H5PlayerControls({
@@ -29,13 +37,15 @@ export function H5PlayerControls({
   onScreenshot,
   onToggleLandscape,
   onToggleFullscreen,
+  playback,
 }: H5PlayerControlsProps) {
   const { playing, muted, loading, failed, fullscreen, landscape } = state;
   const pinned = loading || failed;
+  const speedMuted = Boolean(playback && (playback.rate !== 1 || playback.pending));
 
   return (
     <div
-      className={`h5-player-controls ${visible || pinned ? "is-visible" : ""}`}
+      className={`h5-player-controls ${playback ? "has-playback-actions" : ""} ${visible || pinned ? "is-visible" : ""}`}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -43,17 +53,24 @@ export function H5PlayerControls({
         <button
           type="button"
           onClick={onTogglePlay}
-          disabled={loading || failed}
+          disabled={loading || failed || Boolean(playback?.disabled)}
           aria-label={playing ? "暂停" : "播放"}
           aria-pressed={playing}
         >
           {playing ? <PauseIcon /> : <PlayIcon />}
         </button>
+        {playback ? (
+          <button type="button" className="h5-forward-ten" onClick={playback.onForward}
+            disabled={loading || failed || playback.disabled || playback.pending} aria-label="快进10秒" title="快进10秒">
+            <RedoOutlined /><span>10</span>
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onToggleSound}
-          disabled={loading || failed}
-          aria-label={muted ? "开启声音" : "关闭声音"}
+          disabled={loading || failed || speedMuted}
+          aria-label={speedMuted ? "倍速播放静音" : muted ? "开启声音" : "关闭声音"}
+          title={speedMuted ? "倍速播放静音" : undefined}
           aria-pressed={!muted}
         >
           {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
@@ -63,6 +80,14 @@ export function H5PlayerControls({
       <div className="h5-player-control-center">{center || <span>实时视频</span>}</div>
 
       <div className="h5-player-control-group right">
+        {playback ? (
+          <button type="button" className="h5-playback-rate" onClick={playback.onSpeed}
+            disabled={loading || failed || playback.disabled || playback.pending}
+            aria-label={playback.rate === 1 ? "选择倍速" : "恢复正常速度"}
+            aria-pressed={playback.rate !== 1} aria-busy={playback.pending} title={playback.rate === 1 ? "选择倍速" : "恢复正常速度"}>
+            {playback.pending ? "切换中" : playback.rate === 1 ? "倍速" : `${playback.rate}×`}
+          </button>
+        ) : null}
         <button type="button" onClick={onScreenshot} disabled={loading || failed} aria-label="截图">
           <CameraIcon />
         </button>
