@@ -66,6 +66,7 @@ function playerWithAudio(mock = audioContext()) {
     AUDIO_PAYLOAD_TYPE: 8,
     diagnostics: { audioPayloadPackets: 0 },
     onDiagnostics: vi.fn(),
+    _playbackFrameTimes: new Map(),
   }) as AudioPlayer;
   players.push(player);
   return { player, ...mock };

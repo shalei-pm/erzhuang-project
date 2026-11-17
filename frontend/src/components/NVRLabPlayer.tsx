@@ -74,7 +74,9 @@ export function NVRLabPlayer({
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const firstFrameCaptureRef = useRef(false);
   const mutedRef = useRef(true);
-  const verifiedRateRef = useRef(1);
+  const commandedRateRef = useRef(1);
+  const speedCommandRef = useRef(0);
+  const normalSpeedReadyRef = useRef(true);
   const readyPlayerRef = useRef<NVRPlayer | null>(null);
   const callbacks = useRef({ onStatus, onPlaybackStateChange, onSnapshotCapture, onPlaybackTime, onPlaybackRateError });
   callbacks.current = { onStatus, onPlaybackStateChange, onSnapshotCapture, onPlaybackTime, onPlaybackRateError };
@@ -90,12 +92,14 @@ export function NVRLabPlayer({
   const [speedFailure, setSpeedFailure] = useState<PlaybackControlDiagnostics | null>(null);
   const isPlayback = playbackMode || session?.mode === "playback";
   const playbackAvailable = Boolean(playbackSegment && (session || playbackPaused));
-  const ratePending = speedPending || Boolean(isPlayback && session && !playbackPaused && playbackRate !== verifiedRateRef.current);
+  const ratePending = speedPending || Boolean(isPlayback && session && !playbackPaused && playbackRate !== commandedRateRef.current);
+  const speedMuted = isPlayback && (playbackRate !== 1 || ratePending || !normalSpeedReadyRef.current);
 
   useEffect(() => {
     setPlaying(false);
     setSpeedPending(false);
-    verifiedRateRef.current = 1;
+    commandedRateRef.current = 1;
+    normalSpeedReadyRef.current = true;
     readyPlayerRef.current = null;
     if (!session || !canvasRef.current) return;
     let disposed = false;
@@ -217,21 +221,33 @@ export function NVRLabPlayer({
 
   useEffect(() => {
     const player = playerRef.current;
-    if (!session || !player || readyPlayerRef.current !== player || !isPlayback || status.stage !== "first-frame" || verifiedRateRef.current === playbackRate) return;
+    if (!session || !player || readyPlayerRef.current !== player || !isPlayback || status.stage !== "first-frame" || commandedRateRef.current === playbackRate) return;
     let cancelled = false;
+    const command = ++speedCommandRef.current;
+    // A pending 4x command may already affect the stream even while verifiedRate is still 1.
+    commandedRateRef.current = playbackRate;
+    normalSpeedReadyRef.current = false;
     setSpeedPending(true);
+    setSpeedFailure(null);
     player.setVolume(0);
     void player.setSpeed(playbackRate).then(() => {
-      if (cancelled || playerRef.current !== player) return;
-      verifiedRateRef.current = playbackRate;
-      player.setVolume(playbackRate === 1 && !mutedRef.current ? 80 : 0);
+      if (cancelled || speedCommandRef.current !== command || playerRef.current !== player) return;
+      const diagnostic = player.getPlaybackControlDiagnostics();
+      // Measured 1x needs no ACK; accepted unconfirmed 1x does not claim a measured rate.
+      normalSpeedReadyRef.current = playbackRate === 1 && (
+        (diagnostic.phase === "verified" && diagnostic.verifiedRate === 1)
+        || (diagnostic.phase === "unconfirmed" && diagnostic.requestedRate === 1 && diagnostic.ack === "accepted")
+      );
+      if (diagnostic.phase === "unconfirmed") setSpeedFailure(diagnostic);
+      player.setVolume(normalSpeedReadyRef.current && !mutedRef.current ? 80 : 0);
       setSpeedPending(false);
     }).catch(() => {
-      if (cancelled || playerRef.current !== player) return;
+      if (cancelled || speedCommandRef.current !== command || playerRef.current !== player) return;
       const diagnostic = player.getPlaybackControlDiagnostics();
-      if (diagnostic.phase === "failed") setSpeedFailure(diagnostic);
+      if (diagnostic.phase === "failed" && diagnostic.failure !== "uncorrelated") setSpeedFailure(diagnostic);
       setSpeedPending(false);
-      callbacks.current.onPlaybackRateError?.("未能确认录像倍速生效，已重新连接正常速度回放", session);
+      callbacks.current.onPlaybackRateError?.(diagnostic.failure === "uncorrelated"
+        ? "正在重新连接正常速度回放" : "录像倍速切换失败，正在重新连接正常速度回放", session);
     });
     return () => { cancelled = true; };
   }, [isPlayback, playbackRate, session, status.stage]);
@@ -252,6 +268,8 @@ export function NVRLabPlayer({
         onResumePlayback();
       }
       else {
+        speedCommandRef.current += 1;
+        setSpeedPending(false);
         playerRef.current?.stop();
         onPausePlayback();
       }
@@ -301,7 +319,7 @@ export function NVRLabPlayer({
   }
 
   async function toggleSound() {
-    if (isPlayback && (playbackRate !== 1 || ratePending)) return;
+    if (speedMuted) return;
     const nextMuted = !muted;
     const player = playerRef.current;
     if (!player) return;
@@ -352,11 +370,12 @@ export function NVRLabPlayer({
           <div className="h5-player-container" onClick={() => setControlsVisible((visible) => !visible)}>
             <canvas ref={canvasRef} aria-label="NVR 视频画面" />
             <H5PlayerControls
-              state={{ playing: playbackPaused ? false : playing, muted: muted || (isPlayback && (playbackRate !== 1 || ratePending)), loading: playbackRequestPending || ratePending || Boolean(session && status.stage === "connecting"), failed: Boolean(session && status.stage === "error"), fullscreen, landscape }}
+              state={{ playing: playbackPaused ? false : playing, muted: muted || speedMuted, loading: playbackRequestPending || Boolean(session && status.stage === "connecting"), failed: Boolean(session && status.stage === "error"), fullscreen, landscape }}
               visible={controlsVisible || playbackPaused || speedOpen}
               playback={isPlayback ? {
-                rate: playbackPaused ? playbackRate : verifiedRateRef.current,
+                rate: playbackRate,
                 pending: ratePending,
+                soundDisabled: speedMuted,
                 disabled: !playbackAvailable,
                 onForward: () => {
                   const prepared = playbackPaused ? null : preparePlaybackAudio();
@@ -365,7 +384,7 @@ export function NVRLabPlayer({
                 onSpeed: () => {
                   setSpeedFailure(null);
                   if (playbackRate !== 1) {
-                    // Prepare Safari audio inside the click; keep it muted until 1x is verified.
+                    // Prepare Safari audio inside the click; keep it muted until 1x is measured or accepted.
                     const player = playerRef.current;
                     if (!mutedRef.current && player) {
                       void player.enableAudio().catch(() => {

@@ -7,6 +7,36 @@ import { PlaybackSegmentSlider } from "./PlaybackSegmentSlider";
 import { H5PlayerControls } from "./H5PlayerControls";
 
 describe("NVRLabPlayer", () => {
+  it.each([2, 4, 8, 16])("keeps restore available while %ix is pending", (rate) => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(createElement(H5PlayerControls, {
+      state: { playing: true, muted: true, loading: false, failed: false, fullscreen: false, landscape: false },
+      visible: false,
+      playback: { rate, pending: true, disabled: false, onForward: noop, onSpeed: noop },
+      onTogglePlay: noop, onToggleSound: noop, onScreenshot: noop, onToggleLandscape: noop, onToggleFullscreen: noop,
+    }));
+    const speedButton = markup.match(/<button[^>]*class="h5-playback-rate"[^>]*>[^<]*<\/button>/)?.[0];
+    expect(speedButton).toBeDefined();
+    expect(speedButton).not.toContain('disabled=""');
+    expect(speedButton).toContain('aria-label="恢复正常速度"');
+    expect(speedButton).toContain('aria-busy="true"');
+    expect(speedButton).toContain(`${rate}×`);
+    expect(markup).toContain("is-visible");
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="快进10秒"/);
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="倍速播放静音"/);
+  });
+
+  it("does not open another speed request while restoring 1x", () => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(createElement(H5PlayerControls, {
+      state: { playing: true, muted: true, loading: false, failed: false, fullscreen: false, landscape: false },
+      visible: true,
+      playback: { rate: 1, pending: true, disabled: false, onForward: noop, onSpeed: noop },
+      onTogglePlay: noop, onToggleSound: noop, onScreenshot: noop, onToggleLandscape: noop, onToggleFullscreen: noop,
+    }));
+    expect(markup).toMatch(/<button[^>]*class="h5-playback-rate"[^>]*disabled=""/);
+  });
+
   it("marks sound unavailable while recording is accelerated", () => {
     const noop = () => undefined;
     const markup = renderToStaticMarkup(createElement(H5PlayerControls, {

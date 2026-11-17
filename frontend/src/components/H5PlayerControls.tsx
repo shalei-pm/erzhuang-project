@@ -22,6 +22,7 @@ export type H5PlayerControlsProps = {
   playback?: {
     rate: number;
     pending: boolean;
+    soundDisabled?: boolean;
     disabled: boolean;
     onForward: () => void;
     onSpeed: () => void;
@@ -40,8 +41,8 @@ export function H5PlayerControls({
   playback,
 }: H5PlayerControlsProps) {
   const { playing, muted, loading, failed, fullscreen, landscape } = state;
-  const pinned = loading || failed;
-  const speedMuted = Boolean(playback && (playback.rate !== 1 || playback.pending));
+  const pinned = loading || failed || playback?.pending;
+  const speedMuted = Boolean(playback && (playback.rate !== 1 || playback.pending || playback.soundDisabled));
 
   return (
     <div
@@ -82,10 +83,10 @@ export function H5PlayerControls({
       <div className="h5-player-control-group right">
         {playback ? (
           <button type="button" className="h5-playback-rate" onClick={playback.onSpeed}
-            disabled={loading || failed || playback.disabled || playback.pending}
+            disabled={loading || failed || playback.disabled || (playback.pending && playback.rate === 1)}
             aria-label={playback.rate === 1 ? "选择倍速" : "恢复正常速度"}
             aria-pressed={playback.rate !== 1} aria-busy={playback.pending} title={playback.rate === 1 ? "选择倍速" : "恢复正常速度"}>
-            {playback.pending ? "切换中" : playback.rate === 1 ? "倍速" : `${playback.rate}×`}
+            {playback.pending && playback.rate === 1 ? "恢复中" : playback.rate === 1 ? "倍速" : `${playback.rate}×`}
           </button>
         ) : null}
         <button type="button" onClick={onScreenshot} disabled={loading || failed} aria-label="截图">

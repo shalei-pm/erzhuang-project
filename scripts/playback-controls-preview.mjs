@@ -16,7 +16,8 @@ import { NVRLabPlayer } from '/erzhuang-project/src/components/NVRLabPlayer.tsx'
 import '/erzhuang-project/src/styles.css';
 const { createRoot } = ReactDOM;
 const source = new URLSearchParams(location.search).get('fixture') || 'manual';
-const qa = window.__playbackQA = { players: [], events: [], renders: 0 };
+const qa = window.__playbackQA = { players: [], events: [], renders: 0, speedRequests: [], unhandledRejections: [] };
+window.addEventListener('unhandledrejection', event => qa.unhandledRejections.push(String(event.reason?.message || event.reason)));
 function registerPlayer(player) {
   if (!qa.players.includes(player)) {
     player.__qaId = qa.players.length + 1;
@@ -63,6 +64,51 @@ function audioSignal(player) {
   return { peak, rms: Math.sqrt(squares / samples.length) };
 }
 NVRPlayer.prototype._initWasmDecoder = async function () {};
+function presentSyntheticFrame(player, frame, packet) {
+  const before = player.diagnostics.renderedFrames;
+  player._renderFrame(frame);
+  if (player.diagnostics.renderedFrames === before) return;
+  if (packet.timeSource === 'recorded' && player.__qaPresented?.recordedPTS === packet.recordedAt * 1000) {
+    player.__qaRepeatedRecordedFrames = (player.__qaRepeatedRecordedFrames || 0) + 1;
+  }
+  player.__qaPresented = { sourcePTS: packet.pts, containerPTS: packet.containerPTS,
+    recordedPTS: packet.timeSource === 'recorded' ? packet.recordedAt * 1000 : null,
+    sourceRate: packet.rate, sourceFrame: packet.frame, presentedAt: performance.now() };
+  qa.renders++;
+}
+function recordedFrameInfo(packet) {
+  const time = new Date(packet.recordedAt);
+  return { nFrameType: 1, nTimeStamp: packet.containerPTS / 1000,
+    nYear: time.getUTCFullYear(), nMonth: time.getUTCMonth() + 1, nDay: time.getUTCDate(),
+    nHour: time.getUTCHours(), nMinute: time.getUTCMinutes(), nSecond: time.getUTCSeconds(),
+    nMilliSecond: time.getUTCMilliseconds() };
+}
+function decodeRecordedFrame(player, packet) {
+  if (!player.decoder?.__qaSyntheticDecoder) {
+    // Stub compressed decode only. Real _handleH264Frame/_safeDecode/_renderFrame own frame timing.
+    const outputs = new Map();
+    player.decoder = { state: 'configured', __qaSyntheticDecoder: true,
+      decode(chunk) {
+        const sourcePacket = player.__qaDecodePacket;
+        const frame = new VideoFrame(paint, { timestamp: chunk.timestamp });
+        // Several metadata entries coexist before output, as with an asynchronous decoder.
+        const timer = setTimeout(() => {
+          outputs.delete(timer);
+          presentSyntheticFrame(player, frame, sourcePacket);
+        }, 80);
+        outputs.set(timer, frame);
+      },
+      close() {
+        this.state = 'closed';
+        for (const [timer, frame] of outputs) { clearTimeout(timer); frame.close(); }
+        outputs.clear();
+      },
+    };
+    player.h264DecoderConfigured = true;
+  }
+  player.__qaDecodePacket = packet;
+  player._handleH264Frame(Uint8Array.of(0, 0, 0, 1, 0x41).buffer, recordedFrameInfo(packet));
+}
 // Replace compressed-media decode only, keeping SDK sockets, generation, render PTS and speed verification.
 NVRPlayer.prototype._decodeH265 = function (buffer) {
   const packet = JSON.parse(new TextDecoder().decode(buffer));
@@ -77,10 +123,28 @@ NVRPlayer.prototype._decodeH265 = function (buffer) {
   ctx.fillStyle = '#36594a'; ctx.fillRect(390 + Math.sin(t) * 150, 380, 100, 70);
   ctx.fillStyle = '#162c25'; ctx.font = '22px sans-serif';
   ctx.fillText('SYNTHETIC SOURCE / NOT A REAL CAMERA', 28, 35);
-  ctx.fillText('PTS ' + t.toFixed(3) + ' s  |  ' + packet.rate + 'x', 28, 510);
-  this._renderFrame(new VideoFrame(paint, { timestamp: packet.pts }));
+  ctx.fillText('SOURCE PTS ' + t.toFixed(3) + ' s  |  ' + packet.rate + 'x', 28, 510);
+  ctx.fillText('CONTAINER ' + (packet.containerPTS / 1000000).toFixed(3) + ' s  |  ' + packet.timeSource, 28, 535);
+  // Encode real source milliseconds in visible pixels so regressions can inspect the presented frame.
+  const sourceMs = Math.floor(packet.pts / 1000);
+  for (let bit = 0; bit < 32; bit++) {
+    ctx.fillStyle = (sourceMs >>> bit) & 1 ? '#ffffff' : '#000000';
+    ctx.fillRect(28 + bit * 8, 45, 8, 8);
+  }
+  if (packet.timeSource === 'recorded') decodeRecordedFrame(this, packet);
+  else presentSyntheticFrame(this, new VideoFrame(paint, { timestamp: packet.containerPTS }), packet);
   feedSyntheticAudio(this);
-  qa.renders++;
+};
+const originalSetSpeed = NVRPlayer.prototype.setSpeed;
+NVRPlayer.prototype.setSpeed = function (rate) {
+  const observation = { playerId: this.__qaId, rate, at: performance.now(), status: 'pending' };
+  qa.speedRequests.push(observation);
+  const result = originalSetSpeed.call(this, rate);
+  result.then(() => Object.assign(observation, { status: 'resolved', settledAt: performance.now(),
+    diagnostic: this.getPlaybackControlDiagnostics() }), error => Object.assign(observation, {
+      status: 'rejected', settledAt: performance.now(), error: String(error?.message || error),
+      diagnostic: this.getPlaybackControlDiagnostics() }));
+  return result;
 };
 const originalPlay = NVRPlayer.prototype.play;
 NVRPlayer.prototype.play = function (url) {
@@ -123,6 +187,8 @@ qa.snapshot = () => qa.players.map(p => ({ id: p.__qaId, hasPlayed: Boolean(p.__
   time: p.getPlaybackTime(), pts: p._playbackLastPTS, volume: p.currentVolume,
   gain: p.gainNode?.gain.value, mutedBySpeed: p._speedAudioMuted,
   pendingRate: p._pendingSpeed?.rate ?? null, renders: p.diagnostics.renderedFrames,
+  control: p.getPlaybackControlDiagnostics(), ...p.__qaPresented,
+  repeatedRecordedFrames: p.__qaRepeatedRecordedFrames || 0,
   audioState: p.audioContext?.state, audioTime: p.audioContext?.currentTime,
   worklet: Boolean(p.workletNode),
   audioPackets: p.__qaAudioPackets || 0, audioSignal: audioSignal(p),
@@ -164,7 +230,9 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
   const fixtures = new Map();
   const fixture = (id) => {
     if (!fixtures.has(id)) fixtures.set(id, { sessions: [], commands: [], rejectedCommands: [], sockets: [], version: null, delayNextSession: 0,
-      rejectNextSpeed: false, ignoreNextSpeed: false, failNextSession: false, holdFrames: false, next: 0 });
+      rejectNextSpeed: false, ignoreNextSpeed: false, failNextSession: false, holdFrames: false, next: 0,
+      timeSource: 'container', containerClockRate: null, unsequencedACK: false,
+      recordedPrecision: 'millisecond', recordedEpochMs: Date.UTC(2026, 10, 16, 10) });
     return fixtures.get(id);
   };
   const json = (res, value, status = 200) => { res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(value)); };
@@ -179,11 +247,16 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
         return res.end(bootstrap);
       }
       if (url.pathname === `${base}__fixture/state`) {
-        return json(res, { ...f, sockets: f.sockets.map(s => ({ id: s.id, closed: s.closed, rate: s.rate, pts: s.pts, frames: s.frames })) });
+        return json(res, { ...f, sockets: f.sockets.map(s => ({ id: s.id, closed: s.closed, rate: s.rate,
+          pts: s.pts, sourcePTS: s.pts, containerPTS: s.containerPTS, recordedAt: s.recordedAt, frames: s.frames })) });
       }
       if (url.pathname === `${base}__fixture/control` && req.method === "POST") {
         const control = await readBody(req);
-        for (const key of ["delayNextSession", "rejectNextSpeed", "ignoreNextSpeed", "holdFrames", "failNextSession"]) if (key in control) f[key] = control[key];
+        if ('timeSource' in control && !['container', 'recorded'].includes(control.timeSource)) return json(res, { error: 'Invalid fixture timeSource' }, 400);
+        if ('recordedPrecision' in control && !['millisecond', 'second'].includes(control.recordedPrecision)) return json(res, { error: 'Invalid recorded precision' }, 400);
+        if ('containerClockRate' in control && control.containerClockRate !== null
+          && (!Number.isFinite(control.containerClockRate) || control.containerClockRate <= 0)) return json(res, { error: 'Invalid container clock rate' }, 400);
+        for (const key of ["delayNextSession", "rejectNextSpeed", "ignoreNextSpeed", "holdFrames", "failNextSession", "timeSource", "containerClockRate", "recordedPrecision", "unsequencedACK"]) if (key in control) f[key] = control[key];
         if ("version" in control) {
           f.version = control.version;
           for (const s of f.sockets) {
@@ -235,7 +308,8 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
     }
     wss.handleUpgrade(req, socket, head, (connection) => {
       const f = fixture(url.searchParams.get("fixture") || "manual");
-      const s = { id: url.searchParams.get("id"), rate: 1, pts: 0, frames: 0, closed: false };
+      const s = { id: url.searchParams.get("id"), rate: 1, pts: 0, containerPTS: 0, recordedAt: null, frames: 0, closed: false };
+      const recordedEpochMs = (f.sessions.find(session => session.id === s.id)?.start_time * 1000) || f.recordedEpochMs;
       f.sockets.push(s);
       connections.set(s, connection);
       if (f.version !== null) connection.send(JSON.stringify({ version: f.version }));
@@ -258,13 +332,17 @@ export async function startPlaybackPreview({ port = 5194, host = "127.0.0.1", vi
         if (f.rejectNextSpeed) { f.rejectNextSpeed = false; connection.send(JSON.stringify({ cmd: "speed", status: 500, sequence: message.sequence })); return; }
         if (f.ignoreNextSpeed) f.ignoreNextSpeed = false;
         else s.rate = message.rate;
-        connection.send(JSON.stringify({ cmd: "speed", status: 200, sequence: message.sequence }));
+        connection.send(JSON.stringify({ cmd: "speed", status: 200, ...(f.unsequencedACK ? {} : { sequence: message.sequence }) }));
       });
       const timer = setInterval(() => {
         const now = performance.now();
         if (!f.holdFrames) {
           s.pts += Math.round((now - last) * 1000 * s.rate);
-          connection.send(Buffer.from(JSON.stringify({ type: "frame", pts: s.pts, rate: s.rate })));
+          s.containerPTS += Math.round((now - last) * 1000 * (f.containerClockRate ?? s.rate));
+          const precisionMs = f.recordedPrecision === 'second' ? 1000 : 1;
+          s.recordedAt = recordedEpochMs + Math.floor(s.pts / (1000 * precisionMs)) * precisionMs;
+          connection.send(Buffer.from(JSON.stringify({ type: "frame", pts: s.pts, containerPTS: s.containerPTS,
+            recordedAt: s.recordedAt, timeSource: f.timeSource, rate: s.rate, frame: s.frames + 1 })));
           s.frames++;
         }
         last = now;

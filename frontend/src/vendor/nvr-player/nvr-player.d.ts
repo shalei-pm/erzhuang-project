@@ -25,14 +25,15 @@ export type NVRPlayerDiagnostics = {
 };
 
 export type PlaybackControlDiagnostics = {
-  phase: "idle" | "sent" | "verifying" | "verified" | "failed";
+  phase: "idle" | "sent" | "verifying" | "verified" | "unconfirmed" | "failed";
   requestedRate: number;
   verifiedRate: number;
   protocol: "json";
   commandSequence: number | null;
   ack: "none" | "accepted" | "rejected";
   observedRate: number | null;
-  failure: "timeout" | "rejected" | "connection" | "stopped" | "unsupported" | "send_failed" | null;
+  timeSource: "container" | "recorded";
+  failure: "timeout" | "rejected" | "connection" | "stopped" | "unsupported" | "send_failed" | "superseded" | "uncorrelated" | null;
 };
 
 export type RTPPacket = {
@@ -74,9 +75,10 @@ export default class NVRPlayer {
   getPlaybackTime(): number | null;
   /** A copy of the last control attempt; failures survive stop, and play resets it. */
   getPlaybackControlDiagnostics(): PlaybackControlDiagnostics;
-  /** Active WASM playback only: 1/2/4/8/16. Verifies stable media PTS cadence within 6s.
-   * Rejects unsupported, pending, disconnected, stopped or unverified requests.
-   * On failure the host must create a fresh normal-speed session.
+  /** Active WASM playback only: 1/2/4/8/16. Normal speed supersedes a pending request.
+   * Verifies presented recording time when available. Accepted commands with only inconclusive
+   * container PTS settle as unconfirmed, without claiming a measured rate or forcing a reconnect.
+   * On rejection the host must create a fresh normal-speed session.
    */
   setSpeed(rate: number): Promise<void>;
 }
