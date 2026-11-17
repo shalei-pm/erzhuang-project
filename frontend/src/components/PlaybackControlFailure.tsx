@@ -14,6 +14,7 @@ export function serializePlaybackControlDiagnostic(diagnostic: PlaybackControlDi
     ack: diagnostic.ack,
     observedRate: diagnostic.observedRate !== null && Number.isFinite(diagnostic.observedRate)
       ? Math.round(diagnostic.observedRate * 1000) / 1000 : null,
+    timeSource: diagnostic.timeSource,
     failure: diagnostic.failure,
   }, null, 2);
 }
@@ -31,7 +32,10 @@ export function PlaybackControlFailure({ diagnostic }: { diagnostic: PlaybackCon
   }
   return (
     <div className="h5-playback-control-failure" role="status" onClick={(event) => event.stopPropagation()}>
-      <span>未能确认{diagnostic.requestedRate}倍速生效，请继续使用正常速度回放</span>
+      <span>{diagnostic.phase === "unconfirmed"
+        ? diagnostic.requestedRate === 1 ? "正常速度指令已接收，画面速率待确认"
+          : `${diagnostic.requestedRate}倍速指令已接收，画面速率待确认，可点击倍速恢复正常`
+        : `未能确认${diagnostic.requestedRate}倍速生效，请继续使用正常速度回放`}</span>
       <button type="button" onClick={() => void copyReport()} aria-label="复制倍速诊断信息" title="复制倍速诊断信息">
         <CopyOutlined />
       </button>

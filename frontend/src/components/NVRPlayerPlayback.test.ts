@@ -67,7 +67,7 @@ type Player = NVRPlayer & {
   _renderFrame(frame: TestFrame): void;
   _handleH264InitInternal(nals: Uint8Array[]): void;
   _handleH265Init(nals: Uint8Array[]): void;
-  _handleH264Frame(buffer: ArrayBuffer, info: { nFrameType: number; nTimeStamp: number }): void;
+  _handleH264Frame(buffer: ArrayBuffer, info: { nFrameType: number; nTimeStamp: number; [key: string]: number }): void;
   _playAudioPCM(samples: Int16Array): void;
   _resetAudioStream(): void;
   _createTransformWorker(): Promise<{ postMessage: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn> }>;
@@ -104,6 +104,20 @@ function outcome(promise: Promise<void>) {
   return promise.then(() => "verified", (error: unknown) => error);
 }
 
+function recordingFrame(player: Player, elapsedMs: number, containerMs = elapsedMs, milliseconds = true) {
+  const date = new Date(Date.UTC(2026, 10, 16, 10) + elapsedMs);
+  player._handleH264Frame(new Uint8Array([0, 0, 0, 2, 2, 1]).buffer, {
+    nFrameType: 2, nTimeStamp: containerMs,
+    nYear: date.getUTCFullYear(), nMonth: date.getUTCMonth() + 1, nDay: date.getUTCDate(),
+    nHour: date.getUTCHours(), nMinute: date.getUTCMinutes(), nSecond: date.getUTCSeconds(),
+    ...(milliseconds ? { nMilliSecond: date.getUTCMilliseconds() } : {}),
+  });
+}
+
+function configurePlayback(player: Player) {
+  player._handleH264InitInternal([new Uint8Array([7, 0x64, 0, 0x29]), new Uint8Array([8, 1])]);
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance", "Date"] });
   vi.stubGlobal("HTMLCanvasElement", TestCanvas);
@@ -124,6 +138,69 @@ afterEach(() => {
 });
 
 describe("NVR playback presented media time", () => {
+  it("uses recording calendar time even when the container clock advances slowly or resets", async () => {
+    const { player, canvas } = await makePlayer();
+    configurePlayback(player);
+    recordingFrame(player, 0, 5000);
+    recordingFrame(player, 4000, 5167);
+    recordingFrame(player, 8000, 0);
+    expect(player.getPlaybackTime()).toBe(8);
+    expect(canvas.ctx.drawImage).toHaveBeenCalledTimes(3);
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ timeSource: "recorded" });
+  });
+
+  it("draws all frames with second-precision recording time without inventing elapsed seconds", async () => {
+    const { player, canvas } = await makePlayer();
+    configurePlayback(player);
+    for (const ms of [0, 200, 400, 1000, 1200]) recordingFrame(player, ms, ms, false);
+    expect(canvas.ctx.drawImage).toHaveBeenCalledTimes(5);
+    expect(player.getPlaybackTime()).toBe(1);
+  });
+
+  it("keeps recording time attached to the decoded frame rather than the newest input frame", async () => {
+    const { player } = await makePlayer();
+    configurePlayback(player);
+    const queued: number[] = [];
+    player.decoder.decode = (chunk) => { queued.push(chunk.timestamp); };
+    recordingFrame(player, 0, 5000);
+    recordingFrame(player, 4000, 5000);
+    player.decoder.callbacks.output(new TestFrame(queued[0]));
+    expect(player.getPlaybackTime()).toBe(0);
+    player.decoder.callbacks.output(new TestFrame(queued[1]));
+    expect(player.getPlaybackTime()).toBe(4);
+  });
+
+  it("retains timing for decoded frames even with more than 256 frames awaiting output", async () => {
+    const { player, canvas } = await makePlayer();
+    configurePlayback(player);
+    const queued: number[] = [];
+    player.decoder.decode = (chunk) => { queued.push(chunk.timestamp); };
+    for (let i = 0; i < 600; i++) recordingFrame(player, i * 40);
+    for (const stamp of queued) player.decoder.callbacks.output(new TestFrame(stamp));
+    expect(canvas.ctx.drawImage).toHaveBeenCalledTimes(600);
+    expect(player.getPlaybackTime()).toBeCloseTo(23.96);
+  });
+
+  it("does not mix container time into a recording clock when a later frame lacks calendar metadata", async () => {
+    const { player, canvas } = await makePlayer();
+    configurePlayback(player);
+    recordingFrame(player, 0);
+    player._handleH264Frame(new Uint8Array([0, 0, 0, 2, 2, 1]).buffer, { nFrameType: 2, nTimeStamp: 90000 });
+    expect(player.getPlaybackTime()).toBe(0);
+    recordingFrame(player, 2000);
+    expect(player.getPlaybackTime()).toBe(2);
+    expect(canvas.ctx.drawImage).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects impossible calendar dates instead of normalizing them into a recording position", async () => {
+    const { player } = await makePlayer();
+    configurePlayback(player);
+    for (const ms of [0, 2000]) player._handleH264Frame(new Uint8Array([0, 0, 0, 2, 2, 1]).buffer, {
+      nFrameType: 2, nTimeStamp: ms, nYear: 2026, nMonth: 2, nDay: 31, nHour: 10, nMinute: 0, nSecond: 0,
+    });
+    expect(player.getPlaybackTime()).toBe(2);
+    expect(player.getPlaybackControlDiagnostics().timeSource).toBe("container");
+  });
   it("reports elapsed seconds only after successful canvas presentation", async () => {
     const { player, canvas, onPlaybackTime } = await makePlayer();
     expect(player.getPlaybackTime()).toBeNull();
@@ -214,6 +291,117 @@ describe("NVR playback presented media time", () => {
 });
 
 describe("NVR verified speed control", () => {
+  it("does not equate low frame cadence with a wrong recorded rate", async () => {
+    const { player, socket } = await makePlayer();
+    configurePlayback(player);
+    recordingFrame(player, 0);
+    const result = outcome(player.setSpeed(4));
+    socket.message({ sequence: 0, cmd: "speed", status: 200 });
+    for (let wall = 600; wall <= 6600; wall += 600) {
+      vi.advanceTimersByTime(600);
+      recordingFrame(player, wall * 4);
+    }
+    await result;
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "unconfirmed", failure: null, observedRate: 4 });
+  });
+
+  it("does not let the decoder monitor impersonate newly presented frames", async () => {
+    const { player, socket } = await makePlayer();
+    configurePlayback(player);
+    const result = outcome(player.setSpeed(4));
+    socket.message({ sequence: 0, cmd: "speed", status: 200 });
+    feed(player, 0.167, 1100);
+    Object.assign(player.decoder, { decodeQueueSize: 10, flush: vi.fn(async () => {}) });
+    vi.advanceTimersByTime(4900);
+    expect(await result).toBeInstanceOf(Error);
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "failed", failure: "timeout" });
+  });
+
+  it("requests a fresh normal session rather than attributing unsequenced replies after preemption", async () => {
+    const { player, socket } = await makePlayer();
+    const old = outcome(player.setSpeed(4));
+    const normal = outcome(player.setSpeed(1));
+    await old;
+    socket.message({ cmd: "speed", status: 500 });
+    socket.message({ cmd: "speed", status: 200 });
+    expect(await normal).toBeInstanceOf(Error);
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "failed", commandSequence: 1,
+      ack: "none", failure: "uncorrelated" });
+  });
+  it("does not abort accepted playback because container timestamps cannot verify the picture rate", async () => {
+    const { player, socket } = await makePlayer();
+    const result = outcome(player.setSpeed(4));
+    socket.message({ sequence: 0, cmd: "speed", status: 200 });
+    feed(player, 0.167, 7000);
+    expect(await result).toBe("verified"); // Promise completed; diagnostics must not claim verification.
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({
+      phase: "unconfirmed", requestedRate: 4, verifiedRate: 1, ack: "accepted", failure: null,
+      timeSource: "container",
+    });
+    expect(socket.close).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it("allows normal speed to supersede a pending acceleration and ignores late replies", async () => {
+    const { player, socket } = await makePlayer();
+    const old = outcome(player.setSpeed(4));
+    feed(player, 4, 700);
+    const normal = outcome(player.setSpeed(1));
+    expect(await old).toBeInstanceOf(Error);
+    expect(socket.send.mock.calls.map(([json]) => JSON.parse(json as string))).toEqual([
+      { sequence: 0, cmd: "speed", rate: 4 }, { sequence: 1, cmd: "speed", rate: 1 },
+    ]);
+    socket.message({ sequence: 0, cmd: "speed", status: 500 });
+    socket.message({ sequence: 0, cmd: "speed", status: 200 });
+    feed(player, 1, 3500, 4_000_000);
+    expect(await normal).toBe("verified");
+    vi.advanceTimersByTime(7000);
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "verified", verifiedRate: 1, commandSequence: 1 });
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it.each([1, 2, 4, 8, 16])("verifies %ix against second-precision recording time despite a retimed container", async (rate) => {
+    const { player, socket } = await makePlayer();
+    configurePlayback(player);
+    recordingFrame(player, 0, 0, false);
+    const result = outcome(player.setSpeed(rate));
+    socket.message({ sequence: 0, cmd: "speed", status: 200 });
+    for (let wall = 100; wall <= 5500; wall += 100) {
+      vi.advanceTimersByTime(100);
+      recordingFrame(player, wall * rate, wall / 6, false);
+    }
+    expect(await result).toBe("verified");
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "verified", verifiedRate: rate, timeSource: "recorded" });
+    expect(player.getPlaybackTime()).toBe(Math.floor(5.5 * rate));
+  });
+
+  it("still rejects ignored acceleration when recording time proves normal speed", async () => {
+    const { player, socket } = await makePlayer();
+    configurePlayback(player);
+    recordingFrame(player, 0);
+    const result = outcome(player.setSpeed(4));
+    socket.message({ sequence: 0, cmd: "speed", status: 200 });
+    for (let wall = 100; wall <= 6500; wall += 100) {
+      vi.advanceTimersByTime(100);
+      recordingFrame(player, wall);
+    }
+    expect(await result).toBeInstanceOf(Error);
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "failed", timeSource: "recorded", observedRate: 1 });
+  });
+
+  it("does not classify a stalled recording clock as a rejected command while new pictures are presented", async () => {
+    const { player, socket } = await makePlayer();
+    configurePlayback(player);
+    recordingFrame(player, 0);
+    const result = outcome(player.setSpeed(4));
+    socket.message({ sequence: 0, cmd: "speed", status: 200 });
+    for (let wall = 100; wall <= 6500; wall += 100) {
+      vi.advanceTimersByTime(100);
+      recordingFrame(player, 0, wall);
+    }
+    await result;
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "unconfirmed", verifiedRate: 1, failure: null });
+  });
   it.each([1, 2, 4, 8, 16])("verifies %ix using multiple presented PTS windows, never send or ACK alone", async (rate) => {
     const { player, socket } = await makePlayer();
     present(player, 1_000_000);
@@ -416,10 +604,10 @@ describe("NVR verified speed control", () => {
 describe("NVR playback control diagnostics", () => {
   const idle: PlaybackControlDiagnostics = {
     phase: "idle", requestedRate: 1, verifiedRate: 1, protocol: "json",
-    commandSequence: null, ack: "none", observedRate: null, failure: null,
+    commandSequence: null, ack: "none", observedRate: null, failure: null, timeSource: "container",
   };
 
-  it("retains an accepted ACK and measured 1x when 2x times out at 6000ms", async () => {
+  it("retains an accepted ACK and inconclusive container rate without claiming measured speed", async () => {
     const { player, socket, onPlaybackControlDiagnostics: report } = await makePlayer();
     expect(player.getPlaybackControlDiagnostics()).toEqual(idle);
     const result = outcome(player.setSpeed(2));
@@ -432,13 +620,13 @@ describe("NVR playback control diagnostics", () => {
     expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "verifying", observedRate: 1 });
     expect(report.mock.calls.filter(([s]) => s.phase === "verifying")).toHaveLength(5);
     vi.advanceTimersByTime(100);
-    expect(await result).toBeInstanceOf(Error);
-    const failed = { ...idle, phase: "failed", requestedRate: 2, commandSequence: 0,
-      ack: "accepted", observedRate: 1, failure: "timeout" };
-    expect(player.getPlaybackControlDiagnostics()).toEqual(failed);
-    expect(report).toHaveBeenLastCalledWith(failed);
+    await result;
+    const unconfirmed = { ...idle, phase: "unconfirmed", requestedRate: 2, commandSequence: 0,
+      ack: "accepted", observedRate: 1, failure: null };
+    expect(player.getPlaybackControlDiagnostics()).toEqual(unconfirmed);
+    expect(report).toHaveBeenLastCalledWith(unconfirmed);
     player.stop();
-    expect(player.getPlaybackControlDiagnostics()).toEqual(failed);
+    expect(player.getPlaybackControlDiagnostics()).toEqual(unconfirmed);
     await player.play("ws://test.invalid/new-session?token=never-in-diagnostics");
     expect(player.getPlaybackControlDiagnostics()).toEqual(idle);
     expect(report).toHaveBeenLastCalledWith(idle);

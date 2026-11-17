@@ -19,7 +19,7 @@ const results = [];
 const pauseMs = 30000;
 let activeContext;
 
-async function open(viewport = { width: 1440, height: 900 }, component = false, { expectRender = true, noopForward = false } = {}) {
+async function open(viewport = { width: 1440, height: 900 }, component = false, { expectRender = true, noopForward = false, fixture = {} } = {}) {
   const id = randomUUID();
   const context = activeContext = await browser.newContext({ viewport, extraHTTPHeaders: { "x-playback-fixture": id } });
   const page = await context.newPage();
@@ -34,13 +34,15 @@ async function open(viewport = { width: 1440, height: 900 }, component = false, 
     return route.continue();
   });
   await context.routeWebSocket(url => url.origin !== origin.replace("http", "ws"), socket => socket.close());
-  await page.goto(`${origin}${previewPath}?fixture=${id}&start_at=2026-11-16T10:00${component ? "&component=1" : ""}${noopForward ? "&noop_forward=1" : ""}`);
-  await page.waitForFunction(expected => window.__playbackQA?.snapshot().some(p => p.running && (!expected || p.renders > 2)), expectRender);
   const api = async (action, data) => {
     const response = await context.request.fetch(`${origin}${base}__fixture/${action}?fixture=${id}`, data ? { method: "POST", data } : {});
     assert(response.ok(), `fixture ${action}: ${response.status()}`);
     return response.json();
   };
+  // Select the clock before the first frame; the SDK pins its clock source for a session.
+  if (Object.keys(fixture).length) await api("control", fixture);
+  await page.goto(`${origin}${previewPath}?fixture=${id}&start_at=2026-11-16T10:00${component ? "&component=1" : ""}${noopForward ? "&noop_forward=1" : ""}`);
+  await page.waitForFunction(expected => window.__playbackQA?.snapshot().some(p => p.running && (!expected || p.renders > 2)), expectRender);
   return { page, api, async close() { assert.deepEqual(errors, [], "page errors"); assert.deepEqual(blocked, [], "external HTTP requests"); await context.close(); activeContext = null; } };
 }
 const active = page => page.evaluate(() => window.__playbackQA.snapshot().findLast(p => p.running));
@@ -75,8 +77,33 @@ async function normalRate(page) {
   await button(page, "选择倍速").waitFor();
   await page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.pendingRate === null);
 }
-async function assertPresentedRate(page, rate) {
-  const sample = () => page.evaluate(() => {
+async function requestPendingRate(page, rate) {
+  await button(page, "选择倍速").click();
+  await button(page, `${rate}倍速`).click();
+  await page.waitForFunction(expected => window.__playbackQA.snapshot().findLast(p => p.running)?.pendingRate === expected, rate);
+  const restore = button(page, "恢复正常速度");
+  assert.equal(await restore.innerText(), `${rate}×`, "verification must display the requested rate immediately");
+  assert.equal(await restore.isEnabled(), true, "restore must remain clickable during verification");
+}
+async function assertSamePlayback(h, before, player) {
+  const state = await h.api("state");
+  const current = await active(h.page);
+  assert.equal(state.sessions.length, before.sessions.length, "speed handling must not re-sign the session");
+  assert.equal(state.sockets.length, before.sockets.length, "speed handling must not replace the socket");
+  assert.equal(state.sockets.at(-1).closed, false);
+  assert.equal(current.id, player.id, "speed handling must retain the React SDK instance");
+  assert.equal(current.url, player.url);
+  assert.equal(current.stopCount, player.stopCount, "obsolete effects must not stop playback");
+  const notice = h.page.locator(".h5-playback-control-failure");
+  assert.equal(await notice.count(), current.control.phase === "unconfirmed" ? 1 : 0);
+  if (current.control.phase === "unconfirmed") {
+    assert.match(await notice.innerText(), /指令已接收，画面速率待确认/);
+    assert.doesNotMatch(await notice.innerText(), /未能确认|请继续使用正常速度回放/);
+  }
+  assert.deepEqual(await h.page.evaluate(() => window.__playbackQA.unhandledRejections), []);
+  return state;
+}
+const presentedSample = page => page.evaluate(() => {
     const player = window.__playbackQA.players.findLast(p => p._isRunning);
     const slider = document.querySelector('input[aria-label="录像进度"]');
     const value = Number(slider.value);
@@ -86,10 +113,37 @@ async function assertPresentedRate(page, rate) {
       if (pixels[i + 3]) opaque++;
       if (pixels[i] !== pixels[0]) varied++;
     }
+    // Read the source millisecond stamp from the actual rendered canvas, independently of SDK PTS.
+    let paintedSourceMs = 0;
+    for (let bit = 0; bit < 32; bit++) {
+      const pixel = player.ctx.getImageData(32 + bit * 8, 49, 1, 1).data;
+      if (pixel[0] > 127) paintedSourceMs += 2 ** bit;
+    }
     return { at: performance.now(), time: player.getPlaybackTime(), pts: player._playbackLastPTS,
       cursor: Number(slider.max) > 100000 ? value - Number(slider.min) : value,
-      renders: player.diagnostics.renderedFrames, opaque, varied };
+      renders: player.diagnostics.renderedFrames, opaque, varied, paintedSourceMs,
+      ...player.__qaPresented, control: player.getPlaybackControlDiagnostics() };
   });
+async function assertSourceRate(page, rate, { containerRate } = {}) {
+  const before = await presentedSample(page);
+  await page.waitForTimeout(2000);
+  const after = await presentedSample(page);
+  const elapsed = (after.at - before.at) / 1000;
+  assert(after.renders > before.renders + 4, `${rate}x: actual frames must keep rendering`);
+  for (const frame of [before, after]) {
+    assert(frame.opaque > 100 && frame.varied > 100, "canvas must contain visible source media");
+    assert.equal(frame.paintedSourceMs, Math.floor(frame.sourcePTS / 1000), "painted source PTS must belong to the presented frame");
+  }
+  const sourceRate = (after.sourcePTS - before.sourcePTS) / (elapsed * 1e6);
+  assert(Math.abs(sourceRate - rate) <= rate * 0.2, `real source measured ${sourceRate}x, expected ${rate}x`);
+  if (containerRate !== undefined) {
+    const observed = (after.containerPTS - before.containerPTS) / (elapsed * 1e6);
+    assert(Math.abs(observed - containerRate) <= containerRate * 0.2, `retimed container measured ${observed}x`);
+  }
+  return { before, after, sourceRate };
+}
+async function assertPresentedRate(page, rate) {
+  const sample = () => presentedSample(page);
   const before = await sample();
   await page.waitForTimeout(2000);
   const after = await sample();
@@ -101,6 +155,8 @@ async function assertPresentedRate(page, rate) {
   assert(Math.abs((after.pts - before.pts) / 1e6 - mediaDelta) < 0.001, `${rate}x: media time must follow presented PTS`);
   assert(Math.abs(mediaDelta / elapsed - rate) <= rate * 0.2, `${rate}x: rendered media measured ${mediaDelta / elapsed}x`);
   assert(Math.abs(cursorDelta - mediaDelta) < 1.2, `${rate}x: slider must follow presented media`);
+  assert.equal(after.paintedSourceMs, Math.floor(after.sourcePTS / 1000), "canvas source stamp must match presented metadata");
+  assert(Math.abs((after.sourcePTS - before.sourcePTS) / 1e6 - mediaDelta) < 0.01, `${rate}x: SDK/slider must follow the real source rather than retimed container PTS`);
   assert(Math.abs(cursorDelta / elapsed - rate) <= rate * 0.2 + 1.1 / elapsed, `${rate}x: slider measured ${cursorDelta / elapsed}x`);
   return { rate, before, after, mediaRate: mediaDelta / elapsed, sliderRate: cursorDelta / elapsed };
 }
@@ -142,6 +198,7 @@ async function check(name, run) {
 
 async function saveSnapshot(page, name) {
   const snapshot = await page.evaluate(() => ({ players: window.__playbackQA.snapshot(), events: window.__playbackQA.events,
+    speedRequests: window.__playbackQA.speedRequests, unhandledRejections: window.__playbackQA.unhandledRejections,
     controls: [...document.querySelectorAll('.h5-player-controls button')].map(button => ({
       label: button.ariaLabel, disabled: button.disabled, pressed: button.getAttribute('aria-pressed'),
     })),
@@ -567,15 +624,161 @@ try {
     assert(await cursor(h.page) < 120, "old PTS must not leak into current slider");
     await h.close();
   });
+  await check("pending 4x restore 1x supersedes old promise without delayed React reconnect", async () => {
+    const h = await open(undefined, false, { fixture: { containerClockRate: 0.167 } });
+    const { page } = h;
+    await playback(page);
+    const before = await h.api("state"); const player = await active(page);
+    await requestPendingRate(page, 4);
+    // Click the actual React control while the old setSpeed(4) promise is still pending.
+    await button(page, "恢复正常速度").click();
+    await page.waitForFunction(() => {
+      const requests = window.__playbackQA.speedRequests;
+      return requests.at(-2)?.rate === 4 && requests.at(-2)?.status === 'rejected'
+        && requests.at(-1)?.rate === 1;
+    });
+    // Keep the real clock running past BOTH requests' original six-second deadline.
+    await page.waitForTimeout(6600);
+    const state = await assertSamePlayback(h, before, player);
+    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [4, 1], "no stale fallback/duplicate speed command");
+    assert.equal(state.sockets.at(-1).rate, 1);
+    const requests = await page.evaluate(() => window.__playbackQA.speedRequests);
+    assert.equal(requests.at(-2).status, "rejected", "the superseded SDK promise must actually reject");
+    assert.match(requests.at(-2).error, /superseded/i, "old request must reject because normal speed preempted it");
+    assert(requests.at(-2).settledAt - requests.at(-2).at < 6000, "restore must preempt the old verification timeout");
+    assert.equal(requests.at(-1).status, "resolved");
+    assert.equal((await active(page)).pendingRate, null);
+    assert.equal((await active(page)).control.requestedRate, 1);
+    await button(page, "选择倍速").waitFor();
+    await assertSourceRate(page, 1, { containerRate: 0.167 });
+    await saveSnapshot(page, "pending-4x-restore-1x");
+    await h.close();
+  });
+  await check("unsequenced ACK during pending restore rebuilds normal session without stale failure", async () => {
+    const h = await open(undefined, false, { fixture: { containerClockRate: 0.167, unsequencedACK: true } });
+    const { page } = h;
+    await playback(page);
+    const before = await h.api("state");
+    await requestPendingRate(page, 4);
+    await button(page, "恢复正常速度").click();
+    await page.waitForFunction(() => window.__playbackQA.snapshot().filter(p => p.hasPlayed).length >= 3);
+    await button(page, "选择倍速").waitFor();
+    await page.waitForTimeout(6600);
+    const state = await h.api("state");
+    assert.equal(state.sessions.length, before.sessions.length + 1, "ambiguous recovery should re-sign exactly once");
+    assert.equal(state.sockets.at(-1).rate, 1);
+    assert.equal(await page.locator(".h5-playback-control-failure").count(), 0);
+    await assertSourceRate(page, 1, { containerRate: 0.167 });
+    await h.close();
+  });
+  await check("retimed container resolves unconfirmed after 6s with real 4x frames and restores 1x", async () => {
+    const h = await open(undefined, false, { fixture: { containerClockRate: 0.167 } });
+    const { page } = h;
+    await playback(page);
+    const before = await h.api("state"); const player = await active(page);
+    await requestPendingRate(page, 4);
+    await page.waitForFunction(() => {
+      const sdk = window.__playbackQA.snapshot().findLast(p => p.running);
+      return sdk?.pendingRate === null && sdk.control.phase === 'unconfirmed';
+    });
+    const accelerated = await active(page);
+    assert.equal(accelerated.control.timeSource, "container");
+    assert.equal(accelerated.control.ack, "accepted");
+    assert.equal(accelerated.control.requestedRate, 4);
+    assert.notEqual(accelerated.control.verifiedRate, 4, "unconfirmed must not claim verified 4x");
+    assert.equal(accelerated.control.failure, null);
+    assert(accelerated.control.observedRate > 0.1 && accelerated.control.observedRate < 0.25);
+    const request = await page.evaluate(() => window.__playbackQA.speedRequests.at(-1));
+    assert.equal(request.status, "resolved");
+    assert(request.settledAt - request.at >= 5900, "unconfirmed must wait for the real six-second ACK/frame deadline");
+    assert.equal(await button(page, "恢复正常速度").innerText(), "4×");
+    assert.equal(await button(page, "恢复正常速度").isEnabled(), true);
+    const acceleratedSource = await assertSourceRate(page, 4, { containerRate: 0.167 });
+    const state = await assertSamePlayback(h, before, player);
+    assert.equal(state.sockets.at(-1).rate, 4);
+    assert.deepEqual(state.commands.slice(before.commands.length).map(command => command.rate), [4]);
+    await normalRate(page);
+    const normalSource = await assertSourceRate(page, 1, { containerRate: 0.167 });
+    const restored = await assertSamePlayback(h, before, player);
+    assert.deepEqual(restored.commands.slice(before.commands.length).map(command => command.rate), [4, 1]);
+    assert.equal(restored.sockets.at(-1).rate, 1);
+    assert.equal((await active(page)).control.phase, "unconfirmed");
+    assert.equal((await active(page)).control.requestedRate, 1);
+    await writeFile(new URL("retimed-container-source.json", artifacts), JSON.stringify({ acceleratedSource, normalSource }, null, 2));
+    await saveSnapshot(page, "retimed-container-unconfirmed");
+    await h.close();
+  });
+  await check("recorded frame metadata drives source PTS and slider through 4 to 1 and pause resume", async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "recorded", containerClockRate: 0.167 } });
+    const { page } = h;
+    await playback(page);
+    const before = await h.api("state"); const player = await active(page);
+    assert.equal(player.control.timeSource, "recorded", "real _handleH264Frame must select recorded calendar metadata");
+    await requestPendingRate(page, 4);
+    await page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.pendingRate === null);
+    const fast = await active(page);
+    assert.equal(fast.control.phase, "verified");
+    assert.equal(fast.control.verifiedRate, 4);
+    assert.equal(fast.control.timeSource, "recorded");
+    const accelerated = await assertPresentedRate(page, 4);
+    assert.equal(accelerated.after.pts, accelerated.after.recordedPTS, "decoded frame must retain its own recorded metadata");
+    assert.equal(accelerated.before.pts, accelerated.before.recordedPTS);
+    assert(accelerated.after.sourcePTS > accelerated.after.containerPTS * 2, "fixture must retain genuinely different clocks");
+    await normalRate(page);
+    const normal = await assertPresentedRate(page, 1);
+    assert.equal((await active(page)).control.phase, "verified");
+    assert.equal((await active(page)).control.verifiedRate, 1);
+    await assertSamePlayback(h, before, player);
+    const position = await pausePresented(h);
+    await page.waitForFunction(() => !window.__playbackQA.snapshot().some(p => p.running));
+    await page.waitForTimeout(1200);
+    assert.equal(await cursor(page), position, "pause must freeze the recorded-time slider");
+    const paused = await h.api("state");
+    assert.equal(paused.sessions.length, before.sessions.length);
+    assert(paused.sockets.every(socket => socket.closed), "pause closes recorded source transport");
+    await button(page, "播放").click();
+    await page.waitForFunction(() => window.__playbackQA.snapshot().some(p => p.running && p.time > 0.2 && p.control.timeSource === 'recorded'));
+    const resumed = await h.api("state");
+    assert.equal(resumed.sessions.length, before.sessions.length + 1, "only explicit resume re-signs playback");
+    assert.equal(resumed.sessions.at(-1).start_time, before.sessions.at(-1).start_time + position);
+    assert.equal(resumed.sockets.at(-1).rate, 1);
+    const resumedSource = await assertPresentedRate(page, 1);
+    assert.equal(resumedSource.after.pts, resumedSource.after.recordedPTS);
+    await writeFile(new URL("recorded-source-slider.json", artifacts), JSON.stringify({ accelerated, normal, position, resumedSource }, null, 2));
+    await h.close();
+  });
+  await check("recorded second precision retains pictures with repeated metadata timestamps", async () => {
+    const h = await open(undefined, false, { fixture: { timeSource: "recorded", recordedPrecision: "second", containerClockRate: 0.167 } });
+    const { page } = h;
+    await playback(page);
+    const before = await active(page);
+    await page.waitForFunction(count => window.__playbackQA.snapshot().findLast(p => p.running)?.repeatedRecordedFrames > count + 4, before.repeatedRecordedFrames);
+    const repeated = await active(page);
+    assert.equal(repeated.control.timeSource, "recorded");
+    assert(repeated.renders > before.renders + 4, "repeated second timestamps must still draw their distinct source pictures");
+    await selectRate(page, 4);
+    const source = await assertSourceRate(page, 4, { containerRate: 0.167 });
+    assert.equal(source.before.pts, source.before.recordedPTS);
+    assert.equal(source.after.pts, source.after.recordedPTS);
+    assert.equal(source.after.control.phase, "verified");
+    const recordedDelta = (source.after.pts - source.before.pts) / 1e6;
+    const sourceDelta = (source.after.sourcePTS - source.before.sourcePTS) / 1e6;
+    assert(Math.abs(recordedDelta - sourceDelta) < 1.01, "second precision may quantize elapsed media by less than one second");
+    assert(Math.abs(source.after.cursor - source.after.time) < 1.2, "slider must follow quantized recorded time");
+    await saveSnapshot(page, "recorded-second-precision");
+    await h.close();
+  });
   for (const failure of ["rejectNextSpeed", "ignoreNextSpeed"]) await check(`${failure}: recover with fresh normal session`, async () => {
-    const h = await open(); await playback(h.page); const count = (await h.api("state")).sessions.length;
+    // An accepted-but-ignored command is a reliable failure only with recorded source time.
+    const h = await open(undefined, false, { fixture: failure === "ignoreNextSpeed" ? { timeSource: "recorded", containerClockRate: 0.167 } : {} });
+    await playback(h.page); const count = (await h.api("state")).sessions.length;
     await h.page.setViewportSize({ width: 390, height: 844 });
     await button(h.page, "全屏").click();
     await h.page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,
       value: { writeText: async report => { window.__playbackReport = report; } } }));
     await h.api("control", { [failure]: true });
     await button(h.page, "选择倍速").click(); await button(h.page, "4倍速").click();
-    await h.page.getByText("未能确认录像倍速生效，已重新连接正常速度回放", { exact: true }).waitFor();
+    await h.page.getByText("录像倍速切换失败，正在重新连接正常速度回放", { exact: true }).waitFor();
     await button(h.page, "选择倍速").waitFor();
     await h.page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.time > 0);
     assert.equal((await h.api("state")).sessions.length, count + 1);
@@ -591,6 +794,9 @@ try {
     assert.equal(report.verifiedRate, 1);
     assert.equal(report.failure, failure === "rejectNextSpeed" ? "rejected" : "timeout");
     assert.equal(report.ack, failure === "rejectNextSpeed" ? "rejected" : "accepted");
+    assert.equal(report.timeSource, failure === "ignoreNextSpeed" ? "recorded" : "container");
+    const failedRequest = await h.page.evaluate(() => window.__playbackQA.speedRequests.findLast(request => request.rate === 4));
+    assert.equal(failedRequest.status, "rejected", "both explicit rejection and reliable ignored-speed failure must reject the actual SDK promise");
     if (failure === "ignoreNextSpeed") assert(report.observedRate > 0.75 && report.observedRate < 1.25,
       `an ACK with ignored speed must preserve measured 1x, got ${report.observedRate}`);
     assert(!/wss?:|token|camera|fixture|private/.test(reportText), "report must exclude stream/user identifiers");
