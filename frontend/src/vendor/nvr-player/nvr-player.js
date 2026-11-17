@@ -91,6 +91,8 @@ class NVRPlayer {
         this.onFirstFrame   = options.onFirstFrame   || (() => {});
         this.onDiagnostics  = options.onDiagnostics  || (() => {});
         this.onPlaybackTime = options.onPlaybackTime || (() => {});
+        this.onPlaybackControlDiagnostics = options.onPlaybackControlDiagnostics || (() => {});
+        this._resetPlaybackControlDiagnostics(false);
 
         this.autoReconnect  = false;
         this.reconnectDelay = options.reconnectDelay || 3000;
@@ -591,16 +593,54 @@ class NVRPlayer {
         }
     }
 
+    _resetPlaybackControlDiagnostics(publish = true) {
+        this._playbackControlDiagnostics = {
+            phase: 'idle', requestedRate: 1, verifiedRate: 1, protocol: 'json',
+            commandSequence: null, ack: 'none', observedRate: null, failure: null
+        };
+        if (publish) this._publishPlaybackControlDiagnostics({});
+    }
+
+    getPlaybackControlDiagnostics() {
+        const snapshot = this._playbackControlDiagnostics;
+        return {
+            phase: snapshot.phase,
+            requestedRate: snapshot.requestedRate,
+            verifiedRate: snapshot.verifiedRate,
+            protocol: snapshot.protocol,
+            commandSequence: snapshot.commandSequence,
+            ack: snapshot.ack,
+            observedRate: snapshot.observedRate,
+            failure: snapshot.failure
+        };
+    }
+
+    _publishPlaybackControlDiagnostics(changes) {
+        Object.assign(this._playbackControlDiagnostics, changes);
+        // Observer failures must not alter playback or expose transport contents.
+        try { this.onPlaybackControlDiagnostics(this.getPlaybackControlDiagnostics()); } catch (_) {}
+    }
+
+    _recordPlaybackControlRequest(rate, phase, failure = null, commandSequence = null) {
+        this._publishPlaybackControlDiagnostics({
+            phase,
+            requestedRate: Number.isFinite(rate) ? rate : 1,
+            protocol: this._controlProtocol || 'json',
+            commandSequence,
+            ack: 'none', observedRate: null, failure
+        });
+    }
+
     _observeSpeed(pts) {
         const pending = this._pendingSpeed;
         if (!pending) return;
         if (this.ws?.readyState !== WebSocket.OPEN) {
-            this._finishSpeed(new Error('Playback connection closed'));
+            this._finishSpeed(new Error('Playback connection closed'), 'connection');
             return;
         }
         const now = performance.now();
         if (now - pending.startedAt >= SPEED_TIMEOUT_MS) {
-            this._finishSpeed(new Error('Playback speed verification timed out'));
+            this._finishSpeed(new Error('Playback speed verification timed out'), 'timeout');
             return;
         }
         if (now - pending.startedAt < SPEED_SETTLE_MS) return;
@@ -637,15 +677,19 @@ class NVRPlayer {
             pts, at: now, lastAt: now, frames: 0, maxGap: 0,
             cadencePTS: pts, cadenceAt: now, cadences: 0, matchingCadences: 0
         };
+        this._publishPlaybackControlDiagnostics({
+            phase: 'verifying', observedRate: Number.isFinite(observed) ? observed : null
+        });
         if (pending.matches >= 2) this._finishSpeed();
     }
 
-    _finishSpeed(error) {
+    _finishSpeed(error, failure = null) {
         const pending = this._pendingSpeed;
         if (!pending) return;
         this._pendingSpeed = null;
         clearTimeout(pending.timer);
         if (error) {
+            this._publishPlaybackControlDiagnostics({ phase: 'failed', failure });
             // An unconfirmed upstream state stays silent until the host rebuilds the session.
             pending.reject(error);
             return;
@@ -656,6 +700,7 @@ class NVRPlayer {
         if (!this._speedAudioMuted && this.currentVolume > 0 && this.audioContext && this._audioGestureReady) {
             this._claimPlaybackAudioSession();
         }
+        this._publishPlaybackControlDiagnostics({ phase: 'verified', verifiedRate: pending.rate, failure: null });
         pending.resolve();
     }
 
@@ -667,7 +712,8 @@ class NVRPlayer {
             const previous = this._controlProtocol;
             this._controlProtocol = message.version === '0.1' ? '0.1' : 'unsupported';
             if (this._pendingSpeed && previous !== this._controlProtocol) {
-                this._finishSpeed(new Error('Playback control protocol changed; retry with a new session'));
+                this._publishPlaybackControlDiagnostics({ protocol: this._controlProtocol });
+                this._finishSpeed(new Error('Playback control protocol changed; retry with a new session'), 'protocol');
             }
         }
         const pending = this._pendingSpeed;
@@ -679,7 +725,9 @@ class NVRPlayer {
                 && (typeof message.statusString !== 'string' || message.statusString.toLowerCase() !== 'ok'))
             || (message.status !== undefined && parseInt(message.status, 10) !== 200)
             || (message.res !== undefined && parseInt(message.res, 10) !== 0);
-        if (failed) this._finishSpeed(new Error('Playback speed command was rejected'));
+        const hasStatus = message.statusString !== undefined || message.status !== undefined || message.res !== undefined;
+        if (hasStatus) this._publishPlaybackControlDiagnostics({ ack: failed ? 'rejected' : 'accepted' });
+        if (failed) this._finishSpeed(new Error('Playback speed command was rejected'), 'rejected');
         // Successful ACKs do not prove the presented media rate.
     }
 
@@ -1258,7 +1306,7 @@ class NVRPlayer {
 
         this.ws.onclose = (e) => {
             if (this.ws !== socket) return;
-            this._finishSpeed(new Error('Playback connection closed'));
+            this._finishSpeed(new Error('Playback connection closed'), 'connection');
             this._isRunning = false;
             this.diagnostics.closeCode = Number.isFinite(e?.code) ? e.code : null;
             this._publishDiagnostics(true);
@@ -1273,7 +1321,7 @@ class NVRPlayer {
 
         this.ws.onerror = () => {
             if (this.ws !== socket) return;
-            this._finishSpeed(new Error('Playback connection failed'));
+            this._finishSpeed(new Error('Playback connection failed'), 'connection');
             // onerror 之后必然触发 onclose，无需在此重连，只上报错误
             this.onError(new Error('[NVRPlayer] WebSocket 连接错误'));
         };
@@ -1317,12 +1365,13 @@ class NVRPlayer {
      */
     async play(url) {
         if (this.ws || this.decoder || this.transformWorker) this.stop();
-        this._finishSpeed(new Error('Playback restarted'));
+        this._finishSpeed(new Error('Playback restarted'), 'stopped');
         this._playbackGeneration = (this._playbackGeneration || 0) + 1;
         this._playbackBasePTS = null;
         this._playbackLastPTS = null;
         this._playbackTime = null;
         this._controlProtocol = null;
+        this._resetPlaybackControlDiagnostics();
         this._speedAudioMuted = false;
         if (!this._monitorTimer) this._startDecoderMonitor();
         this._isRunning = true;
@@ -1355,7 +1404,7 @@ class NVRPlayer {
     }
 
     stop() {
-        this._finishSpeed(new Error('Playback stopped'));
+        this._finishSpeed(new Error('Playback stopped'), 'stopped');
         this._playbackGeneration = (this._playbackGeneration || 0) + 1;
         this._playbackBasePTS = null;
         this._playbackLastPTS = null;
@@ -1448,12 +1497,16 @@ class NVRPlayer {
     getPlaybackTime() { return this.useWasm ? this._playbackTime ?? null : null; }
 
     setSpeed(rate) {
-        if (!PLAYBACK_RATES.has(rate)) return Promise.reject(new Error('Unsupported playback speed'));
+        const rejectSpeed = (message, failure) => {
+            if (!this._pendingSpeed) this._recordPlaybackControlRequest(rate, 'failed', failure);
+            return Promise.reject(new Error(message));
+        };
+        if (!PLAYBACK_RATES.has(rate)) return rejectSpeed('Unsupported playback speed', 'unsupported');
         if (!this.useWasm || !this._isRunning || this._isPaused) {
-            return Promise.reject(new Error('Playback speed requires active WASM playback'));
+            return rejectSpeed('Playback speed requires active WASM playback', this._isRunning && !this._isPaused ? 'unsupported' : 'stopped');
         }
-        if (this.ws?.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Playback connection is not open'));
-        if (this._controlProtocol === 'unsupported') return Promise.reject(new Error('Unsupported playback control protocol'));
+        if (this.ws?.readyState !== WebSocket.OPEN) return rejectSpeed('Playback connection is not open', 'connection');
+        if (this._controlProtocol === 'unsupported') return rejectSpeed('Unsupported playback control protocol', 'protocol');
         if (this._pendingSpeed) return Promise.reject(new Error('Playback speed verification is already pending'));
         return new Promise((resolve, reject) => {
             const pending = {
@@ -1462,7 +1515,7 @@ class NVRPlayer {
             };
             this._pendingSpeed = pending;
             pending.timer = setTimeout(() => {
-                this._finishSpeed(new Error('Playback speed verification timed out'));
+                this._finishSpeed(new Error('Playback speed verification timed out'), 'timeout');
             }, SPEED_TIMEOUT_MS);
             if (rate !== 1) {
                 this._speedAudioMuted = true;
@@ -1472,8 +1525,10 @@ class NVRPlayer {
             }
             try {
                 if (!this._sendCommand('speed', { rate })) throw new Error('Playback speed command was not sent');
+                this._recordPlaybackControlRequest(rate, 'sent', null, this._controlProtocol === '0.1' ? null : pending.sequence);
             } catch (error) {
-                this._finishSpeed(error);
+                this._recordPlaybackControlRequest(rate, 'sent');
+                this._finishSpeed(error, 'send_failed');
             }
         });
     }
@@ -1481,7 +1536,7 @@ class NVRPlayer {
     // decoding the signed session but gate local canvas output deterministically.
     pause() {
         this._isPaused = true;
-        this._finishSpeed(new Error('Playback paused'));
+        this._finishSpeed(new Error('Playback paused'), 'stopped');
         this._resetAudioStream();
     }
     resume() {

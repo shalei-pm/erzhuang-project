@@ -24,6 +24,17 @@ export type NVRPlayerDiagnostics = {
   closeCode: number | null;
 };
 
+export type PlaybackControlDiagnostics = {
+  phase: "idle" | "sent" | "verifying" | "verified" | "failed";
+  requestedRate: number;
+  verifiedRate: number;
+  protocol: "json" | "0.1" | "unsupported";
+  commandSequence: number | null;
+  ack: "none" | "accepted" | "rejected";
+  observedRate: number | null;
+  failure: "timeout" | "rejected" | "connection" | "protocol" | "stopped" | "unsupported" | "send_failed" | null;
+};
+
 export type RTPPacket = {
   payloadType: number;
   marker: boolean;
@@ -47,6 +58,7 @@ export type NVRPlayerOptions = {
   /** Relative seconds of the last presented WASM media frame; absent for live. */
   onPlaybackTime?: (elapsedSeconds: number) => void;
   onDiagnostics?: (diagnostics: NVRPlayerDiagnostics) => void;
+  onPlaybackControlDiagnostics?: (snapshot: PlaybackControlDiagnostics) => void;
 };
 
 export default class NVRPlayer {
@@ -60,6 +72,8 @@ export default class NVRPlayer {
   setVolume(volume: number): void;
   /** Null until a valid playback frame is presented, and after stop. */
   getPlaybackTime(): number | null;
+  /** A copy of the last control attempt; failures survive stop, and play resets it. */
+  getPlaybackControlDiagnostics(): PlaybackControlDiagnostics;
   /** Active WASM playback only: 1/2/4/8/16. Verifies stable media PTS cadence within 6s.
    * Rejects unsupported, pending, disconnected, stopped or unverified requests.
    * On failure the host must create a fresh normal-speed session.

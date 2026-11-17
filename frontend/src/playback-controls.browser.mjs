@@ -475,6 +475,10 @@ try {
   });
   for (const failure of ["rejectNextSpeed", "ignoreNextSpeed"]) await check(`${failure}: recover with fresh normal session`, async () => {
     const h = await open(); await playback(h.page); const count = (await h.api("state")).sessions.length;
+    await h.page.setViewportSize({ width: 390, height: 844 });
+    await button(h.page, "全屏").click();
+    await h.page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,
+      value: { writeText: async report => { window.__playbackReport = report; } } }));
     await h.api("control", { [failure]: true });
     await button(h.page, "选择倍速").click(); await button(h.page, "4倍速").click();
     await h.page.getByText("未能确认录像倍速生效，已重新连接正常速度回放", { exact: true }).waitFor();
@@ -482,6 +486,32 @@ try {
     await h.page.waitForFunction(() => window.__playbackQA.snapshot().findLast(p => p.running)?.time > 0);
     assert.equal((await h.api("state")).sessions.length, count + 1);
     assert.equal((await h.api("state")).sockets.at(-1).rate, 1);
+    const notice = h.page.locator(".h5-player-shell .h5-playback-control-failure");
+    await notice.getByText("未能确认4倍速生效，请继续使用正常速度回放", { exact: true }).waitFor();
+    await button(h.page, "复制倍速诊断信息").click();
+    await notice.getByText("诊断信息已复制", { exact: true }).waitFor();
+    const reportText = await h.page.evaluate(() => window.__playbackReport);
+    const report = JSON.parse(reportText);
+    assert.equal(report.phase, "failed");
+    assert.equal(report.requestedRate, 4);
+    assert.equal(report.verifiedRate, 1);
+    assert.equal(report.failure, failure === "rejectNextSpeed" ? "rejected" : "timeout");
+    assert.equal(report.ack, failure === "rejectNextSpeed" ? "rejected" : "accepted");
+    if (failure === "ignoreNextSpeed") assert(report.observedRate > 0.75 && report.observedRate < 1.25,
+      `an ACK with ignored speed must preserve measured 1x, got ${report.observedRate}`);
+    assert(!/wss?:|token|camera|fixture|private/.test(reportText), "report must exclude stream/user identifiers");
+    const noticeBounds = await notice.boundingBox();
+    assert(noticeBounds.x >= 0 && noticeBounds.y >= 0 && noticeBounds.x + noticeBounds.width <= 391
+      && noticeBounds.y + noticeBounds.height <= 845, "fullscreen failure notice must fit the phone viewport");
+    await h.page.screenshot({ path: new URL(`${failure}-notice.png`, artifacts).pathname });
+    if (failure === "ignoreNextSpeed") {
+      await h.page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,
+        value: { writeText: async () => { throw new Error("Clipboard denied"); } } }));
+      await button(h.page, "复制倍速诊断信息").click();
+      const fallback = notice.getByRole("textbox", { name: "倍速诊断信息" });
+      await fallback.waitFor();
+      assert.deepEqual(JSON.parse(await fallback.inputValue()), report, "manual fallback must preserve the same safe report");
+    }
     await h.close();
   });
   await check("new callback identities do not rebuild SDK player", async () => {
