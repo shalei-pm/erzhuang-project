@@ -3,8 +3,39 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { NVRLabPlayer, nvrLabDisconnectMessage, nvrLabFirstFrameTimeoutMessage } from "./NVRLabPlayer";
 import { NVRLabCamera } from "../pages/NVRLabCamera";
+import { PlaybackSegmentSlider } from "./PlaybackSegmentSlider";
+import { H5PlayerControls } from "./H5PlayerControls";
 
 describe("NVRLabPlayer", () => {
+  it("marks sound unavailable while recording is accelerated", () => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(createElement(H5PlayerControls, {
+      state: { playing: true, muted: true, loading: false, failed: false, fullscreen: false, landscape: false },
+      visible: true,
+      playback: { rate: 4, pending: false, disabled: false, onForward: noop, onSpeed: noop },
+      onTogglePlay: noop, onToggleSound: noop, onScreenshot: noop, onToggleLandscape: noop, onToggleFullscreen: noop,
+    }));
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="倍速播放静音"/);
+  });
+  it("keeps the seek slider inside the exclusive recording end time", () => {
+    const markup = renderToStaticMarkup(createElement(PlaybackSegmentSlider, {
+      segment: { start_time: 1000, end_time: 4600 }, disabled: false, onCommit: () => undefined,
+    }));
+    expect(markup).toContain('max="3599"');
+  });
+  it("offers forward ten seconds and speed only for recording playback", () => {
+    const props = { onRetry: () => undefined };
+    const playback = renderToStaticMarkup(createElement(NVRLabPlayer, {
+      ...props, session: { mode: "playback", url: "wss://example.test/replay" },
+    }));
+    const live = renderToStaticMarkup(createElement(NVRLabPlayer, {
+      ...props, session: { mode: "live", url: "wss://example.test/live" },
+    }));
+    expect(playback).toContain('aria-label="快进10秒"');
+    expect(playback).toContain('aria-label="选择倍速"');
+    expect(live).not.toContain('aria-label="快进10秒"');
+    expect(live).not.toContain('aria-label="选择倍速"');
+  });
 	it("classifies a connected stream that has not delivered any media packets", () => {
 		expect(nvrLabFirstFrameTimeoutMessage({ receivedPackets: 0, decoderInputFrames: 0, renderedFrames: 0 })).toBe(
 			"视频流已连接，但未收到摄像头媒体数据，请稍后重试",

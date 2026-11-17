@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { buildNVRLabHourlyPlayback, buildNVRLabPlaybackFromStart, buildNVRLabPlaybackSession, nvrMonitorRoutePath, parseNVRLabRoute, parseNVRMonitorRoute, validateNVRLabPlayback } from "./nvr-lab";
+import { buildNVRLabHourlyPlayback, buildNVRLabPlaybackFromStart, buildNVRLabPlaybackSession, nvrMonitorRoutePath, parseNVRLabRoute, parseNVRMonitorRoute, validateNVRLabPlayback, nvrPlaybackCursor, nvrPlaybackForward } from "./nvr-lab";
+
+describe("recording playback position", () => {
+  it("uses presented media seconds without multiplying the selected rate again", () => {
+    expect(nvrPlaybackCursor(1000, 32.5, 4600)).toBe(1032.5);
+    expect(nvrPlaybackCursor(1032.5, 2, 4600)).toBe(1034.5);
+    expect(nvrPlaybackCursor(1000, 5000, 4600)).toBe(4599);
+  });
+  it("rejects invalid progress and advances exactly ten recording seconds", () => {
+    expect(nvrPlaybackCursor(1000, Number.NaN, 4600)).toBeNull();
+    expect(nvrPlaybackCursor(1000, -1, 4600)).toBeNull();
+    expect(nvrPlaybackForward(1032.5, 1000, 4600)).toBe(1042.5);
+    expect(nvrPlaybackForward(4595, 1000, 4600)).toBe(4599);
+  });
+});
 
 describe("parseNVRLabRoute", () => {
   it("only accepts the fixed 10001 experiment routes", () => {
