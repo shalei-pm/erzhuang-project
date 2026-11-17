@@ -6487,3 +6487,11 @@ git pull --ff-only
 - 发布前远端测试分支仍为 `331b2465b434bc68402af9edecfa832229fe9545`，正式main仍为 `8a60fdccc6af078ad4cd544f83c2c080964dfa23`，无需合并其他提交。
 - 保留测试环境既有配置与数字孪生差异；只提交版本、脱敏诊断、播放器提示、测试和发布说明，排除本地output产物。
 - 按GitHub功能分支备份、GitLab测试分支推送及Wharf752部署核验推进。测试健康入口仍要求SSO，HTTP302不能证明实际版本或部署成功；最终状态记录在本地 `output/releases/4.10.1-test-publication.md`，不为补发布结果反复触发构建。
+
+### 2026-11-17 4.10.2 JSON倍速控制修正（测试发布准备）
+
+- 用户提供测试实际4.10.1诊断：protocol=unsupported、failure=protocol、commandSequence=null、observedRate=null。已定位客户端在setSpeed发送前因version误判拒绝请求；不将此解释为上游已拒绝或服务端已验证不支持倍速。
+- 对齐用户请研发确认的公司SDK协议及本地原始SDK：统一JSON speed/rate、递增sequence，移除新增的version驱动二进制与unsupported分支。保持实际帧PTS校验、失败回退和暂停重签行为。
+- 测试先行11项失败复现，修复后播放器98项通过；继续完整测试及浏览器回归后发布已授权测试链路，正式main不改。
+- 详情见 `docs/releases/2026-11-17-playback-json-control-4.10.2.md`。真实设备各倍率效果仍待测试实例验收，发布状态单独记录在本地output目录。
+- 最终本地门禁：25文件/261项前端测试、生产构建通过；完整合成浏览器26项与既有音频4项通过。新增0.2/0.1×桌面/手机契约实测JSON、sequence、媒体/滑块4倍及恢复1倍、会话不重启；30秒暂停续播通过。subagent只读复核无阻塞项。

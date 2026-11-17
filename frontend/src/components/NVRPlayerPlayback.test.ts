@@ -371,40 +371,43 @@ describe("NVR verified speed control", () => {
     expect(vi.getTimerCount()).toBe(1);
   });
 
-  it.each([1, 2, 4, 8, 16])("uses the documented 36-byte big-endian command after the 0.1 handshake (%ix)", async (rate) => {
+  it.each([1, 2, 4, 8, 16])("keeps the company JSON command after 0.1 metadata (%ix)", async (rate) => {
     const { player, socket } = await makePlayer();
     socket.message({ version: "0.1" });
     const result = outcome(player.setSpeed(rate));
-    const bytes = new Uint8Array(socket.send.mock.calls[0][0] as ArrayBuffer);
-    const expected = new Uint8Array(36);
-    const view = new DataView(expected.buffer);
-    view.setUint32(0, 36);
-    view.setUint32(12, 0x0003012f);
-    view.setUint32(32, rate);
-    expect(bytes).toEqual(expected);
+    expect(JSON.parse(socket.send.mock.calls[0][0] as string)).toEqual({ sequence: 0, cmd: "speed", rate });
     feed(player, rate);
     expect(await result).toBe("verified");
   });
 
-  it("rejects unknown protocol versions and ignores malformed/unrelated text without logging it", async () => {
+  it.each(["future", "1.0", 1, null])("ignores version metadata %s and sends JSON without logging payloads", async (version) => {
     const { player, socket } = await makePlayer();
     const log = vi.spyOn(console, "log");
     socket.onmessage?.({ data: "not-json-sensitive" });
     socket.message({ unrelated: true });
-    socket.message({ version: "future" });
-    expect(await outcome(player.setSpeed(2))).toBeInstanceOf(Error);
-    expect(socket.send).not.toHaveBeenCalled();
+    socket.message({ version });
+    const result = outcome(player.setSpeed(4));
+    expect(JSON.parse(socket.send.mock.calls[0][0] as string)).toEqual({ sequence: 0, cmd: "speed", rate: 4 });
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "sent", protocol: "json", commandSequence: 0 });
+    feed(player, 4);
+    expect(await result).toBe("verified");
     expect(log).not.toHaveBeenCalled();
   });
 
-  it("cancels a command on protocol change and uses JSON again after a new play", async () => {
+  it("keeps a pending command and its sequence when version metadata arrives", async () => {
     const { player, socket } = await makePlayer();
     const pending = outcome(player.setSpeed(2));
     socket.message({ version: "0.1" });
-    expect(await pending).toBeInstanceOf(Error);
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "sent", protocol: "json", commandSequence: 0, ack: "none" });
+    feed(player, 2);
+    expect(await pending).toBe("verified");
+    const restore = outcome(player.setSpeed(1));
+    expect(JSON.parse(socket.send.mock.calls[1][0] as string)).toEqual({ sequence: 1, cmd: "speed", rate: 1 });
+    feed(player, 1, 3500, 20_000_000);
+    expect(await restore).toBe("verified");
     await player.play("ws://test.invalid/new-session");
     const normal = outcome(player.setSpeed(1));
-    expect(JSON.parse(player.ws.send.mock.calls[0][0] as string)).toMatchObject({ cmd: "speed", rate: 1 });
+    expect(JSON.parse(player.ws.send.mock.calls[0][0] as string)).toEqual({ sequence: 0, cmd: "speed", rate: 1 });
     feed(player, 1);
     expect(await normal).toBe("verified");
   });
@@ -500,20 +503,20 @@ describe("NVR playback control diagnostics", () => {
     expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "verified", verifiedRate: 2, observedRate: 2 });
   });
 
-  it("reports 0.1 commands with no wire sequence and preserves the existing binary message", async () => {
+  it("reports a JSON sequence even when the service sends 0.1 metadata", async () => {
     const { player, socket } = await makePlayer();
     socket.message({ version: "0.1" });
     const result = outcome(player.setSpeed(4));
     expect(player.getPlaybackControlDiagnostics()).toEqual({
-      ...idle, phase: "sent", requestedRate: 4, protocol: "0.1", commandSequence: null,
+      ...idle, phase: "sent", requestedRate: 4, commandSequence: 0,
     });
-    expect(new Uint8Array(socket.send.mock.calls[0][0] as ArrayBuffer)).toHaveLength(36);
+    expect(JSON.parse(socket.send.mock.calls[0][0] as string)).toEqual({ sequence: 0, cmd: "speed", rate: 4 });
     feed(player, 4);
     expect(await result).toBe("verified");
-    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "verified", protocol: "0.1", ack: "none" });
+    expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "verified", protocol: "json", ack: "none" });
   });
 
-  it.each(["stop", "pause", "close", "error", "protocol", "send"])("uses a bounded failure code for %s", async (action) => {
+  it.each(["stop", "pause", "close", "error", "send"])("uses a bounded failure code for %s", async (action) => {
     const { player, socket } = await makePlayer();
     if (action === "send") socket.send.mockImplementationOnce(() => { throw new Error("token=private wss://secret"); });
     const result = outcome(player.setSpeed(2));
@@ -521,9 +524,8 @@ describe("NVR playback control diagnostics", () => {
     if (action === "pause") player.pause();
     if (action === "close") socket.onclose?.({ code: 1006, wasClean: false });
     if (action === "error") socket.onerror?.();
-    if (action === "protocol") socket.message({ version: "private-future-version" });
     expect(await result).toBeInstanceOf(Error);
-    const failures = { stop: "stopped", pause: "stopped", close: "connection", error: "connection", protocol: "protocol", send: "send_failed" };
+    const failures = { stop: "stopped", pause: "stopped", close: "connection", error: "connection", send: "send_failed" };
     const failed = player.getPlaybackControlDiagnostics();
     expect(failed).toMatchObject({ phase: "failed", failure: failures[action as keyof typeof failures] });
     expect(JSON.stringify(failed)).not.toMatch(/private|secret|token|wss/);
@@ -541,18 +543,17 @@ describe("NVR playback control diagnostics", () => {
     expect(socket.send).not.toHaveBeenCalled();
   });
 
-  it.each(["live", "stopped", "paused", "protocol", "NaN", "Infinity", "string"])("captures the %s early rejection before catch runs", async (reason) => {
+  it.each(["live", "stopped", "paused", "NaN", "Infinity", "string"])("captures the %s early rejection before catch runs", async (reason) => {
     const { player, socket, onPlaybackControlDiagnostics: report } = await makePlayer(reason !== "live");
     if (reason === "stopped") player.stop();
     if (reason === "paused") player.pause();
-    if (reason === "protocol") socket.message({ version: "future-private" });
     const rate = reason === "NaN" ? NaN : reason === "Infinity" ? Infinity : reason === "string" ? "token=private" as unknown as number : 2;
-    const failure = reason === "protocol" ? "protocol" : ["stopped", "paused"].includes(reason) ? "stopped" : "unsupported";
+    const failure = ["stopped", "paused"].includes(reason) ? "stopped" : "unsupported";
     await player.setSpeed(rate).then(() => { throw new Error("must reject"); }, () => {
       const snapshot = player.getPlaybackControlDiagnostics();
       expect(snapshot).toEqual({
         ...idle, phase: "failed", requestedRate: Number.isFinite(rate) ? rate : 1,
-        protocol: reason === "protocol" ? "unsupported" : "json", failure,
+        failure,
       });
       expect(report).toHaveBeenLastCalledWith(snapshot);
       expect(JSON.stringify(snapshot)).not.toMatch(/private|token|NaN|Infinity/);

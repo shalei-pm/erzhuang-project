@@ -106,7 +106,6 @@ class NVRPlayer {
         this._playbackLastPTS = null;
         this._playbackTime = null;
         this._pendingSpeed = null;
-        this._controlProtocol = null;
         this._speedAudioMuted = false;
 
         // WebSocket
@@ -625,7 +624,7 @@ class NVRPlayer {
         this._publishPlaybackControlDiagnostics({
             phase,
             requestedRate: Number.isFinite(rate) ? rate : 1,
-            protocol: this._controlProtocol || 'json',
+            protocol: 'json',
             commandSequence,
             ack: 'none', observedRate: null, failure
         });
@@ -708,14 +707,7 @@ class NVRPlayer {
         let message;
         try { message = JSON.parse(data); } catch (_) { return; }
         if (!message || typeof message !== 'object' || Array.isArray(message)) return;
-        if (Object.prototype.hasOwnProperty.call(message, 'version')) {
-            const previous = this._controlProtocol;
-            this._controlProtocol = message.version === '0.1' ? '0.1' : 'unsupported';
-            if (this._pendingSpeed && previous !== this._controlProtocol) {
-                this._publishPlaybackControlDiagnostics({ protocol: this._controlProtocol });
-                this._finishSpeed(new Error('Playback control protocol changed; retry with a new session'), 'protocol');
-            }
-        }
+        // The company proxy uses JSON controls; version metadata is not negotiation.
         const pending = this._pendingSpeed;
         if (!pending) return;
         if (message.sequence !== undefined && message.sequence !== pending.sequence) return;
@@ -1343,19 +1335,7 @@ class NVRPlayer {
 
     _sendCommand(cmd, params = {}) {
         if (this.ws?.readyState !== WebSocket.OPEN) return false;
-        if (cmd === 'speed' && this._controlProtocol === 'unsupported') {
-            throw new Error('Unsupported playback control protocol');
-        }
-        if (cmd === 'speed' && this._controlProtocol === '0.1') {
-            const bytes = new Uint8Array(36);
-            const view = new DataView(bytes.buffer);
-            view.setUint32(0, 36, false);
-            view.setUint32(12, 0x0003012F, false);
-            view.setUint32(32, params.rate, false);
-            this.ws.send(bytes);
-        } else {
-            this.ws.send(JSON.stringify({ sequence: this.sequence++, cmd, ...params }));
-        }
+        this.ws.send(JSON.stringify({ sequence: this.sequence++, cmd, ...params }));
         return true;
     }
 
@@ -1370,7 +1350,6 @@ class NVRPlayer {
         this._playbackBasePTS = null;
         this._playbackLastPTS = null;
         this._playbackTime = null;
-        this._controlProtocol = null;
         this._resetPlaybackControlDiagnostics();
         this._speedAudioMuted = false;
         if (!this._monitorTimer) this._startDecoderMonitor();
@@ -1409,7 +1388,6 @@ class NVRPlayer {
         this._playbackBasePTS = null;
         this._playbackLastPTS = null;
         this._playbackTime = null;
-        this._controlProtocol = null;
         this._speedAudioMuted = false;
         this._isRunning = false;
         this._isPaused = false;
@@ -1506,7 +1484,6 @@ class NVRPlayer {
             return rejectSpeed('Playback speed requires active WASM playback', this._isRunning && !this._isPaused ? 'unsupported' : 'stopped');
         }
         if (this.ws?.readyState !== WebSocket.OPEN) return rejectSpeed('Playback connection is not open', 'connection');
-        if (this._controlProtocol === 'unsupported') return rejectSpeed('Unsupported playback control protocol', 'protocol');
         if (this._pendingSpeed) return Promise.reject(new Error('Playback speed verification is already pending'));
         return new Promise((resolve, reject) => {
             const pending = {
@@ -1525,7 +1502,7 @@ class NVRPlayer {
             }
             try {
                 if (!this._sendCommand('speed', { rate })) throw new Error('Playback speed command was not sent');
-                this._recordPlaybackControlRequest(rate, 'sent', null, this._controlProtocol === '0.1' ? null : pending.sequence);
+                this._recordPlaybackControlRequest(rate, 'sent', null, pending.sequence);
             } catch (error) {
                 this._recordPlaybackControlRequest(rate, 'sent');
                 this._finishSpeed(error, 'send_failed');
