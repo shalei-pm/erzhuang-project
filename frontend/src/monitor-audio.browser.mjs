@@ -35,6 +35,7 @@ NVRPlayer.prototype._connect = function () {
 const root = createRoot(document.getElementById('root'));
 window.__qaMount = (mode) => root.render(React.createElement(NVRLabPlayer, {
   session: { mode, url: 'wss://unused.invalid/fixture', cameraId: 1 }, onRetry() {},
+  playbackSegment: mode === 'playback' ? { start_time: 1000, end_time: 4600 } : null,
 }));
 window.__qaUnmount = () => root.unmount();
 window.__qaMount('live');

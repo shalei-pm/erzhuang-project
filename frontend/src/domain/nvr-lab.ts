@@ -116,6 +116,15 @@ export function buildNVRLabPlaybackSession(playbackWindow: NVRLabPlaybackRange, 
   return { playbackWindow, startTime, endTime: playbackWindow.endTime };
 }
 
+export function nvrPlaybackCursor(start: number, elapsed: number, end: number): number | null {
+  if (![start, elapsed, end].every(Number.isFinite) || elapsed < 0 || end <= start) return null;
+  return Math.min(end - 1, start + elapsed);
+}
+
+export function nvrPlaybackForward(current: number, start: number, end: number): number {
+  return Math.min(end - 1, Math.max(start, current) + 10);
+}
+
 export function nvrLabCameraTitle(camera: NVRLabCamera): string {
   return camera.space_name?.trim() || camera.name?.trim() || `摄像头 ${camera.id}`;
 }

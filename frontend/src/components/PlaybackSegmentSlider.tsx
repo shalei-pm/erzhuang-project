@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { clampSegmentOffset, segmentDurationSeconds, segmentOffsetToUnix, shouldShowSegmentSlider } from "../domain/h5-playback";
 
 export type PlaybackSegmentTiming = {
@@ -27,6 +27,7 @@ export function PlaybackSegmentSlider({
   const initialOffset = currentStartTime ? currentStartTime - segment.start_time : 0;
   const [offset, setOffset] = useState(() => clampSegmentOffset(initialOffset, segment.start_time, segment.end_time));
   const [interacting, setInteracting] = useState(false);
+  const changedRef = useRef(false);
   const currentUnix = segmentOffsetToUnix(segment.start_time, segment.end_time, offset);
 
   useEffect(() => {
@@ -48,6 +49,8 @@ export function PlaybackSegmentSlider({
 
   function commit() {
     setInteracting(false);
+    if (!changedRef.current) return;
+    changedRef.current = false;
     onCommit(currentUnix);
   }
 
@@ -67,21 +70,23 @@ export function PlaybackSegmentSlider({
       )}
       <input
         type="range"
+        aria-label="录像进度"
+        aria-valuetext={formatDateTime(currentUnix)}
         min={0}
-        max={duration}
+        max={Math.max(0, duration - 1)}
         step={1}
         value={offset}
         disabled={disabled}
         onPointerDown={() => setInteracting(true)}
-        onFocus={() => setInteracting(true)}
         onChange={(event) => {
+          changedRef.current = true;
           setInteracting(true);
           setOffset(Number(event.target.value));
         }}
         onPointerUp={commit}
         onBlur={commit}
         onKeyUp={(event) => {
-          if (event.key === "Enter" || event.key === " ") commit();
+          if (["Enter", " ", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)) commit();
         }}
       />
     </div>

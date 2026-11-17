@@ -11,6 +11,8 @@ import {
   buildNVRLabPlaybackSession,
   nvrLabCameraSubtitle,
   nvrLabCameraTitle,
+  nvrPlaybackCursor,
+  nvrPlaybackForward,
   type NVRLabCamera,
   type NVRLabMode,
   type NVRLabPlaybackRange,
@@ -39,30 +41,23 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
   const [playbackStartAt, setPlaybackStartAt] = useState(() => playbackQueryValue("start_at") || initialPlaybackDateTimeValue(new Date(Date.now() - NVR_LAB_MAX_PLAYBACK_SECONDS * 1000)));
   const [activePlaybackRange, setActivePlaybackRange] = useState<NVRLabPlaybackRange | null>(null);
   const [playbackCursorUnix, setPlaybackCursorUnix] = useState<number | null>(null);
-  const [playbackPlaying, setPlaybackPlaying] = useState(false);
-  const [playbackStartedAtMs, setPlaybackStartedAtMs] = useState<number | null>(null);
-  const [playbackElapsedSeconds, setPlaybackElapsedSeconds] = useState(0);
+  const [playbackPaused, setPlaybackPaused] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [requestPending, setRequestPending] = useState(false);
   const [snapshotBackfillState, setSnapshotBackfillState] = useState<"waiting" | "uploading" | "succeeded" | "failed">("waiting");
   const activePlaybackRangeRef = useRef<NVRLabPlaybackRange | null>(null);
   const playbackCursorRef = useRef<number | null>(null);
   const modeRef = useRef<NVRLabMode>("live");
+  const requestSequenceRef = useRef(0);
+  const activeSessionRef = useRef<NVRLabStreamSession | null>(null);
+  const playbackAnchorRef = useRef<number | null>(null);
+  const playbackPausedRef = useRef(false);
+  const lastCursorRenderRef = useRef(0);
   const playbackRange = buildNVRLabPlaybackFromStart(playbackStartAt);
   const playbackSegment: PlaybackSegmentTiming | null = activePlaybackRange
     ? { start_time: activePlaybackRange.startTime, end_time: activePlaybackRange.endTime }
     : null;
   const snapshotBackfillEnabled = new URLSearchParams(window.location.search).get("snapshot_backfill") === "1";
-
-  useEffect(() => {
-    activePlaybackRangeRef.current = activePlaybackRange;
-  }, [activePlaybackRange]);
-
-  useEffect(() => {
-    playbackCursorRef.current = playbackCursorUnix;
-  }, [playbackCursorUnix]);
-
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,12 +84,24 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
 
   const requestSession = useCallback(
     async (nextMode: NVRLabMode, nextStart?: number, nextEnd?: number) => {
+      const sequence = ++requestSequenceRef.current;
+      activeSessionRef.current = null;
       setSession(null);
+      playbackAnchorRef.current = null;
+      setRequestPending(true);
       setMessage("");
       try {
         const nextSession = await nvrLabApi.createStreamSession(externalOrgId, cameraId, nextMode, nextStart, nextEnd);
+        if (sequence !== requestSequenceRef.current) return;
+        playbackAnchorRef.current = nextMode === "playback" ? nextStart ?? null : null;
+        activeSessionRef.current = nextSession;
         setSession(nextSession);
       } catch (error) {
+        if (sequence !== requestSequenceRef.current) return;
+        if (nextMode === "playback") {
+          playbackPausedRef.current = true;
+          setPlaybackPaused(true);
+        }
         if (error instanceof NVRLabApiError && error.status === 401) {
           onAuthRequired(error);
           return;
@@ -104,6 +111,8 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
           return;
         }
         setMessage(error instanceof Error ? error.message : "播放会话创建失败");
+      } finally {
+        if (sequence === requestSequenceRef.current) setRequestPending(false);
       }
     },
 	[externalOrgId, cameraId, onAuthRequired],
@@ -111,18 +120,27 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
 
   useEffect(() => {
     void requestSession("live");
+    return () => {
+      requestSequenceRef.current++;
+      activeSessionRef.current = null;
+    };
   }, [requestSession]);
 
   function switchMode(nextMode: NVRLabMode) {
+    if (nextMode === modeRef.current) return;
+    requestSequenceRef.current++;
+    activeSessionRef.current = null;
+    modeRef.current = nextMode;
     setMode(nextMode);
     setSession(null);
+    setRequestPending(false);
     setMessage("");
-    if (nextMode === "live") resetPlaybackProgress();
+    resetPlaybackProgress();
     if (nextMode === "live") void requestSession("live");
   }
 
-  function playPlayback(playbackWindow: NVRLabPlaybackRange, startTime = playbackWindow.startTime) {
-    const nextSession = buildNVRLabPlaybackSession(playbackWindow, startTime);
+  const playPlayback = useCallback((playbackWindow: NVRLabPlaybackRange, startTime = playbackWindow.startTime) => {
+    const nextSession = buildNVRLabPlaybackSession(playbackWindow, Math.floor(startTime));
     if (!nextSession) return;
     setMessage("");
     setPlayerStatus({ stage: "connecting", message: "正在连接视频流" });
@@ -130,11 +148,10 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
     playbackCursorRef.current = nextSession.startTime;
     setActivePlaybackRange(nextSession.playbackWindow);
     setPlaybackCursorUnix(nextSession.startTime);
-    setPlaybackPlaying(false);
-    setPlaybackStartedAtMs(null);
-    setPlaybackElapsedSeconds(0);
+    playbackPausedRef.current = false;
+    setPlaybackPaused(false);
     void requestSession("playback", nextSession.startTime, nextSession.endTime);
-  }
+  }, [requestSession]);
 
   function retrySession() {
     if (mode === "live") {
@@ -145,15 +162,53 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
     if (retryRange) playPlayback(retryRange, playbackCursorRef.current ?? retryRange.startTime);
   }
 
-  const handlePlaybackStateChange = useCallback((playing: boolean) => {
-    setPlaybackPlaying(playing);
-    const range = activePlaybackRangeRef.current;
-    if (modeRef.current !== "playback" || !range) return;
-    const cursor = playbackCursorRef.current ?? range.startTime;
-    const elapsed = Math.min(Math.max(0, cursor - range.startTime), Math.max(0, range.endTime - range.startTime - 1));
-    setPlaybackElapsedSeconds(elapsed);
-    setPlaybackStartedAtMs(playing ? Date.now() : null);
+  const handlePlayerStatus = useCallback((status: NVRLabPlayerStatus, sourceSession?: NVRLabStreamSession) => {
+    if (sourceSession && sourceSession !== activeSessionRef.current) return;
+    setPlayerStatus(status);
   }, []);
+
+  const handlePlaybackTime = useCallback((elapsedSeconds: number, sourceSession: NVRLabStreamSession) => {
+    const range = activePlaybackRangeRef.current;
+    const anchor = playbackAnchorRef.current;
+    if (sourceSession !== activeSessionRef.current || modeRef.current !== "playback" || playbackPausedRef.current || !range || anchor === null) return;
+    const cursor = nvrPlaybackCursor(anchor, elapsedSeconds, range.endTime);
+    if (cursor === null) return;
+    playbackCursorRef.current = cursor;
+    if (performance.now() - lastCursorRenderRef.current >= 100 || cursor >= range.endTime - 1) {
+      lastCursorRenderRef.current = performance.now();
+      setPlaybackCursorUnix(cursor);
+    }
+    if (cursor >= range.endTime - 1) {
+      playbackPausedRef.current = true;
+      activeSessionRef.current = null;
+      setPlaybackPaused(true);
+      setSession(null);
+    }
+  }, []);
+
+  const pausePlayback = useCallback(() => {
+    requestSequenceRef.current++;
+    activeSessionRef.current = null;
+    playbackPausedRef.current = true;
+    setPlaybackPaused(true);
+    setPlaybackCursorUnix(playbackCursorRef.current);
+    setSession(null);
+    setRequestPending(false);
+    setPlayerStatus({ stage: "idle", message: "录像已暂停" });
+  }, []);
+
+  const resumePlayback = useCallback(() => {
+    const range = activePlaybackRangeRef.current;
+    if (range) playPlayback(range, playbackCursorRef.current ?? range.startTime);
+  }, [playPlayback]);
+
+  const handlePlaybackRateError = useCallback((errorMessage: string, sourceSession: NVRLabStreamSession) => {
+    if (sourceSession !== activeSessionRef.current) return;
+    setPlaybackRate(1);
+    const range = activePlaybackRangeRef.current;
+    if (range && !playbackPausedRef.current) playPlayback(range, playbackCursorRef.current ?? range.startTime);
+    setMessage(errorMessage);
+  }, [playPlayback]);
 
   const uploadFirstFrameSnapshot = useCallback(async (image: Blob | null) => {
     if (!image || image.type !== "image/jpeg" || image.size === 0) {
@@ -175,9 +230,22 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
 
   const seekPlayback = useCallback((startTime: number) => {
     const range = activePlaybackRangeRef.current;
-    if (!range || startTime < range.startTime || startTime >= range.endTime) return;
+    if (!range || !Number.isFinite(startTime) || startTime < range.startTime || startTime >= range.endTime) return false;
+    const target = Math.floor(startTime);
+    if (target === Math.floor(playbackCursorRef.current ?? -1)) return false;
+    if (playbackPausedRef.current) {
+      playbackCursorRef.current = target;
+      setPlaybackCursorUnix(target);
+      return true;
+    }
     playPlayback(range, startTime);
-  }, []);
+    return true;
+  }, [playPlayback]);
+
+  const forwardPlayback = useCallback(() => {
+    const range = activePlaybackRangeRef.current;
+    return range ? seekPlayback(nvrPlaybackForward(playbackCursorRef.current ?? range.startTime, range.startTime, range.endTime)) : false;
+  }, [seekPlayback]);
 
   const handleScreenshot = useCallback(async (dataUrl: string) => {
     try {
@@ -194,24 +262,15 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
     }
   }, [cameraId, externalOrgId, onAuthRequired]);
 
-  useEffect(() => {
-    if (!activePlaybackRange || !playbackPlaying || playbackStartedAtMs === null) return;
-    const tick = () => {
-      const elapsed = playbackElapsedSeconds + Math.max(0, Math.floor((Date.now() - playbackStartedAtMs) / 1000));
-      const cursor = Math.min(activePlaybackRange.endTime - 1, activePlaybackRange.startTime + elapsed);
-      setPlaybackCursorUnix(cursor);
-    };
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
-  }, [activePlaybackRange, playbackElapsedSeconds, playbackPlaying, playbackStartedAtMs]);
-
   function resetPlaybackProgress() {
+    activePlaybackRangeRef.current = null;
+    playbackCursorRef.current = null;
+    playbackAnchorRef.current = null;
+    playbackPausedRef.current = false;
     setActivePlaybackRange(null);
     setPlaybackCursorUnix(null);
-    setPlaybackPlaying(false);
-    setPlaybackStartedAtMs(null);
-    setPlaybackElapsedSeconds(0);
+    setPlaybackPaused(false);
+    setPlaybackRate(1);
   }
 
   return (
@@ -231,8 +290,17 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
             playbackSegment={playbackSegment}
             playbackCursorUnix={playbackCursorUnix}
             onRetry={retrySession}
-            onStatus={setPlayerStatus}
-            onPlaybackStateChange={handlePlaybackStateChange}
+            onStatus={handlePlayerStatus}
+            playbackMode={mode === "playback"}
+            playbackPaused={playbackPaused}
+            playbackRate={playbackRate}
+            playbackRequestPending={requestPending}
+            onPlaybackTime={handlePlaybackTime}
+            onPausePlayback={pausePlayback}
+            onResumePlayback={resumePlayback}
+            onForwardPlayback={forwardPlayback}
+            onPlaybackRateChange={setPlaybackRate}
+            onPlaybackRateError={handlePlaybackRateError}
             onSeekPlayback={seekPlayback}
             captureOnFirstFrame={snapshotBackfillEnabled && mode === "live"}
             onSnapshotCapture={snapshotBackfillEnabled ? uploadFirstFrameSnapshot : undefined}
