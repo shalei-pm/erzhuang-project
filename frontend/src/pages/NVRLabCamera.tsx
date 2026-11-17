@@ -11,7 +11,7 @@ import {
   buildNVRLabPlaybackSession,
   nvrLabCameraSubtitle,
   nvrLabCameraTitle,
-  nvrPlaybackCursor,
+  nvrPresentedPlaybackCursor,
   nvrPlaybackForward,
   type NVRLabCamera,
   type NVRLabMode,
@@ -167,11 +167,11 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
     setPlayerStatus(status);
   }, []);
 
-  const handlePlaybackTime = useCallback((elapsedSeconds: number, sourceSession: NVRLabStreamSession) => {
+  const handlePlaybackTime = useCallback((elapsedSeconds: number, sourceSession: NVRLabStreamSession, recordedUnixSeconds: number | null = null) => {
     const range = activePlaybackRangeRef.current;
     const anchor = playbackAnchorRef.current;
     if (sourceSession !== activeSessionRef.current || modeRef.current !== "playback" || playbackPausedRef.current || !range || anchor === null) return;
-    const cursor = nvrPlaybackCursor(anchor, elapsedSeconds, range.endTime);
+    const cursor = nvrPresentedPlaybackCursor(anchor, elapsedSeconds, range.endTime, recordedUnixSeconds, range.startTime);
     if (cursor === null) return;
     playbackCursorRef.current = cursor;
     if (performance.now() - lastCursorRenderRef.current >= 100 || cursor >= range.endTime - 1) {
@@ -200,6 +200,12 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
   const resumePlayback = useCallback(() => {
     const range = activePlaybackRangeRef.current;
     if (range) playPlayback(range, playbackCursorRef.current ?? range.startTime);
+  }, [playPlayback]);
+
+  const restoreNormalPlayback = useCallback(() => {
+    setPlaybackRate(1);
+    const range = activePlaybackRangeRef.current;
+    if (range && !playbackPausedRef.current) playPlayback(range, playbackCursorRef.current ?? range.startTime);
   }, [playPlayback]);
 
   const handlePlaybackRateError = useCallback((errorMessage: string, sourceSession: NVRLabStreamSession) => {
@@ -298,6 +304,7 @@ export function NVRLabCamera({ externalOrgId, cameraId, auth, loggingOut, authMe
             onPlaybackTime={handlePlaybackTime}
             onPausePlayback={pausePlayback}
             onResumePlayback={resumePlayback}
+            onRestoreNormalPlayback={restoreNormalPlayback}
             onForwardPlayback={forwardPlayback}
             onPlaybackRateChange={setPlaybackRate}
             onPlaybackRateError={handlePlaybackRateError}

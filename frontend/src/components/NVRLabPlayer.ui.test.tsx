@@ -65,7 +65,20 @@ describe("NVRLabPlayer speed lifecycle", () => {
     return element!;
   }
   async function click(label: string) { await act(async () => button(label).click()); }
-  async function startSpeed(rate = 4) { await render({ playbackRate: rate }); }
+  async function startSpeed(rate = 8) { await render({ playbackRate: rate }); }
+  function speedOptions() {
+    const dialog = container.querySelector('[role="dialog"][aria-label="选择播放倍速"]');
+    expect(dialog).not.toBeNull();
+    const options = Array.from(dialog!.querySelectorAll<HTMLButtonElement>("button"));
+    expect(options.map(option => option.textContent)).toEqual(["8倍速", "取消"]);
+    return options;
+  }
+  async function selectSpeedOption(label: string) {
+    const option = speedOptions().find(option => option.textContent === label);
+    expect(option).toBeDefined();
+    await act(async () => option!.click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  }
 
   beforeEach(async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -91,11 +104,62 @@ describe("NVRLabPlayer speed lifecycle", () => {
     vi.unstubAllGlobals();
   });
 
+  it("offers only 8x and cancel and reopens without changing playback after cancel", async () => {
+    await click("选择倍速");
+    await selectSpeedOption("取消");
+    expect(changeRate).not.toHaveBeenCalled();
+    expect(players[0].setSpeed).not.toHaveBeenCalled();
+    expect(players[0].stop).not.toHaveBeenCalled();
+    await click("选择倍速");
+    speedOptions();
+    expect(changeRate).not.toHaveBeenCalled();
+    expect(players[0].setSpeed).not.toHaveBeenCalled();
+  });
+
+  it.each(["pending", "verified"])("selects 8x, restores normal speed from %s and reopens to select 8x again", async (phase) => {
+    const rate = 8;
+    const player = players[0];
+    await click("选择倍速");
+    await selectSpeedOption(`${rate}倍速`);
+    expect(changeRate).toHaveBeenLastCalledWith(rate);
+    expect(player.setSpeed).toHaveBeenCalledExactlyOnceWith(rate);
+    expect(button("恢复正常速度").textContent).toContain(`${rate}×`);
+    if (phase === "verified") await act(async () => player.settle("verified"));
+    await click("恢复正常速度");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(changeRate).toHaveBeenLastCalledWith(1);
+    expect(player.setSpeed.mock.calls.map(([value]) => value)).toEqual([rate, 1]);
+    await act(async () => player.settle("verified"));
+    expect(button("选择倍速").disabled).toBe(false);
+    await click("选择倍速");
+    await selectSpeedOption(`${rate}倍速`);
+    expect(changeRate).toHaveBeenLastCalledWith(rate);
+    expect(player.setSpeed.mock.calls.map(([value]) => value)).toEqual([rate, 1, rate]);
+    expect(button("恢复正常速度").textContent).toContain(`${rate}×`);
+    expect(player.stop).not.toHaveBeenCalled();
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it("forwards actual Beijing recording time with session identity and ignores stale callbacks", async () => {
+    const onPlaybackTime = vi.fn();
+    await render({ onPlaybackTime });
+    const old = players[0];
+    const session = props.session;
+    expect(old.options.recordingUTCOffsetMinutes).toBe(480);
+    old.options.onPlaybackTime?.(0, 1794794406);
+    expect(onPlaybackTime).toHaveBeenLastCalledWith(0, session, 1794794406);
+    await render({ session: { mode: "playback", url: "wss://example.test/replay-new" } });
+    old.options.onPlaybackTime?.(10, 1794794416);
+    expect(onPlaybackTime).toHaveBeenCalledOnce();
+    players.at(-1)!.options.onPlaybackTime?.(2, null);
+    expect(onPlaybackTime).toHaveBeenLastCalledWith(2, props.session, null);
+  });
+
   it("shows the requested rate and permits restore, pause and screenshots during verification", async () => {
     await startSpeed();
     const restore = button("恢复正常速度");
     expect(restore.disabled).toBe(false);
-    expect(restore.textContent).toContain("4×");
+    expect(restore.textContent).toContain("8×");
     expect(restore.getAttribute("aria-busy")).toBe("true");
     expect(button("暂停").disabled).toBe(false);
     expect(button("截图").disabled).toBe(false);
@@ -109,7 +173,7 @@ describe("NVRLabPlayer speed lifecycle", () => {
     await click("恢复正常速度");
     const player = players[0];
     expect(changeRate).toHaveBeenCalledWith(1);
-    expect(player.setSpeed.mock.calls.map(([rate]) => rate)).toEqual([4, 1]);
+    expect(player.setSpeed.mock.calls.map(([rate]) => rate)).toEqual([8, 1]);
     expect(fallback).not.toHaveBeenCalled();
     expect(button("选择倍速").disabled).toBe(true);
     expect(button("选择倍速").getAttribute("aria-busy")).toBe("true");
@@ -119,11 +183,34 @@ describe("NVRLabPlayer speed lifecycle", () => {
     expect(fallback).not.toHaveBeenCalled();
   });
 
+  it("restores through a fresh host session without sending 1x into the buffered stream", async () => {
+    const restore = vi.fn();
+    await render({ onRestoreNormalPlayback: restore });
+    await startSpeed();
+    await click("恢复正常速度");
+    expect(restore).toHaveBeenCalledOnce();
+    expect(players[0].stop).toHaveBeenCalled();
+    expect(players[0].setSpeed.mock.calls.map(([rate]) => rate)).toEqual([8]);
+    expect(changeRate).not.toHaveBeenCalled();
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it("does not prepare a new audio player when restoring the saved paused rate", async () => {
+    const restore = vi.fn();
+    await render({ playbackRate: 8, playbackPaused: true, onRestoreNormalPlayback: restore });
+    const count = players.length;
+    await click("恢复正常速度");
+    expect(restore).toHaveBeenCalledOnce();
+    expect(players).toHaveLength(count);
+    expect(changeRate).not.toHaveBeenCalled();
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
   it("keeps an unconfirmed requested rate playable with copyable diagnostics and no retry loop", async () => {
     await startSpeed();
     const player = players[0];
     await act(async () => player.settle("unconfirmed"));
-    expect(button("恢复正常速度").textContent).toContain("4×");
+    expect(button("恢复正常速度").textContent).toContain("8×");
     expect(button("恢复正常速度").getAttribute("aria-busy")).toBe("false");
     expect(button("快进10秒").disabled).toBe(false);
     expect(button("暂停").disabled).toBe(false);
@@ -131,18 +218,43 @@ describe("NVRLabPlayer speed lifecycle", () => {
     const writeText = vi.fn(async (_report: string) => undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     await click("复制倍速诊断信息");
-    expect(JSON.parse(writeText.mock.calls[0][0])).toMatchObject({ phase: "unconfirmed", requestedRate: 4, verifiedRate: 1,
+    expect(JSON.parse(writeText.mock.calls[0][0])).toMatchObject({ phase: "unconfirmed", requestedRate: 8, verifiedRate: 1,
       timeSource: "container" });
     await render({ onStatus: () => undefined });
     expect(player.setSpeed).toHaveBeenCalledTimes(1);
     expect(player.stop).not.toHaveBeenCalled();
     expect(fallback).not.toHaveBeenCalled();
     await click("恢复正常速度");
-    expect(player.setSpeed.mock.calls.map(([rate]) => rate)).toEqual([4, 1]);
+    expect(player.setSpeed.mock.calls.map(([rate]) => rate)).toEqual([8, 1]);
     expect(container.querySelector('[aria-label="复制倍速诊断信息"]')).toBeNull();
   });
 
-  it.each(["verified", "pending"])("restores sound after accepted 1x without claiming measured 1x from %s 4x", async (phase) => {
+  it("copies fresh continued observations without retrying or closing the active session", async () => {
+    await startSpeed();
+    const player = players[0];
+    await act(async () => player.settle("unconfirmed"));
+    const observations = [{ elapsedMs: 8500, wallMs: 2000, mediaMs: 2360, frames: 50,
+      maxGapMs: 40, observedRate: 1.18 }];
+    await act(async () => {
+      player.diagnostic = { ...player.diagnostic, observations, observedRate: 1.18 };
+      player.options.onPlaybackControlDiagnostics?.(player.getPlaybackControlDiagnostics());
+    });
+    const writeText = vi.fn(async (_report: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    await click("复制倍速诊断信息");
+    expect(JSON.parse(writeText.mock.calls[0][0])).toMatchObject({ observedRate: 1.18, observations });
+    expect(player.setSpeed).toHaveBeenCalledTimes(1);
+    expect(player.stop).not.toHaveBeenCalled();
+    expect(fallback).not.toHaveBeenCalled();
+    await act(async () => {
+      player.diagnostic = { ...player.diagnostic, phase: "verified", observedRate: 8, verifiedRate: 8 };
+      player.options.onPlaybackControlDiagnostics?.(player.getPlaybackControlDiagnostics());
+    });
+    expect(container.querySelector('[aria-label="复制倍速诊断信息"]')).toBeNull();
+    expect(button("恢复正常速度").disabled).toBe(false);
+  });
+
+  it.each(["verified", "pending"])("restores sound after accepted 1x without claiming measured 1x from %s 8x", async (phase) => {
     await click("开启声音");
     const player = players[0];
     expect(player.setVolume).toHaveBeenLastCalledWith(80);
@@ -156,7 +268,7 @@ describe("NVRLabPlayer speed lifecycle", () => {
     expect(button("关闭声音").getAttribute("aria-pressed")).toBe("true");
     expect(button("选择倍速").getAttribute("aria-busy")).toBe("false");
     expect(player.getPlaybackControlDiagnostics()).toMatchObject({ phase: "unconfirmed", requestedRate: 1,
-      verifiedRate: phase === "verified" ? 4 : 1, ack: "accepted" });
+      verifiedRate: phase === "verified" ? 8 : 1, ack: "accepted" });
     expect(button("复制倍速诊断信息")).toBeDefined();
     expect(fallback).not.toHaveBeenCalled();
   });
@@ -253,7 +365,7 @@ describe("NVRLabPlayer speed lifecycle", () => {
     old.stop.mockImplementationOnce(() => { old.pending = null; });
     await render({ session: { mode: "playback", url: "wss://example.test/next" } });
     await act(async () => players[1].options.onFirstFrame?.());
-    expect(players[1].setSpeed).toHaveBeenCalledWith(4);
+    expect(players[1].setSpeed).toHaveBeenCalledWith(8);
     await act(async () => {
       if (settle === "resolve") old.attempts[0].resolve();
       else old.attempts[0].reject(new Error("stopped"));
@@ -287,7 +399,7 @@ describe("NVRLabPlayer speed lifecycle", () => {
     expect(button("播放").disabled).toBe(false);
     await click("播放");
     await act(async () => players[1].options.onFirstFrame?.());
-    expect(players[1].setSpeed).toHaveBeenCalledWith(4);
+    expect(players[1].setSpeed).toHaveBeenCalledWith(8);
     expect(fallback).not.toHaveBeenCalled();
   });
 });

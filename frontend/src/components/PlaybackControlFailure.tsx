@@ -1,6 +1,27 @@
 import { useState } from "react";
 import { CopyOutlined } from "@ant-design/icons";
-import type { PlaybackControlDiagnostics } from "../vendor/nvr-player/nvr-player.js";
+import type { PlaybackControlDiagnostics, PlaybackControlObservation } from "../vendor/nvr-player/nvr-player.js";
+
+function round3(value: number) {
+  return Number(value.toFixed(3));
+}
+
+function serializeObservations(observations: PlaybackControlObservation[]) {
+  return observations.slice(-8).flatMap((observation) => {
+    if (!observation || typeof observation !== "object") return [];
+    const { elapsedMs, wallMs, mediaMs, frames, maxGapMs, observedRate } = observation;
+    if (![elapsedMs, wallMs, mediaMs, frames, maxGapMs, observedRate]
+      .every((value) => typeof value === "number" && Number.isFinite(value))) return [];
+    return [{
+      elapsedMs: round3(elapsedMs),
+      wallMs: round3(wallMs),
+      mediaMs: round3(mediaMs),
+      frames: round3(frames),
+      maxGapMs: round3(maxGapMs),
+      observedRate: round3(observedRate),
+    }];
+  });
+}
 
 export function serializePlaybackControlDiagnostic(diagnostic: PlaybackControlDiagnostics) {
   return JSON.stringify({
@@ -13,9 +34,11 @@ export function serializePlaybackControlDiagnostic(diagnostic: PlaybackControlDi
     commandSequence: diagnostic.commandSequence,
     ack: diagnostic.ack,
     observedRate: diagnostic.observedRate !== null && Number.isFinite(diagnostic.observedRate)
-      ? Math.round(diagnostic.observedRate * 1000) / 1000 : null,
+      ? round3(diagnostic.observedRate) : null,
     timeSource: diagnostic.timeSource,
     failure: diagnostic.failure,
+    ...(Array.isArray(diagnostic.observations)
+      ? { observations: serializeObservations(diagnostic.observations) } : {}),
   }, null, 2);
 }
 
@@ -33,8 +56,8 @@ export function PlaybackControlFailure({ diagnostic }: { diagnostic: PlaybackCon
   return (
     <div className="h5-playback-control-failure" role="status" onClick={(event) => event.stopPropagation()}>
       <span>{diagnostic.phase === "unconfirmed"
-        ? diagnostic.requestedRate === 1 ? "正常速度指令已接收，画面速率待确认"
-          : `${diagnostic.requestedRate}倍速指令已接收，画面速率待确认，可点击倍速恢复正常`
+        ? diagnostic.requestedRate === 1 ? `${diagnostic.ack === "accepted" ? "正常速度指令已接收，" : "正常速度"}画面速率待确认`
+          : `${diagnostic.requestedRate}倍速${diagnostic.ack === "accepted" ? "指令已接收，" : ""}画面速率待确认，可点击倍速恢复正常`
         : `未能确认${diagnostic.requestedRate}倍速生效，请继续使用正常速度回放`}</span>
       <button type="button" onClick={() => void copyReport()} aria-label="复制倍速诊断信息" title="复制倍速诊断信息">
         <CopyOutlined />

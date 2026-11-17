@@ -2,6 +2,8 @@ export type NVRLabMode = "live" | "playback";
 export type NVRLabRoute = { name: "home" } | { name: "camera"; cameraId: number } | null;
 export type NVRMonitorRoute = { name: "home"; externalOrgId: string } | { name: "camera"; externalOrgId: string; cameraId: number } | null;
 export const NVR_LAB_MAX_PLAYBACK_SECONDS = 60 * 60;
+// Company NVR recording calendars use Beijing time, independently of the viewer's timezone.
+export const NVR_RECORDING_UTC_OFFSET_MINUTES = 8 * 60;
 
 export type NVRLabPlaybackRange = {
   startAt: string;
@@ -119,6 +121,13 @@ export function buildNVRLabPlaybackSession(playbackWindow: NVRLabPlaybackRange, 
 export function nvrPlaybackCursor(start: number, elapsed: number, end: number): number | null {
   if (![start, elapsed, end].every(Number.isFinite) || elapsed < 0 || end <= start) return null;
   return Math.min(end - 1, start + elapsed);
+}
+
+export function nvrPresentedPlaybackCursor(anchor: number, elapsed: number, end: number,
+  recordedUnixSeconds: number | null, rangeStart: number): number | null {
+  if (recordedUnixSeconds === null) return nvrPlaybackCursor(anchor, elapsed, end);
+  if (![recordedUnixSeconds, rangeStart, end].every(Number.isFinite) || end <= rangeStart) return null;
+  return Math.min(end - 1, Math.max(rangeStart, recordedUnixSeconds));
 }
 
 export function nvrPlaybackForward(current: number, start: number, end: number): number {
