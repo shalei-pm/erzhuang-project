@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { storeSpaceApi, type AuditLogItem, type ManagedUser } from "../api";
+import { OperatorSearchSelect } from "./OperatorSearchSelect";
 import { isIdleSessionTimeout } from "../domain/auth";
 import { errorMessage, formatDateTime } from "../domain/format";
 
@@ -40,7 +41,6 @@ export function AuditLogManagement({ onToast, onAuthRequired }: { onToast: (mess
   const [loading, setLoading] = useState(true);
 
   const pageCount = Math.max(1, Math.ceil(total / 20));
-  const sortedUsers = useMemo(() => [...users].sort((a, b) => a.email.localeCompare(b.email)), [users]);
 
   useEffect(() => {
     void Promise.all([storeSpaceApi.listUsers(), loadLogs(1)]).then(([nextUsers]) => setUsers(nextUsers)).catch((error) => {
@@ -118,17 +118,10 @@ export function AuditLogManagement({ onToast, onAuthRequired }: { onToast: (mess
           <span>结束日期</span>
           <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
         </label>
-        <label>
+        <div className="audit-field">
           <span>操作人</span>
-          <select value={userId} onChange={(event) => setUserId(event.target.value)}>
-            <option value="">全部操作人</option>
-            {sortedUsers.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.displayName || user.username || user.email}
-              </option>
-            ))}
-          </select>
-        </label>
+          <OperatorSearchSelect users={users} value={userId} onChange={setUserId} />
+        </div>
         <label>
           <span>操作类型</span>
           <select value={action} onChange={(event) => setAction(event.target.value)}>

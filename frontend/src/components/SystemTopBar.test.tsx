@@ -74,4 +74,24 @@ describe("SystemTopBar", () => {
     expect(markup.indexOf("管理员")).toBeLessThan(markup.indexOf("系统设置"));
     expect(markup.indexOf("系统设置")).toBeLessThan(markup.indexOf("退出登录"));
   });
+
+  it("renders the home action on the left before account actions", () => {
+    const auth: AuthState = {
+      enabled: true,
+      authenticated: true,
+      user: { email: "admin@example.com", username: "admin", display_name: "管理员", role: "admin" },
+    };
+
+    const markup = renderToStaticMarkup(
+      createElement(SystemTopBar, {
+        homeAction: { onClick: () => undefined },
+        auth,
+        onLogout: () => undefined,
+      }),
+    );
+
+    expect(markup).toContain('aria-label="回首页"');
+    expect(markup).toContain("回首页");
+    expect(markup.indexOf("回首页")).toBeLessThan(markup.indexOf("退出登录"));
+  });
 });

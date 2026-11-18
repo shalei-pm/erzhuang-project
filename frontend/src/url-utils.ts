@@ -2,6 +2,10 @@ export function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+export function appHomePath(configuredBase = "/erzhuang-project/") {
+  return `${runtimeBasePath(configuredBase)}/`;
+}
+
 export function defaultApiBase(namespace: "design-plan" | "store-space", configuredBase = "/erzhuang/") {
   return `${runtimeBasePath(configuredBase)}/api/${namespace}`;
 }

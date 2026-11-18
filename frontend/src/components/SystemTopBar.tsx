@@ -1,21 +1,29 @@
 import type { ReactNode } from "react";
+import { HomeOutlined } from "@ant-design/icons";
 import { authUserDisplayName, type AuthState } from "../domain/auth";
 
 export type SystemTopBarProps = {
   backAction?: { label: string; onClick: () => void };
+  homeAction?: { onClick: () => void };
   auth?: AuthState | null;
   loggingOut?: boolean;
   onLogout?: () => void | Promise<void>;
   rightExtra?: ReactNode;
 };
 
-export function SystemTopBar({ backAction, auth, loggingOut = false, onLogout, rightExtra }: SystemTopBarProps) {
+export function SystemTopBar({ backAction, homeAction, auth, loggingOut = false, onLogout, rightExtra }: SystemTopBarProps) {
   const showLogout = Boolean(auth?.authenticated && onLogout);
   const displayName = authUserDisplayName(auth?.user);
 
   return (
     <header className="system-topbar" aria-label="系统操作栏">
       <div className="system-topbar-left">
+        {homeAction ? (
+          <button type="button" className="system-back-button system-home-button" onClick={homeAction.onClick} aria-label="回首页">
+            <HomeOutlined aria-hidden="true" />
+            <span>回首页</span>
+          </button>
+        ) : null}
         {backAction ? (
           <button type="button" className="system-back-button" onClick={backAction.onClick} aria-label={backAction.label}>
             <span aria-hidden="true">←</span>

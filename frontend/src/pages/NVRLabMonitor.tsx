@@ -12,6 +12,7 @@ import {
   type NVRLabTabKey,
 } from "../domain/nvr-lab";
 import type { AuthState } from "../domain/auth";
+import { appHomePath } from "../url-utils";
 
 type NVRLabMonitorProps = {
   externalOrgId: string;
@@ -25,6 +26,7 @@ type NVRLabMonitorProps = {
 };
 
 export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, onLogout, onAuthRequired, onOpenCamera, onSelectStore }: NVRLabMonitorProps) {
+  const homeAction = { onClick: () => window.location.assign(appHomePath(import.meta.env.BASE_URL)) };
 	const [storeName, setStoreName] = useState("门店监控");
 	const [city, setCity] = useState("");
   const [cameras, setCameras] = useState<NVRLabCamera[]>([]);
@@ -69,7 +71,7 @@ export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, on
 
   return (
     <div className="h5-page h5-monitor-page nvr-lab-page">
-      <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
+      <SystemTopBar homeAction={homeAction} auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
       {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
       <header className="h5-header h5-monitor-header">
         <NVRMonitorStoreSwitcher currentExternalOrgId={externalOrgId} currentStoreName={storeName} currentCity={city} onAuthRequired={onAuthRequired} onSelectStore={onSelectStore} />
