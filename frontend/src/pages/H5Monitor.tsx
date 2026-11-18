@@ -7,6 +7,7 @@ import { h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from 
 import { h5MonitorTabs, readH5MonitorActiveTab, storeH5MonitorActiveTab, type H5MonitorTabKey } from "../domain/h5-monitor-active-tab";
 import { writeSessionStorage, type AuthState } from "../domain/auth";
 import type { H5MonitorChannel, H5MonitorHomeResponse } from "../domain/h5-types";
+import { appHomePath } from "../url-utils";
 
 interface H5MonitorProps {
   externalOrgId: string;
@@ -41,6 +42,7 @@ export function H5Monitor({
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
   const cameraWallRef = useRef<HTMLElement | null>(null);
+  const homeAction = { onClick: () => window.location.assign(appHomePath(import.meta.env.BASE_URL)) };
 
   const measureInitialVisibleCount = useCallback(() => {
     const containerWidth = cameraWallRef.current?.clientWidth ?? 0;
@@ -141,7 +143,7 @@ export function H5Monitor({
   if (loading) {
     return (
       <div className="h5-page h5-monitor-page">
-        <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
+        <SystemTopBar homeAction={homeAction} auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
         {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
         <div className="h5-loading">加载中...</div>
       </div>
@@ -151,7 +153,7 @@ export function H5Monitor({
   if (toast) {
     return (
       <div className="h5-page h5-monitor-page">
-        <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
+        <SystemTopBar homeAction={homeAction} auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
         {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
         <div className="h5-error">{toast}</div>
       </div>
@@ -161,7 +163,7 @@ export function H5Monitor({
   if (!data || allChannels.length === 0) {
     return (
       <div className="h5-page h5-monitor-page">
-        <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
+        <SystemTopBar homeAction={homeAction} auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
         {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
         <header className="h5-header h5-monitor-header">
           <H5StoreSwitcher
@@ -179,7 +181,7 @@ export function H5Monitor({
 
   return (
     <div className="h5-page h5-monitor-page">
-      <SystemTopBar auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
+      <SystemTopBar homeAction={homeAction} auth={auth} loggingOut={loggingOut} onLogout={onLogout} />
       {authMessage ? <div className="h5-auth-message">{authMessage}</div> : null}
       <header className="h5-header h5-monitor-header">
         <H5StoreSwitcher

@@ -3,6 +3,25 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { NVRMonitorThumbnail } from "./NVRLabMonitor";
 import { nvrLabThumbnailURL } from "../api-nvr-lab";
+import { NVRLabMonitor } from "./NVRLabMonitor";
+
+describe("NVRLabMonitor top bar", () => {
+  it("offers a home action on the monitor list", () => {
+    const html = renderToStaticMarkup(
+      createElement(NVRLabMonitor, {
+        externalOrgId: "10001",
+        auth: null,
+        loggingOut: false,
+        authMessage: "",
+        onLogout: () => undefined,
+        onAuthRequired: () => undefined,
+        onOpenCamera: () => undefined,
+        onSelectStore: () => undefined,
+      }),
+    );
+    expect(html).toContain('aria-label="回首页"');
+  });
+});
 
 describe("NVRMonitorThumbnail", () => {
   it("keeps NVR thumbnail requests under the configured application base path", () => {
