@@ -7,7 +7,7 @@ import { h5ChannelDisplayText, h5InitialVisibleCount, h5NextVisibleCount } from 
 import { h5MonitorTabs, readH5MonitorActiveTab, storeH5MonitorActiveTab, type H5MonitorTabKey } from "../domain/h5-monitor-active-tab";
 import { writeSessionStorage, type AuthState } from "../domain/auth";
 import type { H5MonitorChannel, H5MonitorHomeResponse } from "../domain/h5-types";
-import { appHomePath } from "../url-utils";
+import { navigateAppHome } from "../url-utils";
 
 interface H5MonitorProps {
   externalOrgId: string;
@@ -42,7 +42,7 @@ export function H5Monitor({
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
   const cameraWallRef = useRef<HTMLElement | null>(null);
-  const homeAction = { onClick: () => window.location.assign(appHomePath(import.meta.env.BASE_URL)) };
+  const homeAction = { onClick: () => navigateAppHome(import.meta.env.BASE_URL) };
 
   const measureInitialVisibleCount = useCallback(() => {
     const containerWidth = cameraWallRef.current?.clientWidth ?? 0;

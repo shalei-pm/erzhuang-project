@@ -1,17 +1,19 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { sortUsersByPinyin, userDisplayLabel, userMatchesQuery, type UserSortInput } from "../domain/user-sort";
+import type { OperatorNameCandidate } from "../domain/audit-operators";
 
 export type OperatorOption = UserSortInput & { id: number };
 
 type OperatorSearchSelectProps = {
   users: OperatorOption[];
+  nameCandidates?: OperatorNameCandidate[];
   value: string;
   onChange: (value: string) => void;
 };
 
 const ALL_OPTION_ID = "";
 
-export function OperatorSearchSelect({ users, value, onChange }: OperatorSearchSelectProps) {
+export function OperatorSearchSelect({ users, nameCandidates = [], value, onChange }: OperatorSearchSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -22,14 +24,21 @@ export function OperatorSearchSelect({ users, value, onChange }: OperatorSearchS
   const listId = useId();
 
   const sortedUsers = useMemo(() => sortUsersByPinyin(users), [users]);
+  const sortedNames = useMemo(
+    () => sortUsersByPinyin(nameCandidates.map((candidate) => ({ ...candidate, displayName: candidate.displayName || candidate.email }))),
+    [nameCandidates],
+  );
   const selectedUser = sortedUsers.find((user) => String(user.id) === value);
+  const selectedName = value.startsWith("name:") || value.startsWith("email:") ? sortedNames.find((candidate) => candidate.key === value) : undefined;
   const options = useMemo(() => {
     const matched = sortedUsers.filter((user) => userMatchesQuery(user, query));
+    const matchedNames = sortedNames.filter((candidate) => userMatchesQuery(candidate, query));
     return [
       { id: ALL_OPTION_ID, label: "全部操作人" },
       ...matched.map((user) => ({ id: String(user.id), label: userDisplayLabel(user) })),
+      ...matchedNames.map((candidate) => ({ id: candidate.key, label: `${userDisplayLabel(candidate)}（按姓名匹配）` })),
     ];
-  }, [sortedUsers, query]);
+  }, [sortedUsers, sortedNames, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -89,7 +98,9 @@ export function OperatorSearchSelect({ users, value, onChange }: OperatorSearchS
         aria-controls={open ? listId : undefined}
         onClick={() => (open ? setOpen(false) : openPanel())}
       >
-        <span className="operator-select-value">{selectedUser ? userDisplayLabel(selectedUser) : "全部操作人"}</span>
+        <span className="operator-select-value">
+          {selectedUser ? userDisplayLabel(selectedUser) : selectedName ? `${userDisplayLabel(selectedName)}（按姓名匹配）` : "全部操作人"}
+        </span>
         <span className="operator-select-caret" aria-hidden="true">▾</span>
       </button>
       {open ? (

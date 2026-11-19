@@ -419,6 +419,7 @@ export type ManagedUserPayload = {
 export type AuditLogItem = {
   actorDisplayName: string;
   userEmail: string;
+  userId?: number | null;
   action: string;
   entityType: string;
   entityId?: number;
@@ -434,6 +435,27 @@ export type AuditLogPage = {
   pageSize: number;
   total: number;
 };
+
+async function fetchAuditLogPage(params: URLSearchParams, page: number): Promise<AuditLogPage> {
+  const response = await requestJSON<{ items?: BackendAuditLogItem[]; page?: number; page_size?: number; total?: number }>(`${APP_API_BASE}/admin/audit-logs?${params.toString()}`);
+  return {
+    items: (response.items ?? []).map((item) => ({
+      actorDisplayName: item.actor_display_name ?? "",
+      userEmail: item.user_email ?? "",
+      userId: item.user_id ?? null,
+      action: item.action ?? "",
+      entityType: item.entity_type ?? "",
+      entityId: item.entity_id,
+      externalOrgId: item.external_org_id ?? "",
+      result: item.result ?? "",
+      createdAt: item.created_at ?? "",
+      summary: item.summary ?? "",
+    })),
+    page: response.page ?? page,
+    pageSize: response.page_size ?? 20,
+    total: response.total ?? 0,
+  };
+}
 
 type ApiMode = "auto" | "http" | "mock";
 
@@ -653,6 +675,7 @@ type BackendMonitorStoreScope = {
 type BackendAuditLogItem = {
   actor_display_name?: string;
   user_email?: string;
+  user_id?: number | null;
   action?: string;
   entity_type?: string;
   entity_id?: number;
@@ -1848,24 +1871,9 @@ const storeSpaceHttpAdapter = {
     const params = new URLSearchParams({ start_time: startDate, end_time: endDate, page: String(page), page_size: "20" });
     if (userId) params.set("user_id", userId);
     if (action) params.set("action", action);
-    const response = await requestJSON<{ items?: BackendAuditLogItem[]; page?: number; page_size?: number; total?: number }>(`${APP_API_BASE}/admin/audit-logs?${params.toString()}`);
-    return {
-      items: (response.items ?? []).map((item) => ({
-        actorDisplayName: item.actor_display_name ?? "",
-        userEmail: item.user_email ?? "",
-        action: item.action ?? "",
-        entityType: item.entity_type ?? "",
-        entityId: item.entity_id,
-        externalOrgId: item.external_org_id ?? "",
-        result: item.result ?? "",
-        createdAt: item.created_at ?? "",
-        summary: item.summary ?? "",
-      })),
-      page: response.page ?? page,
-      pageSize: response.page_size ?? 20,
-      total: response.total ?? 0,
-    };
+    return fetchAuditLogPage(params, page);
   },
+
 
   async createStore(payload: CreateStoreSpacePayload): Promise<StoreDetail> {
     const response = await requestJSON<BackendStoreSpaceDetail>(`${STORE_SPACE_API_BASE}/stores`, {

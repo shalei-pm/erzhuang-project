@@ -12,7 +12,7 @@ import {
   type NVRLabTabKey,
 } from "../domain/nvr-lab";
 import type { AuthState } from "../domain/auth";
-import { appHomePath } from "../url-utils";
+import { navigateAppHome } from "../url-utils";
 
 type NVRLabMonitorProps = {
   externalOrgId: string;
@@ -26,7 +26,7 @@ type NVRLabMonitorProps = {
 };
 
 export function NVRLabMonitor({ externalOrgId, auth, loggingOut, authMessage, onLogout, onAuthRequired, onOpenCamera, onSelectStore }: NVRLabMonitorProps) {
-  const homeAction = { onClick: () => window.location.assign(appHomePath(import.meta.env.BASE_URL)) };
+  const homeAction = { onClick: () => navigateAppHome(import.meta.env.BASE_URL) };
 	const [storeName, setStoreName] = useState("门店监控");
 	const [city, setCity] = useState("");
   const [cameras, setCameras] = useState<NVRLabCamera[]>([]);

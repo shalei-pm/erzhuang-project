@@ -72,6 +72,12 @@ type H5Route =
   | null;
 
 function App() {
+  const [, setNavigationTick] = useState(0);
+  useEffect(() => {
+    const onNavigate = () => setNavigationTick((tick) => tick + 1);
+    window.addEventListener("popstate", onNavigate);
+    return () => window.removeEventListener("popstate", onNavigate);
+  }, []);
   if (window.location.pathname.replace(/\/$/, "") === digitalTwinPath().replace(/\/$/, "")) return <DigitalTwinRouteShell />;
   const h5Route = parseH5Route();
   if (h5Route) {

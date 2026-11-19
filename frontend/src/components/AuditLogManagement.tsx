@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { storeSpaceApi, type AuditLogItem, type ManagedUser } from "../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, storeSpaceApi, type AuditLogItem, type ManagedUser } from "../api";
 import { OperatorSearchSelect } from "./OperatorSearchSelect";
+import { buildOperatorNameCandidates, buildOperatorOptions, type AuditActorInput } from "../domain/audit-operators";
 import { isIdleSessionTimeout } from "../domain/auth";
 import { errorMessage, formatDateTime } from "../domain/format";
 
@@ -23,9 +24,16 @@ const actionLabels: Record<string, string> = {
 
 const actionOptions = Object.entries(actionLabels).filter(([action]) => action !== "snapshot.download");
 
+const ACTOR_SCAN_CHUNK_DAYS = 89;
+const ACTOR_SCAN_MAX_PAGES = 60;
+
 function localDate(offsetDays = 0) {
   const date = new Date();
   date.setDate(date.getDate() + offsetDays);
+  return localDateString(date);
+}
+
+function localDateString(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
@@ -39,20 +47,59 @@ export function AuditLogManagement({ onToast, onAuthRequired }: { onToast: (mess
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [logActors, setLogActors] = useState<AuditActorInput[]>([]);
+  const scanGeneration = useRef(0);
 
   const pageCount = Math.max(1, Math.ceil(total / 20));
+  const operatorOptions = useMemo(() => buildOperatorOptions(users, [...logActors, ...items]), [users, logActors, items]);
+  const operatorNameCandidates = useMemo(() => buildOperatorNameCandidates([...logActors, ...items], users), [logActors, items, users]);
 
   useEffect(() => {
-    void Promise.all([storeSpaceApi.listUsers(), loadLogs(1)]).then(([nextUsers]) => setUsers(nextUsers)).catch((error) => {
-      if (isIdleSessionTimeout(error) && onAuthRequired) {
-        onAuthRequired(error);
-        return;
-      }
-      onToast(errorMessage(error, "操作日志加载失败。"));
-    });
+    void storeSpaceApi
+      .listUsers()
+      .then(setUsers)
+      .catch((error) => {
+        if (isIdleSessionTimeout(error) && onAuthRequired) {
+          onAuthRequired(error);
+          return;
+        }
+        onToast(errorMessage(error, "操作人列表加载失败。"));
+      });
+    void loadLogs(1);
+    void scanLogActors();
     // The initial request intentionally uses the default seven-day range.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Historical logs may carry actor names without user_id; scan the retained
+  // range in 3-month chunks so those operators stay searchable.
+  async function scanLogActors() {
+    const generation = ++scanGeneration.current;
+    const collected: AuditActorInput[] = [];
+    const today = new Date();
+    for (let chunk = 0; chunk < 8; chunk += 1) {
+      const end = new Date(today);
+      end.setDate(end.getDate() - chunk * ACTOR_SCAN_CHUNK_DAYS);
+      const start = new Date(end);
+      start.setDate(start.getDate() - ACTOR_SCAN_CHUNK_DAYS + 1);
+      let reachedData = false;
+      for (let page = 1; page <= ACTOR_SCAN_MAX_PAGES; page += 1) {
+        let response;
+        try {
+          response = await storeSpaceApi.listAuditLogs(localDateString(start), localDateString(end), "", "", page);
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 400) break;
+          return;
+        }
+        if (generation !== scanGeneration.current) return;
+        collected.push(...response.items.map((item) => ({ userId: item.userId, actorDisplayName: item.actorDisplayName, userEmail: item.userEmail })));
+        if (response.items.length > 0) reachedData = true;
+        if (page * 20 >= response.total || response.items.length === 0) break;
+      }
+      setLogActors([...collected]);
+      if (!reachedData && chunk >= 1) break;
+    }
+  }
 
   async function loadLogs(nextPage = page, filters = { startDate, endDate, userId, action }) {
     const { startDate: queryStartDate, endDate: queryEndDate, userId: queryUserId, action: queryAction } = filters;
@@ -70,7 +117,9 @@ export function AuditLogManagement({ onToast, onAuthRequired }: { onToast: (mess
     }
     setLoading(true);
     try {
-      const response = await storeSpaceApi.listAuditLogs(queryStartDate, queryEndDate, queryUserId, queryAction, nextPage);
+      const response = queryUserId.startsWith("name:") || queryUserId.startsWith("email:")
+        ? await loadLogsByActorName(queryStartDate, queryEndDate, queryUserId, nextPage)
+        : await storeSpaceApi.listAuditLogs(queryStartDate, queryEndDate, queryUserId, queryAction, nextPage);
       setItems(response.items);
       setPage(response.page);
       setTotal(response.total);
@@ -83,6 +132,27 @@ export function AuditLogManagement({ onToast, onAuthRequired }: { onToast: (mess
     } finally {
       setLoading(false);
     }
+  }
+
+  // Name candidates cover historical rows without user_id; the backend has no
+  // actor filter, so fetch the range and match the recorded name client-side.
+  async function loadLogsByActorName(startDateValue: string, endDateValue: string, key: string, targetPage: number) {
+    const candidate = operatorNameCandidates.find((entry) => entry.key === key);
+    const name = (candidate?.displayName || "").trim();
+    const email = (candidate?.email || "").trim().toLowerCase();
+    const matched: AuditLogItem[] = [];
+    for (let page = 1; page <= ACTOR_SCAN_MAX_PAGES; page += 1) {
+      const response = await storeSpaceApi.listAuditLogs(startDateValue, endDateValue, "", "", page);
+      for (const item of response.items) {
+        const itemEmail = (item.userEmail || "").trim().toLowerCase();
+        const hit = email ? itemEmail === email : (item.actorDisplayName || "").trim() === name;
+        if (hit) matched.push(item);
+      }
+      if (page * 20 >= response.total || response.items.length === 0) break;
+    }
+    const filtered = action ? matched.filter((item) => item.action === action) : matched;
+    const offset = (targetPage - 1) * 20;
+    return { items: filtered.slice(offset, offset + 20), page: targetPage, pageSize: 20, total: filtered.length };
   }
 
   function query() {
@@ -120,7 +190,7 @@ export function AuditLogManagement({ onToast, onAuthRequired }: { onToast: (mess
         </label>
         <div className="audit-field">
           <span>操作人</span>
-          <OperatorSearchSelect users={users} value={userId} onChange={setUserId} />
+          <OperatorSearchSelect users={operatorOptions} nameCandidates={operatorNameCandidates} value={userId} onChange={setUserId} />
         </div>
         <label>
           <span>操作类型</span>

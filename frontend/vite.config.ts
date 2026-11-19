@@ -18,6 +18,7 @@ export default defineConfig({
       "src/domain/auth.test.ts",
       "src/domain/auth-return.test.ts",
       "src/domain/user-sort.test.ts",
+      "src/domain/audit-operators.test.ts",
       "src/url-utils-home.test.ts",
       "src/domain/digital-twin.test.ts",
       "src/vendor/digital-twin/chart-data.test.js",

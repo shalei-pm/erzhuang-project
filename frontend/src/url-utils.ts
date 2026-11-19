@@ -6,6 +6,11 @@ export function appHomePath(configuredBase = "/erzhuang-project/") {
   return `${runtimeBasePath(configuredBase)}/`;
 }
 
+export function navigateAppHome(configuredBase = "/erzhuang-project/") {
+  window.history.pushState({}, "", appHomePath(configuredBase));
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 export function defaultApiBase(namespace: "design-plan" | "store-space", configuredBase = "/erzhuang/") {
   return `${runtimeBasePath(configuredBase)}/api/${namespace}`;
 }
